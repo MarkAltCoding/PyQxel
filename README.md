@@ -40,3 +40,9 @@ An AI-native research and quantitative analysis platform designed for equity sto
    ```bash
    git clone [https://github.com/MarkAltCoding/pyqxel.git](https://github.com/MarkAltCoding/pyqxel.git)
    cd pyqxel
+
+## License
+
+Copyright (c) 2026 Mark Altreuter. All rights reserved. See [`LICENSE`](LICENSE).
+
+The code is public so that it can be read and evaluated, not reused. You may view it, and use a PyQxel instance I host through your own account, but you may not copy, modify, distribute, deploy or otherwise use the code, in whole or in part, without my written permission, which may require attribution and payment. To ask, contact me through [GitHub](https://github.com/MarkAltCoding).

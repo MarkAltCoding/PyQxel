@@ -1,0 +1,38 @@
+Copyright (c) 2026 Mark Altreuter. All rights reserved.
+
+This repository, including its source code, documentation, designs and other files
+(the "Software"), is the property of the copyright holder. It is made publicly
+visible so that it can be read and evaluated. That visibility grants no license.
+
+Permitted without asking:
+
+  1. Viewing the Software, and forking it on GitHub, as far as GitHub's Terms of
+     Service allow for public repositories.
+  2. Using a running instance of PyQxel that the copyright holder hosts, through your
+     own account, under the terms of that service. This grants no rights to the
+     Software itself.
+
+Not permitted without the copyright holder's prior written permission:
+
+  - copying, modifying, merging, translating or creating derivative works of the
+    Software or any part of it;
+  - publishing, distributing, sublicensing, selling or otherwise making the Software
+    or any part of it available to others;
+  - deploying, hosting or running the Software, or any part of it, for yourself or
+    others, including as a hosted service; or
+  - using the Software, or any part of it, in another product, project or service,
+    commercial or not.
+
+Permission, where granted, may be subject to conditions, including attribution and
+payment. To ask for it, contact the copyright holder through GitHub at
+https://github.com/MarkAltCoding.
+
+Third-party components that the Software uses or includes, such as dependencies
+installed through package managers, remain under their own licenses.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
+OR OTHER DEALINGS IN THE SOFTWARE.
