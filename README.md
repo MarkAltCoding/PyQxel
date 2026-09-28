@@ -20,7 +20,7 @@ An AI-native research and quantitative analysis platform designed for equity sto
 
 * **Primary Backend Engine**: Python 3.11+ (FastAPI, Pandas, NumPy, Statsmodels, Scikit-Learn)
 * **Statistical Modeling**: R 4.3+ (`rpy2` integration for GARCH modeling, time-series analysis, and econometric estimation)
-* **AI Engine & NLP**: Anthropic API (`claude-3-5-sonnet`), LangChain / LlamaIndex, BeautifulSoup4, PyPDF
+* **AI Engine & NLP**: Anthropic API (Claude Sonnet 5, `claude-sonnet-5`), LangChain / LlamaIndex, BeautifulSoup4, PyPDF
 * **Market Data Feeds**: `yfinance`, Financial Modeling Prep (FMP) / Alpha Vantage API, SEC EDGAR Scraper
 * **Client Interface Target**: Cross-platform REST & WebSocket API servicing macOS and iOS clients (Swift/React Native compatible)
 
@@ -38,8 +38,36 @@ An AI-native research and quantitative analysis platform designed for equity sto
 
 1. **Clone the Repository**:
    ```bash
-   git clone [https://github.com/MarkAltCoding/PyQxel.git](https://github.com/MarkAltCoding/PyQxel.git)
+   git clone https://github.com/MarkAltCoding/PyQxel.git
    cd PyQxel
+   ```
+
+2. **Create a Virtual Environment and Install Dependencies**:
+   ```bash
+   python3.11 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+3. **Configure Environment Variables**:
+   ```bash
+   cp .env.example .env
+   ```
+   Then fill in `.env`:
+   * `ANTHROPIC_API_KEY` — from the [Anthropic Console](https://console.anthropic.com/).
+   * `FINANCIAL_DATA_API_KEY` — optional; a [Financial Modeling Prep](https://site.financialmodelingprep.com/developer/docs) key, used as a fallback when `yfinance` fails.
+   * `R_HOME` — the output of `R RHOME` (e.g. `/Library/Frameworks/R.framework/Resources` on macOS).
+
+4. **Run the API Server**:
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+   The API is served at `http://127.0.0.1:8000`, with interactive docs at `http://127.0.0.1:8000/docs`. Check it with `curl http://127.0.0.1:8000/health`.
+
+5. **Run the Tests**:
+   ```bash
+   pytest
+   ```
 
 ## License
 
