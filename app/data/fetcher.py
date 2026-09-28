@@ -4,6 +4,10 @@ yfinance is the primary source. Its API is synchronous, so calls are pushed onto
 worker thread with :func:`asyncio.to_thread` to keep the event loop free. When
 yfinance fails and ``FINANCIAL_DATA_API_KEY`` is set, ticker info falls back to
 Financial Modeling Prep over ``httpx``.
+
+Providers answer an unknown symbol with an empty result rather than an error, which
+is reported as :class:`SymbolNotFoundError`. Transport and rate-limit failures raise
+inside the provider and are reported as the broader :class:`DataFetchError`.
 """
 
 import asyncio
@@ -28,6 +32,10 @@ class DataFetchError(RuntimeError):
     """Raised when market data cannot be retrieved from any provider."""
 
 
+class SymbolNotFoundError(DataFetchError):
+    """Raised when a provider answers successfully but has no data for the symbol."""
+
+
 def _normalize_symbol(symbol: str) -> str:
     """Return ``symbol`` stripped and upper-cased, rejecting empty input."""
     cleaned = symbol.strip().upper()
@@ -40,7 +48,7 @@ def _yfinance_info(symbol: str) -> TickerInfo:
     """Fetch ticker info from yfinance (blocking)."""
     info: dict[str, Any] = yf.Ticker(symbol).info or {}
     if not info or info.get("quoteType") in (None, "NONE"):
-        raise DataFetchError(f"yfinance returned no data for {symbol!r}.")
+        raise SymbolNotFoundError(f"yfinance has no quote for {symbol!r}.")
     return TickerInfo(
         symbol=symbol,
         name=info.get("longName") or info.get("shortName"),
@@ -60,7 +68,7 @@ async def _fmp_info(symbol: str, api_key: str, client: httpx.AsyncClient) -> Tic
     response.raise_for_status()
     payload: Any = response.json()
     if not isinstance(payload, list) or not payload:
-        raise DataFetchError(f"FMP returned no profile for {symbol!r}.")
+        raise SymbolNotFoundError(f"FMP has no profile for {symbol!r}.")
     profile: dict[str, Any] = payload[0]
     return TickerInfo(
         symbol=symbol,
@@ -88,6 +96,7 @@ async def fetch_ticker_info(symbol: str, client: httpx.AsyncClient | None = None
 
     Raises:
         ValueError: If ``symbol`` is empty.
+        SymbolNotFoundError: If the providers that answered have no data for ``symbol``.
         DataFetchError: If every configured provider fails.
     """
     symbol = _normalize_symbol(symbol)
@@ -99,6 +108,8 @@ async def fetch_ticker_info(symbol: str, client: httpx.AsyncClient | None = None
 
     api_key = get_settings().financial_data_api_key
     if api_key is None:
+        if isinstance(yf_error, SymbolNotFoundError):
+            raise SymbolNotFoundError(f"Unknown ticker symbol {symbol!r}.") from yf_error
         raise DataFetchError(f"Could not fetch info for {symbol!r}.") from yf_error
 
     try:
@@ -106,6 +117,8 @@ async def fetch_ticker_info(symbol: str, client: httpx.AsyncClient | None = None
             return await _fmp_info(symbol, api_key.get_secret_value(), client)
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
             return await _fmp_info(symbol, api_key.get_secret_value(), own_client)
+    except SymbolNotFoundError as exc:
+        raise SymbolNotFoundError(f"Unknown ticker symbol {symbol!r}.") from exc
     except (httpx.HTTPError, DataFetchError, ValueError) as exc:
         raise DataFetchError(f"Could not fetch info for {symbol!r} from any provider.") from exc
 
@@ -139,11 +152,13 @@ async def fetch_price_history(
 
     Returns:
         A date-indexed frame with ``Open``, ``High``, ``Low``, ``Close`` and ``Volume``
-        columns, sorted ascending, de-duplicated, and without rows lacking a close.
+        columns, sorted ascending, de-duplicated, and without rows lacking a close. The
+        frame is empty when ``symbol`` exists but has no bars in the requested window.
 
     Raises:
         ValueError: If ``symbol`` is empty.
-        DataFetchError: If no usable history is returned.
+        SymbolNotFoundError: If no bars are returned and ``symbol`` is unknown.
+        DataFetchError: If the request fails, or the symbol's existence cannot be checked.
     """
     symbol = _normalize_symbol(symbol)
     try:
@@ -151,7 +166,9 @@ async def fetch_price_history(
     except Exception as exc:
         raise DataFetchError(f"Could not fetch history for {symbol!r}.") from exc
 
-    history = _clean_history(raw)
-    if history.empty:
-        raise DataFetchError(f"No price history returned for {symbol!r}.")
-    return history
+    if raw.empty:
+        # yfinance returns the same empty frame for an unknown symbol and for a real one
+        # with no bars in the window, so ask for a quote to tell the two apart.
+        await fetch_ticker_info(symbol)
+        return pd.DataFrame(columns=OHLCV_COLUMNS, index=pd.DatetimeIndex([]), dtype=float)
+    return _clean_history(raw)

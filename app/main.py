@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1.api import api_router
 from app.core.config import get_settings
 from app.models.health import HealthResponse
 
@@ -13,7 +14,7 @@ def create_app() -> FastAPI:
     """Build and configure the FastAPI application.
 
     Returns:
-        The configured application with CORS middleware and core routes registered.
+        The configured application with CORS middleware, core routes and the v1 API registered.
     """
     settings = get_settings()
     application = FastAPI(title=settings.app_name, version=__version__)
@@ -30,6 +31,8 @@ def create_app() -> FastAPI:
     async def health() -> HealthResponse:
         """Report that the service is up."""
         return HealthResponse(status="ok", app=settings.app_name, version=__version__)
+
+    application.include_router(api_router, prefix=settings.api_v1_prefix)
 
     return application
 
