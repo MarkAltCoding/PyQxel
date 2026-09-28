@@ -38,8 +38,8 @@ An AI-native research and quantitative analysis platform designed for equity sto
 
 1. **Clone the Repository**:
    ```bash
-   git clone [https://github.com/MarkAltCoding/pyqxel.git](https://github.com/MarkAltCoding/pyqxel.git)
-   cd pyqxel
+   git clone [https://github.com/MarkAltCoding/PyQxel.git](https://github.com/MarkAltCoding/PyQxel.git)
+   cd PyQxel
 
 ## License
 
