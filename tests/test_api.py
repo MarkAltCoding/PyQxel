@@ -13,6 +13,9 @@ from app.api.v1.endpoints import stocks
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
 from app.main import __version__, app
 from app.models.stock import TickerInfo
+from app.models.volatility import GarchFit, GarchParameter, VolatilityForecastStep
+from app.stats.garch import InsufficientDataError, ModelFitError
+from app.stats.r_bridge import RUnavailableError
 
 client = TestClient(app)
 
@@ -230,5 +233,127 @@ def test_price_history_maps_unknown_symbol_to_404(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(stocks, "fetch_price_history", missing_history)
     response = client.get("/api/v1/stocks/ZZZZ/history")
+
+    assert response.status_code == 404
+
+
+def _garch_fit(distribution: str = "std") -> GarchFit:
+    """Build a small fitted model like ``fit_garch`` returns."""
+    return GarchFit(
+        distribution=distribution,
+        observations=500,
+        parameters=[GarchParameter(name="beta1", estimate=0.9, std_error=0.02)],
+        persistence=0.97,
+        half_life=22.8,
+        current_volatility=0.3,
+        long_run_volatility=0.25,
+        realized_volatility=0.27,
+        conditional_volatility=[],
+        forecast=[VolatilityForecastStep(step=1, volatility=0.29)],
+        log_likelihood=-900.0,
+        aic=3.6,
+        bic=3.7,
+    )
+
+
+def _serve_volatility(
+    monkeypatch: pytest.MonkeyPatch, fit: GarchFit | Exception
+) -> list[tuple[pd.Series, int, int, str]]:
+    """Serve five years of daily bars and make the GARCH fit return or raise ``fit``."""
+    now = pd.Timestamp.now()
+    _serve_history(monkeypatch, _daily_frame(now - pd.DateOffset(years=5), now))
+    calls: list[tuple[pd.Series, int, int, str]] = []
+
+    async def fake_fit(
+        closes: pd.Series, periods_per_year: int, horizon: int, distribution: str
+    ) -> GarchFit:
+        calls.append((closes, periods_per_year, horizon, distribution))
+        if isinstance(fit, Exception):
+            raise fit
+        return fit
+
+    monkeypatch.setattr(stocks, "fit_garch", fake_fit)
+    return calls
+
+
+def test_volatility_returns_garch_fit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The volatility route fits close prices and wraps the fit with its window."""
+    fit = _garch_fit("norm")
+    calls = _serve_volatility(monkeypatch, fit)
+
+    response = client.get(
+        "/api/v1/stocks/spy/volatility",
+        params={"interval": "1wk", "horizon": 5, "distribution": "norm"},
+    )
+
+    assert response.status_code == 200
+    closes, periods_per_year, horizon, distribution = calls[0]
+    assert closes.name == "Close"
+    assert (periods_per_year, horizon, distribution) == (52, 5, "norm")
+    body = response.json()
+    assert body["symbol"] == "SPY"
+    assert body["period"] == "5y"
+    assert body["interval"] == "1wk"
+    assert body["periods_per_year"] == 52
+    assert body["coverage"] == "full"
+    assert body["garch"] == fit.model_dump(mode="json")
+
+
+def test_volatility_uses_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Omitted parameters fit five years of daily bars with Student t errors."""
+    calls = _serve_volatility(monkeypatch, _garch_fit())
+
+    body = client.get("/api/v1/stocks/SPY/volatility").json()
+
+    assert calls[0][1:] == (252, 10, "std")
+    assert body["period"] == "5y"
+    assert body["interval"] == "1d"
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"interval": "1h"},
+        {"interval": "1mo"},
+        {"period": "1y"},
+        {"horizon": 0},
+        {"distribution": "ged"},
+    ],
+)
+def test_volatility_rejects_invalid_parameters(params: dict[str, str | int]) -> None:
+    """Intraday or monthly bars, short periods, bad horizons and other distributions fail."""
+    response = client.get("/api/v1/stocks/SPY/volatility", params=params)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        (InsufficientDataError("GARCH needs at least 480 returns"), 422),
+        (ModelFitError("GARCH fit failed"), 422),
+        (RUnavailableError("R is unavailable"), 503),
+    ],
+)
+def test_volatility_maps_model_errors(
+    monkeypatch: pytest.MonkeyPatch, error: Exception, status_code: int
+) -> None:
+    """Unfittable data surfaces as 422 and a missing R installation as 503."""
+    _serve_volatility(monkeypatch, error)
+
+    response = client.get("/api/v1/stocks/SPY/volatility")
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": str(error)}
+
+
+def test_volatility_maps_unknown_symbol_to_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unknown symbol surfaces as 404 without fitting a model."""
+
+    async def missing_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
+        raise SymbolNotFoundError("Unknown ticker symbol 'ZZZZ'.")
+
+    monkeypatch.setattr(stocks, "fetch_price_history", missing_history)
+    response = client.get("/api/v1/stocks/ZZZZ/volatility")
 
     assert response.status_code == 404

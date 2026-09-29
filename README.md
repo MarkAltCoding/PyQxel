@@ -48,6 +48,10 @@ An AI-native research and quantitative analysis platform designed for equity sto
    source venv/bin/activate
    pip install -r requirements.txt
    ```
+   Then install the R packages the statistical models use:
+   ```bash
+   Rscript -e 'install.packages("rugarch", repos = "https://cloud.r-project.org")'
+   ```
 
 3. **Configure Environment Variables**:
    ```bash
