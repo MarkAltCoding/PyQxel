@@ -11,8 +11,9 @@ import pandas as pd
 import pytest
 
 from app.stats import garch, r_bridge
-from app.stats.garch import InsufficientDataError, ModelFitError, fit_garch, log_returns
+from app.stats.garch import ModelFitError, fit_garch
 from app.stats.r_bridge import RError, RUnavailableError, RValue
+from app.stats.volatility import MAX_HORIZON, InsufficientDataError, log_returns
 
 
 def _closes(count: int, seed: int = 0) -> pd.Series:
@@ -83,7 +84,7 @@ async def test_fit_rejects_constant_prices(monkeypatch: pytest.MonkeyPatch) -> N
         await fit_garch(flat, periods_per_year=252)
 
 
-@pytest.mark.parametrize("horizon", [0, garch.MAX_HORIZON + 1])
+@pytest.mark.parametrize("horizon", [0, MAX_HORIZON + 1])
 @pytest.mark.asyncio
 async def test_fit_rejects_out_of_range_horizon(horizon: int) -> None:
     """Forecast horizons outside the supported range are rejected."""

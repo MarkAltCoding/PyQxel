@@ -23,11 +23,15 @@ from app.models.stock import (
 from app.models.volatility import (
     GarchDistribution,
     VolatilityEstimate,
+    VolatilityFit,
     VolatilityInterval,
+    VolatilityModel,
     VolatilityPeriod,
 )
-from app.stats.garch import MAX_HORIZON, InsufficientDataError, ModelFitError, fit_garch
+from app.stats.ewma import DAILY_DECAY, WEEKLY_DECAY, fit_ewma
+from app.stats.garch import ModelFitError, fit_garch
 from app.stats.r_bridge import RUnavailableError
+from app.stats.volatility import MAX_HORIZON, InsufficientDataError
 
 router = APIRouter()
 
@@ -47,6 +51,9 @@ PERIOD_OFFSETS: dict[str, pd.DateOffset] = {
 
 PERIODS_PER_YEAR: dict[str, int] = {"1d": 252, "1wk": 52}
 """Bars per year for each volatility interval, used to annualize."""
+
+EWMA_DECAY: dict[str, float] = {"1d": DAILY_DECAY, "1wk": WEEKLY_DECAY}
+"""Default EWMA decay for each volatility interval."""
 
 COVERAGE_TOLERANCE: pd.Timedelta = pd.Timedelta(days=7)
 """Slack between the window start and the first bar, absorbing weekends and market holidays."""
@@ -162,10 +169,14 @@ async def get_price_history(
 @router.get(
     "/{symbol}/volatility",
     response_model=VolatilityEstimate,
-    summary="GARCH(1,1) volatility estimate and forecast",
+    summary="GARCH(1,1) or EWMA volatility estimate and forecast",
 )
 async def get_volatility(
     symbol: Symbol,
+    model: Annotated[
+        VolatilityModel,
+        Query(description="``garch`` for GARCH(1,1), or ``ewma`` for short histories."),
+    ] = "garch",
     period: Annotated[VolatilityPeriod, Query(description="Lookback window to fit.")] = "5y",
     interval: Annotated[VolatilityInterval, Query(description="Bar size of the returns.")] = "1d",
     horizon: Annotated[
@@ -173,14 +184,27 @@ async def get_volatility(
     ] = 10,
     distribution: Annotated[
         GarchDistribution,
-        Query(description="Innovation distribution: ``norm`` or Student t ``std``."),
+        Query(description="GARCH only: innovation distribution, ``norm`` or Student t ``std``."),
     ] = "std",
+    decay: Annotated[
+        float | None,
+        Query(
+            ge=0.5,
+            lt=1.0,
+            description="EWMA only: weight kept by the previous variance. Defaults to 0.94 "
+            "(RiskMetrics) for daily bars and 0.97 for weekly bars.",
+        ),
+    ] = None,
 ) -> VolatilityEstimate:
-    """Fit a GARCH(1,1) to ``symbol``'s adjusted log returns and forecast its volatility.
+    """Estimate ``symbol``'s volatility from adjusted log returns and forecast it.
 
-    Volatilities are annualized decimals (0.25 = 25%). Fits that are short or sit at a
-    parameter boundary are returned with ``garch.warnings``. Returns 422 when the window
-    has too few bars or the model cannot be fit, and 503 when R is unavailable.
+    GARCH(1,1) is estimated in R and needs at least 480 returns, with 1,000 or more
+    recommended. EWMA fixes its parameters instead of estimating them, so it works on
+    short histories such as recent listings, but its forecast does not mean-revert.
+
+    Volatilities are annualized decimals (0.25 = 25%). Estimates that may be unreliable
+    are returned with ``fit.warnings``. Returns 422 when the window has too few bars or
+    the model cannot be fit, and 503 when R is unavailable for GARCH.
     """
     try:
         frame = await fetch_price_history(symbol, period=period, interval=interval)
@@ -189,10 +213,20 @@ async def get_volatility(
     symbol = symbol.upper()
     coverage, notice = _coverage(symbol, period, interval, frame)
     periods_per_year = PERIODS_PER_YEAR[interval]
+    closes = frame["Close"]
+    fit: VolatilityFit
     try:
-        garch = await fit_garch(
-            frame["Close"], periods_per_year, horizon=horizon, distribution=distribution
-        )
+        if model == "ewma":
+            fit = fit_ewma(
+                closes,
+                periods_per_year,
+                horizon=horizon,
+                decay=EWMA_DECAY[interval] if decay is None else decay,
+            )
+        else:
+            fit = await fit_garch(
+                closes, periods_per_year, horizon=horizon, distribution=distribution
+            )
     except (InsufficientDataError, ModelFitError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -206,7 +240,7 @@ async def get_volatility(
         period=period,
         interval=interval,
         periods_per_year=periods_per_year,
-        garch=garch,
+        fit=fit,
         coverage=coverage,
         notice=notice,
     )
