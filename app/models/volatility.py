@@ -1,7 +1,7 @@
 """Schemas describing volatility model estimates."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -10,11 +10,14 @@ from app.models.stock import HistoryCoverage
 GarchDistribution = Literal["norm", "std"]
 """Innovation distributions: Gaussian (``norm``) or Student t (``std``)."""
 
-VolatilityPeriod = Literal["2y", "5y", "10y", "max"]
-"""Lookback windows long enough to estimate a GARCH model."""
+VolatilityModel = Literal["garch", "ewma"]
+"""Volatility models: GARCH(1,1) estimated in R, or RiskMetrics EWMA."""
+
+VolatilityPeriod = Literal["6mo", "1y", "2y", "5y", "10y", "max"]
+"""Lookback windows. GARCH needs ``2y`` or more of daily bars; EWMA accepts all."""
 
 VolatilityInterval = Literal["1d", "1wk"]
-"""Bar sizes with a fixed number of periods per year and enough bars to fit a GARCH model."""
+"""Bar sizes with a fixed number of periods per year and enough bars to model."""
 
 
 class GarchParameter(BaseModel):
@@ -46,9 +49,12 @@ class VolatilityForecastStep(BaseModel):
 
 
 class GarchFit(BaseModel):
-    """A GARCH(1,1) fit to log returns. Volatilities are annualized decimals (0.25 = 25%)."""
+    """A constant-mean GARCH(1,1) fit to log returns.
 
-    model: Literal["sGARCH(1,1)"] = "sGARCH(1,1)"
+    Volatilities are annualized decimals (0.25 = 25%).
+    """
+
+    model: Literal["garch"] = "garch"
     distribution: GarchDistribution
     observations: int = Field(ge=1, description="Number of returns the model was fit to.")
     parameters: list[GarchParameter]
@@ -75,14 +81,39 @@ class GarchFit(BaseModel):
     )
 
 
+class EwmaFit(BaseModel):
+    """A RiskMetrics EWMA volatility estimate with zero-mean returns.
+
+    Volatilities are annualized decimals (0.25 = 25%). EWMA does not mean-revert, so
+    every forecast step equals the one-step-ahead volatility.
+    """
+
+    model: Literal["ewma"] = "ewma"
+    decay: float = Field(gt=0, lt=1, description="Weight kept by the previous variance.")
+    observations: int = Field(ge=1, description="Number of returns used.")
+    half_life: float = Field(gt=0, description="Bars for a return's weight to halve.")
+    current_volatility: float = Field(ge=0, description="Conditional volatility at the last bar.")
+    realized_volatility: float = Field(ge=0, description="Sample volatility of the same returns.")
+    conditional_volatility: list[VolatilityPoint]
+    forecast: list[VolatilityForecastStep]
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Reasons the estimate may be unreliable; empty when it is not.",
+    )
+
+
+VolatilityFit = Annotated[GarchFit | EwmaFit, Field(discriminator="model")]
+"""A fit from either volatility model, tagged by ``model``."""
+
+
 class VolatilityEstimate(BaseModel):
-    """GARCH volatility estimate for a ticker over a lookback window."""
+    """Volatility estimate for a ticker over a lookback window."""
 
     symbol: str
     period: VolatilityPeriod
     interval: VolatilityInterval
     periods_per_year: int = Field(description="Bars per year used to annualize.")
-    garch: GarchFit
+    fit: VolatilityFit
     coverage: HistoryCoverage = Field(
         description="``full`` when bars span the window, ``partial`` when data begins after "
         "the window starts."

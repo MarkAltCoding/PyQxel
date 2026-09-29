@@ -13,9 +13,10 @@ from app.api.v1.endpoints import stocks
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
 from app.main import __version__, app
 from app.models.stock import TickerInfo
-from app.models.volatility import GarchFit, GarchParameter, VolatilityForecastStep
-from app.stats.garch import InsufficientDataError, ModelFitError
+from app.models.volatility import EwmaFit, GarchFit, GarchParameter, VolatilityForecastStep
+from app.stats.garch import ModelFitError
 from app.stats.r_bridge import RUnavailableError
+from app.stats.volatility import InsufficientDataError
 
 client = TestClient(app)
 
@@ -296,7 +297,7 @@ def test_volatility_returns_garch_fit(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["interval"] == "1wk"
     assert body["periods_per_year"] == 52
     assert body["coverage"] == "full"
-    assert body["garch"] == fit.model_dump(mode="json")
+    assert body["fit"] == fit.model_dump(mode="json")
 
 
 def test_volatility_uses_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -308,6 +309,7 @@ def test_volatility_uses_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls[0][1:] == (252, 10, "std")
     assert body["period"] == "5y"
     assert body["interval"] == "1d"
+    assert body["fit"]["model"] == "garch"
 
 
 @pytest.mark.parametrize(
@@ -315,13 +317,16 @@ def test_volatility_uses_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     [
         {"interval": "1h"},
         {"interval": "1mo"},
-        {"period": "1y"},
+        {"period": "3mo"},
         {"horizon": 0},
         {"distribution": "ged"},
+        {"model": "arch"},
+        {"decay": 1.0},
+        {"decay": 0.4},
     ],
 )
-def test_volatility_rejects_invalid_parameters(params: dict[str, str | int]) -> None:
-    """Intraday or monthly bars, short periods, bad horizons and other distributions fail."""
+def test_volatility_rejects_invalid_parameters(params: dict[str, str | int | float]) -> None:
+    """Unsupported bars, periods, horizons, distributions, models and decays fail."""
     response = client.get("/api/v1/stocks/SPY/volatility", params=params)
 
     assert response.status_code == 422
@@ -357,3 +362,97 @@ def test_volatility_maps_unknown_symbol_to_404(monkeypatch: pytest.MonkeyPatch) 
     response = client.get("/api/v1/stocks/ZZZZ/volatility")
 
     assert response.status_code == 404
+
+
+def _ewma_fit(decay: float = 0.94) -> EwmaFit:
+    """Build a small estimate like ``fit_ewma`` returns."""
+    return EwmaFit(
+        decay=decay,
+        observations=120,
+        half_life=11.2,
+        current_volatility=0.6,
+        realized_volatility=0.55,
+        conditional_volatility=[],
+        forecast=[VolatilityForecastStep(step=1, volatility=0.61)],
+    )
+
+
+def test_volatility_ewma_uses_decay(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``model=ewma`` estimates EWMA with the requested decay and never calls GARCH."""
+    _serve_volatility(monkeypatch, AssertionError("GARCH must not be called"))
+    fit = _ewma_fit(0.97)
+    calls: list[tuple[int, int, float]] = []
+
+    def fake_ewma(closes: pd.Series, periods_per_year: int, horizon: int, decay: float) -> EwmaFit:
+        calls.append((periods_per_year, horizon, decay))
+        return fit
+
+    monkeypatch.setattr(stocks, "fit_ewma", fake_ewma)
+    response = client.get(
+        "/api/v1/stocks/NEWCO/volatility",
+        params={"model": "ewma", "period": "6mo", "decay": 0.97, "horizon": 3},
+    )
+
+    assert response.status_code == 200
+    assert calls == [(252, 3, 0.97)]
+    body = response.json()
+    assert body["period"] == "6mo"
+    assert body["fit"] == fit.model_dump(mode="json")
+    assert body["fit"]["model"] == "ewma"
+
+
+@pytest.mark.parametrize(("interval", "expected"), [("1d", 0.94), ("1wk", 0.97)])
+def test_volatility_ewma_default_decay_depends_on_interval(
+    monkeypatch: pytest.MonkeyPatch, interval: str, expected: float
+) -> None:
+    """EWMA without a decay uses 0.94 for daily bars and 0.97 for weekly bars."""
+    _serve_volatility(monkeypatch, _garch_fit())
+    decays: list[float] = []
+
+    def fake_ewma(closes: pd.Series, periods_per_year: int, horizon: int, decay: float) -> EwmaFit:
+        decays.append(decay)
+        return _ewma_fit(decay)
+
+    monkeypatch.setattr(stocks, "fit_ewma", fake_ewma)
+    response = client.get(
+        "/api/v1/stocks/SPY/volatility", params={"model": "ewma", "interval": interval}
+    )
+
+    assert response.status_code == 200
+    assert decays == [expected]
+    assert response.json()["fit"]["decay"] == expected
+
+
+def test_volatility_ewma_explicit_decay_overrides_weekly_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A requested decay is used as-is, even for weekly bars."""
+    _serve_volatility(monkeypatch, _garch_fit())
+    decays: list[float] = []
+
+    def fake_ewma(closes: pd.Series, periods_per_year: int, horizon: int, decay: float) -> EwmaFit:
+        decays.append(decay)
+        return _ewma_fit(decay)
+
+    monkeypatch.setattr(stocks, "fit_ewma", fake_ewma)
+    response = client.get(
+        "/api/v1/stocks/SPY/volatility",
+        params={"model": "ewma", "interval": "1wk", "decay": 0.9},
+    )
+
+    assert response.status_code == 200
+    assert decays == [0.9]
+
+
+def test_volatility_ewma_maps_short_history_to_422(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Too few returns for EWMA surface as 422."""
+    _serve_volatility(monkeypatch, _garch_fit())
+
+    def short_ewma(closes: pd.Series, periods_per_year: int, horizon: int, decay: float) -> EwmaFit:
+        raise InsufficientDataError("EWMA needs at least 30 returns")
+
+    monkeypatch.setattr(stocks, "fit_ewma", short_ewma)
+    response = client.get("/api/v1/stocks/SPY/volatility", params={"model": "ewma"})
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "EWMA needs at least 30 returns"}

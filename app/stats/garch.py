@@ -1,14 +1,13 @@
 """GARCH(1,1) volatility model, estimated in R by ``r_scripts/garch.R``.
 
-Prices are cleaned and turned into log returns here, so the R script only sees a
-finite, gap-free numeric vector. Returns are passed to R in percent, which keeps
+Prices are cleaned and turned into log returns in Python, so the R script only sees
+a finite, gap-free numeric vector. Returns are passed to R in percent, which keeps
 the optimizer well scaled, and every volatility is converted back to an annualized
 decimal (0.25 = 25%) before it leaves this module.
 """
 
 import math
 
-import numpy as np
 import pandas as pd
 
 from app.models.volatility import (
@@ -19,6 +18,12 @@ from app.models.volatility import (
     VolatilityPoint,
 )
 from app.stats.r_bridge import RError, RUnavailableError, RValue, call_r
+from app.stats.volatility import (
+    annualization_scale,
+    log_returns,
+    require_horizon,
+    require_returns,
+)
 
 R_SCRIPT: str = "garch.R"
 R_FUNCTION: str = "pyqxel_fit_garch"
@@ -35,46 +40,19 @@ NEAR_INTEGRATED_PERSISTENCE: float = 0.995
 MIN_ARCH_EFFECT: float = 0.01
 """``alpha1`` below which the fit found no volatility clustering."""
 
-MAX_HORIZON: int = 252
-"""Most bars ahead a forecast may reach."""
-
-
-class InsufficientDataError(ValueError):
-    """Raised when a price series is too short or too flat to fit the model."""
+SHORT_SAMPLE_ADVICE: str = (
+    "Request a longer period or a shorter interval, or use the EWMA model, which "
+    "needs far fewer returns."
+)
 
 
 class ModelFitError(RuntimeError):
     """Raised when R cannot fit the model to otherwise valid returns."""
 
 
-def log_returns(closes: pd.Series) -> pd.Series:
-    """Return percent log returns between consecutive valid closes.
-
-    Missing, non-finite and non-positive closes are dropped first, so a return spans
-    from one valid bar to the next. Non-trading days never appear as zero returns
-    because the series only holds bars that traded.
-
-    Args:
-        closes: Close prices indexed by bar timestamp, in any order.
-
-    Returns:
-        Percent log returns indexed by the timestamp of the later bar, oldest first.
-    """
-    prices = pd.to_numeric(closes, errors="coerce").astype(float).sort_index()
-    prices = prices[~prices.index.duplicated(keep="last")]
-    prices = prices[np.isfinite(prices) & (prices > 0)]
-    return (100.0 * np.log(prices).diff()).iloc[1:]
-
-
 def _validate(returns: pd.Series) -> None:
     """Reject return series that are too short or have no variation."""
-    if len(returns) < MIN_OBSERVATIONS:
-        raise InsufficientDataError(
-            f"GARCH needs at least {MIN_OBSERVATIONS} returns; only {len(returns)} "
-            "are available. Request a longer period or a shorter interval."
-        )
-    if float(returns.std(ddof=1)) == 0.0:
-        raise InsufficientDataError("Prices never change over the window; volatility is zero.")
+    require_returns(returns, MIN_OBSERVATIONS, "GARCH", SHORT_SAMPLE_ADVICE)
 
 
 def _floats(output: dict[str, RValue], name: str) -> list[float | None]:
@@ -123,7 +101,7 @@ def _build_fit(
     distribution: GarchDistribution,
 ) -> GarchFit:
     """Convert the R result, in per-bar percent, to annualized decimal volatilities."""
-    scale = math.sqrt(periods_per_year) / 100.0
+    scale = annualization_scale(periods_per_year)
 
     def annualize(sigma: float | None, name: str) -> float:
         return _required(sigma, name) * scale
@@ -181,7 +159,8 @@ async def fit_garch(
     Args:
         closes: Close prices indexed by bar timestamp.
         periods_per_year: Bars per year, used to annualize (252 for daily bars).
-        horizon: Bars ahead to forecast, from 1 to :data:`MAX_HORIZON`.
+        horizon: Bars ahead to forecast, from 1 to
+            :data:`~app.stats.volatility.MAX_HORIZON`.
         distribution: Innovation distribution, ``"norm"`` or ``"std"`` (Student t).
 
     Returns:
@@ -194,10 +173,8 @@ async def fit_garch(
         RUnavailableError: If R, rpy2 or the ``rugarch`` package cannot be loaded.
         ModelFitError: If the optimizer fails to converge or R returns invalid output.
     """
-    if periods_per_year < 1:
-        raise ValueError("periods_per_year must be positive.")
-    if not 1 <= horizon <= MAX_HORIZON:
-        raise ValueError(f"horizon must be between 1 and {MAX_HORIZON}.")
+    annualization_scale(periods_per_year)  # Validates before any R work.
+    require_horizon(horizon)
 
     returns = log_returns(closes)
     _validate(returns)
