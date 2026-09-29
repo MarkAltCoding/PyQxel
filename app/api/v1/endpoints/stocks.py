@@ -20,6 +20,14 @@ from app.models.stock import (
     PriceHistory,
     TickerInfo,
 )
+from app.models.volatility import (
+    GarchDistribution,
+    VolatilityEstimate,
+    VolatilityInterval,
+    VolatilityPeriod,
+)
+from app.stats.garch import MAX_HORIZON, InsufficientDataError, ModelFitError, fit_garch
+from app.stats.r_bridge import RUnavailableError
 
 router = APIRouter()
 
@@ -36,6 +44,9 @@ PERIOD_OFFSETS: dict[str, pd.DateOffset] = {
     "10y": pd.DateOffset(years=10),
 }
 """Calendar length of each period. ``1d`` and ``5d`` count trading days and ``max`` is open-ended."""
+
+PERIODS_PER_YEAR: dict[str, int] = {"1d": 252, "1wk": 52}
+"""Bars per year for each volatility interval, used to annualize."""
 
 COVERAGE_TOLERANCE: pd.Timedelta = pd.Timedelta(days=7)
 """Slack between the window start and the first bar, absorbing weekends and market holidays."""
@@ -143,6 +154,59 @@ async def get_price_history(
         period=period,
         interval=interval,
         bars=_frame_to_bars(frame),
+        coverage=coverage,
+        notice=notice,
+    )
+
+
+@router.get(
+    "/{symbol}/volatility",
+    response_model=VolatilityEstimate,
+    summary="GARCH(1,1) volatility estimate and forecast",
+)
+async def get_volatility(
+    symbol: Symbol,
+    period: Annotated[VolatilityPeriod, Query(description="Lookback window to fit.")] = "5y",
+    interval: Annotated[VolatilityInterval, Query(description="Bar size of the returns.")] = "1d",
+    horizon: Annotated[
+        int, Query(ge=1, le=MAX_HORIZON, description="Bars ahead to forecast.")
+    ] = 10,
+    distribution: Annotated[
+        GarchDistribution,
+        Query(description="Innovation distribution: ``norm`` or Student t ``std``."),
+    ] = "std",
+) -> VolatilityEstimate:
+    """Fit a GARCH(1,1) to ``symbol``'s adjusted log returns and forecast its volatility.
+
+    Volatilities are annualized decimals (0.25 = 25%). Fits that are short or sit at a
+    parameter boundary are returned with ``garch.warnings``. Returns 422 when the window
+    has too few bars or the model cannot be fit, and 503 when R is unavailable.
+    """
+    try:
+        frame = await fetch_price_history(symbol, period=period, interval=interval)
+    except DataFetchError as exc:
+        raise _upstream_error(exc) from exc
+    symbol = symbol.upper()
+    coverage, notice = _coverage(symbol, period, interval, frame)
+    periods_per_year = PERIODS_PER_YEAR[interval]
+    try:
+        garch = await fit_garch(
+            frame["Close"], periods_per_year, horizon=horizon, distribution=distribution
+        )
+    except (InsufficientDataError, ModelFitError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    except RUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    return VolatilityEstimate(
+        symbol=symbol,
+        period=period,
+        interval=interval,
+        periods_per_year=periods_per_year,
+        garch=garch,
         coverage=coverage,
         notice=notice,
     )
