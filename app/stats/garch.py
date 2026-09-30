@@ -1,4 +1,4 @@
-"""GARCH(1,1) volatility model, estimated in R by ``r_scripts/garch.R``.
+"""GARCH(1,1) volatility model, estimated in R by ``r_scripts/garch_model.R``.
 
 Prices are cleaned and turned into log returns in Python, so the R script only sees
 a finite, gap-free numeric vector. Returns are passed to R in percent, which keeps
@@ -25,7 +25,7 @@ from app.stats.volatility import (
     require_returns,
 )
 
-R_SCRIPT: str = "garch.R"
+R_SCRIPT: str = "garch_model.R"
 R_FUNCTION: str = "pyqxel_fit_garch"
 
 MIN_OBSERVATIONS: int = 480

@@ -9,9 +9,17 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.v1.endpoints import stocks
+from app.ai.agent import (
+    AINotConfiguredError,
+    AIRateLimitError,
+    AIRefusalError,
+    AIUnavailableError,
+    AnalysisError,
+)
+from app.api.v1.endpoints import research, stocks
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
 from app.main import __version__, app
+from app.models.research import AnalysisContext, InvestmentThesis, RiskSummary
 from app.models.stock import TickerInfo
 from app.models.volatility import EwmaFit, GarchFit, GarchParameter, VolatilityForecastStep
 from app.stats.garch import ModelFitError
@@ -456,3 +464,168 @@ def test_volatility_ewma_maps_short_history_to_422(monkeypatch: pytest.MonkeyPat
 
     assert response.status_code == 422
     assert response.json() == {"detail": "EWMA needs at least 30 returns"}
+
+
+def _serve_analysis(
+    monkeypatch: pytest.MonkeyPatch,
+    info: TickerInfo | Exception,
+    frame: pd.DataFrame | Exception,
+    report: InvestmentThesis | RiskSummary | Exception,
+) -> list[tuple[AnalysisContext, str]]:
+    """Fake the fetchers and the research agent; return the agent's recorded calls."""
+    calls: list[tuple[AnalysisContext, str]] = []
+
+    async def fake_info(symbol: str) -> TickerInfo:
+        if isinstance(info, Exception):
+            raise info
+        return info
+
+    async def fake_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
+        assert interval == "1d"
+        if isinstance(frame, Exception):
+            raise frame
+        return frame
+
+    async def fake_write(
+        context: AnalysisContext, kind: str
+    ) -> tuple[InvestmentThesis | RiskSummary, str]:
+        calls.append((context, kind))
+        if isinstance(report, Exception):
+            raise report
+        return report, "claude-opus-5-5"
+
+    monkeypatch.setattr(research, "fetch_ticker_info", fake_info)
+    monkeypatch.setattr(research, "fetch_price_history", fake_history)
+    monkeypatch.setattr(research, "write_analysis", fake_write)
+    return calls
+
+
+def _recent_frame() -> pd.DataFrame:
+    """Daily bars covering the last year, rising steadily."""
+    now = pd.Timestamp.now()
+    frame = _daily_frame(now - pd.DateOffset(years=1), now)
+    frame["Close"] = [100.0 + i + (i % 3) for i in range(len(frame))]
+    return frame
+
+
+THESIS = InvestmentThesis(
+    headline="Steady uptrend.",
+    stance="bullish",
+    conviction="low",
+    summary="Prices rose.",
+    supporting_points=["Positive return."],
+    counterpoints=["Short sample."],
+    what_would_change_the_view=["A reversal."],
+    data_limitations=["No fundamentals."],
+)
+
+
+def test_analysis_returns_report_and_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The report is returned with the data it was written from."""
+    info = TickerInfo(symbol="AAPL", name="Apple Inc.", source="yfinance")
+    calls = _serve_analysis(monkeypatch, info, _recent_frame(), THESIS)
+
+    response = client.post("/api/v1/stocks/aapl/analysis", json={"kind": "thesis"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["symbol"] == "AAPL"
+    assert body["kind"] == "thesis"
+    assert body["model"] == "claude-opus-5-5"
+    assert body["report"] == THESIS.model_dump()
+    assert body["context"]["ticker"]["name"] == "Apple Inc."
+    assert body["context"]["coverage"] == "full"
+    assert body["context"]["prices"]["period_return"] > 0
+    context, kind = calls[0]
+    assert kind == "thesis"
+    assert context.period == "1y"
+
+
+def test_analysis_defaults_without_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no body, a one-year thesis is written."""
+    info = TickerInfo(symbol="AAPL", source="yfinance")
+    calls = _serve_analysis(monkeypatch, info, _recent_frame(), THESIS)
+
+    response = client.post("/api/v1/stocks/AAPL/analysis")
+
+    assert response.status_code == 200
+    assert calls[0][0].period == "1y"
+    assert calls[0][1] == "thesis"
+
+
+def test_analysis_rejects_unknown_kind() -> None:
+    """Unknown report kinds and periods fail request validation."""
+    assert client.post("/api/v1/stocks/AAPL/analysis", json={"kind": "memo"}).status_code == 422
+    assert client.post("/api/v1/stocks/AAPL/analysis", json={"period": "1d"}).status_code == 422
+
+
+def test_analysis_without_snapshot_uses_prices_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failed snapshot fetch degrades to a price-only analysis with a notice."""
+    calls = _serve_analysis(monkeypatch, DataFetchError("down"), _recent_frame(), THESIS)
+
+    response = client.post("/api/v1/stocks/AAPL/analysis", json={"kind": "thesis"})
+
+    assert response.status_code == 200
+    context = calls[0][0]
+    assert context.ticker.source == "unavailable"
+    assert context.notice is not None and "snapshot" in context.notice
+
+
+def test_analysis_maps_unknown_symbol_to_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unknown symbols are 404s and never reach the model."""
+    calls = _serve_analysis(
+        monkeypatch,
+        SymbolNotFoundError("Unknown ticker symbol 'ZZZZ'."),
+        SymbolNotFoundError("Unknown ticker symbol 'ZZZZ'."),
+        THESIS,
+    )
+
+    response = client.post("/api/v1/stocks/ZZZZ/analysis")
+
+    assert response.status_code == 404
+    assert calls == []
+
+
+def test_analysis_maps_short_history_to_422(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Windows too short to summarize are 422s and never reach the model."""
+    now = pd.Timestamp.now()
+    frame = _daily_frame(now - pd.Timedelta(days=10), now)
+    calls = _serve_analysis(monkeypatch, TickerInfo(symbol="NEW", source="yfinance"), frame, THESIS)
+
+    response = client.post("/api/v1/stocks/NEW/analysis")
+
+    assert response.status_code == 422
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        (AINotConfiguredError("no key"), 503),
+        (AIRefusalError("declined"), 422),
+        (AIUnavailableError("down"), 502),
+        (AnalysisError("truncated"), 502),
+    ],
+)
+def test_analysis_maps_ai_errors(
+    monkeypatch: pytest.MonkeyPatch, error: AnalysisError, status_code: int
+) -> None:
+    """AI failures map to status codes with their message as detail."""
+    info = TickerInfo(symbol="AAPL", source="yfinance")
+    _serve_analysis(monkeypatch, info, _recent_frame(), error)
+
+    response = client.post("/api/v1/stocks/AAPL/analysis")
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": str(error)}
+
+
+def test_analysis_rate_limit_sets_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rate limits are 503s that pass on the retry hint."""
+    info = TickerInfo(symbol="AAPL", source="yfinance")
+    _serve_analysis(monkeypatch, info, _recent_frame(), AIRateLimitError("slow down", 12))
+
+    response = client.post("/api/v1/stocks/AAPL/analysis")
+
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "12"
