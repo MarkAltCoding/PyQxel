@@ -49,3 +49,7 @@ Thumbs.db
 
 # ── Local-only docs (personal/internal — keep out of the public repo) ──
 SETUP_BRIEFING.md
+
+# Test coverage reports
+.coverage
+htmlcov/

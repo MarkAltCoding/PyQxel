@@ -8,6 +8,7 @@ import anthropic
 import httpx2
 import pytest
 from anthropic import AsyncAnthropic
+from pydantic import SecretStr, ValidationError
 
 from app.ai import agent
 from app.ai.agent import (
@@ -19,7 +20,7 @@ from app.ai.agent import (
     AnalysisError,
     write_analysis,
 )
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.models.research import (
     AnalysisContext,
     AnalysisKind,
@@ -255,3 +256,65 @@ async def test_filings_without_sections_are_left_out() -> None:
     content = client.calls[0]["messages"][0]["content"]
     assert isinstance(content, str) and content.startswith(agent.TASKS["risk"])
 
+
+async def test_shared_client_uses_settings_and_closes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The shared client takes the key and timeout from settings and is rebuilt after closing."""
+    settings = Settings(anthropic_api_key=SecretStr("sk-test"), anthropic_timeout_seconds=42.0)
+    monkeypatch.setattr(agent, "get_settings", lambda: settings)
+    agent.get_anthropic_client.cache_clear()
+
+    first = agent.get_anthropic_client()
+    assert first is agent.get_anthropic_client()
+    assert first.api_key == "sk-test"
+    assert first.timeout == 42.0
+
+    await agent.close_anthropic_client()
+    assert first.is_closed()
+    assert agent.get_anthropic_client() is not first
+    await agent.close_anthropic_client()
+
+
+async def test_closing_an_unused_client_is_a_no_op() -> None:
+    """Shutdown does not create a client just to close it."""
+    agent.get_anthropic_client.cache_clear()
+
+    await agent.close_anthropic_client()
+
+    assert agent.get_anthropic_client.cache_info().currsize == 0
+
+
+async def test_unparseable_retry_after_is_ignored() -> None:
+    """A malformed ``retry-after`` header is dropped rather than failing the request."""
+    error = anthropic.RateLimitError(
+        "slow down",
+        response=httpx2.Response(429, headers={"retry-after": "soon"}, request=REQUEST),
+        body=None,
+    )
+
+    with pytest.raises(AIRateLimitError) as caught:
+        await _write(FakeClient(error), "thesis")
+
+    assert caught.value.retry_after is None
+
+
+async def test_missing_credentials_are_not_configured() -> None:
+    """The SDK's own credential error, raised before any request, means AI is unconfigured."""
+    with pytest.raises(AINotConfiguredError, match="no credentials"):
+        await _write(FakeClient(anthropic.AnthropicError("no credentials")), "thesis")
+
+
+async def test_schema_mismatch_is_an_analysis_error() -> None:
+    """A response that fails schema validation is an analysis error."""
+    try:
+        InvestmentThesis.model_validate({"headline": "x"})
+    except ValidationError as exc:
+        error = exc
+
+    with pytest.raises(AnalysisError, match="schema"):
+        await _write(FakeClient(error), "thesis")
+
+
+async def test_missing_parsed_output_is_an_analysis_error() -> None:
+    """A finished response without a parsed report is not returned."""
+    with pytest.raises(AnalysisError, match="valid report"):
+        await _write(FakeClient(_response(parsed_output=None)), "thesis")
