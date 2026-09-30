@@ -104,7 +104,7 @@ def _requested_start(period: HistoryPeriod, now: pd.Timestamp) -> pd.Timestamp |
     return None if offset is None else now - offset
 
 
-def _coverage(
+def history_coverage(
     symbol: str, period: HistoryPeriod, interval: HistoryInterval, frame: pd.DataFrame
 ) -> tuple[HistoryCoverage, str | None]:
     """Classify how much of the requested window ``frame`` covers, with a note on any gap."""
@@ -123,7 +123,7 @@ def _coverage(
     )
 
 
-def _upstream_error(exc: DataFetchError) -> HTTPException:
+def upstream_error(exc: DataFetchError) -> HTTPException:
     """Translate a provider failure into a 404 for unknown symbols, otherwise a 502."""
     if isinstance(exc, SymbolNotFoundError):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -136,7 +136,7 @@ async def get_ticker_info(symbol: Symbol) -> TickerInfo:
     try:
         return await fetch_ticker_info(symbol)
     except DataFetchError as exc:
-        raise _upstream_error(exc) from exc
+        raise upstream_error(exc) from exc
 
 
 @router.get("/{symbol}/history", response_model=PriceHistory, summary="Adjusted OHLCV history")
@@ -153,9 +153,9 @@ async def get_price_history(
     try:
         frame = await fetch_price_history(symbol, period=period, interval=interval)
     except DataFetchError as exc:
-        raise _upstream_error(exc) from exc
+        raise upstream_error(exc) from exc
     symbol = symbol.upper()
-    coverage, notice = _coverage(symbol, period, interval, frame)
+    coverage, notice = history_coverage(symbol, period, interval, frame)
     return PriceHistory(
         symbol=symbol,
         period=period,
@@ -209,9 +209,9 @@ async def get_volatility(
     try:
         frame = await fetch_price_history(symbol, period=period, interval=interval)
     except DataFetchError as exc:
-        raise _upstream_error(exc) from exc
+        raise upstream_error(exc) from exc
     symbol = symbol.upper()
-    coverage, notice = _coverage(symbol, period, interval, frame)
+    coverage, notice = history_coverage(symbol, period, interval, frame)
     periods_per_year = PERIODS_PER_YEAR[interval]
     closes = frame["Close"]
     fit: VolatilityFit

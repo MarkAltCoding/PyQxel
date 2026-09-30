@@ -136,7 +136,7 @@ async def call_r(script: str, function: str, *args: RArgument) -> dict[str, RVal
     """Call an R function defined in ``r_scripts/<script>`` and return its named list.
 
     Args:
-        script: File name inside ``r_scripts/``, e.g. ``"garch.R"``.
+        script: File name inside ``r_scripts/``, e.g. ``"garch_model.R"``.
         function: Name of a function the script defines. It must return a named list
             of atomic vectors.
         *args: Positional arguments, each converted to an R vector.

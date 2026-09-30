@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.ai.agent import close_anthropic_client
 from app.api.v1.api import api_router
 from app.core.config import get_settings
 from app.models.health import HealthResponse
@@ -16,9 +17,10 @@ __version__: str = "0.1.0"
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-    """Start the embedded R session on the main thread before serving requests."""
+    """Start the embedded R session before serving and close the Anthropic client after."""
     start_r()
     yield
+    await close_anthropic_client()
 
 
 def create_app() -> FastAPI:

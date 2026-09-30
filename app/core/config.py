@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -28,6 +29,9 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost", "http://localhost:3000"]
 
     anthropic_api_key: SecretStr | None = None
+    anthropic_model: str = "claude-opus-5-5"
+    anthropic_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
+    anthropic_timeout_seconds: float = 180.0
     financial_data_api_key: SecretStr | None = None
     r_home: Path | None = None
 
