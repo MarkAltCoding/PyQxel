@@ -1,8 +1,9 @@
 """Claude-written investment theses and risk summaries grounded in fetched market data.
 
-Claude sees only the :class:`~app.models.research.AnalysisContext` it is given and
-returns a report through structured outputs, so the response always validates against
-:class:`~app.models.research.InvestmentThesis` or :class:`~app.models.research.RiskSummary`.
+Claude sees only the :class:`~app.models.research.AnalysisContext` and SEC filing
+sections it is given, and returns a report through structured outputs, so the response
+always validates against :class:`~app.models.research.InvestmentThesis` or
+:class:`~app.models.research.RiskSummary`.
 """
 
 import logging
@@ -10,13 +11,15 @@ from functools import lru_cache
 
 import anthropic
 from anthropic import AsyncAnthropic
+from anthropic.types.beta import BetaTextBlockParam
 from pydantic import ValidationError
 
-from app.ai.prompts import SYSTEM_PROMPT, TASKS
+from app.ai.prompts import SYSTEM_PROMPT, TASKS, render_filings
 from app.core.config import get_settings
 from app.models.research import (
     AnalysisContext,
     AnalysisKind,
+    Filing,
     InvestmentThesis,
     RiskSummary,
 )
@@ -86,9 +89,33 @@ def _retry_after(error: anthropic.RateLimitError) -> int | None:
         return None
 
 
+def _user_content(
+    context: AnalysisContext, kind: AnalysisKind, filings: list[Filing]
+) -> str | list[BetaTextBlockParam]:
+    """Build the user turn: filings first, then the task and snapshot.
+
+    Filings are the bulk of the input and identical across requests about the same
+    company, so they lead and end in a cache breakpoint.
+    """
+    request = (
+        f"{TASKS[kind]}\n\n<snapshot>\n{context.model_dump_json(indent=2)}\n</snapshot>"
+    )
+    if not any(filing.sections for filing in filings):
+        return request
+    return [
+        {
+            "type": "text",
+            "text": render_filings(filings),
+            "cache_control": {"type": "ephemeral"},
+        },
+        {"type": "text", "text": request},
+    ]
+
+
 async def write_analysis(
     context: AnalysisContext,
     kind: AnalysisKind,
+    filings: list[Filing] | None = None,
     client: AsyncAnthropic | None = None,
 ) -> tuple[InvestmentThesis | RiskSummary, str]:
     """Have Claude write a ``kind`` report from ``context``.
@@ -96,6 +123,7 @@ async def write_analysis(
     Args:
         context: Market data the report must be grounded in.
         kind: ``"thesis"`` or ``"risk"``.
+        filings: SEC filings whose sections are given to Claude alongside ``context``.
         client: Client to use; the shared client from
             :func:`get_anthropic_client` when omitted.
 
@@ -118,13 +146,7 @@ async def write_analysis(
             model=settings.anthropic_model,
             max_tokens=MAX_TOKENS,
             system=SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"{TASKS[kind]}\n\n<snapshot>\n"
-                    f"{context.model_dump_json(indent=2)}\n</snapshot>",
-                }
-            ],
+            messages=[{"role": "user", "content": _user_content(context, kind, filings or [])}],
             thinking={"type": "adaptive"},
             output_config={"effort": settings.anthropic_effort},
             output_format=schema,

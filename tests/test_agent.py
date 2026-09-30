@@ -1,6 +1,6 @@
 """Tests for the Claude research agent. A fake client stands in for the Anthropic API."""
 
-from datetime import datetime
+from datetime import date, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -23,6 +23,8 @@ from app.core.config import get_settings
 from app.models.research import (
     AnalysisContext,
     AnalysisKind,
+    Filing,
+    FilingSection,
     InvestmentThesis,
     PriceSummary,
     RiskSummary,
@@ -207,3 +209,49 @@ async def test_rate_limit_carries_retry_after() -> None:
         await _write(FakeClient(error), "thesis")
 
     assert caught.value.retry_after == 12
+
+
+def _filing(sections: list[FilingSection]) -> Filing:
+    """Build a 10-K with ``sections``."""
+    return Filing(
+        form="10-K",
+        accession_number="0000320193-24-000123",
+        filed=date(2024, 11, 1),
+        period_of_report=date(2024, 9, 28),
+        url="https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/aapl.htm",
+        sections=sections,
+    )
+
+
+async def test_filings_lead_the_prompt_in_a_cached_block() -> None:
+    """Filing text comes first, tagged and cacheable, then the task and snapshot."""
+    client = FakeClient(_response())
+    filing = _filing(
+        [
+            FilingSection(title="Item 1A. Risk Factors", text="Supply risk.", truncated=False),
+            FilingSection(title="Item 7. MD&A", text="Revenue grew.", truncated=True),
+        ]
+    )
+
+    await write_analysis(_context(), "thesis", [filing], client=cast(AsyncAnthropic, client))
+
+    filings_block, request_block = client.calls[0]["messages"][0]["content"]
+    assert filings_block["cache_control"] == {"type": "ephemeral"}
+    text = filings_block["text"]
+    assert text.startswith("<filings>") and text.endswith("</filings>")
+    assert '<filing form="10-K" filed="2024-11-01" period="2024-09-28">' in text
+    assert '<section title="Item 1A. Risk Factors">\nSupply risk.\n</section>' in text
+    assert '<section title="Item 7. MD&A" truncated="true">' in text
+    assert request_block["text"].startswith(agent.TASKS["thesis"])
+    assert "<snapshot>" in request_block["text"]
+
+
+async def test_filings_without_sections_are_left_out() -> None:
+    """A request whose filings have no text sends only the task and snapshot."""
+    client = FakeClient(_response())
+
+    await write_analysis(_context(), "risk", [_filing([])], client=cast(AsyncAnthropic, client))
+
+    content = client.calls[0]["messages"][0]["content"]
+    assert isinstance(content, str) and content.startswith(agent.TASKS["risk"])
+
