@@ -20,7 +20,7 @@ An AI-native research and quantitative analysis platform designed for equity sto
 
 * **Primary Backend Engine**: Python 3.11+ (FastAPI, Pandas, NumPy, Statsmodels, Scikit-Learn)
 * **Statistical Modeling**: R 4.3+ (`rpy2` integration for GARCH modeling, time-series analysis, and econometric estimation)
-* **AI Engine & NLP**: Anthropic API (Claude Sonnet 5, `claude-sonnet-5`), LangChain / LlamaIndex, BeautifulSoup4, PyPDF
+* **AI Engine & NLP**: Anthropic API (Claude Opus 5.5, `claude-opus-5-5`), LangChain / LlamaIndex, BeautifulSoup4, PyPDF
 * **Market Data Feeds**: `yfinance`, Financial Modeling Prep (FMP) / Alpha Vantage API, SEC EDGAR Scraper
 * **Client Interface Target**: Cross-platform REST & WebSocket API servicing macOS and iOS clients (Swift/React Native compatible)
 
