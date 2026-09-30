@@ -17,7 +17,7 @@ from app.ai.agent import (
     AIUnavailableError,
     AnalysisError,
 )
-from app.api.v1.endpoints import research, stocks
+from app.api.v1.endpoints import backtest, research, stocks
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
 from app.data.sec_edgar import CompanyNotFoundError, EdgarNotConfiguredError, FilingFetchError
 from app.main import __version__, app
@@ -756,3 +756,111 @@ def test_analysis_can_skip_filings(monkeypatch: pytest.MonkeyPatch) -> None:
     assert filings == []
     assert context.notice is None
 
+
+def _serve_backtest_history(
+    monkeypatch: pytest.MonkeyPatch, frame: pd.DataFrame | Exception
+) -> list[tuple[str, str]]:
+    """Fake the backtest route's price fetch; return the (period, interval) requested."""
+    calls: list[tuple[str, str]] = []
+
+    async def fake_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
+        calls.append((period, interval))
+        if isinstance(frame, Exception):
+            raise frame
+        return frame
+
+    monkeypatch.setattr(backtest, "fetch_price_history", fake_history)
+    return calls
+
+
+def _trending_frame(years: int) -> pd.DataFrame:
+    """Daily bars over the last ``years`` years: a rise, a fall, then a rise."""
+    now = pd.Timestamp.now()
+    frame = _daily_frame(now - pd.DateOffset(years=years), now)
+    third = len(frame) // 3
+    path = [100.0 + i for i in range(third)]
+    path += [path[-1] - 0.5 * i for i in range(1, third + 1)]
+    path += [path[-1] + i for i in range(1, len(frame) - len(path) + 1)]
+    frame["Close"] = path
+    return frame
+
+
+def test_backtest_defaults_to_sma_crossover(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no body, a 50/200 crossover runs on five years of daily bars against buy-and-hold."""
+    frame = _trending_frame(5)
+    calls = _serve_backtest_history(monkeypatch, frame)
+
+    response = client.post("/api/v1/stocks/spy/backtest")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert calls == [("5y", "1d")]
+    assert body["symbol"] == "SPY"
+    assert body["strategy"] == {
+        "type": "sma_crossover",
+        "fast": 50,
+        "slow": 200,
+        "allow_short": False,
+    }
+    assert body["periods_per_year"] == 252
+    assert body["cost_bps"] == 5.0
+    assert body["coverage"] == "full"
+    assert 0 < body["exposure"] < 1
+    assert body["trades"] >= 2
+    assert len(body["equity_curve"]) == len(frame)
+    assert body["equity_curve"][0]["strategy"] == 1.0
+    assert body["equity_curve"][-1]["benchmark"] == pytest.approx(
+        frame["Close"].iloc[-1] / frame["Close"].iloc[0]
+    )
+    for metrics in (body["metrics"], body["benchmark"]):
+        assert set(metrics) >= {"total_return", "sharpe_ratio", "sortino_ratio", "max_drawdown"}
+    assert body["benchmark"]["max_drawdown"] < body["metrics"]["max_drawdown"] <= 0
+
+
+def test_backtest_buy_and_hold_equals_benchmark(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Buy-and-hold without costs scores the same as its benchmark."""
+    _serve_backtest_history(monkeypatch, _trending_frame(2))
+
+    response = client.post(
+        "/api/v1/stocks/SPY/backtest",
+        json={"strategy": {"type": "buy_and_hold"}, "period": "2y", "cost_bps": 0},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["metrics"] == body["benchmark"]
+    assert body["trades"] == 1
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"strategy": {"type": "sma_crossover", "fast": 200, "slow": 50}},
+        {"strategy": {"type": "momentum"}},
+        {"period": "1mo"},
+        {"cost_bps": -1},
+    ],
+)
+def test_backtest_rejects_invalid_requests(payload: dict[str, object]) -> None:
+    """Crossed windows, unknown strategies, short periods and negative costs fail validation."""
+    assert client.post("/api/v1/stocks/SPY/backtest", json=payload).status_code == 422
+
+
+def test_backtest_maps_short_history_to_422(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A recent listing too short for the slow average is a 422 that explains itself."""
+    now = pd.Timestamp.now()
+    _serve_backtest_history(monkeypatch, _daily_frame(now - pd.DateOffset(months=9), now))
+
+    response = client.post("/api/v1/stocks/NEW/backtest", json={"period": "1y"})
+
+    assert response.status_code == 422
+    assert "200-bar moving average" in response.json()["detail"]
+
+
+def test_backtest_maps_unknown_symbol_to_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unknown symbols are 404s."""
+    _serve_backtest_history(monkeypatch, SymbolNotFoundError("Unknown ticker symbol 'ZZZZ'."))
+
+    response = client.post("/api/v1/stocks/ZZZZ/backtest")
+
+    assert response.status_code == 404

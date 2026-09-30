@@ -7,12 +7,16 @@ rather than left to the language model. Returns and volatilities are decimals
 
 import math
 
-import numpy as np
 import pandas as pd
 
 from app.models.research import PriceSummary
 from app.stats.ewma import DAILY_DECAY, MIN_OBSERVATIONS, ewma_variance
-from app.stats.volatility import annualization_scale, log_returns, require_returns
+from app.stats.volatility import (
+    annualization_scale,
+    clean_prices,
+    log_returns,
+    require_returns,
+)
 
 MIN_SUMMARY_RETURNS: int = 20
 """Fewest returns a summary is computed from, about one trading month of daily bars."""
@@ -46,9 +50,7 @@ def summarize_prices(
     returns = log_returns(closes)
     require_returns(returns, MIN_SUMMARY_RETURNS, "An analysis", "Request a longer period.")
 
-    prices = pd.to_numeric(closes, errors="coerce").astype(float).sort_index()
-    prices = prices[~prices.index.duplicated(keep="last")]
-    prices = prices[np.isfinite(prices) & (prices > 0)]
+    prices = clean_prices(closes)
     start, end = pd.Timestamp(prices.index[0]), pd.Timestamp(prices.index[-1])
     first_close, last_close = float(prices.iloc[0]), float(prices.iloc[-1])
 
