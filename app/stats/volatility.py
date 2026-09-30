@@ -17,6 +17,17 @@ class InsufficientDataError(ValueError):
     """Raised when a price series is too short or too flat to fit a model."""
 
 
+def clean_prices(closes: pd.Series) -> pd.Series:
+    """Return ``closes`` as floats sorted by time, keeping only finite, positive values.
+
+    Duplicate timestamps keep their last value. Gaps such as non-trading days are
+    simply absent, so returns taken afterwards span from one valid bar to the next.
+    """
+    prices = pd.to_numeric(closes, errors="coerce").astype(float).sort_index()
+    prices = prices[~prices.index.duplicated(keep="last")]
+    return prices[np.isfinite(prices) & (prices > 0)]
+
+
 def log_returns(closes: pd.Series) -> pd.Series:
     """Return percent log returns between consecutive valid closes.
 
@@ -30,9 +41,7 @@ def log_returns(closes: pd.Series) -> pd.Series:
     Returns:
         Percent log returns indexed by the timestamp of the later bar, oldest first.
     """
-    prices = pd.to_numeric(closes, errors="coerce").astype(float).sort_index()
-    prices = prices[~prices.index.duplicated(keep="last")]
-    prices = prices[np.isfinite(prices) & (prices > 0)]
+    prices = clean_prices(closes)
     return (100.0 * np.log(prices).diff()).iloc[1:]
 
 

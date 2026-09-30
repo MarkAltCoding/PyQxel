@@ -1,4 +1,4 @@
-"""Tests for the price summary statistics behind AI analyses."""
+"""Tests for the price summary behind AI analyses and the performance metrics behind backtests."""
 
 import math
 
@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from app.stats.indicators import summarize_prices
+from app.stats.metrics import MIN_METRIC_RETURNS, performance_metrics
 from app.stats.volatility import InsufficientDataError
 
 
@@ -73,3 +74,79 @@ def test_summary_rejects_short_history() -> None:
     """Fewer than 20 returns cannot be summarized."""
     with pytest.raises(InsufficientDataError, match="at least 20 returns"):
         summarize_prices(_series([100.0 + i for i in range(10)]), periods_per_year=252)
+
+
+ALTERNATING = [0.02, -0.01] * 10
+"""Twenty returns: mean 0.005, sample deviation 0.015 * sqrt(20 / 19), downside RMS sqrt(5e-5)."""
+
+
+def test_metrics_sharpe_and_sortino() -> None:
+    """Sharpe divides by the sample deviation, Sortino by downside deviation over all bars."""
+    metrics = performance_metrics(_series(ALTERNATING), periods_per_year=252)
+
+    deviation = 0.015 * math.sqrt(20 / 19)
+    assert metrics.observations == 20
+    assert metrics.annualized_volatility == pytest.approx(deviation * math.sqrt(252))
+    assert metrics.sharpe_ratio == pytest.approx(0.005 / deviation * math.sqrt(252))
+    assert metrics.sortino_ratio == pytest.approx(0.005 / math.sqrt(5e-5) * math.sqrt(252))
+    assert metrics.total_return == pytest.approx(1.02**10 * 0.99**10 - 1)
+
+
+def test_metrics_subtract_the_risk_free_rate() -> None:
+    """The annual risk-free rate is compounded down to a per-bar rate before subtracting."""
+    rate = 1.05 ** (1 / 252) - 1
+    metrics = performance_metrics(_series(ALTERNATING), 252, risk_free_rate=0.05)
+
+    deviation = 0.015 * math.sqrt(20 / 19)
+    assert metrics.sharpe_ratio == pytest.approx((0.005 - rate) / deviation * math.sqrt(252))
+    downside = math.sqrt((10 * (0.01 + rate) ** 2 + 10 * min(0.02 - rate, 0) ** 2) / 20)
+    assert metrics.sortino_ratio == pytest.approx((0.005 - rate) / downside * math.sqrt(252))
+
+
+def test_metrics_annualize_only_full_years() -> None:
+    """CAGR needs a year of bars and compounds the total return per year."""
+    assert performance_metrics(_series([0.001] * 251), 252).annualized_return is None
+
+    metrics = performance_metrics(_series([0.001] * 504), 252)
+    assert metrics.annualized_return == pytest.approx(1.001**252 - 1)
+
+
+def test_metrics_date_the_max_drawdown() -> None:
+    """Peak, trough and recovery are the bars where equity peaks, bottoms and regains the peak."""
+    # Equity: 1.1 on bar 0, 0.88 on bar 2 (a 20% drawdown), back to 1.1 on bar 4.
+    returns = [0.1, -0.1, -1 / 9, 0.125, 1.1 / 0.99 - 1] + [0.0] * 15
+    series = _series(returns)
+    metrics = performance_metrics(series, 252, inception=pd.Timestamp("2023-12-29"))
+
+    assert metrics.max_drawdown == pytest.approx(-0.2)
+    assert metrics.max_drawdown_peak == series.index[0]
+    assert metrics.max_drawdown_trough == series.index[2]
+    assert metrics.max_drawdown_recovery == series.index[4]
+    assert metrics.start == pd.Timestamp("2023-12-29")
+
+
+def test_metrics_drawdown_from_inception_without_recovery() -> None:
+    """A loss on the first bar is a drawdown from the capital invested at inception."""
+    inception = pd.Timestamp("2023-12-29")
+    metrics = performance_metrics(_series([-0.1] + [0.001] * 19), 252, inception=inception)
+
+    assert metrics.max_drawdown == pytest.approx(-0.1)
+    assert metrics.max_drawdown_peak == inception
+    assert metrics.max_drawdown_recovery is None
+
+
+def test_metrics_without_losses_or_variation() -> None:
+    """Constant gains have no drawdown, no Sharpe and no Sortino."""
+    metrics = performance_metrics(_series([0.001] * 30), 252)
+
+    assert metrics.max_drawdown == 0.0
+    assert metrics.max_drawdown_peak is None
+    assert metrics.sharpe_ratio is None
+    assert metrics.sortino_ratio is None
+
+
+def test_metrics_drop_missing_returns_and_reject_short_series() -> None:
+    """Missing and non-finite returns are dropped before the length check."""
+    values = [0.01] * (MIN_METRIC_RETURNS - 1) + [np.nan, np.inf]
+    with pytest.raises(InsufficientDataError, match="at least 20 returns"):
+        performance_metrics(_series(values), 252)
