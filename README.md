@@ -60,6 +60,7 @@ An AI-native research and quantitative analysis platform designed for equity sto
    Then fill in `.env`:
    * `ANTHROPIC_API_KEY` — from the [Anthropic Console](https://console.anthropic.com/).
    * `FINANCIAL_DATA_API_KEY` — optional; a [Financial Modeling Prep](https://site.financialmodelingprep.com/developer/docs) key, used as a fallback when `yfinance` fails.
+   * `SEC_USER_AGENT` — optional; your name and contact email (e.g. `PyQxel jane@example.com`), which the [SEC requires](https://www.sec.gov/os/accessing-edgar-data) of automated clients. When set, AI analyses also read the Risk Factors and MD&A sections of the company's latest 10-K and 10-Q.
    * `R_HOME` — the output of `R RHOME` (e.g. `/Library/Frameworks/R.framework/Resources` on macOS).
 
 4. **Run the API Server**:

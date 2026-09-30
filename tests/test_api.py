@@ -4,6 +4,7 @@ Market data fetchers are replaced with fakes so no test touches the network.
 """
 
 import math
+from datetime import date
 
 import pandas as pd
 import pytest
@@ -18,8 +19,15 @@ from app.ai.agent import (
 )
 from app.api.v1.endpoints import research, stocks
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
+from app.data.sec_edgar import CompanyNotFoundError, EdgarNotConfiguredError, FilingFetchError
 from app.main import __version__, app
-from app.models.research import AnalysisContext, InvestmentThesis, RiskSummary
+from app.models.research import (
+    AnalysisContext,
+    Filing,
+    FilingSection,
+    InvestmentThesis,
+    RiskSummary,
+)
 from app.models.stock import TickerInfo
 from app.models.volatility import EwmaFit, GarchFit, GarchParameter, VolatilityForecastStep
 from app.stats.garch import ModelFitError
@@ -466,14 +474,21 @@ def test_volatility_ewma_maps_short_history_to_422(monkeypatch: pytest.MonkeyPat
     assert response.json() == {"detail": "EWMA needs at least 30 returns"}
 
 
+AnalysisCall = tuple[AnalysisContext, str, list[Filing]]
+
+
 def _serve_analysis(
     monkeypatch: pytest.MonkeyPatch,
     info: TickerInfo | Exception,
     frame: pd.DataFrame | Exception,
     report: InvestmentThesis | RiskSummary | Exception,
-) -> list[tuple[AnalysisContext, str]]:
-    """Fake the fetchers and the research agent; return the agent's recorded calls."""
-    calls: list[tuple[AnalysisContext, str]] = []
+    filings: list[Filing] | Exception | None = None,
+) -> list[AnalysisCall]:
+    """Fake the fetchers and the research agent; return the agent's recorded calls.
+
+    The EDGAR fetch returns ``filings``, or no filings when omitted.
+    """
+    calls: list[AnalysisCall] = []
 
     async def fake_info(symbol: str) -> TickerInfo:
         if isinstance(info, Exception):
@@ -486,18 +501,40 @@ def _serve_analysis(
             raise frame
         return frame
 
+    async def fake_filings(symbol: str) -> list[Filing]:
+        if isinstance(filings, Exception):
+            raise filings
+        return filings or []
+
     async def fake_write(
-        context: AnalysisContext, kind: str
+        context: AnalysisContext, kind: str, filings: list[Filing]
     ) -> tuple[InvestmentThesis | RiskSummary, str]:
-        calls.append((context, kind))
+        calls.append((context, kind, filings))
         if isinstance(report, Exception):
             raise report
         return report, "claude-opus-5-5"
 
     monkeypatch.setattr(research, "fetch_ticker_info", fake_info)
     monkeypatch.setattr(research, "fetch_price_history", fake_history)
+    monkeypatch.setattr(research, "fetch_latest_filings", fake_filings)
     monkeypatch.setattr(research, "write_analysis", fake_write)
     return calls
+
+
+def _filing(form: str = "10-K", truncated: bool = False, sections: bool = True) -> Filing:
+    """Build a filing with a Risk Factors section, or none."""
+    return Filing(
+        form=form,  # type: ignore[arg-type]
+        accession_number="0000320193-24-000123",
+        filed=date(2024, 11, 1),
+        period_of_report=date(2024, 9, 28),
+        url="https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/aapl.htm",
+        sections=[
+            FilingSection(title="Item 1A. Risk Factors", text="Supply risk.", truncated=truncated)
+        ]
+        if sections
+        else [],
+    )
 
 
 def _recent_frame() -> pd.DataFrame:
@@ -536,7 +573,7 @@ def test_analysis_returns_report_and_context(monkeypatch: pytest.MonkeyPatch) ->
     assert body["context"]["ticker"]["name"] == "Apple Inc."
     assert body["context"]["coverage"] == "full"
     assert body["context"]["prices"]["period_return"] > 0
-    context, kind = calls[0]
+    context, kind, _ = calls[0]
     assert kind == "thesis"
     assert context.period == "1y"
 
@@ -629,3 +666,93 @@ def test_analysis_rate_limit_sets_retry_after(monkeypatch: pytest.MonkeyPatch) -
 
     assert response.status_code == 503
     assert response.headers["retry-after"] == "12"
+
+
+def test_analysis_passes_filings_to_the_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Filing text goes to the agent; the response lists the filings without their text."""
+    info = TickerInfo(symbol="AAPL", source="yfinance")
+    filing = _filing()
+    calls = _serve_analysis(monkeypatch, info, _recent_frame(), THESIS, [filing])
+
+    response = client.post("/api/v1/stocks/AAPL/analysis")
+
+    assert response.status_code == 200
+    context, _, filings = calls[0]
+    assert filings == [filing]
+    assert context.notice is None
+    listed = response.json()["context"]["filings"]
+    assert listed == [
+        {
+            "form": "10-K",
+            "accession_number": filing.accession_number,
+            "filed": "2024-11-01",
+            "period_of_report": "2024-09-28",
+            "url": filing.url,
+            "sections": ["Item 1A. Risk Factors"],
+            "truncated_sections": [],
+        }
+    ]
+    assert "Supply risk." not in response.text
+
+
+def test_analysis_notes_truncated_and_unreadable_filings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cut sections are noted, and filings without sections are noted and dropped."""
+    info = TickerInfo(symbol="AAPL", source="yfinance")
+    filings = [_filing(truncated=True), _filing(form="10-Q", sections=False)]
+    calls = _serve_analysis(monkeypatch, info, _recent_frame(), THESIS, filings)
+
+    response = client.post("/api/v1/stocks/AAPL/analysis")
+
+    assert response.status_code == 200
+    context, _, passed = calls[0]
+    assert passed == [filings[0]]
+    assert context.filings[0].truncated_sections == ["Item 1A. Risk Factors"]
+    assert context.notice is not None
+    assert "cut short" in context.notice
+    assert "10-Q filed 2024-11-01 could not be located" in context.notice
+
+
+@pytest.mark.parametrize(
+    ("error", "notice"),
+    [
+        (EdgarNotConfiguredError("unset"), "not configured"),
+        (CompanyNotFoundError("none"), "AAPL has no SEC filings"),
+        (FilingFetchError("down"), "could not be fetched"),
+    ],
+)
+def test_analysis_without_filings_degrades_with_notice(
+    monkeypatch: pytest.MonkeyPatch, error: Exception, notice: str
+) -> None:
+    """EDGAR failures never fail the request; the report is written from prices."""
+    info = TickerInfo(symbol="AAPL", source="yfinance")
+    calls = _serve_analysis(monkeypatch, info, _recent_frame(), THESIS, error)
+
+    response = client.post("/api/v1/stocks/AAPL/analysis")
+
+    assert response.status_code == 200
+    context, _, filings = calls[0]
+    assert filings == []
+    assert context.filings == []
+    assert context.notice is not None and notice in context.notice
+
+
+def test_analysis_can_skip_filings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``include_filings: false`` never contacts EDGAR."""
+    info = TickerInfo(symbol="AAPL", source="yfinance")
+    calls = _serve_analysis(monkeypatch, info, _recent_frame(), THESIS, [_filing()])
+    fetched: list[str] = []
+
+    async def recording_fetch(symbol: str) -> list[Filing]:
+        fetched.append(symbol)
+        return [_filing()]
+
+    monkeypatch.setattr(research, "fetch_latest_filings", recording_fetch)
+
+    response = client.post("/api/v1/stocks/AAPL/analysis", json={"include_filings": False})
+
+    assert response.status_code == 200
+    assert fetched == []
+    context, _, filings = calls[0]
+    assert filings == []
+    assert context.notice is None
+

@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     anthropic_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
     anthropic_timeout_seconds: float = 180.0
     financial_data_api_key: SecretStr | None = None
+    sec_user_agent: str | None = None
+    sec_section_max_chars: int = Field(default=60_000, ge=1_000)
     r_home: Path | None = None
 
 
