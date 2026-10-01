@@ -16,6 +16,7 @@ from app.data.factors import fetch_factors
 from app.data.panel import fetch_close_panel
 from app.data.sec_edgar import fetch_latest_filings
 from app.main import app
+from app.stats.monte_carlo import simulate_portfolio
 from app.stats.panel import return_panel
 
 pytestmark = [
@@ -153,6 +154,27 @@ def test_copula_fit(client: TestClient) -> None:
     assert spy_qqq["tail_dependence"] > 0.3
     assert abs(spy_tlt["kendall_tau"]) < 0.3
     assert body["student_t"]["degrees_of_freedom"] < 30
+
+
+@pytest.mark.asyncio
+async def test_monte_carlo_on_real_returns() -> None:
+    """A 60/40 stock-bond mix has a plausible one-month risk under every dependence model."""
+    closes = await fetch_close_panel(["SPY", "TLT"], "5y")
+    returns = return_panel(closes.closes).returns
+
+    for dependence in ("gaussian", "student_t", "empirical"):
+        summary = simulate_portfolio(
+            returns,
+            {"SPY": 0.6, "TLT": 0.4},
+            horizon=21,
+            paths=10_000,
+            dependence=dependence,  # type: ignore[arg-type]
+            seed=1,
+        )
+        var_95 = summary.risk[0].value_at_risk
+        assert 0.02 < var_95 < 0.15, (dependence, var_95)
+        assert 0.25 < summary.probability_of_loss < 0.5
+        assert -0.05 < summary.expected_return < 0.05
 
 
 def test_ewma_volatility(client: TestClient) -> None:
