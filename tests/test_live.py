@@ -6,11 +6,13 @@ market data changes daily: they check that each service answers with plausible d
 """
 
 import httpx
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
 from app.data import fetcher
+from app.data.factors import fetch_factors
 from app.data.sec_edgar import fetch_latest_filings
 from app.main import app
 
@@ -89,6 +91,24 @@ async def test_sec_filings() -> None:
     titles = [section.title for section in annual.sections]
     assert titles == ["Item 1A. Risk Factors", "Item 7. Management's Discussion and Analysis"]
     assert all(len(section.text) > 5_000 for section in annual.sections)
+
+
+@pytest.mark.asyncio
+async def test_fama_french_factors() -> None:
+    """Ken French's library serves every model's factors, recent and in plausible ranges."""
+    for model, columns in {
+        "ff3": ["Mkt-RF", "SMB", "HML", "RF"],
+        "carhart4": ["Mkt-RF", "SMB", "HML", "Mom", "RF"],
+        "ff5": ["Mkt-RF", "SMB", "HML", "RMW", "CMA", "RF"],
+    }.items():
+        frame = await fetch_factors(model)  # type: ignore[arg-type]
+
+        assert list(frame.columns) == columns
+        assert len(frame) > 10_000, model
+        # The library is regenerated monthly, a month or two behind.
+        assert pd.Timestamp.now() - frame.index[-1] < pd.Timedelta(days=120)
+        assert frame.abs().max().max() < 0.25
+        assert 0 <= frame["RF"].iloc[-1] < 0.001
 
 
 def test_ewma_volatility(client: TestClient) -> None:
