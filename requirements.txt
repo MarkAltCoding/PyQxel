@@ -7,6 +7,13 @@ python-dotenv>=1.2.0
 requests>=2.34.0
 httpx>=0.28.1
 
+# --- Storage & Caching ---
+sqlalchemy[asyncio]>=2.1.0
+alembic>=1.20.0
+aiosqlite>=0.22.0
+redis>=8.1.0
+# asyncpg>=0.31.0  # uncomment to store backtests in Postgres
+
 # --- Financial Data & Market Interfaces ---
 yfinance>=1.7.0
 alpha_vantage>=3.0.0
@@ -41,5 +48,6 @@ seaborn>=0.13.2
 pytest>=9.1.0
 pytest-asyncio>=1.4.0
 pytest-cov>=6.0
+fakeredis>=2.39.0
 black>=26.5.0
 flake8>=7.4.0

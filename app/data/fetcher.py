@@ -5,6 +5,8 @@ worker thread with :func:`asyncio.to_thread` to keep the event loop free. When
 yfinance fails and ``FINANCIAL_DATA_API_KEY`` is set, ticker info falls back to
 Financial Modeling Prep over ``httpx``. Live quotes follow the same fallback and are
 cached for a few seconds, so connections polling the same symbol share one request.
+Ticker info and price history are cached in Redis when ``REDIS_URL`` is set, so
+workers and repeated requests share a provider call.
 
 Providers answer an unknown symbol with an empty result rather than an error, which
 is reported as :class:`SymbolNotFoundError`. Transport and rate-limit failures raise
@@ -12,6 +14,7 @@ inside the provider and are reported as the broader :class:`DataFetchError`.
 """
 
 import asyncio
+import json
 import logging
 import math
 import time
@@ -22,6 +25,7 @@ import httpx
 import pandas as pd
 import yfinance as yf
 
+from app.core.cache import cache_get, cache_set
 from app.core.config import get_settings
 from app.models.quote import Quote
 from app.models.stock import TickerInfo
@@ -34,6 +38,13 @@ HTTP_TIMEOUT_SECONDS: float = 10.0
 OHLCV_COLUMNS: list[str] = ["Open", "High", "Low", "Close", "Volume"]
 QUOTE_TTL_SECONDS: float = 5.0
 """How long a fetched quote is reused before the provider is asked again."""
+
+INFO_TTL_SECONDS: float = 300.0
+"""How long ticker info stays in the shared cache."""
+HISTORY_TTL_SECONDS: float = 300.0
+"""How long daily and longer bars stay in the shared cache; the last bar moves intraday."""
+INTRADAY_HISTORY_TTL_SECONDS: float = 60.0
+"""How long minute and hourly bars stay in the shared cache."""
 
 _quote_cache: dict[str, tuple[float, Quote]] = {}
 
@@ -110,6 +121,21 @@ async def fetch_ticker_info(symbol: str, client: httpx.AsyncClient | None = None
         DataFetchError: If every configured provider fails.
     """
     symbol = _normalize_symbol(symbol)
+    key = f"info:{symbol}"
+    cached = await cache_get(key)
+    if cached is not None:
+        try:
+            return TickerInfo.model_validate_json(cached)
+        except ValueError:
+            logger.warning("Ignoring unreadable cached info for %s.", symbol)
+
+    info = await _fetch_ticker_info_uncached(symbol, client)
+    await cache_set(key, info.model_dump_json(), INFO_TTL_SECONDS)
+    return info
+
+
+async def _fetch_ticker_info_uncached(symbol: str, client: httpx.AsyncClient | None) -> TickerInfo:
+    """Fetch ticker info from yfinance, falling back to FMP when a key is configured."""
     try:
         return await asyncio.to_thread(_yfinance_info, symbol)
     except Exception as exc:
@@ -148,6 +174,37 @@ def _clean_history(frame: pd.DataFrame) -> pd.DataFrame:
     return cleaned.dropna(subset=["Close"])
 
 
+def _history_to_json(frame: pd.DataFrame) -> str:
+    """Serialize a cleaned history frame, keeping its index's time zone."""
+    index = pd.DatetimeIndex(frame.index)
+    return json.dumps(
+        {
+            "tz": None if index.tz is None else str(index.tz),
+            "name": index.name,
+            "index": [timestamp.isoformat() for timestamp in index],
+            "columns": {column: frame[column].tolist() for column in frame.columns},
+        }
+    )
+
+
+def _history_from_json(text: str) -> pd.DataFrame:
+    """Rebuild a history frame serialized by :func:`_history_to_json`."""
+    payload: dict[str, Any] = json.loads(text)
+    tz: str | None = payload["tz"]
+    if tz is None:
+        index = pd.DatetimeIndex(pd.to_datetime(payload["index"]))
+    else:
+        index = pd.DatetimeIndex(pd.to_datetime(payload["index"], utc=True)).tz_convert(tz)
+    index.name = payload["name"]
+    return pd.DataFrame(payload["columns"], index=index, columns=OHLCV_COLUMNS)
+
+
+def _history_ttl(interval: str) -> float:
+    """Return how long bars of ``interval`` stay cached: minutes and hours expire sooner."""
+    intraday = interval.endswith(("m", "h")) and not interval.endswith("mo")
+    return INTRADAY_HISTORY_TTL_SECONDS if intraday else HISTORY_TTL_SECONDS
+
+
 async def fetch_price_history(
     symbol: str,
     period: str = "1y",
@@ -171,6 +228,14 @@ async def fetch_price_history(
         DataFetchError: If the request fails, or the symbol's existence cannot be checked.
     """
     symbol = _normalize_symbol(symbol)
+    key = f"history:{symbol}:{period}:{interval}"
+    cached = await cache_get(key)
+    if cached is not None:
+        try:
+            return _history_from_json(cached)
+        except (ValueError, KeyError, TypeError):
+            logger.warning("Ignoring unreadable cached history for %s.", symbol)
+
     try:
         raw = await asyncio.to_thread(_yfinance_history, symbol, period, interval)
     except Exception as exc:
@@ -181,7 +246,10 @@ async def fetch_price_history(
         # with no bars in the window, so ask for a quote to tell the two apart.
         await fetch_ticker_info(symbol)
         return pd.DataFrame(columns=OHLCV_COLUMNS, index=pd.DatetimeIndex([]), dtype=float)
-    return _clean_history(raw)
+    frame = _clean_history(raw)
+    if not frame.empty:
+        await cache_set(key, _history_to_json(frame), _history_ttl(interval))
+    return frame
 
 
 def _finite(value: object) -> float | None:

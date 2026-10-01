@@ -30,6 +30,8 @@ output/
 # them: `.lock` (flock), `.corrupt` (quarantined ledger), `.<rand>.tmp` (mkstemp atomic-write temp).
 data_cache/ai_ledger.json*
 data_cache/ai_rate_limits.json*
+# Default SQLite results database and its journal files.
+data_cache/pyqxel.db*
 
 # ── Streamlit ──
 .streamlit/secrets.toml

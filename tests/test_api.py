@@ -14,8 +14,10 @@ import pandas as pd
 import pytest
 from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
 from app.ai import agent
+from app.ai import cache as analysis_cache
 from app.ai.agent import (
     FALLBACK_BETA,
     AINotConfiguredError,
@@ -877,6 +879,136 @@ def test_backtest_maps_unknown_symbol_to_404(monkeypatch: pytest.MonkeyPatch) ->
     assert response.status_code == 404
 
 
+def _database_down(*args: object, **kwargs: object) -> object:
+    """Stand in for a storage call while the database is unreachable."""
+    raise OperationalError("SELECT 1", {}, ConnectionError("database is down"))
+
+
+def test_backtest_is_stored_and_read_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A run returns the ID it was stored under, and that ID returns the same result."""
+    _serve_backtest_history(monkeypatch, _trending_frame(2))
+
+    created = client.post(
+        "/api/v1/stocks/spy/backtest", json={"strategy": {"type": "buy_and_hold"}, "period": "2y"}
+    ).json()
+    stored = client.get(f"/api/v1/backtests/{created['id']}")
+
+    assert created["id"] is not None
+    assert created["saved_at"] is not None
+    assert stored.status_code == 200
+    assert stored.json() == created
+
+
+def test_stored_backtests_are_listed_and_filtered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The listing summarizes stored runs newest first and filters by symbol and strategy."""
+    _serve_backtest_history(monkeypatch, _trending_frame(5))
+    spy = client.post("/api/v1/stocks/SPY/backtest").json()
+    qqq = client.post(
+        "/api/v1/stocks/QQQ/backtest", json={"strategy": {"type": "buy_and_hold"}}
+    ).json()
+
+    everything = client.get("/api/v1/backtests").json()
+    only_spy = client.get("/api/v1/backtests", params={"symbol": "spy"}).json()
+    only_hold = client.get("/api/v1/backtests", params={"strategy": "buy_and_hold"}).json()
+
+    assert everything["total"] == 2
+    assert [item["id"] for item in everything["items"]] == [qqq["id"], spy["id"]]
+    assert everything["items"][1] == {
+        "id": spy["id"],
+        "saved_at": spy["saved_at"],
+        "symbol": "SPY",
+        "strategy": "sma_crossover",
+        "period": "5y",
+        "interval": "1d",
+        "total_return": spy["metrics"]["total_return"],
+        "sharpe_ratio": spy["metrics"]["sharpe_ratio"],
+        "max_drawdown": spy["metrics"]["max_drawdown"],
+        "benchmark_total_return": spy["benchmark"]["total_return"],
+    }
+    assert [item["id"] for item in only_spy["items"]] == [spy["id"]]
+    assert [item["id"] for item in only_hold["items"]] == [qqq["id"]]
+
+
+def test_stored_backtests_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``limit`` and ``offset`` page through results while ``total`` counts them all."""
+    _serve_backtest_history(monkeypatch, _trending_frame(2))
+    ids = [
+        client.post("/api/v1/stocks/SPY/backtest", json={"period": "2y"}).json()["id"]
+        for _ in range(3)
+    ]
+
+    page = client.get("/api/v1/backtests", params={"limit": 2, "offset": 1}).json()
+
+    assert page["total"] == 3
+    assert page["limit"] == 2 and page["offset"] == 1
+    assert [item["id"] for item in page["items"]] == ids[::-1][1:]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [{"limit": 0}, {"limit": 201}, {"offset": -1}, {"symbol": "BAD$"}, {"strategy": "momentum"}],
+)
+def test_backtest_listing_rejects_invalid_filters(params: dict[str, object]) -> None:
+    """Out-of-range pages, malformed symbols and unknown strategies fail validation."""
+    assert client.get("/api/v1/backtests", params=params).status_code == 422
+
+
+def test_unknown_backtest_is_404() -> None:
+    """IDs never stored are 404s, and IDs that are not UUIDs are 422s."""
+    missing = client.get("/api/v1/backtests/00000000-0000-4000-8000-000000000000")
+
+    assert missing.status_code == 404
+    assert client.get("/api/v1/backtests/not-a-uuid").status_code == 422
+
+
+def test_stored_backtest_is_deleted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deleting a stored run is a 204, after which it is gone and a second delete is a 404."""
+    _serve_backtest_history(monkeypatch, _trending_frame(2))
+    backtest_id = client.post("/api/v1/stocks/SPY/backtest", json={"period": "2y"}).json()["id"]
+
+    deleted = client.delete(f"/api/v1/backtests/{backtest_id}")
+
+    assert deleted.status_code == 204
+    assert deleted.content == b""
+    assert client.get(f"/api/v1/backtests/{backtest_id}").status_code == 404
+    assert client.delete(f"/api/v1/backtests/{backtest_id}").status_code == 404
+
+
+def test_backtest_is_returned_unsaved_when_the_database_is_down(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A database failure does not cost the caller the result, only its ID."""
+    _serve_backtest_history(monkeypatch, _trending_frame(2))
+    monkeypatch.setattr(backtest, "save_backtest", _database_down)
+
+    response = client.post("/api/v1/stocks/SPY/backtest", json={"period": "2y"})
+
+    assert response.status_code == 200
+    assert response.json()["id"] is None
+    assert response.json()["saved_at"] is None
+    assert response.json()["metrics"]["total_return"] is not None
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "target"),
+    [
+        ("GET", "/api/v1/backtests", "list_backtests"),
+        ("GET", "/api/v1/backtests/00000000-0000-4000-8000-000000000000", "get_backtest"),
+        ("DELETE", "/api/v1/backtests/00000000-0000-4000-8000-000000000000", "delete_backtest"),
+    ],
+)
+def test_stored_backtest_routes_map_database_failure_to_503(
+    monkeypatch: pytest.MonkeyPatch, method: str, path: str, target: str
+) -> None:
+    """Reading or deleting stored runs while the database is down is a 503."""
+    monkeypatch.setattr(backtest, target, _database_down)
+
+    response = client.request(method, path)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "The backtest database is unavailable."}
+
+
 def _serve_stream(
     monkeypatch: pytest.MonkeyPatch,
     items: list[AnalysisDelta | ModelFallback | WrittenReport],
@@ -1186,3 +1318,163 @@ def test_replayed_refusal_without_fallback_is_an_error_event(
     error = events_out[-1][1]
     assert error["status"] == 422
     assert "cyber" in error["detail"]
+
+
+def _count_history_fetches(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Wrap the research route's (already faked) price fetch to record its calls."""
+    calls: list[str] = []
+    fetch = research.fetch_price_history
+
+    async def counting(symbol: str, period: str, interval: str) -> pd.DataFrame:
+        calls.append(symbol)
+        return await fetch(symbol, period, interval)
+
+    monkeypatch.setattr(research, "fetch_price_history", counting)
+    return calls
+
+
+def test_repeated_analysis_is_served_from_the_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The same request again reuses the stored report without fetching data or asking Claude.
+
+    Redis is off in tests, so this shows reuse needs only the database.
+    """
+    calls = _serve_analysis(
+        monkeypatch, TickerInfo(symbol="AAPL", source="t"), _recent_frame(), THESIS
+    )
+    fetches = _count_history_fetches(monkeypatch)
+
+    first = client.post("/api/v1/stocks/AAPL/analysis", json={"period": "1y"}).json()
+    second = client.post("/api/v1/stocks/aapl/analysis", json={"period": "1y"}).json()
+
+    assert len(calls) == 1
+    assert len(fetches) == 1
+    assert first["cached"] is False
+    assert first["id"] is not None
+    assert second["cached"] is True
+    assert {**second, "cached": False} == first
+
+
+def test_analysis_cache_respects_options_and_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Another kind of report, or ``refresh``, has Claude write a new one."""
+    calls = _serve_analysis(
+        monkeypatch, TickerInfo(symbol="AAPL", source="t"), _recent_frame(), THESIS
+    )
+
+    client.post("/api/v1/stocks/AAPL/analysis", json={"kind": "thesis"})
+    client.post("/api/v1/stocks/AAPL/analysis", json={"kind": "risk"})
+    refreshed = client.post(
+        "/api/v1/stocks/AAPL/analysis", json={"kind": "thesis", "refresh": True}
+    )
+    reused = client.post("/api/v1/stocks/AAPL/analysis", json={"kind": "thesis"})
+
+    assert [kind for _, kind, _ in calls] == ["thesis", "risk", "thesis"]
+    assert refreshed.json()["cached"] is False
+    assert reused.json()["cached"] is True
+    assert reused.json()["generated_at"] == refreshed.json()["generated_at"]
+
+
+def test_failed_analysis_is_not_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    """After an AI failure, the next request asks Claude again."""
+    calls = _serve_analysis(
+        monkeypatch,
+        TickerInfo(symbol="AAPL", source="t"),
+        _recent_frame(),
+        AIUnavailableError("Claude is overloaded."),
+    )
+
+    assert client.post("/api/v1/stocks/AAPL/analysis").status_code == 502
+    assert client.post("/api/v1/stocks/AAPL/analysis").status_code == 502
+    assert len(calls) == 2
+
+
+def test_streamed_analysis_is_cached_for_both_routes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A streamed report is reused by the streaming and non-streaming routes alike."""
+    calls = _serve_stream(monkeypatch, [WrittenReport(report=THESIS, model="claude-opus-5-5")])
+
+    streamed = _sse_events(client.post("/api/v1/stocks/AAPL/analysis/stream").text)
+    restreamed = _sse_events(client.post("/api/v1/stocks/AAPL/analysis/stream").text)
+    fetched = client.post("/api/v1/stocks/AAPL/analysis").json()
+
+    assert len(calls) == 1
+    assert [name for name, _ in restreamed] == ["context", "result"]
+    assert restreamed[0][1] == streamed[0][1]
+    assert restreamed[1][1] == {**streamed[-1][1], "cached": True}  # type: ignore[dict-item]
+    assert fetched == restreamed[1][1]
+
+
+def test_stored_analyses_are_listed_and_read_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every report written is kept, listed by headline, and readable in full by ID."""
+    _serve_analysis(monkeypatch, TickerInfo(symbol="AAPL", source="t"), _recent_frame(), THESIS)
+    thesis = client.post("/api/v1/stocks/AAPL/analysis", json={"kind": "thesis"}).json()
+    risk = client.post("/api/v1/stocks/AAPL/analysis", json={"kind": "risk"}).json()
+
+    listing = client.get("/api/v1/analyses").json()
+    theses = client.get("/api/v1/analyses", params={"kind": "thesis", "symbol": "aapl"}).json()
+    full = client.get(f"/api/v1/analyses/{thesis['id']}")
+
+    assert listing["total"] == 2
+    assert [item["id"] for item in listing["items"]] == [risk["id"], thesis["id"]]
+    assert listing["items"][1] == {
+        "id": thesis["id"],
+        "generated_at": thesis["generated_at"],
+        "symbol": "AAPL",
+        "kind": "thesis",
+        "period": "1y",
+        "include_filings": True,
+        "model": "claude-opus-5-5",
+        "headline": THESIS.headline,
+    }
+    assert [item["id"] for item in theses["items"]] == [thesis["id"]]
+    assert full.status_code == 200
+    assert full.json() == thesis
+
+
+def test_unknown_analysis_is_404() -> None:
+    """IDs never stored are 404s, and IDs that are not UUIDs are 422s."""
+    missing = client.get("/api/v1/analyses/00000000-0000-4000-8000-000000000000")
+
+    assert missing.status_code == 404
+    assert client.get("/api/v1/analyses/not-a-uuid").status_code == 422
+
+
+@pytest.mark.parametrize(
+    "params", [{"limit": 0}, {"offset": -1}, {"symbol": "BAD$"}, {"kind": "memo"}]
+)
+def test_analysis_listing_rejects_invalid_filters(params: dict[str, object]) -> None:
+    """Out-of-range pages, malformed symbols and unknown kinds fail validation."""
+    assert client.get("/api/v1/analyses", params=params).status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("path", "target"),
+    [
+        ("/api/v1/analyses", "list_analyses"),
+        ("/api/v1/analyses/00000000-0000-4000-8000-000000000000", "get_analysis"),
+    ],
+)
+def test_analysis_history_maps_database_failure_to_503(
+    monkeypatch: pytest.MonkeyPatch, path: str, target: str
+) -> None:
+    """Reading stored analyses while the database is down is a 503."""
+    monkeypatch.setattr(research, target, _database_down)
+
+    response = client.get(path)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "The analysis database is unavailable."}
+
+
+def test_analysis_is_written_when_the_database_is_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A database outage costs reuse and history, never the report itself."""
+    calls = _serve_analysis(
+        monkeypatch, TickerInfo(symbol="AAPL", source="t"), _recent_frame(), THESIS
+    )
+    monkeypatch.setattr(analysis_cache, "find_recent_analysis", _database_down)
+    monkeypatch.setattr(analysis_cache, "save_analysis", _database_down)
+
+    first = client.post("/api/v1/stocks/AAPL/analysis")
+    second = client.post("/api/v1/stocks/AAPL/analysis")
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["id"] is None
+    assert len(calls) == 2
