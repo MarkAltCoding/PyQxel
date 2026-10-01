@@ -1,15 +1,26 @@
-"""Multi-asset routes: how a set of assets moves together."""
+"""Multi-asset routes: how a set of assets moves together, and simulated portfolio outcomes."""
 
 import asyncio
+import logging
 from typing import Annotated
+from uuid import UUID
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoints.stocks import COVERAGE_TOLERANCE, PERIOD_OFFSETS, upstream_error
 from app.data.fetcher import DataFetchError
 from app.data.panel import fetch_close_panel
+from app.db.session import get_session
+from app.db.simulations import (
+    delete_simulation,
+    get_simulation,
+    list_simulations,
+    save_simulation,
+)
 from app.models.portfolio import (
     CopulaFitResponse,
     CopulaRequest,
@@ -19,11 +30,26 @@ from app.models.portfolio import (
     PortfolioPeriod,
     StudentTCopula,
 )
+from app.models.simulation import SimulationList, SimulationRequest, SimulationResponse
+from app.models.stock import SYMBOL_PATTERN
 from app.stats.copulas import CopulaFit, asynchronous_trading_warning, fit_copulas
+from app.stats.monte_carlo import SimulationError, simulate_portfolio
 from app.stats.panel import ReturnPanel, return_panel
 from app.stats.volatility import InsufficientDataError
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+Session = Annotated[AsyncSession, Depends(get_session)]
+
+MAX_CONCURRENT_SIMULATIONS: int = 2
+"""Simulations computed at once; each occupies a CPU core for up to a few seconds."""
+
+SIMULATION_QUEUE_SECONDS: float = 30.0
+"""How long a simulation waits for a free slot before the request is turned away."""
+
+_simulation_slots = asyncio.Semaphore(MAX_CONCURRENT_SIMULATIONS)
 
 STRONG_AIC_DIFFERENCE: float = 10.0
 """AIC gap below which neither copula is clearly better."""
@@ -131,8 +157,32 @@ async def create_copula_fit(request: Annotated[CopulaRequest, Body()]) -> Copula
     Matrices are rows in the order of ``symbols``. Returns 404 naming unknown symbols, 422
     when the assets share too little history, and 502 when the price provider fails.
     """
+    panel, closes, timezones = await _load_returns(request.symbols, request.period)
+    fit = await asyncio.to_thread(fit_copulas, panel.returns)
+    return _response(
+        fit,
+        panel,
+        request.period,
+        _warnings(fit, timezones),
+        _window_notice(panel, closes, request.period),
+    )
+
+
+def _database_error(exc: SQLAlchemyError) -> HTTPException:
+    """Log a database failure and translate it into a 503."""
+    logger.error("Simulation database request failed: %s", exc)
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="The simulation database is unavailable.",
+    )
+
+
+async def _load_returns(
+    symbols: list[str], period: PortfolioPeriod
+) -> tuple[ReturnPanel, pd.DataFrame, dict[str, str | None]]:
+    """Download closes and align them into returns, translating failures to HTTP errors."""
     try:
-        prices = await fetch_close_panel(request.symbols, period=request.period, interval="1d")
+        prices = await fetch_close_panel(symbols, period=period, interval="1d")
     except DataFetchError as exc:
         raise upstream_error(exc) from exc
     try:
@@ -141,12 +191,143 @@ async def create_copula_fit(request: Annotated[CopulaRequest, Body()]) -> Copula
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
+    return panel, prices.closes, prices.timezones
 
-    fit = await asyncio.to_thread(fit_copulas, panel.returns)
-    return _response(
-        fit,
-        panel,
-        request.period,
-        _warnings(fit, prices.timezones),
-        _window_notice(panel, prices.closes, request.period),
+
+@router.post(
+    "/simulate",
+    response_model=SimulationResponse,
+    summary="Monte Carlo simulation of a portfolio's value",
+)
+async def create_simulation(
+    request: Annotated[SimulationRequest, Body()], session: Session
+) -> SimulationResponse:
+    """Simulate a daily-rebalanced portfolio ``horizon`` trading days ahead.
+
+    Daily returns over ``period`` are aligned on the days every holding traded. Each
+    simulated day draws how the holdings move together from a ``student_t`` or
+    ``gaussian`` copula fitted to them, or from resampled historical days
+    (``empirical``), and each holding's own return from its history or a fitted Student
+    t. Returns the distribution of final value, expected return, probability of loss,
+    VaR and CVaR at 95% and 99%, maximum drawdowns, daily percentiles for a fan chart,
+    and ``tail_checks`` comparing how often holdings crash together in the simulation
+    with history. Pass ``seed`` from a previous result to reproduce it.
+
+    The result is stored and its ``id`` returned for ``GET /portfolio/simulations/{id}``;
+    if the database is unavailable it is still returned, with a null ``id``.
+
+    Returns 404 naming unknown symbols, 422 for invalid or oversized settings or too
+    little shared history, 502 when the price provider fails, and 503 when the server is
+    busy with other simulations.
+    """
+    panel, closes, timezones = await _load_returns(request.symbols, request.period)
+    try:
+        await asyncio.wait_for(_simulation_slots.acquire(), SIMULATION_QUEUE_SECONDS)
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The server is busy with other simulations; try again shortly.",
+            headers={"Retry-After": "10"},
+        ) from exc
+    try:
+        summary = await asyncio.to_thread(
+            simulate_portfolio,
+            panel.returns,
+            request.weights,
+            horizon=request.horizon,
+            paths=request.paths,
+            dependence=request.dependence,
+            marginals=request.marginals,
+            initial_value=request.initial_value,
+            seed=request.seed,
+        )
+    except SimulationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    finally:
+        _simulation_slots.release()
+
+    if asynchronous := asynchronous_trading_warning(timezones):
+        summary.warnings.append(asynchronous)
+    response = SimulationResponse(
+        holdings=request.holdings,
+        period=request.period,
+        start=panel.returns.index[0].date(),
+        end=panel.returns.index[-1].date(),
+        observations=panel.observations,
+        excluded_dates=panel.excluded_dates,
+        simulation=summary,
+        notice=_window_notice(panel, closes, request.period),
     )
+    try:
+        return await save_simulation(session, response)
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        logger.error("Could not store the simulation: %s", exc)
+        return response
+
+
+@router.get("/simulations", response_model=SimulationList, summary="List stored simulations")
+async def read_simulations(
+    session: Session,
+    symbol: Annotated[
+        str | None,
+        Query(pattern=SYMBOL_PATTERN, description="Only simulations holding this symbol."),
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> SimulationList:
+    """Return stored simulations' headline figures, newest first.
+
+    Returns 503 when the database is unavailable.
+    """
+    try:
+        return await list_simulations(session, symbol, limit, offset)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+
+
+@router.get(
+    "/simulations/{simulation_id}",
+    response_model=SimulationResponse,
+    summary="A stored simulation in full",
+)
+async def read_simulation(simulation_id: UUID, session: Session) -> SimulationResponse:
+    """Return a stored simulation with its distributions and fan chart.
+
+    Returns 404 for unknown IDs and 503 when the database is unavailable.
+    """
+    try:
+        result = await get_simulation(session, simulation_id)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No simulation with ID {simulation_id}.",
+        )
+    return result
+
+
+@router.delete(
+    "/simulations/{simulation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Delete a stored simulation",
+)
+async def remove_simulation(simulation_id: UUID, session: Session) -> Response:
+    """Delete a stored simulation.
+
+    Returns 404 for unknown IDs and 503 when the database is unavailable.
+    """
+    try:
+        deleted = await delete_simulation(session, simulation_id)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No simulation with ID {simulation_id}.",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -1,8 +1,23 @@
 """Schemas for Monte Carlo portfolio simulations and their results."""
 
-from typing import Literal
+from datetime import date, datetime
+from typing import Literal, Self
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from app.models.portfolio import Holding, Portfolio, PortfolioPeriod
+
+MAX_HORIZON_DAYS: int = 1_260
+"""Longest horizon, five years of trading days."""
+
+MAX_PATHS: int = 100_000
+
+MAX_PATH_DAYS: int = 2_600_000
+"""Most paths x horizon one simulation may run."""
+
+MAX_DRAWS: int = 15_000_000
+"""Most paths x horizon x assets one simulation may draw."""
 
 DependenceModel = Literal["gaussian", "student_t", "empirical"]
 """How simulated assets move together: a Gaussian or Student t copula fitted to the
@@ -116,3 +131,94 @@ class SimulationSummary(BaseModel):
     marginal_fits: list[MarginalFit]
     tail_checks: list[TailCheck]
     warnings: list[str] = Field(default_factory=list)
+
+
+class SimulationRequest(Portfolio):
+    """A portfolio and how to simulate it."""
+
+    period: PortfolioPeriod = Field(
+        default="5y", description="History of daily returns the simulation is fitted on."
+    )
+    horizon: int = Field(
+        default=21, ge=1, le=MAX_HORIZON_DAYS, description="Trading days ahead to simulate."
+    )
+    paths: int = Field(default=10_000, ge=100, le=MAX_PATHS)
+    dependence: DependenceModel = Field(
+        default="student_t",
+        description="``student_t`` or ``gaussian`` copula, or ``empirical`` (resampled "
+        "historical days, which keeps each pair's own joint-crash behavior).",
+    )
+    marginals: MarginalModel = Field(
+        default="empirical",
+        description="Each asset's returns from its history, or from a fitted Student t.",
+    )
+    initial_value: float = Field(default=10_000.0, gt=0, le=1e12)
+    seed: int | None = Field(
+        default=None, ge=0, lt=2**32, description="Reproduces a previous run's paths."
+    )
+
+    @model_validator(mode="after")
+    def _within_limits(self) -> Self:
+        """Reject runs too large to simulate in one request."""
+        path_days = self.paths * self.horizon
+        if path_days > MAX_PATH_DAYS:
+            raise ValueError(
+                f"paths x horizon is {path_days:,}; at most {MAX_PATH_DAYS:,} are allowed."
+            )
+        draws = path_days * len(self.holdings)
+        if draws > MAX_DRAWS:
+            raise ValueError(
+                f"paths x horizon x assets is {draws:,}; at most {MAX_DRAWS:,} are allowed. "
+                "Use fewer paths, a shorter horizon or fewer assets."
+            )
+        return self
+
+
+class SimulationResponse(BaseModel):
+    """A portfolio simulation, the history it was fitted on, and where it is stored."""
+
+    id: UUID | None = Field(
+        default=None,
+        description="ID of the stored result, for GET /portfolio/simulations/{id}; null if "
+        "it could not be saved.",
+    )
+    saved_at: datetime | None = None
+    holdings: list[Holding]
+    period: PortfolioPeriod
+    start: date = Field(description="First day of the history the simulation is fitted on.")
+    end: date = Field(description="Last day of that history.")
+    observations: int = Field(ge=1, description="Days on which every asset has a return.")
+    excluded_dates: int = Field(
+        ge=0, description="Dates some assets traded but not all, left out of the history."
+    )
+    simulation: SimulationSummary
+    notice: str | None = None
+    disclaimer: str = (
+        "Simulated from historical returns, which assume the future resembles the fitted "
+        "window. Not investment advice."
+    )
+
+
+class SimulationOverview(BaseModel):
+    """A stored simulation's headline figures, without its distributions and fan chart."""
+
+    id: UUID
+    saved_at: datetime
+    symbols: list[str]
+    horizon: int
+    paths: int
+    dependence: DependenceModel
+    marginals: MarginalModel
+    expected_return: float
+    probability_of_loss: float
+    value_at_risk_95: float
+    conditional_value_at_risk_95: float
+
+
+class SimulationList(BaseModel):
+    """One page of stored simulations, newest first."""
+
+    items: list[SimulationOverview]
+    total: int = Field(ge=0, description="Stored simulations matching the filters, on any page.")
+    limit: int
+    offset: int

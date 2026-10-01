@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, Index, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -71,4 +71,27 @@ class AnalysisRecord(Base):
     effort: Mapped[str] = mapped_column(String(16))
     model: Mapped[str] = mapped_column(String(64))
     headline: Mapped[str] = mapped_column(Text)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+
+class SimulationRecord(Base):
+    """One stored Monte Carlo simulation.
+
+    ``symbols`` holds the portfolio's symbols as ``,A,B,`` so one can be matched with a
+    portable ``LIKE``. The full response is kept as JSON in ``result``.
+    """
+
+    __tablename__ = "simulations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    symbols: Mapped[str] = mapped_column(Text)
+    horizon: Mapped[int] = mapped_column(Integer)
+    paths: Mapped[int] = mapped_column(Integer)
+    dependence: Mapped[str] = mapped_column(String(16))
+    marginals: Mapped[str] = mapped_column(String(16))
+    expected_return: Mapped[float] = mapped_column(Float)
+    probability_of_loss: Mapped[float] = mapped_column(Float)
+    value_at_risk_95: Mapped[float] = mapped_column(Float)
+    conditional_value_at_risk_95: Mapped[float] = mapped_column(Float)
     result: Mapped[dict[str, Any]] = mapped_column(JSON)
