@@ -6,16 +6,23 @@ requests and run only with ``--paid``. Everything else is offline.
 
 Every test gets an empty in-memory results database and runs with the Redis cache
 off, whatever ``.env`` configures; tests that need a cache install a fake one.
+``DATABASE_URL`` is also forced to an in-memory database before anything is imported,
+so an app started outside a test's own setup, such as a module-scoped client, cannot
+open or migrate the real database either.
 """
 
 import asyncio
+import os
 from collections.abc import Iterator
 
 import pytest
 
-from app.core.cache import configure_cache
-from app.data.factors import clear_factor_memory
-from app.db.session import close_database, configure_database, init_db
+# Settings read the environment before .env, so this wins over both.
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite://"
+
+from app.core.cache import configure_cache  # noqa: E402
+from app.data.factors import clear_factor_memory  # noqa: E402
+from app.db.session import close_database, configure_database, init_db  # noqa: E402
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

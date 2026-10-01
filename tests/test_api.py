@@ -10,6 +10,7 @@ from datetime import date
 from typing import Any
 
 import httpx2
+import numpy as np
 import pandas as pd
 import pytest
 from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
@@ -496,12 +497,23 @@ def _serve_analysis(
     frame: pd.DataFrame | Exception,
     report: InvestmentThesis | RiskSummary | Exception,
     filings: list[Filing] | Exception | None = None,
+    factors: pd.DataFrame | Exception | None = None,
 ) -> list[AnalysisCall]:
     """Fake the fetchers and the research agent; return the agent's recorded calls.
 
-    The EDGAR fetch returns ``filings``, or no filings when omitted.
+    The EDGAR fetch returns ``filings``, or no filings when omitted. The factor fetch
+    returns ``factors``, or by default factors on every date of ``frame``.
     """
     calls: list[AnalysisCall] = []
+
+    async def fake_factors(model: str) -> pd.DataFrame:
+        assert model == "carhart4"
+        if isinstance(factors, Exception):
+            raise factors
+        if factors is not None:
+            return factors
+        dates = frame.index if isinstance(frame, pd.DataFrame) else pd.DatetimeIndex([])
+        return _factor_table(pd.DatetimeIndex(dates))
 
     async def fake_info(symbol: str) -> TickerInfo:
         if isinstance(info, Exception):
@@ -530,8 +542,19 @@ def _serve_analysis(
     monkeypatch.setattr(research, "fetch_ticker_info", fake_info)
     monkeypatch.setattr(research, "fetch_price_history", fake_history)
     monkeypatch.setattr(research, "fetch_latest_filings", fake_filings)
+    monkeypatch.setattr(research, "fetch_factors", fake_factors)
     monkeypatch.setattr(research, "write_analysis", fake_write)
     return calls
+
+
+def _factor_table(dates: pd.DatetimeIndex) -> pd.DataFrame:
+    """Carhart factor returns and RF on ``dates``, without time zone."""
+    rng = np.random.default_rng(0)
+    index = pd.DatetimeIndex(dates).normalize()
+    columns = ["Mkt-RF", "SMB", "HML", "Mom"]
+    table = pd.DataFrame(rng.normal(0, 0.01, (len(index), 4)), index=index, columns=columns)
+    table["RF"] = 0.0001
+    return table
 
 
 def _filing(form: str = "10-K", truncated: bool = False, sections: bool = True) -> Filing:
@@ -1478,3 +1501,48 @@ def test_analysis_is_written_when_the_database_is_down(monkeypatch: pytest.Monke
     assert first.status_code == second.status_code == 200
     assert first.json()["id"] is None
     assert len(calls) == 2
+
+
+def test_analysis_context_carries_factor_exposures(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Carhart exposures estimated over the window are given to the model."""
+    calls = _serve_analysis(
+        monkeypatch, TickerInfo(symbol="AAPL", source="t"), _recent_frame(), THESIS
+    )
+
+    response = client.post("/api/v1/stocks/AAPL/analysis", json={"include_filings": False})
+
+    assert response.status_code == 200
+    factors = response.json()["context"]["factors"]
+    assert factors["model"] == "carhart4"
+    assert [e["factor"] for e in factors["fit"]["exposures"]] == ["Mkt-RF", "SMB", "HML", "Mom"]
+    context, _, _ = calls[0]
+    assert context.factors is not None
+    assert context.factors.factor_data_end == _recent_frame().index[-1].date()
+    assert context.notice is None
+
+
+@pytest.mark.parametrize(
+    ("factors", "notice"),
+    [
+        (DataFetchError("library down"), "factor data could not be fetched"),
+        (_factor_table(pd.bdate_range("2020-01-01", periods=50)), "too few days of the window"),
+    ],
+)
+def test_analysis_without_factor_exposures_degrades_with_notice(
+    monkeypatch: pytest.MonkeyPatch, factors: object, notice: str
+) -> None:
+    """Missing or non-overlapping factor data leaves exposures out, with a notice."""
+    calls = _serve_analysis(
+        monkeypatch,
+        TickerInfo(symbol="AAPL", source="t"),
+        _recent_frame(),
+        THESIS,
+        factors=factors,  # type: ignore[arg-type]
+    )
+
+    response = client.post("/api/v1/stocks/AAPL/analysis")
+
+    assert response.status_code == 200
+    context, _, _ = calls[0]
+    assert context.factors is None
+    assert context.notice is not None and notice in context.notice

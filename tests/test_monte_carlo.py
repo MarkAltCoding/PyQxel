@@ -93,6 +93,67 @@ def test_weights_are_reset_every_day(monkeypatch: pytest.MonkeyPatch) -> None:
     assert all(point.p50 == pytest.approx(1_000) for point in summary.fan_chart)
 
 
+def test_buy_and_hold_lets_weights_drift(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Held without rebalancing, the winner grows to dominate and the value follows it.
+
+    One asset gains and the other loses 10% a day, so after ten days the 50/50 portfolio
+    is worth half of 1.1^10 plus half of 0.9^10, mostly the winner.
+    """
+    history = pd.DataFrame({"UP": [0.10, 0.10, 0.10], "DOWN": [-0.10, -0.10, -0.10]})
+    monkeypatch.setattr(
+        monte_carlo,
+        "_draw_uniforms",
+        lambda rng, count, dependence, copula, history: np.full((count, 2), 0.5),
+    )
+
+    summary = simulate_portfolio(
+        history,
+        {"UP": 0.5, "DOWN": 0.5},
+        horizon=10,
+        paths=4,
+        dependence="empirical",
+        initial_value=1_000,
+        rebalancing="none",
+    )
+
+    up, down = 0.5 * 1.1**10, 0.5 * 0.9**10
+    assert summary.rebalancing == "none"
+    assert summary.terminal_value.mean == pytest.approx(1_000 * (up + down))
+    assert summary.fan_chart[1].p50 == pytest.approx(1_000 * (0.5 * 1.1 + 0.5 * 0.9))
+    assert summary.mean_final_weights is not None
+    assert [(w.symbol, w.weight) for w in summary.mean_final_weights] == [
+        ("UP", pytest.approx(up / (up + down))),
+        ("DOWN", pytest.approx(down / (up + down))),
+    ]
+
+
+def test_rebalancing_choice_does_not_matter_for_one_asset() -> None:
+    """A single holding has nothing to rebalance, so both choices give the same paths."""
+    history = _normal_history()[["A"]]
+    args: dict[str, Any] = {"weights": {"A": 1.0}, "horizon": 21, "paths": 1_000, "seed": 20}
+
+    daily = simulate_portfolio(history, rebalancing="daily", **args)
+    held = simulate_portfolio(history, rebalancing="none", **args)
+
+    assert held.terminal_value == daily.terminal_value
+    assert held.max_drawdown == daily.max_drawdown
+    assert daily.mean_final_weights is None
+    assert held.mean_final_weights is not None and held.mean_final_weights[0].weight == 1.0
+
+
+def test_buy_and_hold_differs_from_rebalancing_over_long_horizons() -> None:
+    """Over a year, drifting weights change the distribution of outcomes."""
+    history = _normal_history()
+    args: dict[str, Any] = {"weights": {"A": 0.5, "B": 0.5}, "horizon": 252, "paths": 2_000}
+
+    daily = simulate_portfolio(history, rebalancing="daily", seed=21, **args)
+    held = simulate_portfolio(history, rebalancing="none", seed=21, **args)
+
+    assert held.terminal_return.std != pytest.approx(daily.terminal_return.std, rel=1e-3)
+    assert held.mean_final_weights is not None
+    assert sum(w.weight for w in held.mean_final_weights) == pytest.approx(1.0)
+
+
 def test_seed_reproduces_paths_and_is_reported() -> None:
     """The same seed gives the same result; without one, the seed used is returned."""
     history = _normal_history(500)

@@ -25,6 +25,7 @@ def _listing(record: SimulationRecord) -> SimulationOverview:
         paths=record.paths,
         dependence=record.dependence,  # type: ignore[arg-type]
         marginals=record.marginals,  # type: ignore[arg-type]
+        rebalancing=record.rebalancing,  # type: ignore[arg-type]
         expected_return=record.expected_return,
         probability_of_loss=record.probability_of_loss,
         value_at_risk_95=record.value_at_risk_95,
@@ -51,6 +52,7 @@ async def save_simulation(session: AsyncSession, result: SimulationResponse) -> 
             paths=summary.paths,
             dependence=summary.dependence,
             marginals=summary.marginals,
+            rebalancing=summary.rebalancing,
             expected_return=summary.expected_return,
             probability_of_loss=summary.probability_of_loss,
             value_at_risk_95=at_95.value_at_risk,

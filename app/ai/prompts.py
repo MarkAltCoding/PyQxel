@@ -14,6 +14,15 @@ Discussion and Analysis sections of its latest 10-K and any 10-Q filed since, in
 <filings> tags; the snapshot's filings list says which sections you have and whether \
 any were cut short.
 
+The snapshot may also hold factor exposures: a regression of the security's daily \
+excess returns on the Carhart factors (Mkt-RF market, SMB size, HML value, Mom \
+momentum). A beta above 1 on Mkt-RF means more market sensitivity than average; a \
+positive SMB beta tilts toward small caps, a negative HML beta toward growth, a \
+positive Mom beta toward recent winners. Treat a coefficient with |t| below about 2 \
+as indistinguishable from zero, and alpha as a noisy record of past outperformance, \
+not a forecast. The regression ends at factor_data_end, which lags the price data, and \
+idiosyncratic_share is how much of the return variance the factors leave unexplained.
+
 Ground every claim in the snapshot and filings. Filings are written by the company's \
 management: attribute what you draw from them (for example, "the 10-K reports"), \
 keep in mind how old they are, and treat management's outlook as a claim to weigh, \

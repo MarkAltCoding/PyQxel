@@ -29,6 +29,18 @@ MarginalModel = Literal["empirical", "student_t"]
 Student t distribution fitted to them, which can exceed the worst day on record."""
 
 
+Rebalancing = Literal["daily", "none"]
+"""``daily``: reset to the target weights every day. ``none``: buy once and hold, so
+weights drift with each holding's performance."""
+
+
+class FinalWeight(BaseModel):
+    """A holding's average weight at the horizon, after drifting from its target."""
+
+    symbol: str
+    weight: float = Field(ge=0, le=1)
+
+
 class Percentile(BaseModel):
     """A value below which ``percentile`` percent of simulated outcomes fall."""
 
@@ -103,7 +115,7 @@ class TailCheck(BaseModel):
 
 
 class SimulationSummary(BaseModel):
-    """Distribution of a daily-rebalanced portfolio's value over a simulated horizon.
+    """Distribution of a portfolio's value over a simulated horizon.
 
     Returns are decimals over the whole horizon (0.05 = 5%); values are in the units of
     ``initial_value``.
@@ -114,6 +126,12 @@ class SimulationSummary(BaseModel):
     initial_value: float = Field(gt=0)
     dependence: DependenceModel
     marginals: MarginalModel
+    rebalancing: Rebalancing = "daily"
+    mean_final_weights: list[FinalWeight] | None = Field(
+        default=None,
+        description="Buy-and-hold only: each holding's weight at the horizon, averaged "
+        "over paths, showing how far the mix drifted from its targets.",
+    )
     copula_degrees_of_freedom: float | None = Field(
         default=None, description="Of the Student t copula; null for other dependence models."
     )
@@ -151,6 +169,11 @@ class SimulationRequest(Portfolio):
     marginals: MarginalModel = Field(
         default="empirical",
         description="Each asset's returns from its history, or from a fitted Student t.",
+    )
+    rebalancing: Rebalancing = Field(
+        default="daily",
+        description="``daily`` resets to the target weights every day; ``none`` buys once "
+        "and holds, so weights drift.",
     )
     initial_value: float = Field(default=10_000.0, gt=0, le=1e12)
     seed: int | None = Field(
@@ -209,6 +232,7 @@ class SimulationOverview(BaseModel):
     paths: int
     dependence: DependenceModel
     marginals: MarginalModel
+    rebalancing: Rebalancing
     expected_return: float
     probability_of_loss: float
     value_at_risk_95: float

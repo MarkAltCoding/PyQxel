@@ -12,9 +12,11 @@ Each simulated day is drawn in two parts:
    interpolated quantiles of its historical returns, or a Student t fitted to them.
    With empirical marginals no day is worse than the worst on record; the t can be.
 
-Days are independent and the portfolio is rebalanced to its target weights every day,
-so its daily return is the weighted sum of its assets'. Paths are simulated in batches
-to bound memory, and a seed reproduces them exactly.
+Days are independent. With ``daily`` rebalancing the portfolio is reset to its target
+weights every day, so its daily return is the weighted sum of its assets'. With
+``none`` (buy-and-hold) it is bought once at the target weights and each holding then
+grows on its own, so weights drift toward whatever has done well. Paths are simulated
+in batches to bound memory, and a seed reproduces them exactly.
 """
 
 import math
@@ -29,10 +31,12 @@ from app.models.simulation import (
     MAX_PATH_DAYS,
     DependenceModel,
     Distribution,
+    FinalWeight,
     FanPoint,
     MarginalFit,
     MarginalModel,
     Percentile,
+    Rebalancing,
     RiskMeasure,
     SimulationSummary,
     TailCheck,
@@ -233,8 +237,9 @@ def simulate_portfolio(
     initial_value: float = 1.0,
     seed: int | None = None,
     copula: CopulaFit | None = None,
+    rebalancing: Rebalancing = "daily",
 ) -> SimulationSummary:
-    """Simulate a daily-rebalanced portfolio's value ``horizon`` trading days ahead.
+    """Simulate a portfolio's value ``horizon`` trading days ahead.
 
     Args:
         returns: Aligned simple daily returns, one column per asset, as built by
@@ -247,6 +252,8 @@ def simulate_portfolio(
         initial_value: Portfolio value at day 0.
         seed: Seed for the random generator; one is chosen and reported when omitted.
         copula: Copulas already fitted to ``returns``; fitted here when omitted.
+        rebalancing: ``"daily"`` to reset to the target weights every day, or ``"none"``
+            to buy once and hold, letting weights drift.
 
     Returns:
         The distribution of terminal value and return, expected return, probability of
@@ -286,7 +293,8 @@ def simulate_portfolio(
         seed = int(np.random.SeedSequence().entropy % 2**32)
     rng = np.random.default_rng(seed)
 
-    portfolio = np.empty((paths, horizon))
+    growth = np.empty((paths, horizon))
+    final_weights = np.zeros(dimension)
     tail_sample: list[np.ndarray] = []
     kept = 0
     batch = max(1, BATCH_DRAWS // (horizon * dimension))
@@ -296,13 +304,20 @@ def simulate_portfolio(
         draws = np.column_stack(
             [fitted[column].quantiles(uniforms[:, column]) for column in range(dimension)]
         )
-        portfolio[start : start + size] = (draws @ weight_vector).reshape(size, horizon)
+        assets = draws.reshape(size, horizon, dimension)
+        if rebalancing == "daily":
+            growth[start : start + size] = np.cumprod(1.0 + assets @ weight_vector, axis=1)
+        else:
+            holdings = np.cumprod(1.0 + assets, axis=1) * weight_vector
+            growth[start : start + size] = holdings.sum(axis=2)
+            final_weights += (holdings[:, -1] / holdings[:, -1].sum(axis=1, keepdims=True)).sum(
+                axis=0
+            )
         if kept < TAIL_SAMPLE_DAYS:
             tail_sample.append(draws[: TAIL_SAMPLE_DAYS - kept])
             kept += len(tail_sample[-1])
 
-    path_values = initial_value * np.cumprod(1.0 + portfolio, axis=1)
-    path_values = np.hstack([np.full((paths, 1), initial_value), path_values])
+    path_values = initial_value * np.hstack([np.ones((paths, 1)), growth])
     terminal = path_values[:, -1]
     terminal_returns = terminal / initial_value - 1.0
     peaks = np.maximum.accumulate(path_values, axis=1)
@@ -326,6 +341,15 @@ def simulate_portfolio(
         initial_value=initial_value,
         dependence=dependence,
         marginals=marginals,
+        rebalancing=rebalancing,
+        mean_final_weights=(
+            None
+            if rebalancing == "daily"
+            else [
+                FinalWeight(symbol=symbol, weight=float(weight / paths))
+                for symbol, weight in zip(symbols, final_weights)
+            ]
+        ),
         copula_degrees_of_freedom=(
             copula.degrees_of_freedom
             if dependence == "student_t" and copula is not None and dimension > 1

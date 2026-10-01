@@ -10,11 +10,17 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.models.factors import FactorFit, FactorModel
 from app.models.stock import HistoryCoverage, TickerInfo
 from app.models.volatility import VolatilityPeriod
 
 AnalysisKind = Literal["thesis", "risk"]
 """Report types: an investment thesis, or a risk summary."""
+
+ANALYSIS_CONTEXT_VERSION: int = 2
+"""Version of the data an analysis is written from. Bump it when the context gains data
+that changes reports, so stored reports written without it are not reused. Version 2
+added factor exposures."""
 
 AnalysisPeriod = VolatilityPeriod
 """Lookback windows an analysis may cover; ``6mo`` or more gives a usable sample."""
@@ -115,6 +121,16 @@ class PriceSummary(BaseModel):
     worst_return: float = Field(description="Largest single-bar loss.")
 
 
+class FactorContext(BaseModel):
+    """The security's exposures to a factor model, estimated over the analysis window."""
+
+    model: FactorModel
+    factor_data_end: date = Field(
+        description="Last date of the published factor data; the regression stops there."
+    )
+    fit: FactorFit
+
+
 class AnalysisContext(BaseModel):
     """The market data an analysis is written from, sent to Claude verbatim.
 
@@ -127,6 +143,11 @@ class AnalysisContext(BaseModel):
     coverage: HistoryCoverage
     filings: list[FilingReference] = Field(
         default_factory=list, description="SEC filings whose sections were given to the model."
+    )
+    factors: FactorContext | None = Field(
+        default=None,
+        description="Carhart four-factor exposures (market, size, value, momentum); null when "
+        "they could not be estimated.",
     )
     notice: str | None = Field(
         default=None, description="Explains which part of the window has no data, if any."

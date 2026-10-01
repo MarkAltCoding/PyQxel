@@ -43,8 +43,10 @@ class AnalysisRecord(Base):
     """One AI-written analysis, kept so the same request can reuse it instead of paying again.
 
     ``requested_model`` and ``effort`` are the settings the report was asked for with;
-    ``model`` is the one that wrote it, which differs after a fallback. The full response
-    is kept as JSON in ``result``.
+    ``model`` is the one that wrote it, which differs after a fallback.
+    ``context_version`` is the version of the data it was written from, so reports
+    written from older, thinner contexts are not reused. The full response is kept as
+    JSON in ``result``.
     """
 
     __tablename__ = "analyses"
@@ -70,6 +72,7 @@ class AnalysisRecord(Base):
     requested_model: Mapped[str] = mapped_column(String(64))
     effort: Mapped[str] = mapped_column(String(16))
     model: Mapped[str] = mapped_column(String(64))
+    context_version: Mapped[int] = mapped_column(Integer, server_default="1")
     headline: Mapped[str] = mapped_column(Text)
     result: Mapped[dict[str, Any]] = mapped_column(JSON)
 
@@ -90,6 +93,7 @@ class SimulationRecord(Base):
     paths: Mapped[int] = mapped_column(Integer)
     dependence: Mapped[str] = mapped_column(String(16))
     marginals: Mapped[str] = mapped_column(String(16))
+    rebalancing: Mapped[str] = mapped_column(String(16), server_default="daily")
     expected_return: Mapped[float] = mapped_column(Float)
     probability_of_loss: Mapped[float] = mapped_column(Float)
     value_at_risk_95: Mapped[float] = mapped_column(Float)

@@ -202,16 +202,18 @@ async def _load_returns(
 async def create_simulation(
     request: Annotated[SimulationRequest, Body()], session: Session
 ) -> SimulationResponse:
-    """Simulate a daily-rebalanced portfolio ``horizon`` trading days ahead.
+    """Simulate a portfolio ``horizon`` trading days ahead.
 
     Daily returns over ``period`` are aligned on the days every holding traded. Each
     simulated day draws how the holdings move together from a ``student_t`` or
     ``gaussian`` copula fitted to them, or from resampled historical days
     (``empirical``), and each holding's own return from its history or a fitted Student
-    t. Returns the distribution of final value, expected return, probability of loss,
-    VaR and CVaR at 95% and 99%, maximum drawdowns, daily percentiles for a fan chart,
-    and ``tail_checks`` comparing how often holdings crash together in the simulation
-    with history. Pass ``seed`` from a previous result to reproduce it.
+    t. With ``rebalancing`` ``daily`` the weights are reset every day; with ``none`` the
+    portfolio is bought once and held, so weights drift. Returns the distribution of
+    final value, expected return, probability of loss, VaR and CVaR at 95% and 99%,
+    maximum drawdowns, daily percentiles for a fan chart, and ``tail_checks`` comparing
+    how often holdings crash together in the simulation with history. Pass ``seed`` from
+    a previous result to reproduce it.
 
     The result is stored and its ``id`` returned for ``GET /portfolio/simulations/{id}``;
     if the database is unavailable it is still returned, with a null ``id``.
@@ -240,6 +242,7 @@ async def create_simulation(
             marginals=request.marginals,
             initial_value=request.initial_value,
             seed=request.seed,
+            rebalancing=request.rebalancing,
         )
     except SimulationError as exc:
         raise HTTPException(

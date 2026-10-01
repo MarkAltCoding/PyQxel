@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
 
+import pandas as pd
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy.exc import SQLAlchemyError
@@ -35,6 +36,7 @@ from app.api.v1.endpoints.stocks import (
     history_coverage,
     upstream_error,
 )
+from app.data.factors import fetch_factors
 from app.data.fetcher import (
     DataFetchError,
     SymbolNotFoundError,
@@ -57,11 +59,14 @@ from app.models.research import (
     AnalysisRequest,
     AnalysisResponse,
     AnalysisStreamError,
+    FactorContext,
     Filing,
     InvestmentThesis,
     RiskSummary,
 )
 from app.models.stock import SYMBOL_PATTERN, TickerInfo
+from app.models.factors import FactorModel
+from app.stats.factors import fit_factor_model
 from app.stats.indicators import summarize_prices
 from app.stats.volatility import InsufficientDataError
 
@@ -69,6 +74,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 """Routes under ``/stocks`` that write analyses."""
+
+ANALYSIS_FACTOR_MODEL: FactorModel = "carhart4"
+"""Factor model whose exposures are given to Claude: market, size, value and momentum."""
 
 results_router = APIRouter()
 """Routes under ``/analyses`` that read stored analyses."""
@@ -104,6 +112,29 @@ def _filing_notices(symbol: str, result: list[Filing] | BaseException) -> list[s
                 "exceeded the length limit and were cut short."
             )
     return notices
+
+
+def _factor_context(
+    closes: pd.Series, result: pd.DataFrame | BaseException
+) -> tuple[FactorContext | None, str | None]:
+    """Estimate factor exposures from the analysis prices, or explain why there are none.
+
+    Exposures add context but are not essential, so a failure becomes a notice rather
+    than an error.
+    """
+    if isinstance(result, DataFetchError):
+        return None, "Factor exposures were left out: the factor data could not be fetched."
+    if isinstance(result, BaseException):
+        raise result
+    try:
+        fit = fit_factor_model(closes, result, ANALYSIS_FACTOR_MODEL)
+    except InsufficientDataError:
+        return None, (
+            "Factor exposures were left out: too few days of the window overlap the "
+            "published factor data, which runs about a month behind."
+        )
+    end = pd.Timestamp(result.index[-1]).date()
+    return FactorContext(model=ANALYSIS_FACTOR_MODEL, factor_data_end=end, fit=fit), None
 
 
 def _ai_error(exc: AnalysisError) -> HTTPException:
@@ -155,7 +186,8 @@ async def prepare_analysis(
 
     Runs as a dependency, so a streamed analysis fails with an HTTP status before its
     stream opens: 404 for unknown symbols, 422 when the window has too few bars, and
-    502 when the price provider fails. A missing snapshot or filings only adds a notice.
+    502 when the price provider fails. A missing snapshot, filings or factor exposures
+    only adds a notice.
 
     When a recent report for the same request is cached, nothing is fetched and the
     report is returned with the context it was written from.
@@ -170,10 +202,11 @@ async def prepare_analysis(
             cached=cached,
         )
 
-    info_result, history_result, filings_result = await asyncio.gather(
+    info_result, history_result, filings_result, factors_result = await asyncio.gather(
         fetch_ticker_info(symbol),
         fetch_price_history(symbol, period=request.period, interval="1d"),
         fetch_latest_filings(symbol) if request.include_filings else _no_filings(),
+        fetch_factors(ANALYSIS_FACTOR_MODEL),
         return_exceptions=True,
     )
     if isinstance(history_result, DataFetchError):
@@ -207,12 +240,17 @@ async def prepare_analysis(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
 
+    factors, factor_notice = _factor_context(history_result["Close"], factors_result)
+    if factor_notice:
+        notices.append(factor_notice)
+
     context = AnalysisContext(
         ticker=info_result,
         period=request.period,
         prices=prices,
         coverage=coverage,
         filings=[filing.reference() for filing in filings],
+        factors=factors,
         notice=" ".join(notices) or None,
     )
     return PreparedAnalysis(symbol=symbol, request=request, context=context, filings=filings)

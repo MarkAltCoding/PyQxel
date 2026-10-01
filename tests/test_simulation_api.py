@@ -104,6 +104,32 @@ def test_options_are_passed_through(monkeypatch: pytest.MonkeyPatch) -> None:
     assert all(fit["degrees_of_freedom"] for fit in simulation["marginal_fits"])
 
 
+def test_buy_and_hold_is_simulated_and_listed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Buy-and-hold reports how the weights drifted, and the listing records it."""
+    _serve(monkeypatch)
+
+    body = _simulate(rebalancing="none", horizon=252)
+    listing = client.get("/api/v1/portfolio/simulations").json()
+
+    simulation = body["simulation"]
+    assert simulation["rebalancing"] == "none"
+    weights = simulation["mean_final_weights"]
+    assert [weight["symbol"] for weight in weights] == ["SPY", "TLT"]
+    assert sum(weight["weight"] for weight in weights) == pytest.approx(1.0)
+    assert weights[0]["weight"] != pytest.approx(0.6, abs=1e-6)
+    assert listing["items"][0]["rebalancing"] == "none"
+
+
+def test_daily_rebalancing_is_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without the option, weights are reset daily and no drift is reported."""
+    _serve(monkeypatch)
+
+    simulation = _simulate()["simulation"]
+
+    assert simulation["rebalancing"] == "daily"
+    assert simulation["mean_final_weights"] is None
+
+
 def test_seed_reproduces_a_simulation(monkeypatch: pytest.MonkeyPatch) -> None:
     """Posting a result's seed again gives the same simulation."""
     _serve(monkeypatch)
@@ -156,6 +182,7 @@ def test_stored_simulation_is_read_back_listed_and_deleted(
         "paths": 500,
         "dependence": "student_t",
         "marginals": "empirical",
+        "rebalancing": "daily",
         "expected_return": simulation["expected_return"],
         "probability_of_loss": simulation["probability_of_loss"],
         "value_at_risk_95": simulation["risk"][0]["value_at_risk"],
@@ -302,6 +329,7 @@ def test_too_little_history_is_422(monkeypatch: pytest.MonkeyPatch) -> None:
         ({"seed": -1}, "greater than or equal to 0"),
         ({"dependence": "clayton"}, "'gaussian', 'student_t' or 'empirical'"),
         ({"initial_value": 0}, "greater than 0"),
+        ({"rebalancing": "monthly"}, "'daily' or 'none'"),
     ],
 )
 def test_invalid_or_oversized_requests_are_rejected_before_downloading(
