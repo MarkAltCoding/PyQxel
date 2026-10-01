@@ -1,8 +1,9 @@
 """Reuse of finished AI analyses, which are slow and billed per request.
 
 Every report is stored in the results database. A later request for the same symbol
-and options, under the same configured model and effort, gets the stored report back
-for ``ANALYSIS_CACHE_TTL_SECONDS`` instead of a new, billed one. Within one process,
+and options, under the same configured model and effort, and from the same version of
+context data (:data:`~app.models.research.ANALYSIS_CONTEXT_VERSION`), gets the stored
+report back for ``ANALYSIS_CACHE_TTL_SECONDS`` instead of a new, billed one. Within one process,
 identical requests that arrive together are written once: the later ones wait in
 :func:`analysis_slot` and then reuse the first one's report.
 
@@ -20,7 +21,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import get_settings
 from app.db.analyses import find_recent_analysis, save_analysis
 from app.db.session import get_sessionmaker
-from app.models.research import AnalysisRequest, AnalysisResponse
+from app.models.research import ANALYSIS_CONTEXT_VERSION, AnalysisRequest, AnalysisResponse
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ async def cached_analysis(symbol: str, request: AnalysisRequest) -> AnalysisResp
                 request,
                 settings.anthropic_model,
                 settings.anthropic_effort,
+                ANALYSIS_CONTEXT_VERSION,
                 since,
             )
     except SQLAlchemyError as exc:
@@ -77,7 +79,12 @@ async def remember_analysis(
     try:
         async with get_sessionmaker()() as session:
             return await save_analysis(
-                session, request, response, settings.anthropic_model, settings.anthropic_effort
+                session,
+                request,
+                response,
+                settings.anthropic_model,
+                settings.anthropic_effort,
+                ANALYSIS_CONTEXT_VERSION,
             )
     except SQLAlchemyError as exc:
         logger.error("Could not store the %s analysis: %s", response.symbol, exc)

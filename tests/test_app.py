@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
+from app.core.config import get_settings
 from app.db.session import configure_database
 from app.main import app
 
@@ -87,3 +88,8 @@ def test_every_client_route_is_registered() -> None:
     }
     for path, method in expected.items():
         assert method in paths.get(path, {}), f"{method.upper()} {path} is not registered"
+
+
+def test_tests_never_use_the_real_database() -> None:
+    """Whatever .env says, an app started in tests falls back to an in-memory database."""
+    assert get_settings().database_url == "sqlite+aiosqlite://"

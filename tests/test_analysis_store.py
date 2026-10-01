@@ -14,10 +14,11 @@ from sqlalchemy.exc import OperationalError
 from app.ai import cache as analysis_cache
 from app.ai.cache import analysis_slot, cached_analysis, remember_analysis
 from app.core.config import Settings
-from app.db.analyses import get_analysis, list_analyses
+from app.db.analyses import get_analysis, list_analyses, save_analysis
 from app.db.session import get_sessionmaker
 from app.db.tables import AnalysisRecord
 from app.models.research import (
+    ANALYSIS_CONTEXT_VERSION,
     AnalysisContext,
     AnalysisRequest,
     AnalysisResponse,
@@ -269,3 +270,31 @@ async def test_stored_analyses_are_listed_and_read_back(
     assert theses.total == 0
     assert full == old
     assert missing is None
+
+
+async def test_reports_from_an_older_context_are_not_reused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A report written from older, thinner context data is kept but not reused.
+
+    Reports stored before factor exposures were added are version 1; reusing them would
+    serve reports written without factors.
+    """
+    settings = _use_settings(monkeypatch)
+    async with get_sessionmaker()() as session:
+        old = await save_analysis(
+            session,
+            RISK,
+            _response(),
+            settings.anthropic_model,
+            settings.anthropic_effort,
+            ANALYSIS_CONTEXT_VERSION - 1,
+        )
+
+    assert await cached_analysis("AAPL", RISK) is None
+    async with get_sessionmaker()() as session:
+        assert await get_analysis(session, old.id) is not None  # type: ignore[arg-type]
+
+    current = await remember_analysis(RISK, _response())
+    reused = await cached_analysis("AAPL", RISK)
+    assert reused is not None and reused.id == current.id

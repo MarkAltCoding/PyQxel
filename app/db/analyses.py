@@ -26,6 +26,7 @@ async def save_analysis(
     response: AnalysisResponse,
     requested_model: str,
     effort: str,
+    context_version: int,
 ) -> AnalysisResponse:
     """Store ``response``, written for ``request``, and return it with its new ``id``.
 
@@ -43,6 +44,7 @@ async def save_analysis(
             include_filings=request.include_filings,
             requested_model=requested_model,
             effort=effort,
+            context_version=context_version,
             model=saved.model,
             headline=saved.report.headline,
             result=saved.model_dump(mode="json", exclude={"id"}),
@@ -58,9 +60,13 @@ async def find_recent_analysis(
     request: AnalysisRequest,
     requested_model: str,
     effort: str,
+    context_version: int,
     since: datetime,
 ) -> AnalysisResponse | None:
-    """Return the newest report written since ``since`` for the same request and settings."""
+    """Return the newest report written since ``since`` for the same request and settings.
+
+    Only reports written from the same ``context_version`` of data qualify.
+    """
     record = await session.scalar(
         select(AnalysisRecord)
         .where(
@@ -70,6 +76,7 @@ async def find_recent_analysis(
             AnalysisRecord.include_filings == request.include_filings,
             AnalysisRecord.requested_model == requested_model,
             AnalysisRecord.effort == effort,
+            AnalysisRecord.context_version == context_version,
             AnalysisRecord.created_at >= since,
         )
         .order_by(AnalysisRecord.created_at.desc())

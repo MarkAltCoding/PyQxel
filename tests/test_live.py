@@ -11,11 +11,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
+from app.api.v1.endpoints.research import prepare_analysis
 from app.data import fetcher
 from app.data.factors import fetch_factors
 from app.data.panel import fetch_close_panel
 from app.data.sec_edgar import fetch_latest_filings
 from app.main import app
+from app.models.research import AnalysisRequest
 from app.stats.monte_carlo import simulate_portfolio
 from app.stats.panel import return_panel
 
@@ -195,6 +197,19 @@ def test_portfolio_simulation(client: TestClient) -> None:
     assert client.get(f"/api/v1/portfolio/simulations/{body['id']}").json() == body
 
 
+@pytest.mark.asyncio
+async def test_analysis_context_has_factor_exposures() -> None:
+    """Real prices and factor data give Claude factor exposures, without calling Claude."""
+    prepared = await prepare_analysis("AAPL", AnalysisRequest(include_filings=False))
+
+    factors = prepared.context.factors
+    assert factors is not None, prepared.context.notice
+    assert factors.model == "carhart4"
+    market = factors.fit.exposures[0]
+    assert market.factor == "Mkt-RF"
+    assert 0.3 < market.estimate < 2.0
+
+
 def test_ewma_volatility(client: TestClient) -> None:
     """EWMA volatility for a broad index fund is in a plausible range."""
     response = client.get("/api/v1/stocks/SPY/volatility", params={"model": "ewma"})
@@ -249,6 +264,7 @@ def test_claude_analysis_with_filings(client: TestClient) -> None:
     assert [filing["form"] for filing in context["filings"]][:1] == ["10-K"]
     assert body["report"]["risk_level"] in {"low", "moderate", "elevated", "high"}
     assert body["report"]["key_risks"]
+    assert body["context"]["factors"]["model"] == "carhart4"
 
 
 @pytest.mark.asyncio
