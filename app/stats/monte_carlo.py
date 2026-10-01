@@ -25,6 +25,8 @@ import pandas as pd
 from scipy import stats
 
 from app.models.simulation import (
+    MAX_DRAWS,
+    MAX_PATH_DAYS,
     DependenceModel,
     Distribution,
     FanPoint,
@@ -47,11 +49,6 @@ from app.stats.copulas import (
 TRADING_DAYS: int = 252
 """Days per year, for annualizing volatility."""
 
-MAX_DRAWS: int = 15_000_000
-"""Most asset-day draws (paths x horizon x assets) one simulation may make."""
-
-MAX_PATH_DAYS: int = 2_600_000
-"""Most path-days (paths x horizon) one simulation may hold in memory."""
 
 BATCH_DRAWS: int = 2_000_000
 """Asset-day draws generated at a time, bounding memory."""

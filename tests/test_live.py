@@ -177,6 +177,24 @@ async def test_monte_carlo_on_real_returns() -> None:
         assert -0.05 < summary.expected_return < 0.05
 
 
+def test_portfolio_simulation(client: TestClient) -> None:
+    """A real 60/40 portfolio simulates, stores and reads back."""
+    response = client.post(
+        "/api/v1/portfolio/simulate",
+        json={
+            "holdings": [{"symbol": "SPY", "weight": 0.6}, {"symbol": "TLT", "weight": 0.4}],
+            "horizon": 21,
+            "paths": 2_000,
+            "seed": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert 0.01 < body["simulation"]["risk"][0]["value_at_risk"] < 0.15
+    assert client.get(f"/api/v1/portfolio/simulations/{body['id']}").json() == body
+
+
 def test_ewma_volatility(client: TestClient) -> None:
     """EWMA volatility for a broad index fund is in a plausible range."""
     response = client.get("/api/v1/stocks/SPY/volatility", params={"model": "ewma"})
