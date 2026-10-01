@@ -3,29 +3,40 @@
 Market data fetchers are replaced with fakes so no test touches the network.
 """
 
+import json
 import math
+from collections.abc import AsyncIterator
 from datetime import date
+from typing import Any
 
+import httpx2
 import pandas as pd
 import pytest
+from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
 from fastapi.testclient import TestClient
 
+from app.ai import agent
 from app.ai.agent import (
+    FALLBACK_BETA,
     AINotConfiguredError,
     AIRateLimitError,
     AIRefusalError,
     AIUnavailableError,
     AnalysisError,
+    WrittenReport,
 )
 from app.api.v1.endpoints import backtest, research, stocks
+from app.core.config import get_settings
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
 from app.data.sec_edgar import CompanyNotFoundError, EdgarNotConfiguredError, FilingFetchError
 from app.main import __version__, app
 from app.models.research import (
     AnalysisContext,
+    AnalysisDelta,
     Filing,
     FilingSection,
     InvestmentThesis,
+    ModelFallback,
     RiskSummary,
 )
 from app.models.stock import TickerInfo
@@ -864,3 +875,314 @@ def test_backtest_maps_unknown_symbol_to_404(monkeypatch: pytest.MonkeyPatch) ->
     response = client.post("/api/v1/stocks/ZZZZ/backtest")
 
     assert response.status_code == 404
+
+
+def _serve_stream(
+    monkeypatch: pytest.MonkeyPatch,
+    items: list[AnalysisDelta | ModelFallback | WrittenReport],
+    error: AnalysisError | None = None,
+) -> list[AnalysisCall]:
+    """Fake the fetchers and make the streaming agent yield ``items``, then ``error``."""
+    calls = _serve_analysis(
+        monkeypatch,
+        TickerInfo(symbol="AAPL", source="yfinance"),
+        _recent_frame(),
+        THESIS,
+    )
+
+    async def fake_stream(
+        context: AnalysisContext, kind: str, filings: list[Filing]
+    ) -> AsyncIterator[AnalysisDelta | ModelFallback | WrittenReport]:
+        calls.append((context, kind, filings))
+        for item in items:
+            yield item
+        if error is not None:
+            raise error
+
+    monkeypatch.setattr(research, "stream_analysis", fake_stream)
+    return calls
+
+
+def _sse_events(body: str) -> list[tuple[str, object]]:
+    """Parse an SSE body into ``(event, data)`` pairs, skipping comments."""
+    events: list[tuple[str, object]] = []
+    for chunk in body.strip().split("\n\n"):
+        fields = dict(
+            line.split(": ", 1) for line in chunk.splitlines() if not line.startswith(":")
+        )
+        if fields:
+            events.append((fields["event"], json.loads(fields["data"])))
+    return events
+
+
+def test_analysis_stream_sends_context_fragments_and_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The stream opens with the context, relays fragments, and ends with the result."""
+    calls = _serve_stream(
+        monkeypatch,
+        [
+            AnalysisDelta(channel="thinking", text="Weighing momentum."),
+            AnalysisDelta(channel="report", text='{"headline"'),
+            ModelFallback(from_model="claude-opus-5-5", to_model="claude-opus-4-8"),
+            WrittenReport(report=THESIS, model="claude-opus-4-8"),
+        ],
+    )
+
+    response = client.post("/api/v1/stocks/aapl/analysis/stream", json={"kind": "thesis"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    events = _sse_events(response.text)
+    assert [name for name, _ in events] == [
+        "context",
+        "thinking",
+        "report",
+        "fallback",
+        "result",
+    ]
+    assert events[0][1]["ticker"]["symbol"] == "AAPL"  # type: ignore[index]
+    assert events[1][1] == {"channel": "thinking", "text": "Weighing momentum."}
+    assert events[3][1] == {
+        "from_model": "claude-opus-5-5",
+        "to_model": "claude-opus-4-8",
+    }
+    result = events[4][1]
+    assert result["symbol"] == "AAPL"  # type: ignore[index]
+    assert result["report"] == THESIS.model_dump()  # type: ignore[index]
+    assert result["model"] == "claude-opus-4-8"  # type: ignore[index]
+    assert calls[-1][1] == "thesis"
+
+
+def test_analysis_stream_reports_ai_errors_as_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AI failures after the stream opens arrive as an error event with the mapped status."""
+    _serve_stream(
+        monkeypatch,
+        [AnalysisDelta(channel="report", text="{")],
+        AIRateLimitError("Rate limited.", retry_after=12),
+    )
+
+    response = client.post("/api/v1/stocks/AAPL/analysis/stream")
+
+    events = _sse_events(response.text)
+    assert [name for name, _ in events] == ["context", "report", "error"]
+    assert events[-1][1] == {
+        "status": 503,
+        "detail": "Rate limited.",
+        "retry_after": 12,
+    }
+
+
+def test_analysis_stream_data_errors_are_http_statuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Data problems fail the request before the stream opens, as on the non-streaming route."""
+    _serve_analysis(
+        monkeypatch,
+        SymbolNotFoundError("Unknown ticker symbol 'ZZZZ'."),
+        SymbolNotFoundError("Unknown ticker symbol 'ZZZZ'."),
+        THESIS,
+    )
+
+    response = client.post("/api/v1/stocks/ZZZZ/analysis/stream")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Unknown ticker symbol 'ZZZZ'."}
+
+
+# Fallback replay: the real Anthropic SDK parses canned SSE bytes, laid out as the
+# refusals-and-fallback docs describe, served by a mock transport. This covers the SDK's
+# stream accumulation, the agent and the route; only Anthropic's servers are faked.
+
+REQUESTED_MODEL = get_settings().anthropic_model
+FALLBACK_MODEL = "claude-opus-4-8"
+
+
+def _sse(events: list[dict[str, Any]]) -> bytes:
+    """Encode Messages API stream events as SSE bytes."""
+    return "".join(f"event: {e['type']}\ndata: {json.dumps(e)}\n\n" for e in events).encode()
+
+
+def _message_start(model: str) -> dict[str, Any]:
+    message = {
+        "id": "msg_replay",
+        "type": "message",
+        "role": "assistant",
+        "content": [],
+        "model": model,
+        "stop_reason": None,
+        "stop_sequence": None,
+        "usage": {"input_tokens": 1200, "output_tokens": 1},
+    }
+    return {"type": "message_start", "message": message}
+
+
+def _block(index: int, block: dict[str, Any], deltas: list[dict[str, Any]]) -> list[dict]:
+    """A content block's start, deltas and stop events."""
+    return [
+        {"type": "content_block_start", "index": index, "content_block": block},
+        *({"type": "content_block_delta", "index": index, "delta": d} for d in deltas),
+        {"type": "content_block_stop", "index": index},
+    ]
+
+
+def _text_block(index: int, *chunks: str) -> list[dict]:
+    return _block(
+        index, {"type": "text", "text": ""}, [{"type": "text_delta", "text": c} for c in chunks]
+    )
+
+
+def _fallback_block(index: int, category: str) -> list[dict]:
+    block = {
+        "type": "fallback",
+        "from": {"model": REQUESTED_MODEL},
+        "to": {"model": FALLBACK_MODEL},
+        "trigger": {"type": "refusal", "category": category},
+    }
+    return _block(index, block, [])
+
+
+def _usage(model: str, kind: str) -> dict[str, Any]:
+    """One ``usage.iterations`` entry."""
+    return {
+        "type": kind,
+        "model": model,
+        "input_tokens": 1200,
+        "output_tokens": 300,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+    }
+
+
+def _end(stop_reason: str, iterations: list[dict], category: str | None = None) -> list[dict]:
+    """The closing ``message_delta`` and ``message_stop`` events."""
+    details = None
+    if stop_reason == "refusal":
+        details = {"type": "refusal", "category": category, "explanation": None}
+    delta = {"stop_reason": stop_reason, "stop_sequence": None, "stop_details": details}
+    usage = {"output_tokens": 600, "iterations": iterations}
+    return [{"type": "message_delta", "delta": delta, "usage": usage}, {"type": "message_stop"}]
+
+
+def _replay(monkeypatch: pytest.MonkeyPatch, events: list[dict]) -> list[httpx2.Request]:
+    """Serve ``events`` to the agent's Anthropic client; return the requests it made."""
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return httpx2.Response(
+            200, headers={"content-type": "text/event-stream"}, content=_sse(events)
+        )
+
+    anthropic_client = AsyncAnthropic(
+        api_key="test-key",
+        max_retries=0,
+        http_client=DefaultAsyncHttpxClient(transport=httpx2.MockTransport(handler)),
+    )
+    monkeypatch.setattr(agent, "get_anthropic_client", lambda: anthropic_client)
+    _serve_analysis(
+        monkeypatch, TickerInfo(symbol="AAPL", source="yfinance"), _recent_frame(), THESIS
+    )
+    return requests
+
+
+def _post_stream() -> list[tuple[str, Any]]:
+    response = client.post("/api/v1/stocks/AAPL/analysis/stream", json={"kind": "thesis"})
+    assert response.status_code == 200
+    return _sse_events(response.text)
+
+
+def test_replayed_mid_output_fallback_completes_the_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A decline part-way through keeps the partial text, which the fallback continues.
+
+    The SDK names the fallback model even though ``message_start`` named the requested
+    one, and the report split across two text blocks validates as one.
+    """
+    report = THESIS.model_dump_json()
+    cut = len(report) // 3
+    thinking = _block(
+        0,
+        {"type": "thinking", "thinking": "", "signature": ""},
+        [
+            {"type": "thinking_delta", "thinking": "Weighing momentum."},
+            {"type": "signature_delta", "signature": "sig"},
+        ],
+    )
+    events = [
+        _message_start(REQUESTED_MODEL),
+        *thinking,
+        *_text_block(1, report[:cut]),
+        *_fallback_block(2, "bio"),
+        *_text_block(3, report[cut : 2 * cut], report[2 * cut :]),
+        *_end(
+            "end_turn",
+            [_usage(REQUESTED_MODEL, "message"), _usage(FALLBACK_MODEL, "fallback_message")],
+        ),
+    ]
+    requests = _replay(monkeypatch, events)
+
+    events_out = _post_stream()
+
+    assert [name for name, _ in events_out] == [
+        "context",
+        "thinking",
+        "report",
+        "fallback",
+        "report",
+        "report",
+        "result",
+    ]
+    assert events_out[3][1] == {"from_model": REQUESTED_MODEL, "to_model": FALLBACK_MODEL}
+    streamed = "".join(data["text"] for name, data in events_out if name == "report")
+    assert streamed == report
+    result = events_out[-1][1]
+    assert result["model"] == FALLBACK_MODEL
+    assert result["report"] == THESIS.model_dump()
+
+    body = json.loads(requests[0].content)
+    assert body["stream"] is True
+    assert body["fallbacks"] == "default"
+    assert FALLBACK_BETA in requests[0].headers["anthropic-beta"]
+
+
+def test_replayed_fallback_before_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A decline before any output: the stream opens on the fallback model, block first."""
+    report = THESIS.model_dump_json()
+    events = [
+        _message_start(FALLBACK_MODEL),
+        *_fallback_block(0, "frontier_llm"),
+        *_text_block(1, report),
+        *_end(
+            "end_turn",
+            [_usage(REQUESTED_MODEL, "message"), _usage(FALLBACK_MODEL, "fallback_message")],
+        ),
+    ]
+    _replay(monkeypatch, events)
+
+    events_out = _post_stream()
+
+    assert [name for name, _ in events_out] == ["context", "fallback", "report", "result"]
+    assert events_out[-1][1]["model"] == FALLBACK_MODEL
+
+
+def test_replayed_refusal_without_fallback_is_an_error_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A category with no recommended fallback ends the stream in a refusal error."""
+    events = [
+        _message_start(REQUESTED_MODEL),
+        *_text_block(0, '{"headline": "Mom'),
+        *_end("refusal", [_usage(REQUESTED_MODEL, "message")], category="cyber"),
+    ]
+    _replay(monkeypatch, events)
+
+    events_out = _post_stream()
+
+    assert [name for name, _ in events_out] == ["context", "report", "error"]
+    error = events_out[-1][1]
+    assert error["status"] == 422
+    assert "cyber" in error["detail"]

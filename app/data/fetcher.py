@@ -3,7 +3,8 @@
 yfinance is the primary source. Its API is synchronous, so calls are pushed onto a
 worker thread with :func:`asyncio.to_thread` to keep the event loop free. When
 yfinance fails and ``FINANCIAL_DATA_API_KEY`` is set, ticker info falls back to
-Financial Modeling Prep over ``httpx``.
+Financial Modeling Prep over ``httpx``. Live quotes follow the same fallback and are
+cached for a few seconds, so connections polling the same symbol share one request.
 
 Providers answer an unknown symbol with an empty result rather than an error, which
 is reported as :class:`SymbolNotFoundError`. Transport and rate-limit failures raise
@@ -12,6 +13,9 @@ inside the provider and are reported as the broader :class:`DataFetchError`.
 
 import asyncio
 import logging
+import math
+import time
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -19,13 +23,19 @@ import pandas as pd
 import yfinance as yf
 
 from app.core.config import get_settings
+from app.models.quote import Quote
 from app.models.stock import TickerInfo
 
 logger = logging.getLogger(__name__)
 
 FMP_PROFILE_URL: str = "https://financialmodelingprep.com/stable/profile"
+FMP_QUOTE_URL: str = "https://financialmodelingprep.com/stable/quote"
 HTTP_TIMEOUT_SECONDS: float = 10.0
 OHLCV_COLUMNS: list[str] = ["Open", "High", "Low", "Close", "Volume"]
+QUOTE_TTL_SECONDS: float = 5.0
+"""How long a fetched quote is reused before the provider is asked again."""
+
+_quote_cache: dict[str, tuple[float, Quote]] = {}
 
 
 class DataFetchError(RuntimeError):
@@ -172,3 +182,147 @@ async def fetch_price_history(
         await fetch_ticker_info(symbol)
         return pd.DataFrame(columns=OHLCV_COLUMNS, index=pd.DatetimeIndex([]), dtype=float)
     return _clean_history(raw)
+
+
+def _finite(value: object) -> float | None:
+    """Return ``value`` as a float, mapping missing, NaN and infinite values to ``None``."""
+    if value is None:
+        return None
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _build_quote(
+    symbol: str,
+    price: float | None,
+    previous_close: float | None,
+    source: str,
+    **fields: Any,
+) -> Quote:
+    """Assemble a :class:`Quote`, deriving the change from the price and previous close."""
+    if price is None:
+        raise SymbolNotFoundError(f"{source} has no price for {symbol!r}.")
+    if previous_close is not None and previous_close <= 0:
+        previous_close = None
+    change = None if previous_close is None else price - previous_close
+    volume = fields.pop("volume", None)
+    return Quote(
+        symbol=symbol,
+        price=price,
+        previous_close=previous_close,
+        change=change,
+        change_percent=(
+            None if change is None or previous_close is None else change / previous_close
+        ),
+        volume=None if volume is None else round(volume),
+        as_of=datetime.now(timezone.utc),
+        source=source,
+        **fields,
+    )
+
+
+def _yfinance_quote(symbol: str) -> Quote:
+    """Fetch the latest quote from yfinance's lightweight ``fast_info`` (blocking)."""
+    info = yf.Ticker(symbol).fast_info
+    return _build_quote(
+        symbol,
+        price=_finite(info.last_price),
+        previous_close=_finite(info.previous_close),
+        source="yfinance",
+        day_high=_finite(info.day_high),
+        day_low=_finite(info.day_low),
+        volume=_finite(info.last_volume),
+        currency=info.currency,
+    )
+
+
+async def _fmp_quote(symbol: str, api_key: str, client: httpx.AsyncClient) -> Quote:
+    """Fetch the latest quote from the Financial Modeling Prep quote endpoint."""
+    response = await client.get(FMP_QUOTE_URL, params={"symbol": symbol, "apikey": api_key})
+    response.raise_for_status()
+    payload: Any = response.json()
+    if not isinstance(payload, list) or not payload:
+        raise SymbolNotFoundError(f"FMP has no quote for {symbol!r}.")
+    quote: dict[str, Any] = payload[0]
+    return _build_quote(
+        symbol,
+        price=_finite(quote.get("price")),
+        previous_close=_finite(quote.get("previousClose")),
+        source="fmp",
+        day_high=_finite(quote.get("dayHigh")),
+        day_low=_finite(quote.get("dayLow")),
+        volume=_finite(quote.get("volume")),
+    )
+
+
+async def fetch_quote(symbol: str, client: httpx.AsyncClient | None = None) -> Quote:
+    """Fetch the latest price of ``symbol`` and its change since the previous close.
+
+    Quotes are cached for :data:`QUOTE_TTL_SECONDS`, so frequent pollers do not each
+    hit the provider.
+
+    Args:
+        symbol: Ticker symbol, e.g. ``"AAPL"``. Case and surrounding whitespace are ignored.
+        client: Optional shared HTTP client for the fallback provider. A short-lived
+            client is created when omitted.
+
+    Returns:
+        The latest quote.
+
+    Raises:
+        ValueError: If ``symbol`` is empty.
+        SymbolNotFoundError: If the providers that answered have no price for ``symbol``.
+        DataFetchError: If every configured provider fails.
+    """
+    symbol = _normalize_symbol(symbol)
+    cached = _quote_cache.get(symbol)
+    if cached is not None and time.monotonic() - cached[0] < QUOTE_TTL_SECONDS:
+        return cached[1]
+
+    quote = await _fetch_quote_uncached(symbol, client)
+    _quote_cache[symbol] = (time.monotonic(), quote)
+    return quote
+
+
+async def _fetch_quote_uncached(symbol: str, client: httpx.AsyncClient | None) -> Quote:
+    """Fetch a quote, telling an unknown symbol apart from a provider failure.
+
+    ``fast_info`` fails with the same internal errors for an unknown symbol as for an
+    outage, and FMP's quote endpoint answers unknown symbols with a plan error, so when
+    every provider fails the ticker snapshot is asked whether the symbol exists.
+    """
+    try:
+        return await _quote_from_providers(symbol, client)
+    except SymbolNotFoundError:
+        raise
+    except DataFetchError:
+        await fetch_ticker_info(symbol, client)
+        raise
+
+
+async def _quote_from_providers(symbol: str, client: httpx.AsyncClient | None) -> Quote:
+    """Fetch a quote from yfinance, falling back to FMP when a key is configured."""
+    try:
+        return await asyncio.to_thread(_yfinance_quote, symbol)
+    except Exception as exc:
+        yf_error = exc
+        logger.warning("yfinance quote lookup failed for %s: %s", symbol, exc)
+
+    api_key = get_settings().financial_data_api_key
+    if api_key is None:
+        if isinstance(yf_error, SymbolNotFoundError):
+            raise SymbolNotFoundError(f"Unknown ticker symbol {symbol!r}.") from yf_error
+        raise DataFetchError(f"Could not fetch a quote for {symbol!r}.") from yf_error
+
+    try:
+        if client is not None:
+            return await _fmp_quote(symbol, api_key.get_secret_value(), client)
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
+            return await _fmp_quote(symbol, api_key.get_secret_value(), own_client)
+    except SymbolNotFoundError as exc:
+        raise SymbolNotFoundError(f"Unknown ticker symbol {symbol!r}.") from exc
+    except (httpx.HTTPError, DataFetchError, ValueError) as exc:
+        raise DataFetchError(f"Could not fetch a quote for {symbol!r} from any provider.") from exc

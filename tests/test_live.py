@@ -145,3 +145,43 @@ def test_claude_analysis_with_filings(client: TestClient) -> None:
     assert [filing["form"] for filing in context["filings"]][:1] == ["10-K"]
     assert body["report"]["risk_level"] in {"low", "moderate", "elevated", "high"}
     assert body["report"]["key_risks"]
+
+
+@pytest.mark.asyncio
+async def test_quote_from_yfinance() -> None:
+    """yfinance quotes a large cap with a price and a move since the previous close."""
+    fetcher._quote_cache.clear()
+    quote = await fetcher.fetch_quote("AAPL")
+
+    assert quote.source == "yfinance"
+    assert quote.price > 0
+    assert quote.change_percent is not None and abs(quote.change_percent) < 0.5
+
+
+def test_quote_websocket(client: TestClient) -> None:
+    """The quote socket confirms the subscription and quotes it, dropping unknown symbols."""
+    with client.websocket_connect("/api/v1/ws/quotes?symbols=MSFT,ZZZZQQ") as socket:
+        messages = [socket.receive_json() for _ in range(4)]
+
+    assert messages[0] == {"type": "subscriptions", "symbols": ["MSFT", "ZZZZQQ"]}
+    assert any(m["type"] == "quote" and m["quote"]["symbol"] == "MSFT" for m in messages)
+    assert {"type": "subscriptions", "symbols": ["MSFT"]} in messages
+
+
+@pytest.mark.paid
+def test_claude_analysis_stream(client: TestClient) -> None:
+    """The streamed thesis sends the context, report fragments and a validated result.
+
+    Makes one billed request without filings, roughly $0.05.
+    """
+    with client.stream(
+        "POST", "/api/v1/stocks/AAPL/analysis/stream", json={"include_filings": False}
+    ) as response:
+        assert response.status_code == 200
+        events = [
+            line[len("event: ") :] for line in response.iter_lines() if line.startswith("event: ")
+        ]
+
+    assert events[0] == "context"
+    assert "report" in events
+    assert events[-1] == "result", events[-3:]

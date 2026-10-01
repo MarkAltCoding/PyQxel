@@ -163,6 +163,34 @@ class RiskSummary(BaseModel):
     data_limitations: list[str] = Field(description="What the provided data cannot show.")
 
 
+class AnalysisDelta(BaseModel):
+    """A fragment of an analysis as Claude writes it.
+
+    ``thinking`` fragments summarize the model's reasoning; ``report`` fragments
+    concatenate to the report's JSON, which arrives validated in the final result.
+    """
+
+    channel: Literal["thinking", "report"]
+    text: str
+
+
+class ModelFallback(BaseModel):
+    """Marks where a model declined part-way and another model took over the report."""
+
+    from_model: str
+    to_model: str
+
+
+class AnalysisStreamError(BaseModel):
+    """Why a streamed analysis failed after the stream had started."""
+
+    status: int = Field(description="HTTP status the non-streaming endpoint would return.")
+    detail: str
+    retry_after: int | None = Field(
+        default=None, description="Seconds to wait before retrying, when rate limited."
+    )
+
+
 class AnalysisResponse(BaseModel):
     """An AI-written report together with the data it was written from."""
 

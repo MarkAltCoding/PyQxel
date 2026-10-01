@@ -3,6 +3,9 @@
 Provider calls are replaced with fakes so no test touches the network.
 """
 
+import math
+from types import SimpleNamespace
+
 import httpx
 import pandas as pd
 import pytest
@@ -11,6 +14,7 @@ from pydantic import SecretStr
 from app.core.config import Settings
 from app.data import fetcher
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
+from app.models.quote import Quote
 from app.models.stock import TickerInfo
 
 pytestmark = pytest.mark.asyncio
@@ -317,3 +321,179 @@ async def test_history_is_sorted_and_deduplicated(monkeypatch: pytest.MonkeyPatc
 
     assert list(history.columns) == fetcher.OHLCV_COLUMNS
     assert list(history["Close"]) == [1.0, 2.5, 3.0]
+
+
+@pytest.fixture
+def empty_quote_cache() -> None:
+    """Start each quote test with no cached quotes."""
+    fetcher._quote_cache.clear()
+
+
+class _FakeFastTicker:
+    """Stands in for ``yf.Ticker`` with only ``fast_info``."""
+
+    def __init__(self, **fast_info: object) -> None:
+        self.fast_info = SimpleNamespace(**fast_info)
+
+
+async def test_yfinance_quote_maps_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``fast_info`` maps onto the quote, with the change derived from the previous close."""
+    ticker = _FakeFastTicker(
+        last_price=202.0,
+        previous_close=200.0,
+        day_high=203.5,
+        day_low=199.0,
+        last_volume=51_000_000.0,
+        currency="USD",
+    )
+    monkeypatch.setattr(fetcher.yf, "Ticker", lambda symbol: ticker)
+
+    quote = fetcher._yfinance_quote("AAPL")
+
+    assert (quote.symbol, quote.price, quote.previous_close) == ("AAPL", 202.0, 200.0)
+    assert quote.change == pytest.approx(2.0)
+    assert quote.change_percent == pytest.approx(0.01)
+    assert (quote.day_high, quote.day_low, quote.volume) == (203.5, 199.0, 51_000_000)
+    assert (quote.currency, quote.source) == ("USD", "yfinance")
+
+
+async def test_yfinance_quote_without_price_is_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No last price means yfinance does not know the symbol; NaN fields become null."""
+    ticker = _FakeFastTicker(
+        last_price=math.nan,
+        previous_close=None,
+        day_high=None,
+        day_low=None,
+        last_volume=None,
+        currency=None,
+    )
+    monkeypatch.setattr(fetcher.yf, "Ticker", lambda symbol: ticker)
+
+    with pytest.raises(SymbolNotFoundError):
+        fetcher._yfinance_quote("ZZZZ")
+
+
+async def test_quote_without_previous_close_has_no_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing previous close leaves the change unknown rather than failing."""
+    ticker = _FakeFastTicker(
+        last_price=10.0,
+        previous_close=math.nan,
+        day_high=None,
+        day_low=None,
+        last_volume=None,
+        currency="USD",
+    )
+    monkeypatch.setattr(fetcher.yf, "Ticker", lambda symbol: ticker)
+
+    quote = fetcher._yfinance_quote("NEW")
+
+    assert (quote.previous_close, quote.change, quote.change_percent) == (None, None, None)
+
+
+@pytest.mark.usefixtures("empty_quote_cache")
+async def test_quotes_are_cached_briefly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Repeated lookups within the TTL reuse the quote; later ones fetch again."""
+    calls: list[str] = []
+
+    def fake_quote(symbol: str) -> Quote:
+        calls.append(symbol)
+        return fetcher._build_quote(symbol, price=10.0, previous_close=9.0, source="yfinance")
+
+    clock = [1000.0]
+    monkeypatch.setattr(fetcher, "_yfinance_quote", fake_quote)
+    monkeypatch.setattr(fetcher.time, "monotonic", lambda: clock[0])
+
+    first = await fetcher.fetch_quote("aapl")
+    second = await fetcher.fetch_quote("AAPL ")
+    clock[0] += fetcher.QUOTE_TTL_SECONDS + 1
+    await fetcher.fetch_quote("AAPL")
+
+    assert first is second
+    assert calls == ["AAPL", "AAPL"]
+
+
+@pytest.mark.usefixtures("empty_quote_cache")
+async def test_quote_falls_back_to_fmp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When yfinance fails, the FMP quote is fetched with the key and mapped."""
+    _use_fmp_key(monkeypatch, "secret")
+
+    def failing_quote(symbol: str) -> Quote:
+        raise ConnectionError("down")
+
+    monkeypatch.setattr(fetcher, "_yfinance_quote", failing_quote)
+    client, requests = _fmp_client(
+        [{"price": 99.0, "previousClose": 100.0, "dayHigh": 101.0, "dayLow": 98.5, "volume": 10}]
+    )
+
+    quote = await fetcher.fetch_quote("msft", client=client)
+
+    assert quote.source == "fmp"
+    assert (quote.price, quote.change_percent, quote.volume) == (99.0, pytest.approx(-0.01), 10)
+    assert requests[0].url.params["symbol"] == "MSFT"
+    assert str(requests[0].url).startswith(fetcher.FMP_QUOTE_URL)
+
+
+@pytest.mark.usefixtures("empty_quote_cache")
+async def test_quote_plan_error_for_unknown_symbol_is_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FMP's plan error for an unknown symbol is resolved by the snapshot's empty profile."""
+    _use_fmp_key(monkeypatch, "secret")
+
+    def failing_quote(symbol: str) -> Quote:
+        raise KeyError("currentTradingPeriod")
+
+    monkeypatch.setattr(fetcher, "_yfinance_quote", failing_quote)
+    monkeypatch.setattr(fetcher, "_yfinance_info", _yf_info_raising(SymbolNotFoundError("none")))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/quote"):
+            return httpx.Response(402, text="Premium Query Parameter")
+        return httpx.Response(200, json=[])
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(SymbolNotFoundError):
+        await fetcher.fetch_quote("ZZZZ", client=client)
+
+
+@pytest.mark.usefixtures("empty_quote_cache")
+@pytest.mark.parametrize(
+    ("yf_error", "info", "expected"),
+    [
+        (SymbolNotFoundError("none"), None, SymbolNotFoundError),
+        (KeyError("currentTradingPeriod"), SymbolNotFoundError("none"), SymbolNotFoundError),
+        (KeyError("currentTradingPeriod"), ConnectionError("down"), DataFetchError),
+        (ConnectionError("down"), TickerInfo(symbol="AAPL", source="yfinance"), DataFetchError),
+    ],
+)
+async def test_quote_without_fallback_classifies_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    yf_error: Exception,
+    info: TickerInfo | Exception | None,
+    expected: type[Exception],
+) -> None:
+    """Without a fallback, a failed quote is not found only when the symbol is unknown.
+
+    Other quote failures are checked against the ticker snapshot, since ``fast_info``
+    fails the same way for unknown symbols and outages.
+    """
+    _use_fmp_key(monkeypatch, None)
+
+    def failing_quote(symbol: str) -> Quote:
+        raise yf_error
+
+    def fake_info(symbol: str) -> TickerInfo:
+        assert info is not None, "the snapshot should not be consulted"
+        if isinstance(info, Exception):
+            raise info
+        return info
+
+    monkeypatch.setattr(fetcher, "_yfinance_quote", failing_quote)
+    monkeypatch.setattr(fetcher, "_yfinance_info", fake_info)
+
+    with pytest.raises(expected) as caught:
+        await fetcher.fetch_quote("ZZZZ")
+    assert isinstance(caught.value, SymbolNotFoundError) == (expected is SymbolNotFoundError)
