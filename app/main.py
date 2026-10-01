@@ -8,7 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.agent import close_anthropic_client
 from app.api.v1.api import api_router
+from app.core.cache import close_cache
 from app.core.config import get_settings
+from app.db.session import close_database, init_db
 from app.models.health import HealthResponse
 from app.stats.r_bridge import start_r
 
@@ -17,10 +19,13 @@ __version__: str = "0.1.0"
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-    """Start the embedded R session before serving and close the Anthropic client after."""
+    """Start R and create database tables before serving; close shared clients after."""
     start_r()
+    await init_db()
     yield
     await close_anthropic_client()
+    await close_cache()
+    await close_database()
 
 
 def create_app() -> FastAPI:

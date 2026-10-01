@@ -37,6 +37,22 @@ class Settings(BaseSettings):
     sec_section_max_chars: int = Field(default=60_000, ge=1_000)
     r_home: Path | None = None
 
+    database_url: str = Field(
+        default=f"sqlite+aiosqlite:///{PROJECT_ROOT / 'data_cache' / 'pyqxel.db'}",
+        description="SQLAlchemy async URL for stored backtests, e.g. "
+        "postgresql+asyncpg://user:pass@host/pyqxel.",
+    )
+    redis_url: SecretStr | None = Field(
+        default=None,
+        description="Redis URL for caching market data; caching is off when unset.",
+    )
+    analysis_cache_ttl_seconds: float = Field(
+        default=86_400.0,
+        ge=0,
+        description="How long a stored AI analysis is reused instead of paying for a new "
+        "one; 0 always writes a new one.",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

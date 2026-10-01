@@ -1,17 +1,23 @@
 """AI research routes: Claude-written investment theses and risk summaries.
 
 Reports are grounded in price statistics and, where available, SEC filings. Each report
-can be fetched whole, or streamed as Server-Sent Events while Claude writes it.
+can be fetched whole, or streamed as Server-Sent Events while Claude writes it. Reports
+are stored, and one for the same options is reused for a while instead of being paid for
+again. Stored reports can be listed and read back under ``/analyses``.
 """
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.sse import EventSourceResponse, ServerSentEvent
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.agent import (
     AINotConfiguredError,
@@ -22,6 +28,7 @@ from app.ai.agent import (
     stream_analysis,
     write_analysis,
 )
+from app.ai.cache import analysis_slot, cached_analysis, remember_analysis
 from app.api.v1.endpoints.stocks import (
     PERIODS_PER_YEAR,
     Symbol,
@@ -40,9 +47,13 @@ from app.data.sec_edgar import (
     FilingFetchError,
     fetch_latest_filings,
 )
+from app.db.analyses import get_analysis, list_analyses
+from app.db.session import get_session
 from app.models.research import (
     AnalysisContext,
     AnalysisDelta,
+    AnalysisKind,
+    AnalysisList,
     AnalysisRequest,
     AnalysisResponse,
     AnalysisStreamError,
@@ -50,11 +61,17 @@ from app.models.research import (
     InvestmentThesis,
     RiskSummary,
 )
-from app.models.stock import TickerInfo
+from app.models.stock import SYMBOL_PATTERN, TickerInfo
 from app.stats.indicators import summarize_prices
 from app.stats.volatility import InsufficientDataError
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+"""Routes under ``/stocks`` that write analyses."""
+
+results_router = APIRouter()
+"""Routes under ``/analyses`` that read stored analyses."""
 
 
 async def _no_filings() -> list[Filing]:
@@ -115,6 +132,8 @@ class PreparedAnalysis:
     request: AnalysisRequest
     context: AnalysisContext
     filings: list[Filing]
+    cached: AnalysisResponse | None = None
+    """A recent report for the same request, which makes asking Claude unnecessary."""
 
     def response(self, report: InvestmentThesis | RiskSummary, model: str) -> AnalysisResponse:
         """Wrap a finished report with the data it was written from."""
@@ -137,7 +156,20 @@ async def prepare_analysis(
     Runs as a dependency, so a streamed analysis fails with an HTTP status before its
     stream opens: 404 for unknown symbols, 422 when the window has too few bars, and
     502 when the price provider fails. A missing snapshot or filings only adds a notice.
+
+    When a recent report for the same request is cached, nothing is fetched and the
+    report is returned with the context it was written from.
     """
+    cached = await cached_analysis(symbol, request)
+    if cached is not None:
+        return PreparedAnalysis(
+            symbol=cached.symbol,
+            request=request,
+            context=cached.context,
+            filings=[],
+            cached=cached,
+        )
+
     info_result, history_result, filings_result = await asyncio.gather(
         fetch_ticker_info(symbol),
         fetch_price_history(symbol, period=request.period, interval="1d"),
@@ -204,17 +236,28 @@ async def create_analysis(prepared: Prepared) -> AnalysisResponse:
     snapshot or filings cannot be fetched the report is written without them and
     ``context.notice`` says so.
 
+    Every report is stored. A report written for the same options, model and effort
+    within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by default) is returned again with
+    ``cached`` set and no charge, unless ``refresh`` is true. Identical requests that
+    arrive together are written once.
+
     Returns 404 for unknown symbols, 422 when the window has too few bars or the model
     declines, 502 when a provider fails, and 503 when the AI service is unconfigured or
     rate limited.
     """
-    try:
-        report, model = await write_analysis(
-            prepared.context, prepared.request.kind, prepared.filings
-        )
-    except AnalysisError as exc:
-        raise _ai_error(exc) from exc
-    return prepared.response(report, model)
+    if prepared.cached is not None:
+        return prepared.cached
+    async with analysis_slot(prepared.symbol, prepared.request):
+        cached = await cached_analysis(prepared.symbol, prepared.request)
+        if cached is not None:
+            return cached
+        try:
+            report, model = await write_analysis(
+                prepared.context, prepared.request.kind, prepared.filings
+            )
+        except AnalysisError as exc:
+            raise _ai_error(exc) from exc
+        return await remember_analysis(prepared.request, prepared.response(report, model))
 
 
 @router.post(
@@ -239,27 +282,87 @@ async def stream_analysis_events(prepared: Prepared) -> AsyncIterator[ServerSent
       route would have returned. Fragments already sent should then be discarded.
 
     The stream ends after ``result`` or ``error``. Idle periods carry keep-alive comments.
+    A reused report, as described for ``create_analysis``, is sent as ``context`` then
+    ``result`` alone.
     """
-    yield ServerSentEvent(event="context", data=prepared.context)
+    async with analysis_slot(prepared.symbol, prepared.request):
+        cached = prepared.cached or await cached_analysis(prepared.symbol, prepared.request)
+        if cached is not None:
+            yield ServerSentEvent(event="context", data=cached.context)
+            yield ServerSentEvent(event="result", data=cached)
+            return
+        yield ServerSentEvent(event="context", data=prepared.context)
+        try:
+            async for item in stream_analysis(
+                prepared.context, prepared.request.kind, prepared.filings
+            ):
+                if isinstance(item, WrittenReport):
+                    response = await remember_analysis(
+                        prepared.request, prepared.response(item.report, item.model)
+                    )
+                    yield ServerSentEvent(event="result", data=response)
+                elif isinstance(item, AnalysisDelta):
+                    yield ServerSentEvent(event=item.channel, data=item)
+                else:
+                    yield ServerSentEvent(event="fallback", data=item)
+        except AnalysisError as exc:
+            error = _ai_error(exc)
+            yield ServerSentEvent(
+                event="error",
+                data=AnalysisStreamError(
+                    status=error.status_code,
+                    detail=str(error.detail),
+                    retry_after=exc.retry_after if isinstance(exc, AIRateLimitError) else None,
+                ),
+            )
+
+
+Session = Annotated[AsyncSession, Depends(get_session)]
+
+
+def _database_error(exc: SQLAlchemyError) -> HTTPException:
+    """Log a database failure and translate it into a 503."""
+    logger.error("Analysis database request failed: %s", exc)
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="The analysis database is unavailable.",
+    )
+
+
+@results_router.get("", response_model=AnalysisList, summary="List stored analyses")
+async def read_analyses(
+    session: Session,
+    symbol: Annotated[
+        str | None, Query(pattern=SYMBOL_PATTERN, description="Only this symbol's reports.")
+    ] = None,
+    kind: Annotated[AnalysisKind | None, Query(description="Only reports of this kind.")] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> AnalysisList:
+    """Return stored analyses' headlines, newest first. Reading them costs nothing.
+
+    Returns 503 when the database is unavailable.
+    """
     try:
-        async for item in stream_analysis(
-            prepared.context, prepared.request.kind, prepared.filings
-        ):
-            if isinstance(item, WrittenReport):
-                yield ServerSentEvent(
-                    event="result", data=prepared.response(item.report, item.model)
-                )
-            elif isinstance(item, AnalysisDelta):
-                yield ServerSentEvent(event=item.channel, data=item)
-            else:
-                yield ServerSentEvent(event="fallback", data=item)
-    except AnalysisError as exc:
-        error = _ai_error(exc)
-        yield ServerSentEvent(
-            event="error",
-            data=AnalysisStreamError(
-                status=error.status_code,
-                detail=str(error.detail),
-                retry_after=exc.retry_after if isinstance(exc, AIRateLimitError) else None,
-            ),
+        return await list_analyses(session, symbol, kind, limit, offset)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+
+
+@results_router.get(
+    "/{analysis_id}", response_model=AnalysisResponse, summary="A stored analysis in full"
+)
+async def read_analysis(analysis_id: UUID, session: Session) -> AnalysisResponse:
+    """Return a stored analysis with the data it was written from.
+
+    Returns 404 for unknown IDs and 503 when the database is unavailable.
+    """
+    try:
+        result = await get_analysis(session, analysis_id)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"No analysis with ID {analysis_id}."
         )
+    return result

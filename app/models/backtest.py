@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Annotated, Literal, Self
+from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -116,6 +117,12 @@ class EquityPoint(BaseModel):
 class BacktestResponse(BaseModel):
     """A strategy's performance, with buy-and-hold on the same bars as the benchmark."""
 
+    id: UUID | None = Field(
+        default=None,
+        description="ID of the stored result, for GET /backtests/{id}; null if it could not "
+        "be saved.",
+    )
+    saved_at: datetime | None = Field(default=None, description="When the result was stored.")
     symbol: str
     period: BacktestPeriod
     interval: BacktestInterval
@@ -134,3 +141,27 @@ class BacktestResponse(BaseModel):
         "Backtested on historical adjusted prices. Past performance does not predict "
         "future results."
     )
+
+
+class BacktestSummary(BaseModel):
+    """A stored backtest's headline numbers, without its equity curve."""
+
+    id: UUID
+    saved_at: datetime
+    symbol: str
+    strategy: str = Field(description="Strategy ``type``; the full spec is on the result.")
+    period: BacktestPeriod
+    interval: BacktestInterval
+    total_return: float
+    sharpe_ratio: float | None
+    max_drawdown: float
+    benchmark_total_return: float
+
+
+class BacktestList(BaseModel):
+    """One page of stored backtests, newest first."""
+
+    items: list[BacktestSummary]
+    total: int = Field(ge=0, description="Stored backtests matching the filters, on any page.")
+    limit: int
+    offset: int

@@ -9,8 +9,10 @@ from types import SimpleNamespace
 import httpx
 import pandas as pd
 import pytest
+from fakeredis import FakeAsyncRedis
 from pydantic import SecretStr
 
+from app.core.cache import KEY_PREFIX, configure_cache
 from app.core.config import Settings
 from app.data import fetcher
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
@@ -497,3 +499,146 @@ async def test_quote_without_fallback_classifies_failures(
     with pytest.raises(expected) as caught:
         await fetcher.fetch_quote("ZZZZ")
     assert isinstance(caught.value, SymbolNotFoundError) == (expected is SymbolNotFoundError)
+
+
+@pytest.fixture
+def fake_redis() -> FakeAsyncRedis:
+    """Turn the shared cache on, backed by an empty fake Redis."""
+    client = FakeAsyncRedis(decode_responses=True)
+    configure_cache(client)
+    return client
+
+
+def _counting_yf_history(frame: pd.DataFrame) -> tuple[object, list[str]]:
+    """Build a fake ``_yfinance_history`` returning ``frame``, and the list of its calls."""
+    calls: list[str] = []
+
+    def fake(symbol: str, period: str, interval: str) -> pd.DataFrame:
+        calls.append(symbol)
+        return frame
+
+    return fake, calls
+
+
+def _new_york_bars() -> pd.DataFrame:
+    """Two daily bars in New York time, one missing its open, as yfinance returns them."""
+    index = pd.DatetimeIndex(["2026-09-24", "2026-09-25"], tz="America/New_York", name="Date")
+    return pd.DataFrame(
+        {
+            "Open": [100.0, math.nan],
+            "High": [102.0, 103.0],
+            "Low": [99.0, 100.5],
+            "Close": [101.0, 102.5],
+            "Volume": [1_000_000, 1_200_000],
+            "Dividends": [0.0, 0.0],
+        },
+        index=index,
+    )
+
+
+async def test_history_is_served_from_the_cache(
+    monkeypatch: pytest.MonkeyPatch, fake_redis: FakeAsyncRedis
+) -> None:
+    """A repeated request reuses the cached bars, with their time zone and gaps intact."""
+    fake, calls = _counting_yf_history(_new_york_bars())
+    monkeypatch.setattr(fetcher, "_yfinance_history", fake)
+
+    first = await fetcher.fetch_price_history("spy", period="1y", interval="1d")
+    second = await fetcher.fetch_price_history("SPY", period="1y", interval="1d")
+
+    assert calls == ["SPY"]
+    pd.testing.assert_frame_equal(second, first)
+    assert str(second.index.tz) == "America/New_York"
+    ttl = await fake_redis.pttl(KEY_PREFIX + "history:SPY:1y:1d")
+    assert 0 < ttl <= fetcher.HISTORY_TTL_SECONDS * 1000
+
+
+async def test_history_cache_is_keyed_by_window(
+    monkeypatch: pytest.MonkeyPatch, fake_redis: FakeAsyncRedis
+) -> None:
+    """Different periods and intervals are fetched separately; intraday bars expire sooner."""
+    fake, calls = _counting_yf_history(_new_york_bars())
+    monkeypatch.setattr(fetcher, "_yfinance_history", fake)
+
+    await fetcher.fetch_price_history("SPY", period="1y", interval="1d")
+    await fetcher.fetch_price_history("SPY", period="5d", interval="1h")
+
+    assert calls == ["SPY", "SPY"]
+    ttl = await fake_redis.pttl(KEY_PREFIX + "history:SPY:5d:1h")
+    assert 0 < ttl <= fetcher.INTRADAY_HISTORY_TTL_SECONDS * 1000
+
+
+@pytest.mark.parametrize(
+    ("interval", "ttl"),
+    [
+        ("1m", fetcher.INTRADAY_HISTORY_TTL_SECONDS),
+        ("90m", fetcher.INTRADAY_HISTORY_TTL_SECONDS),
+        ("1h", fetcher.INTRADAY_HISTORY_TTL_SECONDS),
+        ("1d", fetcher.HISTORY_TTL_SECONDS),
+        ("1wk", fetcher.HISTORY_TTL_SECONDS),
+        ("1mo", fetcher.HISTORY_TTL_SECONDS),
+    ],
+)
+async def test_history_ttl_by_interval(interval: str, ttl: float) -> None:
+    """Minute and hour bars are cached briefly; ``1mo`` is months, not minutes."""
+    assert fetcher._history_ttl(interval) == ttl
+
+
+async def test_empty_history_is_not_cached(
+    monkeypatch: pytest.MonkeyPatch, fake_redis: FakeAsyncRedis
+) -> None:
+    """A window without bars is asked about again rather than cached."""
+    monkeypatch.setattr(fetcher, "_yfinance_history", _yf_history_returning(EMPTY_YF_FRAME))
+    _info_check(monkeypatch, None)
+
+    await fetcher.fetch_price_history("NEW")
+
+    assert await fake_redis.keys() == []
+
+
+async def test_unreadable_cached_history_is_refetched(
+    monkeypatch: pytest.MonkeyPatch, fake_redis: FakeAsyncRedis
+) -> None:
+    """A corrupt cache entry is ignored and replaced by fresh bars."""
+    await fake_redis.set(KEY_PREFIX + "history:SPY:1y:1d", "{not json")
+    fake, calls = _counting_yf_history(_new_york_bars())
+    monkeypatch.setattr(fetcher, "_yfinance_history", fake)
+
+    history = await fetcher.fetch_price_history("SPY")
+
+    assert calls == ["SPY"]
+    assert len(history) == 2
+    assert await fake_redis.get(KEY_PREFIX + "history:SPY:1y:1d") != "{not json"
+
+
+async def test_info_is_served_from_the_cache(
+    monkeypatch: pytest.MonkeyPatch, fake_redis: FakeAsyncRedis
+) -> None:
+    """A repeated ticker lookup reuses the cached snapshot."""
+    calls: list[str] = []
+
+    def fake_info(symbol: str) -> TickerInfo:
+        calls.append(symbol)
+        return TickerInfo(symbol=symbol, name="Apple Inc.", price=190.5, source="yfinance")
+
+    monkeypatch.setattr(fetcher, "_yfinance_info", fake_info)
+
+    first = await fetcher.fetch_ticker_info("aapl")
+    second = await fetcher.fetch_ticker_info("AAPL")
+
+    assert calls == ["AAPL"]
+    assert second == first
+    assert 0 < await fake_redis.pttl(KEY_PREFIX + "info:AAPL") <= fetcher.INFO_TTL_SECONDS * 1000
+
+
+async def test_failed_lookups_are_not_cached(
+    monkeypatch: pytest.MonkeyPatch, fake_redis: FakeAsyncRedis
+) -> None:
+    """Unknown symbols and provider failures are not remembered."""
+    _use_fmp_key(monkeypatch, None)
+    monkeypatch.setattr(fetcher, "_yfinance_info", _yf_info_raising(SymbolNotFoundError("none")))
+
+    with pytest.raises(SymbolNotFoundError):
+        await fetcher.fetch_ticker_info("ZZZZ")
+
+    assert await fake_redis.keys() == []
