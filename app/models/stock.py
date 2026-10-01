@@ -5,6 +5,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+SYMBOL_PATTERN: str = r"^[A-Za-z0-9.\-^=]{1,15}$"
+"""Letters, digits and the ``.``, ``-``, ``^``, ``=`` used by class shares, indices and FX."""
+
 HistoryPeriod = Literal["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
 """Lookback periods accepted by yfinance."""
 

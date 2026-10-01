@@ -69,6 +69,10 @@ An AI-native research and quantitative analysis platform designed for equity sto
    ```
    The API is served at `http://127.0.0.1:8000`, with interactive docs at `http://127.0.0.1:8000/docs`. Check it with `curl http://127.0.0.1:8000/health`.
 
+   Two endpoints stream:
+   * `POST /api/v1/stocks/{symbol}/analysis/stream` sends the AI analysis as Server-Sent Events while Claude writes it: `context`, then `thinking` and `report` fragments, then the final `result` (or an `error`). Try it with `curl -N -X POST http://127.0.0.1:8000/api/v1/stocks/AAPL/analysis/stream`.
+   * `ws://127.0.0.1:8000/api/v1/ws/quotes?symbols=AAPL,MSFT` streams live quotes. Change what it follows by sending `{"action": "subscribe", "symbols": ["TSLA"]}` or `{"action": "unsubscribe", ...}`. Quotes are polled every 15 seconds by default (`interval`, 5 to 300 seconds), and only new or changed quotes are sent.
+
 5. **Run the Tests**:
    ```bash
    pytest

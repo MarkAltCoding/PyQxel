@@ -13,6 +13,7 @@ from app.data.fetcher import (
     fetch_ticker_info,
 )
 from app.models.stock import (
+    SYMBOL_PATTERN,
     HistoryCoverage,
     HistoryInterval,
     HistoryPeriod,
@@ -34,9 +35,6 @@ from app.stats.r_bridge import RUnavailableError
 from app.stats.volatility import MAX_HORIZON, InsufficientDataError
 
 router = APIRouter()
-
-SYMBOL_PATTERN: str = r"^[A-Za-z0-9.\-^=]{1,15}$"
-"""Letters, digits and the ``.``, ``-``, ``^``, ``=`` used by class shares, indices and FX."""
 
 PERIOD_OFFSETS: dict[str, pd.DateOffset] = {
     "1mo": pd.DateOffset(months=1),

@@ -18,15 +18,19 @@ from app.ai.agent import (
     AIRefusalError,
     AIUnavailableError,
     AnalysisError,
+    WrittenReport,
+    stream_analysis,
     write_analysis,
 )
 from app.core.config import Settings, get_settings
 from app.models.research import (
     AnalysisContext,
+    AnalysisDelta,
     AnalysisKind,
     Filing,
     FilingSection,
     InvestmentThesis,
+    ModelFallback,
     PriceSummary,
     RiskSummary,
 )
@@ -318,3 +322,176 @@ async def test_missing_parsed_output_is_an_analysis_error() -> None:
     """A finished response without a parsed report is not returned."""
     with pytest.raises(AnalysisError, match="valid report"):
         await _write(FakeClient(_response(parsed_output=None)), "thesis")
+
+
+def _event(type_: str, **fields: Any) -> SimpleNamespace:
+    """Build a stream event."""
+    return SimpleNamespace(type=type_, **fields)
+
+
+def _text_delta(text: str) -> SimpleNamespace:
+    return _event("content_block_delta", delta=SimpleNamespace(type="text_delta", text=text))
+
+
+def _thinking_delta(text: str) -> SimpleNamespace:
+    return _event(
+        "content_block_delta", delta=SimpleNamespace(type="thinking_delta", thinking=text)
+    )
+
+
+def _final(texts: list[str], **overrides: Any) -> SimpleNamespace:
+    """Build the final streamed message with one text block per entry of ``texts``."""
+    fields: dict[str, Any] = {
+        "stop_reason": "end_turn",
+        "stop_details": None,
+        "content": [SimpleNamespace(type="text", text=text) for text in texts],
+        "model": "claude-opus-5-5",
+    }
+    return SimpleNamespace(**(fields | overrides))
+
+
+class FakeStream:
+    """An async context manager replaying ``events``, then returning ``final``."""
+
+    def __init__(self, events: list[SimpleNamespace], final: SimpleNamespace) -> None:
+        self._events = events
+        self._final = final
+
+    async def __aenter__(self) -> "FakeStream":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    async def __aiter__(self) -> Any:
+        for event in self._events:
+            yield event
+
+    async def get_final_message(self) -> SimpleNamespace:
+        return self._final
+
+
+class FakeStreamClient:
+    """Records ``beta.messages.stream`` calls and replays a stream or raises."""
+
+    def __init__(self, result: FakeStream | Exception) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self._result = result
+        self.beta = SimpleNamespace(messages=SimpleNamespace(stream=self._stream))
+
+    def _stream(self, **kwargs: Any) -> FakeStream:
+        self.calls.append(kwargs)
+        if isinstance(self._result, Exception):
+            raise self._result
+        return self._result
+
+
+async def _collect(
+    client: FakeStreamClient, kind: AnalysisKind = "thesis"
+) -> list[AnalysisDelta | ModelFallback | WrittenReport]:
+    """Run :func:`stream_analysis` to completion and return everything it yielded."""
+    return [
+        item
+        async for item in stream_analysis(_context(), kind, client=cast(AsyncAnthropic, client))
+    ]
+
+
+async def test_stream_yields_thinking_report_and_result() -> None:
+    """Reasoning and report fragments are yielded in order, then the validated report."""
+    report_json = THESIS.model_dump_json()
+    half = len(report_json) // 2
+    stream = FakeStream(
+        [
+            _event("message_start"),
+            _thinking_delta("Weighing momentum."),
+            _text_delta(report_json[:half]),
+            _text_delta(report_json[half:]),
+            _event("message_stop"),
+        ],
+        _final([report_json]),
+    )
+    client = FakeStreamClient(stream)
+
+    items = await _collect(client)
+
+    assert items[:3] == [
+        AnalysisDelta(channel="thinking", text="Weighing momentum."),
+        AnalysisDelta(channel="report", text=report_json[:half]),
+        AnalysisDelta(channel="report", text=report_json[half:]),
+    ]
+    assert items[3] == WrittenReport(report=THESIS, model="claude-opus-5-5")
+    call = client.calls[0]
+    assert call["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert call["output_config"]["format"]["type"] == "json_schema"
+    assert "headline" in call["output_config"]["format"]["schema"]["properties"]
+    assert call["fallbacks"] == "default"
+    assert call["betas"] == [FALLBACK_BETA]
+
+
+async def test_stream_risk_uses_risk_schema() -> None:
+    """A risk summary stream is constrained to and validated against the risk schema."""
+    client = FakeStreamClient(FakeStream([], _final([THESIS.model_dump_json()])))
+
+    with pytest.raises(AnalysisError, match="schema"):
+        await _collect(client, "risk")
+    schema = client.calls[0]["output_config"]["format"]["schema"]
+    assert "key_risks" in schema["properties"]
+
+
+async def test_stream_reports_fallback_and_joins_split_report() -> None:
+    """A mid-stream fallback is yielded and the report spanning both models validates."""
+    report_json = THESIS.model_dump_json()
+    fallback = SimpleNamespace(
+        type="fallback",
+        from_=SimpleNamespace(model="claude-opus-5-5"),
+        to=SimpleNamespace(model="claude-opus-4-8"),
+    )
+    stream = FakeStream(
+        [_event("content_block_start", content_block=fallback)],
+        _final([report_json[:10], report_json[10:]], model="claude-opus-4-8"),
+    )
+
+    items = await _collect(FakeStreamClient(stream))
+
+    assert items == [
+        ModelFallback(from_model="claude-opus-5-5", to_model="claude-opus-4-8"),
+        WrittenReport(report=THESIS, model="claude-opus-4-8"),
+    ]
+
+
+async def test_stream_refusal_raises_after_fragments() -> None:
+    """A refusal is raised once the stream ends, after the partial fragments."""
+    stop_details = SimpleNamespace(category="cyber")
+    stream = FakeStream(
+        [_text_delta('{"headline": ')],
+        _final(['{"headline": '], stop_reason="refusal", stop_details=stop_details),
+    )
+    received: list[object] = []
+
+    with pytest.raises(AIRefusalError, match="cyber"):
+        async for item in stream_analysis(
+            _context(), "thesis", client=cast(AsyncAnthropic, FakeStreamClient(stream))
+        ):
+            received.append(item)
+    assert received == [AnalysisDelta(channel="report", text='{"headline": ')]
+
+
+async def test_stream_truncation_raises() -> None:
+    """A stream cut off at the token limit is an analysis error."""
+    stream = FakeStream([], _final(["{"], stop_reason="max_tokens"))
+
+    with pytest.raises(AnalysisError, match="truncated"):
+        await _collect(FakeStreamClient(stream))
+
+
+async def test_stream_api_errors_are_translated() -> None:
+    """SDK errors raised when the stream opens become analysis errors."""
+    error = anthropic.RateLimitError(
+        "slow down",
+        response=httpx2.Response(429, request=REQUEST, headers={"retry-after": "7"}),
+        body=None,
+    )
+
+    with pytest.raises(AIRateLimitError) as caught:
+        await _collect(FakeStreamClient(error))
+    assert caught.value.retry_after == 7
