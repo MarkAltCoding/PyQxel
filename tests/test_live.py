@@ -131,12 +131,28 @@ async def test_return_panel_across_exchanges() -> None:
     """US and Tokyo listings line up by date, leaving out only each market's holidays."""
     closes = await fetch_close_panel(["SPY", "QQQ", "7203.T"], "2y")
 
-    panel = return_panel(closes)
+    panel = return_panel(closes.closes)
 
     assert list(panel.returns.columns) == ["SPY", "QQQ", "7203.T"]
     assert 420 < panel.observations < 510
     assert 0 < panel.excluded_dates < 80
     assert panel.returns["SPY"].corr(panel.returns["QQQ"]) > 0.8
+    assert closes.timezones["7203.T"] == "Asia/Tokyo"
+
+
+def test_copula_fit(client: TestClient) -> None:
+    """Two broad US equity funds move almost as one and crash together; bonds barely relate."""
+    response = client.post(
+        "/api/v1/portfolio/copula", json={"symbols": ["SPY", "QQQ", "TLT"], "period": "5y"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    spy_qqq, spy_tlt = body["pairs"][0], body["pairs"][1]
+    assert spy_qqq["kendall_tau"] > 0.6
+    assert spy_qqq["tail_dependence"] > 0.3
+    assert abs(spy_tlt["kendall_tau"]) < 0.3
+    assert body["student_t"]["degrees_of_freedom"] < 30
 
 
 def test_ewma_volatility(client: TestClient) -> None:

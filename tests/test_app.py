@@ -76,6 +76,7 @@ def test_every_client_route_is_registered() -> None:
         "/api/v1/stocks/{symbol}/analysis": "post",
         "/api/v1/stocks/{symbol}/backtest": "post",
         "/api/v1/stocks/{symbol}/factors": "get",
+        "/api/v1/portfolio/copula": "post",
         "/api/v1/backtests": "get",
         "/api/v1/backtests/{backtest_id}": "get",
         "/api/v1/analyses": "get",

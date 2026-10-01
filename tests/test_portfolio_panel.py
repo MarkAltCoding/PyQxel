@@ -141,7 +141,7 @@ async def test_closes_are_combined_in_request_order(monkeypatch: pytest.MonkeyPa
     """Each symbol becomes a column, on the union of dates, in the order requested."""
     _serve(monkeypatch, {"MSFT": _bars([1, 2, 3]), "AAPL": _bars([4, 5], start="2026-01-06")})
 
-    closes = await fetch_close_panel(["MSFT", "AAPL"], "1y")
+    closes = (await fetch_close_panel(["MSFT", "AAPL"], "1y")).closes
 
     assert list(closes.columns) == ["MSFT", "AAPL"]
     assert closes.index.tz is None
@@ -159,8 +159,10 @@ async def test_exchanges_line_up_by_their_own_calendar_date(
         {"SPY": _bars([1, 2, 3]), "7203.T": _bars([7, 8, 9], tz="Asia/Tokyo")},
     )
 
-    closes = await fetch_close_panel(["SPY", "7203.T"])
+    panel = await fetch_close_panel(["SPY", "7203.T"])
+    closes = panel.closes
 
+    assert panel.timezones == {"SPY": "America/New_York", "7203.T": "Asia/Tokyo"}
     assert len(closes) == 3
     assert closes.notna().all().all()
     assert closes.index[0] == pd.Timestamp("2026-01-05")

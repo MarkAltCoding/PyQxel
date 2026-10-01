@@ -6,6 +6,7 @@ directly would convert them all to UTC, shifting Asian listings back a day.
 """
 
 import asyncio
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -15,9 +16,19 @@ MAX_CONCURRENT_DOWNLOADS: int = 8
 """Downloads in flight at once, to stay polite to the provider."""
 
 
+@dataclass(frozen=True)
+class ClosePanel:
+    """Adjusted closes of several symbols, and the time zone each one trades in."""
+
+    closes: pd.DataFrame
+    """One column per symbol, indexed by exchange date; ``NaN`` where a symbol has no bar."""
+    timezones: dict[str, str | None]
+    """Each symbol's exchange time zone, e.g. ``America/New_York``; ``None`` if unknown."""
+
+
 async def fetch_close_panel(
     symbols: list[str], period: str = "5y", interval: str = "1d"
-) -> pd.DataFrame:
+) -> ClosePanel:
     """Fetch adjusted closes for every symbol, one column each, on the union of their dates.
 
     Dates are each exchange's calendar date, without time zone.
@@ -29,7 +40,8 @@ async def fetch_close_panel(
 
     Returns:
         Closes with a column per symbol in the order given, indexed by date, oldest
-        first. A symbol is ``NaN`` on dates only the others have.
+        first, with a symbol ``NaN`` on dates only the others have; and each symbol's
+        exchange time zone.
 
     Raises:
         SymbolNotFoundError: If any symbol is unknown, naming every unknown one.
@@ -53,12 +65,18 @@ async def fetch_close_panel(
         if isinstance(result, BaseException):
             raise result
 
-    closes = {
-        symbol: _by_exchange_date(frame["Close"])
-        for symbol, frame in zip(symbols, results)
-        if isinstance(frame, pd.DataFrame)
+    frames = {
+        symbol: frame for symbol, frame in zip(symbols, results) if isinstance(frame, pd.DataFrame)
     }
-    return pd.concat(closes, axis=1, join="outer", sort=True).reindex(columns=symbols)
+    closes = {symbol: _by_exchange_date(frame["Close"]) for symbol, frame in frames.items()}
+    timezones = {
+        symbol: None if (tz := pd.DatetimeIndex(frame.index).tz) is None else str(tz)
+        for symbol, frame in frames.items()
+    }
+    return ClosePanel(
+        closes=pd.concat(closes, axis=1, join="outer", sort=True).reindex(columns=symbols),
+        timezones=timezones,
+    )
 
 
 def _by_exchange_date(closes: pd.Series) -> pd.Series:
