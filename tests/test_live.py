@@ -111,6 +111,19 @@ async def test_fama_french_factors() -> None:
         assert 0 <= frame["RF"].iloc[-1] < 0.001
 
 
+def test_factor_regression(client: TestClient) -> None:
+    """A broad index fund loads about one on the market and the factors explain it."""
+    response = client.get("/api/v1/stocks/SPY/factors", params={"model": "carhart4"})
+
+    assert response.status_code == 200
+    fit = response.json()["fit"]
+    market = fit["exposures"][0]
+    assert market["factor"] == "Mkt-RF"
+    assert 0.9 < market["estimate"] < 1.1
+    assert fit["r_squared"] > 0.95
+    assert abs(fit["alpha"]["estimate"]) < 0.05
+
+
 def test_ewma_volatility(client: TestClient) -> None:
     """EWMA volatility for a broad index fund is in a plausible range."""
     response = client.get("/api/v1/stocks/SPY/volatility", params={"model": "ewma"})
