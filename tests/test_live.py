@@ -13,8 +13,10 @@ from fastapi.testclient import TestClient
 from app.core.config import get_settings
 from app.data import fetcher
 from app.data.factors import fetch_factors
+from app.data.panel import fetch_close_panel
 from app.data.sec_edgar import fetch_latest_filings
 from app.main import app
+from app.stats.panel import return_panel
 
 pytestmark = [
     pytest.mark.live,
@@ -122,6 +124,19 @@ def test_factor_regression(client: TestClient) -> None:
     assert 0.9 < market["estimate"] < 1.1
     assert fit["r_squared"] > 0.95
     assert abs(fit["alpha"]["estimate"]) < 0.05
+
+
+@pytest.mark.asyncio
+async def test_return_panel_across_exchanges() -> None:
+    """US and Tokyo listings line up by date, leaving out only each market's holidays."""
+    closes = await fetch_close_panel(["SPY", "QQQ", "7203.T"], "2y")
+
+    panel = return_panel(closes)
+
+    assert list(panel.returns.columns) == ["SPY", "QQQ", "7203.T"]
+    assert 420 < panel.observations < 510
+    assert 0 < panel.excluded_dates < 80
+    assert panel.returns["SPY"].corr(panel.returns["QQQ"]) > 0.8
 
 
 def test_ewma_volatility(client: TestClient) -> None:
