@@ -14,6 +14,7 @@ from collections.abc import Iterator
 import pytest
 
 from app.core.cache import configure_cache
+from app.data.factors import clear_factor_memory
 from app.db.session import close_database, configure_database, init_db
 
 
@@ -51,6 +52,8 @@ def isolated_storage() -> Iterator[None]:
     configure_database("sqlite+aiosqlite://")
     asyncio.run(init_db())
     configure_cache(None)
+    clear_factor_memory()
     yield
     configure_cache(None)
+    clear_factor_memory()
     asyncio.run(close_database())
