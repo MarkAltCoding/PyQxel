@@ -56,7 +56,7 @@ def daily_returns(closes: pd.Series) -> pd.Series:
 
 def hac_lags(observations: int) -> int:
     """Return the Newey-West lag count for ``observations`` returns."""
-    return math.floor(4 * (observations / 100) ** (2 / 9))
+    return math.floor(4 * math.pow(observations / 100, 2 / 9))
 
 
 def _coefficient(estimate: float, std_error: float, p_value: float, scale: float) -> Coefficient:

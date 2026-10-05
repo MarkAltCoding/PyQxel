@@ -12,7 +12,7 @@ from app.api.v1.endpoints import factors as factors_route
 from app.data.factors import FactorDataError
 from app.data.fetcher import SymbolNotFoundError
 from app.main import app
-from app.models.factors import MODEL_FACTORS, RISK_FREE
+from app.models.factors import MODEL_FACTORS, RISK_FREE, FactorModel
 
 client = TestClient(app)
 
@@ -36,8 +36,11 @@ def _price_history(table: pd.DataFrame, extra_days: int = 0) -> pd.DataFrame:
     """
     rng = np.random.default_rng(1)
     returns = 1.1 * table["Mkt-RF"] + table["RF"] + rng.normal(0, 0.005, size=len(table))
-    index = pd.bdate_range(end=FACTOR_END, periods=len(table) + 1)
-    index = index.append(pd.bdate_range(FACTOR_END + pd.offsets.BDay(1), periods=extra_days))
+    index = pd.DatetimeIndex(
+        pd.bdate_range(end=FACTOR_END, periods=len(table) + 1).append(
+            pd.bdate_range(FACTOR_END + pd.offsets.BDay(1), periods=extra_days)
+        )
+    )
     closes = 100.0 * np.concatenate(([1.0], np.cumprod(1.0 + returns.to_numpy())))
     closes = np.concatenate((closes, closes[-1] * 1.001 ** np.arange(1, extra_days + 1)))
     frame = pd.DataFrame({column: closes for column in ["Open", "High", "Low", "Close"]})
@@ -62,11 +65,11 @@ def _serve(
             raise prices
         return prices
 
-    async def fake_factors(model: str) -> pd.DataFrame:
+    async def fake_factors(model: FactorModel) -> pd.DataFrame:
         calls.append((state["period"], model))
         if isinstance(table, Exception):
             raise table
-        return table.loc[:, [*MODEL_FACTORS[model], RISK_FREE]]  # type: ignore[index]
+        return table[[*MODEL_FACTORS[model], RISK_FREE]]
 
     monkeypatch.setattr(factors_route, "fetch_price_history", fake_history)
     monkeypatch.setattr(factors_route, "fetch_factors", fake_factors)

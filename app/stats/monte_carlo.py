@@ -85,12 +85,14 @@ class _Marginal:
 
     def quantiles(self, uniforms: np.ndarray) -> np.ndarray:
         """Map uniforms in (0, 1) to daily returns."""
+        draws: np.ndarray
         if self.t_params is not None:
             df, loc, scale = self.t_params
             draws = stats.t.ppf(uniforms, df, loc=loc, scale=scale)
         else:
             draws = _empirical_quantiles(self.sorted_returns, uniforms)
-        return np.maximum(draws, MIN_RETURN)
+        bounded: np.ndarray = np.maximum(draws, MIN_RETURN)
+        return bounded
 
 
 def _empirical_quantiles(sorted_returns: np.ndarray, uniforms: np.ndarray) -> np.ndarray:
@@ -104,7 +106,10 @@ def _empirical_quantiles(sorted_returns: np.ndarray, uniforms: np.ndarray) -> np
     lower = np.floor(position).astype(int)
     upper = np.minimum(lower + 1, count - 1)
     fraction = position - lower
-    return sorted_returns[lower] + (sorted_returns[upper] - sorted_returns[lower]) * fraction
+    quantiles: np.ndarray = (
+        sorted_returns[lower] + (sorted_returns[upper] - sorted_returns[lower]) * fraction
+    )
+    return quantiles
 
 
 def _fit_marginal(returns: np.ndarray, model: MarginalModel) -> _Marginal:
@@ -290,7 +295,7 @@ def simulate_portfolio(
     fitted = [_fit_marginal(values[:, column], marginals) for column in range(dimension)]
 
     if seed is None:
-        seed = int(np.random.SeedSequence().entropy % 2**32)
+        seed = int(np.random.default_rng().integers(2**32))
     rng = np.random.default_rng(seed)
 
     growth = np.empty((paths, horizon))
@@ -381,7 +386,7 @@ def simulate_portfolio(
                 mean_return=float(values[:, column].mean()),
                 volatility=float(values[:, column].std(ddof=1)) * scale,
                 degrees_of_freedom=(
-                    None if fitted[column].t_params is None else fitted[column].t_params[0]
+                    None if (params := fitted[column].t_params) is None else params[0]
                 ),
             )
             for column, symbol in enumerate(symbols)

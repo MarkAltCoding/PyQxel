@@ -161,7 +161,10 @@ async def _fetch_ticker_info_uncached(symbol: str, client: httpx.AsyncClient | N
 
 def _yfinance_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
     """Fetch OHLCV history from yfinance (blocking)."""
-    return yf.Ticker(symbol).history(period=period, interval=interval, auto_adjust=True)
+    frame: pd.DataFrame = yf.Ticker(symbol).history(
+        period=period, interval=interval, auto_adjust=True
+    )
+    return frame
 
 
 def _clean_history(frame: pd.DataFrame) -> pd.DataFrame:

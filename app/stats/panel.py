@@ -7,6 +7,7 @@ date one market was closed is dropped for all, and the next return spans both da
 """
 
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -43,12 +44,18 @@ def _by_date(closes: pd.DataFrame) -> pd.DataFrame:
         index = index.tz_localize(None)
     frame.index = index.normalize()
     frame = frame.groupby(level=0).last().sort_index()
-    return frame.where(np.isfinite(frame) & (frame > 0))
+    valid: pd.DataFrame = frame.where(np.isfinite(frame) & (frame > 0))
+    return valid
+
+
+def first_date(prices: pd.Series) -> pd.Timestamp:
+    """Return the date of the first valid price in ``prices``, which must have one."""
+    return pd.Timestamp(cast(pd.Timestamp, prices.first_valid_index()))
 
 
 def _overlap_reason(prices: pd.DataFrame, excluded: int) -> str:
     """Explain why assets share few dates: a late listing, or mismatched market calendars."""
-    starts = {symbol: prices[symbol].first_valid_index() for symbol in prices.columns}
+    starts = {str(symbol): first_date(prices[symbol]) for symbol in prices.columns}
     latest = max(starts, key=lambda symbol: starts[symbol])
     if starts[latest] - min(starts.values()) > LATE_START:
         return (
@@ -85,7 +92,7 @@ def return_panel(
     if short:
         details = "; ".join(
             f"{symbol} has {counts[symbol]} daily closes"
-            + (f" (from {prices[symbol].first_valid_index().date()})" if counts[symbol] else "")
+            + (f" (from {first_date(prices[symbol]).date()})" if counts[symbol] else "")
             for symbol in short
         )
         raise InsufficientDataError(

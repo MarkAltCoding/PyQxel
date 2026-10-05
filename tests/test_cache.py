@@ -70,7 +70,7 @@ async def test_redis_failure_is_a_miss_and_pauses_the_cache(
     BrokenRedis.calls = 0
     configure_cache(BrokenRedis())
     clock = [1_000.0]
-    monkeypatch.setattr(cache.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr("app.core.cache.time.monotonic", lambda: clock[0])
 
     assert await cache_get("info:AAPL") is None
     assert BrokenRedis.calls == 1

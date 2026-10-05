@@ -42,7 +42,8 @@ def log_returns(closes: pd.Series) -> pd.Series:
         Percent log returns indexed by the timestamp of the later bar, oldest first.
     """
     prices = clean_prices(closes)
-    return (100.0 * np.log(prices).diff()).iloc[1:]
+    log_prices: pd.Series = np.log(prices)
+    return (100.0 * log_prices.diff()).iloc[1:]
 
 
 def require_returns(returns: pd.Series, minimum: int, model: str, advice: str) -> None:

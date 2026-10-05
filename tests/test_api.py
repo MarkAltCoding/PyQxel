@@ -5,7 +5,7 @@ Market data fetchers are replaced with fakes so no test touches the network.
 
 import json
 import math
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import date
 from typing import Any
 
@@ -44,6 +44,7 @@ from app.models.research import (
 )
 from app.models.stock import TickerInfo
 from app.models.volatility import EwmaFit, GarchFit, GarchParameter, VolatilityForecastStep
+from app.models.volatility import GarchDistribution
 from app.stats.garch import ModelFitError
 from app.stats.r_bridge import RUnavailableError
 from app.stats.volatility import InsufficientDataError
@@ -268,7 +269,7 @@ def test_price_history_maps_unknown_symbol_to_404(monkeypatch: pytest.MonkeyPatc
     assert response.status_code == 404
 
 
-def _garch_fit(distribution: str = "std") -> GarchFit:
+def _garch_fit(distribution: GarchDistribution = "std") -> GarchFit:
     """Build a small fitted model like ``fit_garch`` returns."""
     return GarchFit(
         distribution=distribution,
@@ -565,11 +566,11 @@ def _filing(form: str = "10-K", truncated: bool = False, sections: bool = True) 
         filed=date(2024, 11, 1),
         period_of_report=date(2024, 9, 28),
         url="https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/aapl.htm",
-        sections=[
-            FilingSection(title="Item 1A. Risk Factors", text="Supply risk.", truncated=truncated)
-        ]
-        if sections
-        else [],
+        sections=(
+            [FilingSection(title="Item 1A. Risk Factors", text="Supply risk.", truncated=truncated)]
+            if sections
+            else []
+        ),
     )
 
 
@@ -971,7 +972,7 @@ def test_stored_backtests_page(monkeypatch: pytest.MonkeyPatch) -> None:
     "params",
     [{"limit": 0}, {"limit": 201}, {"offset": -1}, {"symbol": "BAD$"}, {"strategy": "momentum"}],
 )
-def test_backtest_listing_rejects_invalid_filters(params: dict[str, object]) -> None:
+def test_backtest_listing_rejects_invalid_filters(params: dict[str, str | int]) -> None:
     """Out-of-range pages, malformed symbols and unknown strategies fail validation."""
     assert client.get("/api/v1/backtests", params=params).status_code == 422
 
@@ -1161,7 +1162,7 @@ def _sse(events: list[dict[str, Any]]) -> bytes:
 
 
 def _message_start(model: str) -> dict[str, Any]:
-    message = {
+    message: dict[str, Any] = {
         "id": "msg_replay",
         "type": "message",
         "role": "assistant",
@@ -1174,7 +1175,7 @@ def _message_start(model: str) -> dict[str, Any]:
     return {"type": "message_start", "message": message}
 
 
-def _block(index: int, block: dict[str, Any], deltas: list[dict[str, Any]]) -> list[dict]:
+def _block(index: int, block: dict[str, Any], deltas: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """A content block's start, deltas and stop events."""
     return [
         {"type": "content_block_start", "index": index, "content_block": block},
@@ -1183,13 +1184,13 @@ def _block(index: int, block: dict[str, Any], deltas: list[dict[str, Any]]) -> l
     ]
 
 
-def _text_block(index: int, *chunks: str) -> list[dict]:
+def _text_block(index: int, *chunks: str) -> list[dict[str, Any]]:
     return _block(
         index, {"type": "text", "text": ""}, [{"type": "text_delta", "text": c} for c in chunks]
     )
 
 
-def _fallback_block(index: int, category: str) -> list[dict]:
+def _fallback_block(index: int, category: str) -> list[dict[str, Any]]:
     block = {
         "type": "fallback",
         "from": {"model": REQUESTED_MODEL},
@@ -1211,7 +1212,9 @@ def _usage(model: str, kind: str) -> dict[str, Any]:
     }
 
 
-def _end(stop_reason: str, iterations: list[dict], category: str | None = None) -> list[dict]:
+def _end(
+    stop_reason: str, iterations: list[dict[str, Any]], category: str | None = None
+) -> list[dict[str, Any]]:
     """The closing ``message_delta`` and ``message_stop`` events."""
     details = None
     if stop_reason == "refusal":
@@ -1221,7 +1224,7 @@ def _end(stop_reason: str, iterations: list[dict], category: str | None = None) 
     return [{"type": "message_delta", "delta": delta, "usage": usage}, {"type": "message_stop"}]
 
 
-def _replay(monkeypatch: pytest.MonkeyPatch, events: list[dict]) -> list[httpx2.Request]:
+def _replay(monkeypatch: pytest.MonkeyPatch, events: list[dict[str, Any]]) -> list[httpx2.Request]:
     """Serve ``events`` to the agent's Anthropic client; return the requests it made."""
     requests: list[httpx2.Request] = []
 
@@ -1346,7 +1349,9 @@ def test_replayed_refusal_without_fallback_is_an_error_event(
 def _count_history_fetches(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Wrap the research route's (already faked) price fetch to record its calls."""
     calls: list[str] = []
-    fetch = research.fetch_price_history
+    fetch: Callable[[str, str, str], Awaitable[pd.DataFrame]] = getattr(
+        research, "fetch_price_history"
+    )
 
     async def counting(symbol: str, period: str, interval: str) -> pd.DataFrame:
         calls.append(symbol)
@@ -1463,7 +1468,7 @@ def test_unknown_analysis_is_404() -> None:
 @pytest.mark.parametrize(
     "params", [{"limit": 0}, {"offset": -1}, {"symbol": "BAD$"}, {"kind": "memo"}]
 )
-def test_analysis_listing_rejects_invalid_filters(params: dict[str, object]) -> None:
+def test_analysis_listing_rejects_invalid_filters(params: dict[str, str | int]) -> None:
     """Out-of-range pages, malformed symbols and unknown kinds fail validation."""
     assert client.get("/api/v1/analyses", params=params).status_code == 422
 

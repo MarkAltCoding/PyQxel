@@ -115,9 +115,7 @@ def _user_content(
     Filings are the bulk of the input and identical across requests about the same
     company, so they lead and end in a cache breakpoint.
     """
-    request = (
-        f"{TASKS[kind]}\n\n<snapshot>\n{context.model_dump_json(indent=2)}\n</snapshot>"
-    )
+    request = f"{TASKS[kind]}\n\n<snapshot>\n{context.model_dump_json(indent=2)}\n</snapshot>"
     if not any(filing.sections for filing in filings):
         return request
     return [

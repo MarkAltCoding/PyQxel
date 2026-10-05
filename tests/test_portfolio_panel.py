@@ -144,7 +144,7 @@ async def test_closes_are_combined_in_request_order(monkeypatch: pytest.MonkeyPa
     closes = (await fetch_close_panel(["MSFT", "AAPL"], "1y")).closes
 
     assert list(closes.columns) == ["MSFT", "AAPL"]
-    assert closes.index.tz is None
+    assert isinstance(closes.index, pd.DatetimeIndex) and closes.index.tz is None
     assert len(closes) == 3
     assert np.isnan(closes["AAPL"].iloc[0])
 
@@ -225,10 +225,11 @@ def test_returns_are_taken_after_aligning_dates() -> None:
 def test_time_zone_aware_closes_are_matched_by_date() -> None:
     """Closes stamped at exchange midnight align with plain dates."""
     closes = _dated_closes({"A": _walk(260, 1), "B": _walk(260, 2)})
-    closes.index = closes.index.tz_localize("America/New_York")
+    closes.index = pd.DatetimeIndex(closes.index).tz_localize("America/New_York")
 
     panel = return_panel(closes)
 
+    assert isinstance(panel.returns.index, pd.DatetimeIndex)
     assert panel.returns.index.tz is None
     assert panel.observations == 259
 

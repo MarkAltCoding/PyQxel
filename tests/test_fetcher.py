@@ -191,7 +191,7 @@ async def test_yfinance_info_maps_fields(monkeypatch: pytest.MonkeyPatch) -> Non
         "currentPrice": 200.0,
         "regularMarketPrice": 199.0,
     }
-    monkeypatch.setattr(fetcher.yf, "Ticker", lambda symbol: _FakeTicker(info))
+    monkeypatch.setattr("app.data.fetcher.yf.Ticker", lambda symbol: _FakeTicker(info))
 
     snapshot = fetcher._yfinance_info("AAPL")
 
@@ -213,7 +213,7 @@ async def test_yfinance_info_without_quote_is_not_found(
     monkeypatch: pytest.MonkeyPatch, info: dict[str, object]
 ) -> None:
     """An empty or ``NONE`` quote means yfinance does not know the symbol."""
-    monkeypatch.setattr(fetcher.yf, "Ticker", lambda symbol: _FakeTicker(info))
+    monkeypatch.setattr("app.data.fetcher.yf.Ticker", lambda symbol: _FakeTicker(info))
 
     with pytest.raises(SymbolNotFoundError):
         fetcher._yfinance_info("ZZZZ")
@@ -348,7 +348,7 @@ async def test_yfinance_quote_maps_fields(monkeypatch: pytest.MonkeyPatch) -> No
         last_volume=51_000_000.0,
         currency="USD",
     )
-    monkeypatch.setattr(fetcher.yf, "Ticker", lambda symbol: ticker)
+    monkeypatch.setattr("app.data.fetcher.yf.Ticker", lambda symbol: ticker)
 
     quote = fetcher._yfinance_quote("AAPL")
 
@@ -369,7 +369,7 @@ async def test_yfinance_quote_without_price_is_not_found(monkeypatch: pytest.Mon
         last_volume=None,
         currency=None,
     )
-    monkeypatch.setattr(fetcher.yf, "Ticker", lambda symbol: ticker)
+    monkeypatch.setattr("app.data.fetcher.yf.Ticker", lambda symbol: ticker)
 
     with pytest.raises(SymbolNotFoundError):
         fetcher._yfinance_quote("ZZZZ")
@@ -387,7 +387,7 @@ async def test_quote_without_previous_close_has_no_change(
         last_volume=None,
         currency="USD",
     )
-    monkeypatch.setattr(fetcher.yf, "Ticker", lambda symbol: ticker)
+    monkeypatch.setattr("app.data.fetcher.yf.Ticker", lambda symbol: ticker)
 
     quote = fetcher._yfinance_quote("NEW")
 
@@ -405,7 +405,7 @@ async def test_quotes_are_cached_briefly(monkeypatch: pytest.MonkeyPatch) -> Non
 
     clock = [1000.0]
     monkeypatch.setattr(fetcher, "_yfinance_quote", fake_quote)
-    monkeypatch.setattr(fetcher.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr("app.data.fetcher.time.monotonic", lambda: clock[0])
 
     first = await fetcher.fetch_quote("aapl")
     second = await fetcher.fetch_quote("AAPL ")
@@ -432,7 +432,8 @@ async def test_quote_falls_back_to_fmp(monkeypatch: pytest.MonkeyPatch) -> None:
     quote = await fetcher.fetch_quote("msft", client=client)
 
     assert quote.source == "fmp"
-    assert (quote.price, quote.change_percent, quote.volume) == (99.0, pytest.approx(-0.01), 10)
+    assert (quote.price, quote.volume) == (99.0, 10)
+    assert quote.change_percent == pytest.approx(-0.01)
     assert requests[0].url.params["symbol"] == "MSFT"
     assert str(requests[0].url).startswith(fetcher.FMP_QUOTE_URL)
 
@@ -548,6 +549,7 @@ async def test_history_is_served_from_the_cache(
 
     assert calls == ["SPY"]
     pd.testing.assert_frame_equal(second, first)
+    assert isinstance(second.index, pd.DatetimeIndex)
     assert str(second.index.tz) == "America/New_York"
     ttl = await fake_redis.pttl(KEY_PREFIX + "history:SPY:1y:1d")
     assert 0 < ttl <= fetcher.HISTORY_TTL_SECONDS * 1000

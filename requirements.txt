@@ -36,6 +36,10 @@ pytest-cov>=6.0
 fakeredis>=2.39.0
 black>=26.5.0
 flake8>=7.4.0
+Flake8-pyproject>=1.2.3
+mypy>=2.4.0
+pandas-stubs>=3.0.5
+scipy-stubs>=1.17.1
 
 # --- Planned (not used yet; uncomment when the feature lands) ---
 # alpha_vantage>=3.0.0  # additional market data provider

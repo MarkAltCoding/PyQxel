@@ -35,12 +35,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
-def pytest_configure(config: pytest.Config) -> None:
-    """Register the opt-in markers."""
-    config.addinivalue_line("markers", "live: calls real market data services; needs --live")
-    config.addinivalue_line("markers", "paid: makes billed Anthropic requests; needs --paid")
-
-
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Skip live and paid tests unless their flags are given."""
     skips = {

@@ -12,9 +12,9 @@ import pytest
 from scipy import stats
 
 from app.stats import monte_carlo
-from app.stats.copulas import fit_copulas, pseudo_observations
+from app.models.simulation import MAX_DRAWS
+from app.stats.copulas import MIN_DEGREES_OF_FREEDOM, fit_copulas, pseudo_observations
 from app.stats.monte_carlo import (
-    MAX_DRAWS,
     MIN_RETURN,
     SimulationError,
     _draw_uniforms,
@@ -121,10 +121,10 @@ def test_buy_and_hold_lets_weights_drift(monkeypatch: pytest.MonkeyPatch) -> Non
     assert summary.terminal_value.mean == pytest.approx(1_000 * (up + down))
     assert summary.fan_chart[1].p50 == pytest.approx(1_000 * (0.5 * 1.1 + 0.5 * 0.9))
     assert summary.mean_final_weights is not None
-    assert [(w.symbol, w.weight) for w in summary.mean_final_weights] == [
-        ("UP", pytest.approx(up / (up + down))),
-        ("DOWN", pytest.approx(down / (up + down))),
-    ]
+    assert [w.symbol for w in summary.mean_final_weights] == ["UP", "DOWN"]
+    assert [w.weight for w in summary.mean_final_weights] == pytest.approx(
+        [up / (up + down), down / (up + down)]
+    )
 
 
 def test_rebalancing_choice_does_not_matter_for_one_asset() -> None:
@@ -311,7 +311,7 @@ def test_infinite_variance_fits_are_floored() -> None:
     fitted = _fit_marginal(0.01 * rng.standard_cauchy(5_000), "student_t")
 
     assert fitted.t_params is not None
-    assert fitted.t_params[0] == monte_carlo.MIN_DEGREES_OF_FREEDOM
+    assert fitted.t_params[0] == MIN_DEGREES_OF_FREEDOM
 
 
 def test_summary_describes_the_model() -> None:
