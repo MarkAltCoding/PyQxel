@@ -28,6 +28,8 @@ output/
 !tests/fixtures/*.parquet
 # Default SQLite results database and its journal files.
 data_cache/pyqxel.db*
+# SEC bulk company facts archive, downloaded by the screener refresh.
+data_cache/companyfacts.zip*
 
 # ── OS junk ──
 .DS_Store

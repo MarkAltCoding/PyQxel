@@ -26,10 +26,12 @@ import asyncio
 import json
 import logging
 import time
+import zipfile
 from collections import OrderedDict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Any
 
 import httpx2
@@ -55,6 +57,8 @@ from app.models.fundamentals import (
 logger = logging.getLogger(__name__)
 
 COMPANY_FACTS_URL: str = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
+BULK_COMPANY_FACTS_URL: str = "https://www.sec.gov/Archives/edgar/daily-index/xbrl/companyfacts.zip"
+"""Every company's facts in one archive, rebuilt nightly; about 1.3 GB."""
 
 CACHE_TTL_SECONDS: float = 6 * 60 * 60
 """How long normalized financials are reused; they change only when the company files."""
@@ -649,3 +653,40 @@ async def fetch_financials(symbol: str, client: httpx2.AsyncClient | None = None
             return await _fetch(symbol, client)
         async with edgar_client() as own_client:
             return await _fetch(symbol, own_client)
+
+
+async def download_bulk_company_facts(client: httpx2.AsyncClient, destination: Path) -> None:
+    """Stream the SEC's bulk company facts archive to ``destination``.
+
+    The archive is written beside ``destination`` and moved into place once complete, so
+    an interrupted download never leaves a truncated archive behind.
+
+    Raises:
+        FilingFetchError: If the archive cannot be downloaded.
+    """
+    partial = destination.with_name(destination.name + ".part")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with edgar_errors("the SEC bulk company facts archive"):
+        async with client.stream("GET", BULK_COMPANY_FACTS_URL) as response:
+            response.raise_for_status()
+            with partial.open("wb") as file:
+                async for chunk in response.aiter_bytes():
+                    file.write(chunk)
+    partial.replace(destination)
+
+
+def read_bulk_financials(archive: Path, ciks: Iterable[int]) -> Iterator[Financials]:
+    """Normalize the financials of each of ``ciks`` found in a bulk archive (blocking).
+
+    Companies missing from the archive, or without US GAAP figures, are skipped.
+    """
+    with zipfile.ZipFile(archive) as bundle:
+        names = set(bundle.namelist())
+        for cik in ciks:
+            name = f"CIK{cik:010d}.json"
+            if name not in names:
+                continue
+            try:
+                yield _parse(bundle.read(name), cik)
+            except (FinancialsNotFoundError, ValueError) as exc:
+                logger.debug("Skipping CIK %d in the bulk archive: %s", cik, exc)
