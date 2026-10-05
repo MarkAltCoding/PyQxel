@@ -100,6 +100,30 @@ Returns and volatilities are decimals (0.25 = 25%), annualized where noted. Ever
 
 Companies tag the same item differently and change tags over time, so each item uses the tag the company reported most recently, and the response names it. Periods come from each figure's own dates, so fiscal years ending in any month line up, and TTM figures are built from the last fiscal year and the year to date. An item the company stopped reporting is left out rather than shown stale, and a ratio that is missing or not meaningful (a P/E on a loss, EV/EBITDA for a bank) is null, with `valuation.notes` saying why. Companies filing under IFRS, such as many foreign issuers, return 404. Normalized figures are reused for six hours.
 
+### Stock screener
+
+The screener searches a precomputed universe of US-listed stocks, so a screen reads the database and answers at once. Build and refresh the universe with:
+
+```bash
+python -m app.jobs.screener                 # daily, after the US close
+python -m app.jobs.screener --fundamentals  # also rebuild financials now
+```
+
+Each run reads every common stock listed on NYSE, Nasdaq and Cboe from the SEC (leaving out preferreds, notes, warrants, units and rights), downloads about 13 months of prices for all of them, and keeps those trading above $2 with at least $1M a day and a market cap above $50M (`SCREENER_MIN_PRICE`, `SCREENER_MIN_DOLLAR_VOLUME`, `SCREENER_MIN_MARKET_CAP`). Market caps, sectors and industries come from Nasdaq's public screener feed, with SEC share counts and yfinance filling gaps. Financials are rebuilt from the SEC's bulk company facts archive (a 1.3 GB download) once a week, or every `SCREENER_FUNDAMENTALS_REFRESH_DAYS`, and companies new to the universe are fetched individually in between. A run takes about two minutes, plus a few on the days financials are rebuilt; schedule it with cron or launchd, e.g. `30 17 * * 1-5 cd /path/to/PyQxel && venv/bin/python -m app.jobs.screener`. Run during market hours, it leaves out the unfinished day.
+
+For each stock it stores price, market cap, average dollar volume, P/E, P/S, EV/EBITDA, FCF yield, margins, ROE, revenue and earnings growth, 1- and 6-month returns, 12-1 month momentum, volatility, maximum drawdown, and Carhart market, size, value and momentum betas.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/screener \
+  -H 'Content-Type: application/json' \
+  -d '{"universe": "large_cap",
+       "filters": [{"field": "pe_ratio", "max": 20}, {"field": "momentum_12_1", "min": 0},
+                   {"field": "beta_market", "max": 1.2}],
+       "sort": {"field": "beta_market", "descending": false}, "limit": 25}'
+```
+
+`universe` is `all`, `large_cap` (the 500 largest, standing in for the S&P 500), `broad_market` (the 3,000 largest, like the Russell 3000) or `liquid` ($5M or more a day); index memberships themselves are licensed. Filters take `min`, `max` or both and drop stocks without a value, `sectors` and `industries` narrow by Nasdaq's classification (which places some companies unexpectedly, such as Altria in Health Care), and sorting puts missing values last. Sort on a beta to rank by factor exposure. `GET /api/v1/screener/status` reports the universe's size, when it was refreshed, and why the last refresh failed, if it did. Foreign markets are not covered: most foreign companies report under IFRS, outside the SEC's US GAAP data.
+
 ### Factor exposures
 
 `GET /api/v1/stocks/{symbol}/factors?model=ff3&period=5y` regresses a stock's daily excess returns on [Fama-French factors](https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html): `ff3` (market, size, value), `carhart4` (plus momentum) or `ff5` (plus profitability and investment), over `1y`, `2y`, `5y` or `10y`. It returns annualized alpha, each factor's beta with Newey-West t-statistics and p-values, R², idiosyncratic volatility, and each factor's share of the return variance.

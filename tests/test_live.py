@@ -17,7 +17,8 @@ from app.api.v1.endpoints.research import prepare_analysis
 from app.data import fetcher
 from app.data.factors import fetch_factors
 from app.data.panel import fetch_close_panel
-from app.data.sec_edgar import fetch_latest_filings
+from app.data.sec_edgar import edgar_client, fetch_latest_filings
+from app.data.universe import fetch_listings, fetch_profiles
 from app.main import app
 from app.models.research import AnalysisRequest
 from app.stats.monte_carlo import simulate_portfolio
@@ -98,6 +99,21 @@ async def test_sec_filings() -> None:
     titles = [section.title for section in annual.sections]
     assert titles == ["Item 1A. Risk Factors", "Item 7. Management's Discussion and Analysis"]
     assert all(len(section.text) > 5_000 for section in annual.sections)
+
+
+@needs_sec
+@pytest.mark.asyncio
+async def test_screener_universe_sources() -> None:
+    """The SEC listing and Nasdaq's feed give tickers, market caps and sectors to join."""
+    async with edgar_client() as sec:
+        listings = await fetch_listings(sec)
+    profiles = await fetch_profiles()
+
+    symbols = {listing.symbol for listing in listings}
+    assert {"AAPL", "BRK-B", "GOOGL"} <= symbols
+    assert len(listings) > 4_000
+    assert profiles["BRK-B"].market_cap is not None and profiles["BRK-B"].market_cap > 1e11
+    assert profiles["AAPL"].sector == "Technology"
 
 
 @needs_sec

@@ -46,6 +46,29 @@ class Settings(BaseSettings):
         default=None,
         description="Redis URL for caching market data; caching is off when unset.",
     )
+    screener_min_market_cap: float = Field(
+        default=50_000_000.0,
+        ge=0,
+        description="Smallest market cap, in US dollars, a stock needs to enter the screened "
+        "universe.",
+    )
+    screener_min_dollar_volume: float = Field(
+        default=1_000_000.0,
+        ge=0,
+        description="Smallest average daily dollar volume a stock needs to enter the universe.",
+    )
+    screener_min_price: float = Field(
+        default=2.0,
+        ge=0,
+        description="Smallest share price a stock needs to enter the universe, leaving out "
+        "penny stocks.",
+    )
+    screener_fundamentals_refresh_days: float = Field(
+        default=7.0,
+        gt=0,
+        description="How often the universe's financials are rebuilt from the SEC's bulk "
+        "archive; companies file quarterly, so weekly keeps them current.",
+    )
     analysis_cache_ttl_seconds: float = Field(
         default=86_400.0,
         ge=0,
