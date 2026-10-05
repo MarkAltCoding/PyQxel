@@ -11,7 +11,7 @@ When generating code and scaffolding this codebase, strictly adhere to the follo
    * R code should reside in `app/stats/r_scripts/` with dedicated Python wrapper functions handling data conversion and execution.
 
 3. **Asynchronous Execution**:
-   * External market data calls (`yfinance`, FMP, SEC EDGAR) and Anthropic API requests must use async/await patterns (`httpx`, `AsyncAnthropic`) to maintain responsiveness.
+   * External market data calls (`yfinance`, FMP, SEC EDGAR) and Anthropic API requests must use async/await patterns (`httpx2`, `AsyncAnthropic`) to maintain responsiveness.
 
 4. **Error Handling & Resilience**:
    * Implement graceful fallback mechanisms for rate limits or network issues with financial APIs.

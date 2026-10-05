@@ -6,7 +6,7 @@ A mock transport stands in for sec.gov, so no test touches the network.
 from collections.abc import Callable, Iterator
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 
 from app.core.config import Settings
@@ -78,34 +78,34 @@ SUBMISSIONS = _submissions(
     ]
 )
 
-Handler = Callable[[httpx.Request], httpx.Response]
+Handler = Callable[[httpx2.Request], httpx2.Response]
 
 
-def _sec(overrides: dict[str, httpx.Response] | None = None) -> tuple[Handler, list[str]]:
+def _sec(overrides: dict[str, httpx2.Response] | None = None) -> tuple[Handler, list[str]]:
     """Build a handler serving the fixtures above, and the list of URLs it was asked for."""
     requested: list[str] = []
     documents = {"10k.htm": TEN_K_HTML, "10q.htm": TEN_Q_HTML}
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         url = str(request.url)
         requested.append(url)
         if overrides and url in overrides:
             return overrides[url]
         if url == sec_edgar.TICKERS_URL:
-            return httpx.Response(200, json=TICKERS)
+            return httpx2.Response(200, json=TICKERS)
         if url == sec_edgar.SUBMISSIONS_URL.format(cik=CIK):
-            return httpx.Response(200, json=SUBMISSIONS)
+            return httpx2.Response(200, json=SUBMISSIONS)
         document = url.rsplit("/", 1)[-1]
         if document in documents:
-            return httpx.Response(200, text=documents[document])
-        return httpx.Response(404)
+            return httpx2.Response(200, text=documents[document])
+        return httpx2.Response(404)
 
     return handler, requested
 
 
-def _client(handler: Handler) -> httpx.AsyncClient:
+def _client(handler: Handler) -> httpx2.AsyncClient:
     """Build a client routed to ``handler``."""
-    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
 
 
 @pytest.fixture(autouse=True)
@@ -179,7 +179,7 @@ async def test_long_sections_are_cut_and_flagged(monkeypatch: pytest.MonkeyPatch
 async def test_share_class_dot_matches_edgar_dash() -> None:
     """``BRK.B`` resolves to EDGAR's ``BRK-B``."""
     submissions_url = sec_edgar.SUBMISSIONS_URL.format(cik=1067983)
-    handler, requested = _sec({submissions_url: httpx.Response(200, json=_submissions([]))})
+    handler, requested = _sec({submissions_url: httpx2.Response(200, json=_submissions([]))})
 
     filings = await fetch_latest_filings("BRK.B", client=_client(handler))
 
@@ -198,11 +198,11 @@ async def test_unknown_ticker_is_company_not_found() -> None:
 async def test_throttling_is_retried() -> None:
     """A 429 is retried after the server's delay and then succeeds."""
     responses = iter(
-        [httpx.Response(429, headers={"retry-after": "1"}), httpx.Response(200, json=TICKERS)]
+        [httpx2.Response(429, headers={"retry-after": "1"}), httpx2.Response(200, json=TICKERS)]
     )
     base, requested = _sec()
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         if str(request.url) == sec_edgar.TICKERS_URL:
             requested.append(str(request.url))
             return next(responses)
@@ -216,7 +216,7 @@ async def test_throttling_is_retried() -> None:
 
 async def test_persistent_server_errors_fail() -> None:
     """Server errors that outlast the retries become a fetch error."""
-    handler, requested = _sec({sec_edgar.TICKERS_URL: httpx.Response(503)})
+    handler, requested = _sec({sec_edgar.TICKERS_URL: httpx2.Response(503)})
 
     with pytest.raises(FilingFetchError):
         await fetch_latest_filings("AAPL", client=_client(handler))
@@ -226,7 +226,7 @@ async def test_persistent_server_errors_fail() -> None:
 
 async def test_forbidden_explains_user_agent() -> None:
     """A 403, which the SEC sends for unidentified or excessive traffic, is explained."""
-    handler, _ = _sec({sec_edgar.TICKERS_URL: httpx.Response(403)})
+    handler, _ = _sec({sec_edgar.TICKERS_URL: httpx2.Response(403)})
 
     with pytest.raises(FilingFetchError, match="SEC_USER_AGENT"):
         await fetch_latest_filings("AAPL", client=_client(handler))

@@ -6,7 +6,7 @@ Provider calls are replaced with fakes so no test touches the network.
 import math
 from types import SimpleNamespace
 
-import httpx
+import httpx2
 import pandas as pd
 import pytest
 from fakeredis import FakeAsyncRedis
@@ -40,7 +40,7 @@ def _yf_info_raising(error: Exception) -> object:
 def _fmp_info_raising(error: Exception) -> object:
     """Build a fake ``_fmp_info`` that raises ``error``."""
 
-    async def fake(symbol: str, api_key: str, client: httpx.AsyncClient) -> TickerInfo:
+    async def fake(symbol: str, api_key: str, client: httpx2.AsyncClient) -> TickerInfo:
         raise error
 
     return fake
@@ -79,8 +79,8 @@ async def test_info_fallback_transport_failure(monkeypatch: pytest.MonkeyPatch) 
     """If the fallback cannot answer, not-found cannot be confirmed and a fetch error is raised."""
     _use_fmp_key(monkeypatch, "key")
     monkeypatch.setattr(fetcher, "_yfinance_info", _yf_info_raising(SymbolNotFoundError("none")))
-    request = httpx.Request("GET", fetcher.FMP_PROFILE_URL)
-    transport_error = httpx.ConnectError("down", request=request)
+    request = httpx2.Request("GET", fetcher.FMP_PROFILE_URL)
+    transport_error = httpx2.ConnectError("down", request=request)
     monkeypatch.setattr(fetcher, "_fmp_info", _fmp_info_raising(transport_error))
 
     with pytest.raises(DataFetchError) as caught:
@@ -221,15 +221,15 @@ async def test_yfinance_info_without_quote_is_not_found(
 
 def _fmp_client(
     payload: object, status: int = 200
-) -> tuple[httpx.AsyncClient, list[httpx.Request]]:
+) -> tuple[httpx2.AsyncClient, list[httpx2.Request]]:
     """Build a client whose FMP profile endpoint answers with ``payload``."""
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        return httpx.Response(status, json=payload)
+        return httpx2.Response(status, json=payload)
 
-    return httpx.AsyncClient(transport=httpx.MockTransport(handler)), requests
+    return httpx2.AsyncClient(transport=httpx2.MockTransport(handler)), requests
 
 
 async def test_fmp_fallback_parses_profile(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -451,12 +451,12 @@ async def test_quote_plan_error_for_unknown_symbol_is_not_found(
     monkeypatch.setattr(fetcher, "_yfinance_quote", failing_quote)
     monkeypatch.setattr(fetcher, "_yfinance_info", _yf_info_raising(SymbolNotFoundError("none")))
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         if request.url.path.endswith("/quote"):
-            return httpx.Response(402, text="Premium Query Parameter")
-        return httpx.Response(200, json=[])
+            return httpx2.Response(402, text="Premium Query Parameter")
+        return httpx2.Response(200, json=[])
 
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
 
     with pytest.raises(SymbolNotFoundError):
         await fetcher.fetch_quote("ZZZZ", client=client)

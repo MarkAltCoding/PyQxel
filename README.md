@@ -18,7 +18,7 @@ An AI-native research and quantitative analysis platform that helps investors ch
 
 ## Tech Stack & System Architecture
 
-* **Primary Backend Engine**: Python 3.11+ (FastAPI, Pandas, NumPy, Statsmodels, Scikit-Learn)
+* **Primary Backend Engine**: Python 3.14+ (FastAPI, Pandas, NumPy, Statsmodels, Scikit-Learn)
 * **Statistical Modeling**: R 4.3+ (`rpy2` integration for GARCH modeling, time-series analysis, and econometric estimation)
 * **AI Engine & NLP**: Anthropic API (Claude Opus 5.5, `claude-opus-5-5`) through the official `anthropic` SDK, BeautifulSoup4 for SEC filing text
 * **Market Data Feeds**: `yfinance`, Financial Modeling Prep (FMP) / Alpha Vantage API, SEC EDGAR Scraper
@@ -30,7 +30,7 @@ An AI-native research and quantitative analysis platform that helps investors ch
 
 ### Prerequisites
 
-1. **Python 3.11+** installed on your system.
+1. **Python 3.14+** installed on your system.
 2. **R 4.3+** installed (required for advanced statistical and econometric modules).
 3. **Claude Code** CLI configured locally (`npm install -g @anthropic-ai/claude-code`).
 
@@ -44,7 +44,7 @@ An AI-native research and quantitative analysis platform that helps investors ch
 
 2. **Create a Virtual Environment and Install Dependencies**:
    ```bash
-   python3.11 -m venv venv
+   python3.14 -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
    ```

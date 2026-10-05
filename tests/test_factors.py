@@ -1,6 +1,6 @@
 """Tests for downloading and parsing Fama-French factors from Ken French's data library.
 
-The library is replaced with an ``httpx.MockTransport`` serving small files in the
+The library is replaced with an ``httpx2.MockTransport`` serving small files in the
 real format, so no test touches the network.
 """
 
@@ -10,7 +10,7 @@ import zipfile
 from collections import Counter
 from collections.abc import Callable
 
-import httpx
+import httpx2
 import pandas as pd
 import pytest
 from fakeredis import FakeAsyncRedis
@@ -80,8 +80,8 @@ FILES: dict[str, bytes] = {
 
 
 def _library(
-    respond: Callable[[str, int], httpx.Response | None] | None = None,
-) -> tuple[httpx.AsyncClient, Counter[str]]:
+    respond: Callable[[str, int], httpx2.Response | None] | None = None,
+) -> tuple[httpx2.AsyncClient, Counter[str]]:
     """A client for a fake library, and a count of requests per file name.
 
     ``respond`` may answer a request itself, given the file name and how many times
@@ -89,14 +89,14 @@ def _library(
     """
     requests: Counter[str] = Counter()
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         name = request.url.path.rsplit("/", 1)[-1]
         requests[name] += 1
         if respond is not None and (custom := respond(name, requests[name])) is not None:
             return custom
-        return httpx.Response(200, content=FILES[name])
+        return httpx2.Response(200, content=FILES[name])
 
-    return httpx.AsyncClient(transport=httpx.MockTransport(handler)), requests
+    return httpx2.AsyncClient(transport=httpx2.MockTransport(handler)), requests
 
 
 @pytest.fixture(autouse=True)
@@ -231,11 +231,11 @@ async def test_unreadable_redis_copy_is_replaced(clock: list[float]) -> None:
 async def test_transient_failures_are_retried() -> None:
     """Server errors and dropped connections are retried before giving up."""
 
-    def flaky(name: str, attempt: int) -> httpx.Response | None:
+    def flaky(name: str, attempt: int) -> httpx2.Response | None:
         if attempt == 1:
-            return httpx.Response(503)
+            return httpx2.Response(503)
         if attempt == 2:
-            raise httpx.ConnectError("connection reset")
+            raise httpx2.ConnectError("connection reset")
         return None
 
     client, requests = _library(flaky)
@@ -252,7 +252,7 @@ async def test_transient_failures_are_retried() -> None:
 )
 async def test_failed_download_without_a_copy_is_a_clear_error(status: int, attempts: int) -> None:
     """With nothing stored, a failed download names the library; only 5xx is retried."""
-    client, requests = _library(lambda name, attempt: httpx.Response(status))
+    client, requests = _library(lambda name, attempt: httpx2.Response(status))
 
     with pytest.raises(FactorDataError, match="Ken French's data library") as caught:
         await fetch_factor_file("ff5", client)
@@ -267,7 +267,7 @@ async def test_failed_download_without_a_copy_is_a_clear_error(status: int, atte
 )
 async def test_unusable_download_is_a_clear_error(content: bytes) -> None:
     """A page that is not a zip, a zip without a CSV, or an empty table is an error."""
-    client, _ = _library(lambda name, attempt: httpx.Response(200, content=content))
+    client, _ = _library(lambda name, attempt: httpx2.Response(200, content=content))
 
     with pytest.raises(FactorDataError):
         await fetch_factor_file("ff3", client)
@@ -276,7 +276,7 @@ async def test_unusable_download_is_a_clear_error(content: bytes) -> None:
 async def test_file_missing_expected_columns_is_rejected() -> None:
     """A file whose header lacks a factor the model needs is rejected, not misread."""
     renamed = _zip(FF3_CSV.replace(",Mkt-RF,SMB,HML,RF", ",Mkt-RF,SMB,Value,RF"))
-    client, _ = _library(lambda name, attempt: httpx.Response(200, content=renamed))
+    client, _ = _library(lambda name, attempt: httpx2.Response(200, content=renamed))
 
     with pytest.raises(FactorDataError, match="missing columns"):
         await fetch_factor_file("ff3", client)
@@ -285,7 +285,7 @@ async def test_file_missing_expected_columns_is_rejected() -> None:
 async def test_stale_copy_is_served_when_the_library_is_down(clock: list[float]) -> None:
     """After a day, a failed refresh falls back to the stored copy, for up to 30 days."""
     down = [False]
-    client, requests = _library(lambda name, attempt: httpx.Response(503) if down[0] else None)
+    client, requests = _library(lambda name, attempt: httpx2.Response(503) if down[0] else None)
     original = await fetch_factor_file("ff3", client)
 
     down[0] = True

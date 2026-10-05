@@ -1,11 +1,13 @@
 """Tests for application wiring: startup and shutdown, CORS, and the registered routes."""
 
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app import main
 from app.core.config import get_settings
-from app.db.session import configure_database
+from app.db.session import close_database, configure_database
 from app.main import app
 
 
@@ -40,6 +42,7 @@ def test_lifespan_opens_and_closes_shared_resources(monkeypatch: pytest.MonkeyPa
 def test_app_starts_without_a_database(monkeypatch: pytest.MonkeyPatch) -> None:
     """An unreachable database does not stop the app from serving."""
     monkeypatch.setattr(main, "start_r", lambda: False)
+    asyncio.run(close_database())
     configure_database("sqlite+aiosqlite:////nonexistent-root-dir/x/results.db")
 
     with TestClient(app) as client:

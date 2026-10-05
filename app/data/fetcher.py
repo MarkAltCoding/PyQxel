@@ -3,7 +3,7 @@
 yfinance is the primary source. Its API is synchronous, so calls are pushed onto a
 worker thread with :func:`asyncio.to_thread` to keep the event loop free. When
 yfinance fails and ``FINANCIAL_DATA_API_KEY`` is set, ticker info falls back to
-Financial Modeling Prep over ``httpx``. Live quotes follow the same fallback and are
+Financial Modeling Prep over ``httpx2``. Live quotes follow the same fallback and are
 cached for a few seconds, so connections polling the same symbol share one request.
 Ticker info and price history are cached in Redis when ``REDIS_URL`` is set, so
 workers and repeated requests share a provider call.
@@ -21,7 +21,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-import httpx
+import httpx2
 import pandas as pd
 import yfinance as yf
 
@@ -83,7 +83,7 @@ def _yfinance_info(symbol: str) -> TickerInfo:
     )
 
 
-async def _fmp_info(symbol: str, api_key: str, client: httpx.AsyncClient) -> TickerInfo:
+async def _fmp_info(symbol: str, api_key: str, client: httpx2.AsyncClient) -> TickerInfo:
     """Fetch ticker info from the Financial Modeling Prep company profile endpoint."""
     response = await client.get(FMP_PROFILE_URL, params={"symbol": symbol, "apikey": api_key})
     response.raise_for_status()
@@ -104,7 +104,7 @@ async def _fmp_info(symbol: str, api_key: str, client: httpx.AsyncClient) -> Tic
     )
 
 
-async def fetch_ticker_info(symbol: str, client: httpx.AsyncClient | None = None) -> TickerInfo:
+async def fetch_ticker_info(symbol: str, client: httpx2.AsyncClient | None = None) -> TickerInfo:
     """Fetch a descriptive and pricing snapshot for ``symbol``.
 
     Args:
@@ -134,7 +134,7 @@ async def fetch_ticker_info(symbol: str, client: httpx.AsyncClient | None = None
     return info
 
 
-async def _fetch_ticker_info_uncached(symbol: str, client: httpx.AsyncClient | None) -> TickerInfo:
+async def _fetch_ticker_info_uncached(symbol: str, client: httpx2.AsyncClient | None) -> TickerInfo:
     """Fetch ticker info from yfinance, falling back to FMP when a key is configured."""
     try:
         return await asyncio.to_thread(_yfinance_info, symbol)
@@ -151,11 +151,11 @@ async def _fetch_ticker_info_uncached(symbol: str, client: httpx.AsyncClient | N
     try:
         if client is not None:
             return await _fmp_info(symbol, api_key.get_secret_value(), client)
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
+        async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
             return await _fmp_info(symbol, api_key.get_secret_value(), own_client)
     except SymbolNotFoundError as exc:
         raise SymbolNotFoundError(f"Unknown ticker symbol {symbol!r}.") from exc
-    except (httpx.HTTPError, DataFetchError, ValueError) as exc:
+    except (httpx2.HTTPError, DataFetchError, ValueError) as exc:
         raise DataFetchError(f"Could not fetch info for {symbol!r} from any provider.") from exc
 
 
@@ -236,7 +236,7 @@ async def fetch_price_history(
     if cached is not None:
         try:
             return _history_from_json(cached)
-        except (ValueError, KeyError, TypeError):
+        except ValueError, KeyError, TypeError:
             logger.warning("Ignoring unreadable cached history for %s.", symbol)
 
     try:
@@ -261,7 +261,7 @@ def _finite(value: object) -> float | None:
         return None
     try:
         number = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return number if math.isfinite(number) else None
 
@@ -310,7 +310,7 @@ def _yfinance_quote(symbol: str) -> Quote:
     )
 
 
-async def _fmp_quote(symbol: str, api_key: str, client: httpx.AsyncClient) -> Quote:
+async def _fmp_quote(symbol: str, api_key: str, client: httpx2.AsyncClient) -> Quote:
     """Fetch the latest quote from the Financial Modeling Prep quote endpoint."""
     response = await client.get(FMP_QUOTE_URL, params={"symbol": symbol, "apikey": api_key})
     response.raise_for_status()
@@ -329,7 +329,7 @@ async def _fmp_quote(symbol: str, api_key: str, client: httpx.AsyncClient) -> Qu
     )
 
 
-async def fetch_quote(symbol: str, client: httpx.AsyncClient | None = None) -> Quote:
+async def fetch_quote(symbol: str, client: httpx2.AsyncClient | None = None) -> Quote:
     """Fetch the latest price of ``symbol`` and its change since the previous close.
 
     Quotes are cached for :data:`QUOTE_TTL_SECONDS`, so frequent pollers do not each
@@ -358,7 +358,7 @@ async def fetch_quote(symbol: str, client: httpx.AsyncClient | None = None) -> Q
     return quote
 
 
-async def _fetch_quote_uncached(symbol: str, client: httpx.AsyncClient | None) -> Quote:
+async def _fetch_quote_uncached(symbol: str, client: httpx2.AsyncClient | None) -> Quote:
     """Fetch a quote, telling an unknown symbol apart from a provider failure.
 
     ``fast_info`` fails with the same internal errors for an unknown symbol as for an
@@ -374,7 +374,7 @@ async def _fetch_quote_uncached(symbol: str, client: httpx.AsyncClient | None) -
         raise
 
 
-async def _quote_from_providers(symbol: str, client: httpx.AsyncClient | None) -> Quote:
+async def _quote_from_providers(symbol: str, client: httpx2.AsyncClient | None) -> Quote:
     """Fetch a quote from yfinance, falling back to FMP when a key is configured."""
     try:
         return await asyncio.to_thread(_yfinance_quote, symbol)
@@ -391,9 +391,9 @@ async def _quote_from_providers(symbol: str, client: httpx.AsyncClient | None) -
     try:
         if client is not None:
             return await _fmp_quote(symbol, api_key.get_secret_value(), client)
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
+        async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
             return await _fmp_quote(symbol, api_key.get_secret_value(), own_client)
     except SymbolNotFoundError as exc:
         raise SymbolNotFoundError(f"Unknown ticker symbol {symbol!r}.") from exc
-    except (httpx.HTTPError, DataFetchError, ValueError) as exc:
+    except (httpx2.HTTPError, DataFetchError, ValueError) as exc:
         raise DataFetchError(f"Could not fetch a quote for {symbol!r} from any provider.") from exc
