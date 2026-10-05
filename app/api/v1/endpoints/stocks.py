@@ -1,7 +1,7 @@
 """Stock quote and price history routes."""
 
 import math
-from typing import Annotated
+from typing import Annotated, cast
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Path, Query, status
@@ -45,7 +45,10 @@ PERIOD_OFFSETS: dict[str, pd.DateOffset] = {
     "5y": pd.DateOffset(years=5),
     "10y": pd.DateOffset(years=10),
 }
-"""Calendar length of each period. ``1d`` and ``5d`` count trading days and ``max`` is open-ended."""
+"""Calendar length of each period.
+
+``1d`` and ``5d`` count trading days and ``max`` is open-ended.
+"""
 
 PERIODS_PER_YEAR: dict[str, int] = {"1d": 252, "1wk": 52}
 """Bars per year for each volatility interval, used to annualize."""
@@ -84,7 +87,7 @@ def _frame_to_bars(frame: pd.DataFrame) -> list[OHLCVBar]:
             open=_optional_float(row.Open),
             high=_optional_float(row.High),
             low=_optional_float(row.Low),
-            close=float(row.Close),
+            close=float(cast(float, row.Close)),
             volume=_optional_int(row.Volume),
         )
         for index, row in zip(frame.index, frame.itertuples(index=False))

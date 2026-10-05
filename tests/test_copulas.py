@@ -101,10 +101,9 @@ def test_t_likelihood_matches_scipy(df: float) -> None:
     uniforms = pseudo_observations(_t_copula_returns(df, 200))
     points = stats.t.ppf(uniforms, df)
 
-    expected = np.sum(
-        stats.multivariate_t(np.zeros(3), CORRELATION, df=df).logpdf(points)
-        - stats.t.logpdf(points, df).sum(axis=1)
-    )
+    # scipy-stubs types df as an int, but scipy takes any positive float.
+    joint = stats.multivariate_t(np.zeros(3), CORRELATION, df=df)  # type: ignore[arg-type]
+    expected = np.sum(joint.logpdf(points) - stats.t.logpdf(points, df).sum(axis=1))
 
     assert t_log_likelihood(uniforms, CORRELATION, df) == pytest.approx(expected)
 

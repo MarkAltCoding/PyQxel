@@ -5,6 +5,7 @@ model and is skipped when R or the ``rugarch`` package is unavailable.
 """
 
 import math
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -31,8 +32,8 @@ def _r_output(observations: int, horizon: int = 3) -> dict[str, RValue]:
         "coef_names": ["mu", "omega", "alpha1", "beta1"],
         "coef_values": [0.05, 0.02, 0.08, 0.9],
         "coef_std_errors": [0.01, None, 0.02, 0.03],
-        "sigma": [1.0] * (observations - 1) + [2.0],
-        "forecast_sigma": [1.5] * horizon,
+        "sigma": [1.0 if bar < observations - 1 else 2.0 for bar in range(observations)],
+        "forecast_sigma": [1.5 for _ in range(horizon)],
         "persistence": [0.98],
         "unconditional_sigma": [1.0],
         "log_likelihood": [-500.0],
@@ -41,9 +42,9 @@ def _r_output(observations: int, horizon: int = 3) -> dict[str, RValue]:
     }
 
 
-def _serve_r(monkeypatch: pytest.MonkeyPatch, output: dict[str, RValue]) -> list[tuple]:
+def _serve_r(monkeypatch: pytest.MonkeyPatch, output: dict[str, RValue]) -> list[tuple[Any, ...]]:
     """Make the wrapper's R call return ``output`` and record the arguments it received."""
-    calls: list[tuple] = []
+    calls: list[tuple[Any, ...]] = []
 
     async def fake_call_r(script: str, function: str, *args: object) -> dict[str, RValue]:
         calls.append((script, function, *args))

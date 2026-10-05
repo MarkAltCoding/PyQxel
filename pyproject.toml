@@ -1,0 +1,32 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: calls real market data services; needs --live",
+    "paid: makes billed Anthropic requests; needs --paid",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.flake8]
+# Read through the Flake8-pyproject plugin; flake8 has no pyproject.toml support of its own.
+max-line-length = 100
+extend-ignore = ["E203", "W503"]  # Slice spacing and operator line breaks as black writes them.
+exclude = [".git", "venv", "data_cache", "__pycache__"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_unreachable = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[[tool.mypy.overrides]]
+# Libraries without type information.
+module = ["yfinance", "yfinance.*", "rpy2", "rpy2.*", "statsmodels", "statsmodels.*"]
+ignore_missing_imports = true

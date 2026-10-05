@@ -123,14 +123,15 @@ def nearest_correlation(matrix: np.ndarray) -> np.ndarray:
         clipped = np.maximum(eigenvalues, MIN_EIGENVALUE)
         repaired = (eigenvectors * clipped) @ eigenvectors.T
     scale = np.sqrt(np.diag(repaired))
-    correlation = repaired / np.outer(scale, scale)
+    correlation: np.ndarray = repaired / np.outer(scale, scale)
     np.fill_diagonal(correlation, 1.0)
     return correlation
 
 
 def _quadratic_forms(points: np.ndarray, inverse: np.ndarray) -> np.ndarray:
     """Return ``x' inverse x`` for every row ``x`` of ``points``."""
-    return np.einsum("ij,jk,ik->i", points, inverse, points)
+    forms: np.ndarray = np.einsum("ij,jk,ik->i", points, inverse, points)
+    return forms
 
 
 def gaussian_log_likelihood(uniforms: np.ndarray, correlation: np.ndarray) -> float:
@@ -177,7 +178,7 @@ def t_tail_dependence(correlation: np.ndarray, df: float) -> np.ndarray:
     rho = np.clip(correlation, -1.0, 1.0)
     with np.errstate(divide="ignore"):
         distance = np.sqrt((df + 1) * (1 - rho) / (1 + rho))
-    tail = 2 * stats.t.cdf(-distance, df + 1)
+    tail: np.ndarray = 2 * stats.t.cdf(-distance, df + 1)
     np.fill_diagonal(tail, 1.0)
     return tail
 

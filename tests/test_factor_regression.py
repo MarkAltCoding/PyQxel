@@ -61,7 +61,8 @@ def _closes(
     prices = pd.concat([pd.Series([100.0], index=[start]), prices])
     index = pd.DatetimeIndex(prices.index)
     prices.index = index if tz is None else index.tz_localize(tz)
-    return prices
+    closes: pd.Series = prices
+    return closes
 
 
 @pytest.mark.parametrize("model", ["ff3", "carhart4", "ff5"])
@@ -193,7 +194,7 @@ def test_daily_returns_drop_bad_prices() -> None:
     returns = daily_returns(closes)
 
     assert returns.tolist() == pytest.approx([0.10])
-    assert returns.index.tz is None
+    assert isinstance(returns.index, pd.DatetimeIndex) and returns.index.tz is None
     assert returns.index[0] == pd.Timestamp("2026-01-08")
 
 

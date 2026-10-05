@@ -56,7 +56,8 @@ def _simulate(**options: object) -> dict[str, Any]:
     payload = {"holdings": SIXTY_FORTY, "paths": 500, "seed": 1, **options}
     response = client.post("/api/v1/portfolio/simulate", json=payload)
     assert response.status_code == 200, response.text
-    return response.json()
+    body: dict[str, Any] = response.json()
+    return body
 
 
 def test_simulation_defaults_and_shape(monkeypatch: pytest.MonkeyPatch) -> None:

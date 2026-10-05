@@ -5,6 +5,8 @@ a key from ``.env`` are skipped when it is not set. Assertions are loose because
 market data changes daily: they check that each service answers with plausible data.
 """
 
+from collections.abc import Iterator
+
 import httpx
 import pandas as pd
 import pytest
@@ -35,10 +37,10 @@ needs_sec = pytest.mark.skipif(not settings.sec_user_agent, reason="SEC_USER_AGE
 
 
 @pytest.fixture(scope="module")
-def client() -> TestClient:
+def client() -> Iterator[TestClient]:
     """A client running the app's startup, so R is started as in production."""
     with TestClient(app) as test_client:
-        yield test_client  # type: ignore[misc]
+        yield test_client
 
 
 def test_yfinance_quote(client: TestClient) -> None:
@@ -170,7 +172,7 @@ async def test_monte_carlo_on_real_returns() -> None:
             {"SPY": 0.6, "TLT": 0.4},
             horizon=21,
             paths=10_000,
-            dependence=dependence,  # type: ignore[arg-type]
+            dependence=dependence,
             seed=1,
         )
         var_95 = summary.risk[0].value_at_risk
@@ -221,9 +223,7 @@ def test_ewma_volatility(client: TestClient) -> None:
 
 def test_garch_volatility_in_r(client: TestClient) -> None:
     """GARCH(1,1) fits in the real R session and forecasts a plausible volatility."""
-    response = client.get(
-        "/api/v1/stocks/SPY/volatility", params={"model": "garch", "horizon": 5}
-    )
+    response = client.get("/api/v1/stocks/SPY/volatility", params={"model": "garch", "horizon": 5})
 
     if response.status_code == 503:
         pytest.skip(f"R is unavailable: {response.json()['detail']}")

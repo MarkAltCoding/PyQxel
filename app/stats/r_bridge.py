@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -60,7 +60,7 @@ def _robjects() -> ModuleType:
         raise RUnavailableError(
             "R is unavailable: install R and rpy2, and set R_HOME to the output of `R RHOME`."
         ) from exc
-    return robjects
+    return cast(ModuleType, robjects)
 
 
 def _source(robjects: ModuleType, script: str) -> None:

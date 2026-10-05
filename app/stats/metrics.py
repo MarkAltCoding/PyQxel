@@ -31,7 +31,7 @@ def clean_returns(returns: pd.Series) -> pd.Series:
 
 def per_period_rate(annual_rate: float, periods_per_year: int) -> float:
     """Convert an annual rate to the compounding-equivalent rate per bar."""
-    return (1.0 + annual_rate) ** (1.0 / periods_per_year) - 1.0
+    return math.pow(1.0 + annual_rate, 1.0 / periods_per_year) - 1.0
 
 
 def _timestamp(value: object) -> pd.Timestamp:

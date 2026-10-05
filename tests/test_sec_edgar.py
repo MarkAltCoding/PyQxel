@@ -117,7 +117,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     async def no_sleep(delay: float) -> None:
         return None
 
-    monkeypatch.setattr(sec_edgar.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr("app.data.sec_edgar.asyncio.sleep", no_sleep)
     yield
     sec_edgar.clear_caches()
 

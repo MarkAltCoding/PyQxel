@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    name: Tests, types and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # R is not installed yet, so rpy2 is left out and the GARCH tests skip.
+      - name: Install dependencies
+        run: |
+          grep -v '^rpy2' requirements.txt > requirements-ci.txt
+          pip install -r requirements-ci.txt
+
+      - name: Tests (offline)
+        run: pytest
+
+      - name: mypy
+        run: mypy app tests
+
+      - name: flake8
+        run: flake8 app tests
+
+      - name: black
+        run: black --check app tests

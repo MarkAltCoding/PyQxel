@@ -34,7 +34,7 @@ from app.models.simulation import SimulationList, SimulationRequest, SimulationR
 from app.models.stock import SYMBOL_PATTERN
 from app.stats.copulas import CopulaFit, asynchronous_trading_warning, fit_copulas
 from app.stats.monte_carlo import SimulationError, simulate_portfolio
-from app.stats.panel import ReturnPanel, return_panel
+from app.stats.panel import ReturnPanel, first_date, return_panel
 from app.stats.volatility import InsufficientDataError
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ def _window_notice(panel: ReturnPanel, closes: pd.DataFrame, period: PortfolioPe
     requested = pd.Timestamp.now().normalize() - PERIOD_OFFSETS[period]
     if first - requested <= COVERAGE_TOLERANCE:
         return None
-    latest = max(closes.columns, key=lambda symbol: closes[symbol].first_valid_index())
+    latest = max(closes.columns, key=lambda symbol: first_date(closes[str(symbol)]))
     return (
         f"The fit starts {first.date()}, not {requested.date()}, because {latest} has no "
         "earlier data; every asset must have a return on each day."

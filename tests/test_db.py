@@ -198,7 +198,8 @@ def _alembic_config(connection: Connection) -> Config:
 def _schema_drift(connection: Connection) -> list[object]:
     """Differences between the migrated schema and the ORM models."""
     context = MigrationContext.configure(connection, opts={"compare_type": True})
-    return compare_metadata(context, Base.metadata)
+    drift: list[object] = compare_metadata(context, Base.metadata)
+    return drift
 
 
 def _current_revision(connection: Connection) -> str | None:

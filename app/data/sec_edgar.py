@@ -49,7 +49,18 @@ SECTION_CACHE_SIZE: int = 64
 """Filings whose extracted sections are kept in memory."""
 
 BLOCK_TAGS: list[str] = [
-    "p", "div", "br", "tr", "li", "table", "h1", "h2", "h3", "h4", "h5", "h6",
+    "p",
+    "div",
+    "br",
+    "tr",
+    "li",
+    "table",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
 ]
 """Elements that start a new line in a rendered filing."""
 
@@ -304,9 +315,7 @@ async def _fetch(symbol: str, client: httpx.AsyncClient, max_chars: int) -> list
     submissions: Any = (await _get(client, SUBMISSIONS_URL.format(cik=cik))).json()
     chosen = _latest_filings(submissions)
     return list(
-        await asyncio.gather(
-            *(_filing(cik, form, row, client, max_chars) for form, row in chosen)
-        )
+        await asyncio.gather(*(_filing(cik, form, row, client, max_chars) for form, row in chosen))
     )
 
 

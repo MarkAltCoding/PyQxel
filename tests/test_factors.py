@@ -80,7 +80,7 @@ FILES: dict[str, bytes] = {
 
 
 def _library(
-    respond: Callable[[str, int], httpx.Response] | None = None,
+    respond: Callable[[str, int], httpx.Response | None] | None = None,
 ) -> tuple[httpx.AsyncClient, Counter[str]]:
     """A client for a fake library, and a count of requests per file name.
 
@@ -109,7 +109,7 @@ def no_retry_delay(monkeypatch: pytest.MonkeyPatch) -> None:
 def clock(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     """A wall clock the test can move forward."""
     now = [1_800_000_000.0]
-    monkeypatch.setattr(factors.time, "time", lambda: now[0])
+    monkeypatch.setattr("app.data.factors.time.time", lambda: now[0])
     return now
 
 
@@ -118,7 +118,7 @@ async def test_parse_turns_percent_rows_into_decimal_returns() -> None:
     frame = parse_factor_csv(FF3_CSV)
 
     assert list(frame.columns) == ["Mkt-RF", "SMB", "HML", "RF"]
-    assert list(frame.index.strftime("%Y-%m-%d")) == [
+    assert list(pd.DatetimeIndex(frame.index).strftime("%Y-%m-%d")) == [
         "2026-08-26",
         "2026-08-27",
         "2026-08-28",

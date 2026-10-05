@@ -22,6 +22,7 @@ from app.ai.agent import (
     stream_analysis,
     write_analysis,
 )
+from app.ai.prompts import TASKS
 from app.core.config import Settings, get_settings
 from app.models.research import (
     AnalysisContext,
@@ -130,7 +131,7 @@ async def test_thesis_request_is_grounded_and_structured() -> None:
     assert call["fallbacks"] == "default"
     assert call["betas"] == [FALLBACK_BETA]
     content = call["messages"][0]["content"]
-    assert content.startswith(agent.TASKS["thesis"])
+    assert content.startswith(TASKS["thesis"])
     assert '"symbol": "AAPL"' in content
     assert '"period_return": 0.25' in content
 
@@ -252,7 +253,7 @@ async def test_filings_lead_the_prompt_in_a_cached_block() -> None:
     assert '<filing form="10-K" filed="2024-11-01" period="2024-09-28">' in text
     assert '<section title="Item 1A. Risk Factors">\nSupply risk.\n</section>' in text
     assert '<section title="Item 7. MD&A" truncated="true">' in text
-    assert request_block["text"].startswith(agent.TASKS["thesis"])
+    assert request_block["text"].startswith(TASKS["thesis"])
     assert "<snapshot>" in request_block["text"]
 
 
@@ -263,7 +264,7 @@ async def test_filings_without_sections_are_left_out() -> None:
     await write_analysis(_context(), "thesis", [_filing([])], client=cast(AsyncAnthropic, client))
 
     content = client.calls[0]["messages"][0]["content"]
-    assert isinstance(content, str) and content.startswith(agent.TASKS["thesis"])
+    assert isinstance(content, str) and content.startswith(TASKS["thesis"])
 
 
 async def test_shared_client_uses_settings_and_closes(monkeypatch: pytest.MonkeyPatch) -> None:
