@@ -7,7 +7,7 @@ market data changes daily: they check that each service answers with plausible d
 
 from collections.abc import Iterator
 
-import httpx
+import httpx2
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
@@ -77,7 +77,7 @@ def test_yfinance_history(client: TestClient) -> None:
 async def test_fmp_profile() -> None:
     """The FMP key is accepted and the profile maps onto a snapshot."""
     assert settings.financial_data_api_key is not None
-    async with httpx.AsyncClient(timeout=fetcher.HTTP_TIMEOUT_SECONDS) as http:
+    async with httpx2.AsyncClient(timeout=fetcher.HTTP_TIMEOUT_SECONDS) as http:
         snapshot = await fetcher._fmp_info(
             "AAPL", settings.financial_data_api_key.get_secret_value(), http
         )

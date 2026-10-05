@@ -50,6 +50,8 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 @pytest.fixture(autouse=True)
 def isolated_storage() -> Iterator[None]:
     """Give each test a fresh in-memory database and no cache."""
+    # A module-scoped app may have opened the default engine already.
+    asyncio.run(close_database())
     configure_database("sqlite+aiosqlite://")
     asyncio.run(init_db())
     configure_cache(None)

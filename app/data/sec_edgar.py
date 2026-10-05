@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-import httpx
+import httpx2
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
 from app.core.config import get_settings
@@ -134,7 +134,7 @@ def clear_caches() -> None:
     _section_cache.clear()
 
 
-def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
+def _retry_delay(response: httpx2.Response | None, attempt: int) -> float:
     """Return how long to wait before retry ``attempt``, honouring ``Retry-After``."""
     if response is not None:
         value = response.headers.get("retry-after")
@@ -145,23 +145,23 @@ def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
     return 2.0**attempt
 
 
-async def _get(client: httpx.AsyncClient, url: str) -> httpx.Response:
+async def _get(client: httpx2.AsyncClient, url: str) -> httpx2.Response:
     """GET ``url``, retrying throttling, server errors and transport failures with backoff."""
     for attempt in range(MAX_RETRIES + 1):
-        response: httpx.Response | None = None
+        response: httpx2.Response | None = None
         try:
             response = await client.get(url)
             if response.status_code not in RETRY_STATUSES:
                 response.raise_for_status()
                 return response
-            error: Exception = httpx.HTTPStatusError(
+            error: Exception = httpx2.HTTPStatusError(
                 f"EDGAR returned {response.status_code}",
                 request=response.request,
                 response=response,
             )
-        except httpx.HTTPStatusError:
+        except httpx2.HTTPStatusError:
             raise
-        except httpx.TransportError as exc:
+        except httpx2.TransportError as exc:
             error = exc
         if attempt == MAX_RETRIES:
             raise error
@@ -171,7 +171,7 @@ async def _get(client: httpx.AsyncClient, url: str) -> httpx.Response:
     raise AssertionError("unreachable")
 
 
-async def _cik_for(symbol: str, client: httpx.AsyncClient) -> int:
+async def _cik_for(symbol: str, client: httpx2.AsyncClient) -> int:
     """Return the SEC CIK registered for ``symbol``."""
     global _ticker_map
     if _ticker_map is None or time.monotonic() - _ticker_map[0] > TICKER_MAP_TTL_SECONDS:
@@ -282,7 +282,7 @@ def _extract_sections(html: str, form: FilingForm, max_chars: int) -> list[Filin
 
 
 async def _filing(
-    cik: int, form: FilingForm, row: dict[str, Any], client: httpx.AsyncClient, max_chars: int
+    cik: int, form: FilingForm, row: dict[str, Any], client: httpx2.AsyncClient, max_chars: int
 ) -> Filing:
     """Download one filing's primary document and extract its sections."""
     accession = str(row["accessionNumber"])
@@ -309,7 +309,7 @@ async def _filing(
     )
 
 
-async def _fetch(symbol: str, client: httpx.AsyncClient, max_chars: int) -> list[Filing]:
+async def _fetch(symbol: str, client: httpx2.AsyncClient, max_chars: int) -> list[Filing]:
     """Fetch the latest filings for ``symbol`` with ``client``."""
     cik = await _cik_for(symbol, client)
     submissions: Any = (await _get(client, SUBMISSIONS_URL.format(cik=cik))).json()
@@ -320,7 +320,7 @@ async def _fetch(symbol: str, client: httpx.AsyncClient, max_chars: int) -> list
 
 
 async def fetch_latest_filings(
-    symbol: str, client: httpx.AsyncClient | None = None
+    symbol: str, client: httpx2.AsyncClient | None = None
 ) -> list[Filing]:
     """Fetch the latest 10-K, and any 10-Q filed after it, for ``symbol``.
 
@@ -348,7 +348,7 @@ async def fetch_latest_filings(
             raise EdgarNotConfiguredError(
                 "SEC filings are disabled: set SEC_USER_AGENT to a name and contact email."
             )
-        async with httpx.AsyncClient(
+        async with httpx2.AsyncClient(
             headers={"User-Agent": settings.sec_user_agent},
             timeout=HTTP_TIMEOUT_SECONDS,
             follow_redirects=True,
@@ -356,12 +356,12 @@ async def fetch_latest_filings(
             return await _fetch(symbol, own_client, settings.sec_section_max_chars)
     except FilingFetchError:
         raise
-    except httpx.HTTPStatusError as exc:
+    except httpx2.HTTPStatusError as exc:
         if exc.response.status_code == 403:
             raise FilingFetchError(
                 "SEC EDGAR refused the request; check that SEC_USER_AGENT names you and a "
                 "contact email, and that requests stay under 10 a second."
             ) from exc
         raise FilingFetchError(f"Could not fetch SEC filings for {symbol!r}.") from exc
-    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+    except (httpx2.HTTPError, ValueError, KeyError, TypeError) as exc:
         raise FilingFetchError(f"Could not fetch SEC filings for {symbol!r}.") from exc

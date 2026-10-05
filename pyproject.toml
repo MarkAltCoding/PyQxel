@@ -7,7 +7,7 @@ markers = [
 
 [tool.black]
 line-length = 100
-target-version = ["py311"]
+target-version = ["py314"]
 
 [tool.flake8]
 # Read through the Flake8-pyproject plugin; flake8 has no pyproject.toml support of its own.
@@ -16,7 +16,7 @@ extend-ignore = ["E203", "W503"]  # Slice spacing and operator line breaks as bl
 exclude = [".git", "venv", "data_cache", "__pycache__"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
 strict = true
 plugins = ["pydantic.mypy"]
 warn_unreachable = true

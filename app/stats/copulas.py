@@ -236,7 +236,7 @@ def _utc_offset_hours(name: str, moment: datetime) -> float | None:
     """Return the UTC offset of time zone ``name`` at ``moment``, or ``None`` if unknown."""
     try:
         offset = moment.astimezone(ZoneInfo(name)).utcoffset()
-    except (ZoneInfoNotFoundError, ValueError):
+    except ZoneInfoNotFoundError, ValueError:
         return None
     return None if offset is None else offset.total_seconds() / 3600
 

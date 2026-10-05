@@ -19,6 +19,7 @@ import logging
 from contextlib import suppress
 from typing import Annotated
 
+import anyio
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
 
@@ -197,8 +198,9 @@ async def quote_stream(
             await session.apply(initial)
 
     try:
-        async with asyncio.TaskGroup() as tasks:
-            tasks.create_task(session.receive_commands())
-            tasks.create_task(session.publish_quotes())
+        # An anyio task group, since Starlette runs the endpoint under anyio's cancel scopes.
+        async with anyio.create_task_group() as tasks:
+            tasks.start_soon(session.receive_commands)
+            tasks.start_soon(session.publish_quotes)
     except* WebSocketDisconnect:
         logger.debug("Quote stream client disconnected.")

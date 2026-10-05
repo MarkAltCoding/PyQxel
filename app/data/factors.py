@@ -20,7 +20,7 @@ import time
 import zipfile
 from typing import Any, Literal
 
-import httpx
+import httpx2
 import numpy as np
 import pandas as pd
 
@@ -130,7 +130,7 @@ def _validate(frame: pd.DataFrame, file: FactorFile) -> pd.DataFrame:
     return frame.loc[:, expected]
 
 
-async def _download(file: FactorFile, client: httpx.AsyncClient) -> pd.DataFrame:
+async def _download(file: FactorFile, client: httpx2.AsyncClient) -> pd.DataFrame:
     """Download and parse ``file``, retrying transient failures with backoff."""
     url = f"{LIBRARY_URL}/{FILE_NAMES[file]}"
     for attempt in range(MAX_RETRIES + 1):
@@ -139,14 +139,14 @@ async def _download(file: FactorFile, client: httpx.AsyncClient) -> pd.DataFrame
             if response.status_code not in RETRY_STATUSES:
                 response.raise_for_status()
                 return _validate(parse_factor_csv(_unzip_csv(response.content)), file)
-            error: Exception = httpx.HTTPStatusError(
+            error: Exception = httpx2.HTTPStatusError(
                 f"Ken French's data library returned {response.status_code}",
                 request=response.request,
                 response=response,
             )
-        except httpx.HTTPStatusError:
+        except httpx2.HTTPStatusError:
             raise
-        except httpx.TransportError as exc:
+        except httpx2.TransportError as exc:
             error = exc
         if attempt == MAX_RETRIES:
             raise error
@@ -185,13 +185,13 @@ async def _stored_copy(file: FactorFile) -> tuple[float, pd.DataFrame] | None:
     if text is not None:
         try:
             copies.append(_from_json(text))
-        except (ValueError, KeyError, TypeError):
+        except ValueError, KeyError, TypeError:
             logger.warning("Ignoring an unreadable cached copy of factor file %s.", file)
     return max(copies, key=lambda copy: copy[0], default=None)
 
 
 async def fetch_factor_file(
-    file: FactorFile, client: httpx.AsyncClient | None = None
+    file: FactorFile, client: httpx2.AsyncClient | None = None
 ) -> pd.DataFrame:
     """Return one of the library's daily factor files as decimal returns.
 
@@ -219,9 +219,9 @@ async def fetch_factor_file(
         if client is not None:
             frame = await _download(file, client)
         else:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
+            async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
                 frame = await _download(file, own_client)
-    except (httpx.HTTPError, FactorDataError) as exc:
+    except (httpx2.HTTPError, FactorDataError) as exc:
         if stored is not None and now - stored[0] < STALE_SECONDS:
             logger.warning(
                 "Could not refresh factor file %s (%s); using the copy from %.1f days ago.",
@@ -242,7 +242,7 @@ async def fetch_factor_file(
 
 
 async def fetch_factors(
-    model: FactorModel, client: httpx.AsyncClient | None = None
+    model: FactorModel, client: httpx2.AsyncClient | None = None
 ) -> pd.DataFrame:
     """Return the daily factor returns of ``model`` and the risk-free rate.
 

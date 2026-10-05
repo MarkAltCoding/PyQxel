@@ -158,6 +158,7 @@ async def test_delete_removes_only_that_result(session: AsyncSession) -> None:
 async def test_file_database_persists_across_engines(tmp_path: Path) -> None:
     """A SQLite file, and its missing parent folder, outlive the engine that wrote them."""
     url = f"sqlite+aiosqlite:///{tmp_path / 'nested' / 'results.db'}"
+    await close_database()
     configure_database(url)
     assert await init_db() is True
     async with get_sessionmaker()() as session:
@@ -172,6 +173,7 @@ async def test_file_database_persists_across_engines(tmp_path: Path) -> None:
 
 async def test_unreachable_database_does_not_fail_startup() -> None:
     """``init_db`` reports a database it cannot reach instead of raising."""
+    await close_database()
     configure_database("sqlite+aiosqlite:////nonexistent-root-dir/x/results.db")
 
     assert await init_db() is False
