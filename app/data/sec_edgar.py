@@ -18,6 +18,8 @@ import re
 import time
 import warnings
 from collections import OrderedDict
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -112,7 +114,7 @@ SECTIONS: dict[FilingForm, tuple[SectionPattern, ...]] = {
 
 
 class FilingFetchError(RuntimeError):
-    """Raised when filings cannot be retrieved from EDGAR."""
+    """Raised when filings or financial data cannot be retrieved from EDGAR."""
 
 
 class EdgarNotConfiguredError(FilingFetchError):
@@ -145,7 +147,7 @@ def _retry_delay(response: httpx2.Response | None, attempt: int) -> float:
     return 2.0**attempt
 
 
-async def _get(client: httpx2.AsyncClient, url: str) -> httpx2.Response:
+async def edgar_get(client: httpx2.AsyncClient, url: str) -> httpx2.Response:
     """GET ``url``, retrying throttling, server errors and transport failures with backoff."""
     for attempt in range(MAX_RETRIES + 1):
         response: httpx2.Response | None = None
@@ -171,11 +173,45 @@ async def _get(client: httpx2.AsyncClient, url: str) -> httpx2.Response:
     raise AssertionError("unreachable")
 
 
-async def _cik_for(symbol: str, client: httpx2.AsyncClient) -> int:
+def edgar_client() -> httpx2.AsyncClient:
+    """Return a new client that identifies itself to the SEC as ``SEC_USER_AGENT`` says.
+
+    Raises:
+        EdgarNotConfiguredError: If ``SEC_USER_AGENT`` is not set.
+    """
+    user_agent = get_settings().sec_user_agent
+    if not user_agent:
+        raise EdgarNotConfiguredError(
+            "SEC EDGAR is disabled: set SEC_USER_AGENT to a name and contact email."
+        )
+    return httpx2.AsyncClient(
+        headers={"User-Agent": user_agent}, timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True
+    )
+
+
+@contextmanager
+def edgar_errors(what: str) -> Iterator[None]:
+    """Re-raise failures to fetch ``what`` from EDGAR as :class:`FilingFetchError`."""
+    try:
+        yield
+    except FilingFetchError:
+        raise
+    except httpx2.HTTPStatusError as exc:
+        if exc.response.status_code == 403:
+            raise FilingFetchError(
+                "SEC EDGAR refused the request; check that SEC_USER_AGENT names you and a "
+                "contact email, and that requests stay under 10 a second."
+            ) from exc
+        raise FilingFetchError(f"Could not fetch {what}.") from exc
+    except (httpx2.HTTPError, ValueError, KeyError, TypeError) as exc:
+        raise FilingFetchError(f"Could not fetch {what}.") from exc
+
+
+async def cik_for(symbol: str, client: httpx2.AsyncClient) -> int:
     """Return the SEC CIK registered for ``symbol``."""
     global _ticker_map
     if _ticker_map is None or time.monotonic() - _ticker_map[0] > TICKER_MAP_TTL_SECONDS:
-        payload: Any = (await _get(client, TICKERS_URL)).json()
+        payload: Any = (await edgar_get(client, TICKERS_URL)).json()
         mapping = {
             str(entry["ticker"]).upper(): int(entry["cik_str"])
             for entry in payload.values()
@@ -292,7 +328,7 @@ async def _filing(
     key = (url, max_chars)
     sections = _section_cache.get(key)
     if sections is None:
-        html = (await _get(client, url)).text
+        html = (await edgar_get(client, url)).text
         sections = await asyncio.to_thread(_extract_sections, html, form, max_chars)
         _section_cache[key] = sections
         while len(_section_cache) > SECTION_CACHE_SIZE:
@@ -311,8 +347,8 @@ async def _filing(
 
 async def _fetch(symbol: str, client: httpx2.AsyncClient, max_chars: int) -> list[Filing]:
     """Fetch the latest filings for ``symbol`` with ``client``."""
-    cik = await _cik_for(symbol, client)
-    submissions: Any = (await _get(client, SUBMISSIONS_URL.format(cik=cik))).json()
+    cik = await cik_for(symbol, client)
+    submissions: Any = (await edgar_get(client, SUBMISSIONS_URL.format(cik=cik))).json()
     chosen = _latest_filings(submissions)
     return list(
         await asyncio.gather(*(_filing(cik, form, row, client, max_chars) for form, row in chosen))
@@ -340,28 +376,9 @@ async def fetch_latest_filings(
         FilingFetchError: If EDGAR cannot be reached or returns an unexpected response.
     """
     symbol = symbol.strip().upper()
-    settings = get_settings()
-    try:
+    max_chars = get_settings().sec_section_max_chars
+    with edgar_errors(f"SEC filings for {symbol!r}"):
         if client is not None:
-            return await _fetch(symbol, client, settings.sec_section_max_chars)
-        if not settings.sec_user_agent:
-            raise EdgarNotConfiguredError(
-                "SEC filings are disabled: set SEC_USER_AGENT to a name and contact email."
-            )
-        async with httpx2.AsyncClient(
-            headers={"User-Agent": settings.sec_user_agent},
-            timeout=HTTP_TIMEOUT_SECONDS,
-            follow_redirects=True,
-        ) as own_client:
-            return await _fetch(symbol, own_client, settings.sec_section_max_chars)
-    except FilingFetchError:
-        raise
-    except httpx2.HTTPStatusError as exc:
-        if exc.response.status_code == 403:
-            raise FilingFetchError(
-                "SEC EDGAR refused the request; check that SEC_USER_AGENT names you and a "
-                "contact email, and that requests stay under 10 a second."
-            ) from exc
-        raise FilingFetchError(f"Could not fetch SEC filings for {symbol!r}.") from exc
-    except (httpx2.HTTPError, ValueError, KeyError, TypeError) as exc:
-        raise FilingFetchError(f"Could not fetch SEC filings for {symbol!r}.") from exc
+            return await _fetch(symbol, client, max_chars)
+        async with edgar_client() as own_client:
+            return await _fetch(symbol, own_client, max_chars)

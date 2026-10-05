@@ -60,7 +60,7 @@ An AI-native research and quantitative analysis platform that helps investors ch
    Then fill in `.env`:
    * `ANTHROPIC_API_KEY` — from the [Anthropic Console](https://console.anthropic.com/).
    * `FINANCIAL_DATA_API_KEY` — optional; a [Financial Modeling Prep](https://site.financialmodelingprep.com/developer/docs) key, used as a fallback when `yfinance` fails.
-   * `SEC_USER_AGENT` — optional; your name and contact email (e.g. `PyQxel jane@example.com`), which the [SEC requires](https://www.sec.gov/os/accessing-edgar-data) of automated clients. When set, AI analyses also read the Risk Factors and MD&A sections of the company's latest 10-K and 10-Q.
+   * `SEC_USER_AGENT` — optional; your name and contact email (e.g. `PyQxel jane@example.com`), which the [SEC requires](https://www.sec.gov/os/accessing-edgar-data) of automated clients. When set, the fundamentals endpoint works, and AI analyses also get the company's financial statements and read the Risk Factors and MD&A sections of its latest 10-K and 10-Q.
    * `R_HOME` — the output of `R RHOME` (e.g. `/Library/Frameworks/R.framework/Resources` on macOS).
 
 4. **Run the API Server**:
@@ -77,7 +77,7 @@ An AI-native research and quantitative analysis platform that helps investors ch
 
    The schema is managed with [Alembic](https://alembic.sqlalchemy.org/) migrations in `app/db/migrations/`, applied automatically at startup. After changing a table in `app/db/tables.py`, generate a migration with `alembic revision --autogenerate -m "describe the change"`, review it, and commit it; `alembic upgrade head` applies it by hand. The tests fail if the models and migrations disagree.
 
-   AI analyses are stored in the same database, so you only pay for a report once. For 24 hours (`ANALYSIS_CACHE_TTL_SECONDS`), a request with the same symbol, `kind`, `period` and `include_filings`, under the same model and effort, gets the stored report back without fetching data or calling Claude. Identical requests that arrive at the same time are written once. Reused reports have `"cached": true` and keep their original `generated_at`; send `"refresh": true` to pay for a new one. Every report stays readable for free: list them with `GET /api/v1/analyses` (filter by `symbol` or `kind`) and fetch one with `GET /api/v1/analyses/{id}`. Each analysis also gives Claude the stock's Carhart factor exposures (see below), so reports can say how much of its risk is market, size, value or momentum.
+   AI analyses are stored in the same database, so you only pay for a report once. For 24 hours (`ANALYSIS_CACHE_TTL_SECONDS`), a request with the same symbol, `kind`, `period` and `include_filings`, under the same model and effort, gets the stored report back without fetching data or calling Claude. Identical requests that arrive at the same time are written once. Reused reports have `"cached": true` and keep their original `generated_at`; send `"refresh": true` to pay for a new one. Every report stays readable for free: list them with `GET /api/v1/analyses` (filter by `symbol` or `kind`) and fetch one with `GET /api/v1/analyses/{id}`. Each analysis also gives Claude the stock's Carhart factor exposures and its fundamentals and valuation (see below), so reports can say how much of its risk is market, size, value or momentum, and weigh the price against the company's earnings and cash flow.
 
    Set `REDIS_URL` (e.g. `redis://localhost:6379/0`) to also cache ticker info and price history for 5 minutes (1 minute for intraday bars), shared by every worker. Without Redis, or while it is down, those requests go straight to the data providers.
 
@@ -93,6 +93,12 @@ An AI-native research and quantitative analysis platform that helps investors ch
 ## Quantitative Models
 
 Returns and volatilities are decimals (0.25 = 25%), annualized where noted. Every endpoint below returns 404 naming unknown symbols, 422 when there is too little history, and 502 when a data provider fails.
+
+### Fundamentals and valuation
+
+`GET /api/v1/stocks/{symbol}/fundamentals` reads the company's financial statements from its XBRL filings on [SEC EDGAR](https://www.sec.gov/search-filings/edgar-application-programming-interfaces) (US GAAP, in US dollars; needs `SEC_USER_AGENT`). It returns trailing-twelve-month (TTM) revenue, gross profit, operating income, net income, operating cash flow, capital expenditure, free cash flow, depreciation and EBITDA, each with year-on-year growth and five fiscal years of history, and the latest cash, debt, equity and shares outstanding. Combined with the current market cap, they give P/E, P/S, EV/EBITDA, free-cash-flow yield, gross, operating, net and FCF margins, and return on equity.
+
+Companies tag the same item differently and change tags over time, so each item uses the tag the company reported most recently, and the response names it. Periods come from each figure's own dates, so fiscal years ending in any month line up, and TTM figures are built from the last fiscal year and the year to date. An item the company stopped reporting is left out rather than shown stale, and a ratio that is missing or not meaningful (a P/E on a loss, EV/EBITDA for a bank) is null, with `valuation.notes` saying why. Companies filing under IFRS, such as many foreign issuers, return 404. Normalized figures are reused for six hours.
 
 ### Factor exposures
 

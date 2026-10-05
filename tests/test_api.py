@@ -31,6 +31,7 @@ from app.ai.agent import (
 from app.api.v1.endpoints import backtest, research, stocks
 from app.core.config import get_settings
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
+from app.data.fundamentals import FinancialsNotFoundError
 from app.data.sec_edgar import CompanyNotFoundError, EdgarNotConfiguredError, FilingFetchError
 from app.main import __version__, app
 from app.models.research import (
@@ -42,12 +43,14 @@ from app.models.research import (
     ModelFallback,
     RiskSummary,
 )
+from app.models.fundamentals import Financials
 from app.models.stock import TickerInfo
 from app.models.volatility import EwmaFit, GarchFit, GarchParameter, VolatilityForecastStep
 from app.models.volatility import GarchDistribution
 from app.stats.garch import ModelFitError
 from app.stats.r_bridge import RUnavailableError
 from app.stats.volatility import InsufficientDataError
+from tests.financials import sample_financials
 
 client = TestClient(app)
 
@@ -499,11 +502,13 @@ def _serve_analysis(
     report: InvestmentThesis | RiskSummary | Exception,
     filings: list[Filing] | Exception | None = None,
     factors: pd.DataFrame | Exception | None = None,
+    financials: Financials | Exception | None = None,
 ) -> list[AnalysisCall]:
     """Fake the fetchers and the research agent; return the agent's recorded calls.
 
     The EDGAR fetch returns ``filings``, or no filings when omitted. The factor fetch
-    returns ``factors``, or by default factors on every date of ``frame``.
+    returns ``factors``, or by default factors on every date of ``frame``. The financials
+    fetch returns ``financials``, or the sample financials when omitted.
     """
     calls: list[AnalysisCall] = []
 
@@ -532,6 +537,11 @@ def _serve_analysis(
             raise filings
         return filings or []
 
+    async def fake_financials(symbol: str) -> Financials:
+        if isinstance(financials, Exception):
+            raise financials
+        return financials or sample_financials()
+
     async def fake_write(
         context: AnalysisContext, kind: str, filings: list[Filing]
     ) -> tuple[InvestmentThesis | RiskSummary, str]:
@@ -544,6 +554,7 @@ def _serve_analysis(
     monkeypatch.setattr(research, "fetch_price_history", fake_history)
     monkeypatch.setattr(research, "fetch_latest_filings", fake_filings)
     monkeypatch.setattr(research, "fetch_factors", fake_factors)
+    monkeypatch.setattr(research, "fetch_financials", fake_financials)
     monkeypatch.setattr(research, "write_analysis", fake_write)
     return calls
 
@@ -707,7 +718,7 @@ def test_analysis_rate_limit_sets_retry_after(monkeypatch: pytest.MonkeyPatch) -
 
 def test_analysis_passes_filings_to_the_agent(monkeypatch: pytest.MonkeyPatch) -> None:
     """Filing text goes to the agent; the response lists the filings without their text."""
-    info = TickerInfo(symbol="AAPL", source="yfinance")
+    info = TickerInfo(symbol="AAPL", market_cap=4e12, source="yfinance")
     filing = _filing()
     calls = _serve_analysis(monkeypatch, info, _recent_frame(), THESIS, [filing])
 
@@ -775,7 +786,7 @@ def test_analysis_without_filings_degrades_with_notice(
 
 def test_analysis_can_skip_filings(monkeypatch: pytest.MonkeyPatch) -> None:
     """``include_filings: false`` never contacts EDGAR."""
-    info = TickerInfo(symbol="AAPL", source="yfinance")
+    info = TickerInfo(symbol="AAPL", market_cap=4e12, source="yfinance")
     calls = _serve_analysis(monkeypatch, info, _recent_frame(), THESIS, [_filing()])
     fetched: list[str] = []
 
@@ -1511,7 +1522,7 @@ def test_analysis_is_written_when_the_database_is_down(monkeypatch: pytest.Monke
 def test_analysis_context_carries_factor_exposures(monkeypatch: pytest.MonkeyPatch) -> None:
     """Carhart exposures estimated over the window are given to the model."""
     calls = _serve_analysis(
-        monkeypatch, TickerInfo(symbol="AAPL", source="t"), _recent_frame(), THESIS
+        monkeypatch, TickerInfo(symbol="AAPL", market_cap=4e12, source="t"), _recent_frame(), THESIS
     )
 
     response = client.post("/api/v1/stocks/AAPL/analysis", json={"include_filings": False})
@@ -1524,6 +1535,55 @@ def test_analysis_context_carries_factor_exposures(monkeypatch: pytest.MonkeyPat
     assert context.factors is not None
     assert context.factors.factor_data_end == _recent_frame().index[-1].date()
     assert context.notice is None
+
+
+def test_analysis_context_carries_fundamentals(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The financials and the valuation built from the snapshot's market cap reach the model."""
+    calls = _serve_analysis(
+        monkeypatch,
+        TickerInfo(symbol="AAPL", market_cap=1_000.0, source="t"),
+        _recent_frame(),
+        THESIS,
+    )
+
+    response = client.post("/api/v1/stocks/AAPL/analysis", json={"include_filings": False})
+
+    assert response.status_code == 200
+    fundamentals = response.json()["context"]["fundamentals"]
+    assert fundamentals["financials"]["revenue"]["ttm"] == 400.0
+    assert fundamentals["valuation"]["pe_ratio"] == 10.0
+    context, _, _ = calls[0]
+    assert context.fundamentals is not None
+    assert context.fundamentals.valuation is not None
+
+
+@pytest.mark.parametrize(
+    ("error", "notice"),
+    [
+        (EdgarNotConfiguredError("unset"), "SEC financial data is not configured"),
+        (CompanyNotFoundError("none"), "has no US GAAP financial statements"),
+        (FinancialsNotFoundError("none"), "has no US GAAP financial statements"),
+        (FilingFetchError("down"), "SEC financial data could not be fetched"),
+    ],
+)
+def test_analysis_without_fundamentals_degrades_with_notice(
+    monkeypatch: pytest.MonkeyPatch, error: Exception, notice: str
+) -> None:
+    """A failed financials fetch leaves fundamentals out and says why."""
+    calls = _serve_analysis(
+        monkeypatch,
+        TickerInfo(symbol="AAPL", market_cap=1_000.0, source="t"),
+        _recent_frame(),
+        THESIS,
+        financials=error,
+    )
+
+    response = client.post("/api/v1/stocks/AAPL/analysis", json={"include_filings": False})
+
+    assert response.status_code == 200
+    context, _, _ = calls[0]
+    assert context.fundamentals is None
+    assert context.notice is not None and notice in context.notice
 
 
 @pytest.mark.parametrize(
