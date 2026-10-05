@@ -100,6 +100,23 @@ async def test_sec_filings() -> None:
     assert all(len(section.text) > 5_000 for section in annual.sections)
 
 
+@needs_sec
+def test_fundamentals(client: TestClient) -> None:
+    """EDGAR's company facts give Microsoft's June fiscal years, TTM figures and multiples."""
+    response = client.get("/api/v1/stocks/MSFT/fundamentals")
+
+    assert response.status_code == 200
+    body = response.json()
+    revenue = body["financials"]["revenue"]
+    assert revenue["ttm"] > 100e9
+    assert all(year["fiscal_year_end"][5:7] == "06" for year in revenue["fiscal_years"])
+    assert body["financials"]["total_debt"] is not None
+    valuation = body["valuation"]
+    assert valuation["market_cap_source"] == "provider"
+    assert 5 < valuation["pe_ratio"] < 100
+    assert 0 < valuation["operating_margin"] < 1
+
+
 @pytest.mark.asyncio
 async def test_fama_french_factors() -> None:
     """Ken French's library serves every model's factors, recent and in plausible ranges."""
