@@ -8,7 +8,7 @@ import anthropic
 import httpx2
 import pytest
 from anthropic import AsyncAnthropic
-from pydantic import SecretStr, ValidationError
+from pydantic import SecretStr
 
 from app.ai import agent
 from app.ai.agent import (
@@ -76,26 +76,29 @@ def _context() -> AnalysisContext:
     )
 
 
-def _response(**overrides: Any) -> SimpleNamespace:
-    """Build a parsed response with a thesis, overriding any field."""
+def _response(texts: list[str] | None = None, **overrides: Any) -> SimpleNamespace:
+    """Build a response with one text block per entry of ``texts`` (default: the thesis)."""
     fields: dict[str, Any] = {
         "stop_reason": "end_turn",
         "stop_details": None,
-        "parsed_output": THESIS,
+        "content": [
+            SimpleNamespace(type="text", text=text)
+            for text in (texts if texts is not None else [THESIS.model_dump_json()])
+        ],
         "model": "claude-opus-5-5",
     }
     return SimpleNamespace(**(fields | overrides))
 
 
 class FakeClient:
-    """Records ``beta.messages.parse`` calls and returns or raises a fixed result."""
+    """Records ``beta.messages.create`` calls and returns or raises a fixed result."""
 
     def __init__(self, result: SimpleNamespace | Exception) -> None:
         self.calls: list[dict[str, Any]] = []
         self._result = result
-        self.beta = SimpleNamespace(messages=SimpleNamespace(parse=self._parse))
+        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
 
-    async def _parse(self, **kwargs: Any) -> SimpleNamespace:
+    async def _create(self, **kwargs: Any) -> SimpleNamespace:
         self.calls.append(kwargs)
         if isinstance(self._result, Exception):
             raise self._result
@@ -120,9 +123,10 @@ async def test_thesis_request_is_grounded_and_structured() -> None:
     settings = get_settings()
     call = client.calls[0]
     assert call["model"] == settings.anthropic_model
-    assert call["output_format"] is InvestmentThesis
     assert call["thinking"] == {"type": "adaptive"}
-    assert call["output_config"] == {"effort": settings.anthropic_effort}
+    assert call["output_config"]["effort"] == settings.anthropic_effort
+    assert call["output_config"]["format"]["type"] == "json_schema"
+    assert "headline" in call["output_config"]["format"]["schema"]["properties"]
     assert call["fallbacks"] == "default"
     assert call["betas"] == [FALLBACK_BETA]
     content = call["messages"][0]["content"]
@@ -132,12 +136,13 @@ async def test_thesis_request_is_grounded_and_structured() -> None:
 
 
 async def test_risk_request_uses_risk_schema() -> None:
-    """Risk summaries are parsed against the risk schema."""
+    """Risk summaries are constrained to and validated against the risk schema."""
     client = FakeClient(_response())
 
-    await _write(client, "risk")
-
-    assert client.calls[0]["output_format"] is RiskSummary
+    with pytest.raises(AnalysisError, match="schema"):
+        await _write(client, "risk")
+    schema = client.calls[0]["output_config"]["format"]["schema"]
+    assert "key_risks" in schema["properties"]
 
 
 async def test_returns_fallback_model() -> None:
@@ -155,7 +160,7 @@ async def test_refusal_raises() -> None:
         _response(
             stop_reason="refusal",
             stop_details=SimpleNamespace(category="general_harms"),
-            parsed_output=None,
+            texts=[],
         )
     )
 
@@ -165,7 +170,7 @@ async def test_refusal_raises() -> None:
 
 async def test_truncated_response_raises() -> None:
     """A response cut off at ``max_tokens`` is not returned as a report."""
-    client = FakeClient(_response(stop_reason="max_tokens", parsed_output=None))
+    client = FakeClient(_response(["{"], stop_reason="max_tokens"))
 
     with pytest.raises(AnalysisError, match="truncated"):
         await _write(client, "thesis")
@@ -255,10 +260,10 @@ async def test_filings_without_sections_are_left_out() -> None:
     """A request whose filings have no text sends only the task and snapshot."""
     client = FakeClient(_response())
 
-    await write_analysis(_context(), "risk", [_filing([])], client=cast(AsyncAnthropic, client))
+    await write_analysis(_context(), "thesis", [_filing([])], client=cast(AsyncAnthropic, client))
 
     content = client.calls[0]["messages"][0]["content"]
-    assert isinstance(content, str) and content.startswith(agent.TASKS["risk"])
+    assert isinstance(content, str) and content.startswith(agent.TASKS["thesis"])
 
 
 async def test_shared_client_uses_settings_and_closes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -309,19 +314,24 @@ async def test_missing_credentials_are_not_configured() -> None:
 
 async def test_schema_mismatch_is_an_analysis_error() -> None:
     """A response that fails schema validation is an analysis error."""
-    try:
-        InvestmentThesis.model_validate({"headline": "x"})
-    except ValidationError as exc:
-        error = exc
-
     with pytest.raises(AnalysisError, match="schema"):
-        await _write(FakeClient(error), "thesis")
+        await _write(FakeClient(_response(['{"headline": "x"}'])), "thesis")
 
 
-async def test_missing_parsed_output_is_an_analysis_error() -> None:
-    """A finished response without a parsed report is not returned."""
-    with pytest.raises(AnalysisError, match="valid report"):
-        await _write(FakeClient(_response(parsed_output=None)), "thesis")
+async def test_missing_report_is_an_analysis_error() -> None:
+    """A finished response without report text is not returned."""
+    with pytest.raises(AnalysisError, match="schema"):
+        await _write(FakeClient(_response([])), "thesis")
+
+
+async def test_report_split_by_fallback_is_joined() -> None:
+    """A report started by one model and finished by its fallback validates as one."""
+    report_json = THESIS.model_dump_json()
+    client = FakeClient(_response([report_json[:10], report_json[10:]], model="claude-opus-4-8"))
+
+    report, model = await _write(client, "thesis")
+
+    assert (report, model) == (THESIS, "claude-opus-4-8")
 
 
 def _event(type_: str, **fields: Any) -> SimpleNamespace:

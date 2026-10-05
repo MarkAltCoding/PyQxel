@@ -1,6 +1,6 @@
 # AI Equity Research & Quantitative Investing Engine
 
-An AI-native research and quantitative analysis platform designed for equity stock analysis, statistical modeling, factor research, and automated thesis generation. Built with a high-performance Python engine, specialized R statistical subroutines, and an API-first architecture designed for seamless deployment across macOS (MacBook) and iOS (iPhone).
+An AI-native research and quantitative analysis platform that helps investors choose the right securities. It combines equity analysis, statistical modeling, factor research, and automated thesis generation so an investor can see what drives a security's returns, how much risk it carries, and how it would behave alongside the rest of a portfolio before buying it. Built with a high-performance Python engine, specialized R statistical subroutines, and an API-first architecture designed for seamless deployment across macOS (MacBook) and iOS (iPhone).
 
 **Author:** Mark Altreuter ([@MarkAltCoding](https://github.com/MarkAltCoding))  
 **Institution:** University of Illinois Urbana-Champaign (UIUC), B.S. Computer Science  
@@ -20,7 +20,7 @@ An AI-native research and quantitative analysis platform designed for equity sto
 
 * **Primary Backend Engine**: Python 3.11+ (FastAPI, Pandas, NumPy, Statsmodels, Scikit-Learn)
 * **Statistical Modeling**: R 4.3+ (`rpy2` integration for GARCH modeling, time-series analysis, and econometric estimation)
-* **AI Engine & NLP**: Anthropic API (Claude Opus 5.5, `claude-opus-5-5`), LangChain / LlamaIndex, BeautifulSoup4, PyPDF
+* **AI Engine & NLP**: Anthropic API (Claude Opus 5.5, `claude-opus-5-5`) through the official `anthropic` SDK, BeautifulSoup4 for SEC filing text
 * **Market Data Feeds**: `yfinance`, Financial Modeling Prep (FMP) / Alpha Vantage API, SEC EDGAR Scraper
 * **Client Interface Target**: Cross-platform REST & WebSocket API servicing macOS and iOS clients (Swift/React Native compatible)
 

@@ -15,7 +15,7 @@ from functools import lru_cache
 
 import anthropic
 from anthropic import AsyncAnthropic, transform_schema
-from anthropic.types.beta import BetaMessage
+from anthropic.types.beta import BetaMessage, BetaOutputConfigParam
 from anthropic.types.beta import BetaTextBlockParam
 from pydantic import ValidationError
 
@@ -150,8 +150,6 @@ def _translated_errors() -> Iterator[None]:
         raise AnalysisError("The AI service rejected the request.") from exc
     except (anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
         raise AIUnavailableError("Could not reach the AI service.") from exc
-    except ValidationError as exc:
-        raise AnalysisError("The AI response did not match the report schema.") from exc
     except anthropic.AnthropicError as exc:
         # Raised before any request when the SDK finds no credentials to use.
         raise AINotConfiguredError(str(exc)) from exc
@@ -166,6 +164,30 @@ def _check_stop_reason(response: BetaMessage) -> None:
         )
     if response.stop_reason == "max_tokens":
         raise AnalysisError("The AI response was truncated before the report was complete.")
+
+
+def _output_config(schema: type[InvestmentThesis | RiskSummary]) -> BetaOutputConfigParam:
+    """Return the effort setting and the JSON schema that constrains the report."""
+    return {
+        "effort": get_settings().anthropic_effort,
+        "format": {"type": "json_schema", "schema": transform_schema(schema)},
+    }
+
+
+def _parse_report(
+    response: BetaMessage, schema: type[InvestmentThesis | RiskSummary]
+) -> InvestmentThesis | RiskSummary:
+    """Validate the report in ``response`` against ``schema``.
+
+    The text blocks are joined first: a model that declines part-way leaves the start of
+    the report in one block and the fallback model finishes it in another.
+    """
+    _check_stop_reason(response)
+    text = "".join(block.text for block in response.content if block.type == "text")
+    try:
+        return schema.model_validate_json(text)
+    except ValidationError as exc:
+        raise AnalysisError("The AI response did not match the report schema.") from exc
 
 
 async def write_analysis(
@@ -198,23 +220,18 @@ async def write_analysis(
     schema = InvestmentThesis if kind == "thesis" else RiskSummary
     with _translated_errors():
         client = client or get_anthropic_client()
-        response = await client.beta.messages.parse(
+        response = await client.beta.messages.create(
             model=settings.anthropic_model,
             max_tokens=MAX_TOKENS,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": _user_content(context, kind, filings or [])}],
             thinking={"type": "adaptive"},
-            output_config={"effort": settings.anthropic_effort},
-            output_format=schema,
+            output_config=_output_config(schema),
             fallbacks="default",
             betas=[FALLBACK_BETA],
         )
 
-    _check_stop_reason(response)
-    report = response.parsed_output
-    if report is None:
-        raise AnalysisError("The AI response did not contain a valid report.")
-    return report, response.model
+    return _parse_report(response, schema), response.model
 
 
 async def stream_analysis(
@@ -228,8 +245,7 @@ async def stream_analysis(
     Yields summarized reasoning and report text as :class:`AnalysisDelta` fragments, a
     :class:`ModelFallback` if a model declines part-way and another takes over, and
     finally the validated :class:`WrittenReport`. The schema is enforced through
-    ``output_config`` and checked once the stream ends, rather than by the SDK's parser,
-    because a mid-stream fallback splits the report across two text blocks.
+    ``output_config`` and checked once the stream ends.
 
     Args and errors are as for :func:`write_analysis`; errors are raised from the
     iterator, possibly after fragments have been yielded.
@@ -244,10 +260,7 @@ async def stream_analysis(
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": _user_content(context, kind, filings or [])}],
             thinking={"type": "adaptive", "display": "summarized"},
-            output_config={
-                "effort": settings.anthropic_effort,
-                "format": {"type": "json_schema", "schema": transform_schema(schema)},
-            },
+            output_config=_output_config(schema),
             fallbacks="default",
             betas=[FALLBACK_BETA],
         ) as stream:
@@ -264,10 +277,4 @@ async def stream_analysis(
                         yield AnalysisDelta(channel="report", text=event.delta.text)
             response = await stream.get_final_message()
 
-    _check_stop_reason(response)
-    text = "".join(block.text for block in response.content if block.type == "text")
-    try:
-        report = schema.model_validate_json(text)
-    except ValidationError as exc:
-        raise AnalysisError("The AI response did not match the report schema.") from exc
-    yield WrittenReport(report=report, model=response.model)
+    yield WrittenReport(report=_parse_report(response, schema), model=response.model)
