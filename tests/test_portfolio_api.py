@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.v1.endpoints import portfolio
+from app.api.v1.endpoints import backtest, portfolio
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
 from app.data.panel import ClosePanel
 from app.main import app
@@ -167,3 +167,96 @@ def test_too_little_shared_history_is_422(monkeypatch: pytest.MonkeyPatch) -> No
 def test_invalid_requests_are_rejected(payload: dict[str, object]) -> None:
     """One symbol, repeats, too many symbols, short periods and missing symbols fail."""
     assert client.post("/api/v1/portfolio/copula", json=payload).status_code == 422
+
+
+def _factors(dates: pd.DatetimeIndex) -> pd.DataFrame:
+    """Carhart factors and a 0.01% daily risk-free rate on ``dates``."""
+    rng = np.random.default_rng(1)
+    table = pd.DataFrame(
+        rng.normal(0, 0.01, (len(dates), 4)), index=dates, columns=["Mkt-RF", "SMB", "HML", "Mom"]
+    )
+    table["RF"] = 0.0001
+    return table
+
+
+def _serve_factors(monkeypatch: pytest.MonkeyPatch, closes: pd.DataFrame) -> None:
+    async def fake_factors(model: str) -> pd.DataFrame:
+        return _factors(pd.DatetimeIndex(closes.index))
+
+    monkeypatch.setattr(backtest, "fetch_factors", fake_factors)
+
+
+def test_portfolio_backtest_runs_the_strategy_on_each_holding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each holding is traded on its own prices; contributions and attribution are given."""
+    closes = _closes(["SPY", "TLT"], days=700)
+    _serve(monkeypatch, closes)
+    _serve_factors(monkeypatch, closes)
+
+    response = client.post(
+        "/api/v1/portfolio/backtest",
+        json={
+            "holdings": [{"symbol": "SPY", "weight": 0.6}, {"symbol": "TLT", "weight": 0.4}],
+            "strategy": {"type": "time_series_momentum", "lookback": 126},
+            "period": "5y",
+            "cash_interest": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [asset["symbol"] for asset in body["assets"]] == ["SPY", "TLT"]
+    assert [asset["weight"] for asset in body["assets"]] == [0.6, 0.4]
+    assert all(asset["exposure"] < 1 for asset in body["assets"])
+    assert body["observations"] == 699
+    assert body["attribution"]["model"] == "carhart4"
+    assert len(body["equity_curve"]) == 700
+    assert body["equity_curve"][0]["strategy"] == 1.0
+
+
+def test_portfolio_buy_and_hold_matches_its_benchmark(monkeypatch: pytest.MonkeyPatch) -> None:
+    closes = _closes(["SPY", "TLT", "GLD"], days=400)
+    _serve(monkeypatch, closes)
+    _serve_factors(monkeypatch, closes)
+
+    response = client.post(
+        "/api/v1/portfolio/backtest",
+        json={
+            "holdings": [
+                {"symbol": "SPY", "weight": 0.5},
+                {"symbol": "TLT", "weight": 0.3},
+                {"symbol": "GLD", "weight": 0.2},
+            ],
+            "strategy": {"type": "buy_and_hold"},
+            "period": "2y",
+            "cost_bps": 0,
+            "attribution": None,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["metrics"]["total_return"] == pytest.approx(body["benchmark"]["total_return"])
+    assert body["exposure"] == 1.0
+    assert body["attribution"] is None
+
+
+def test_portfolio_backtest_needs_enough_history_for_the_strategy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closes = _closes(["SPY", "TLT"], days=260)
+    _serve(monkeypatch, closes)
+    _serve_factors(monkeypatch, closes)
+
+    response = client.post(
+        "/api/v1/portfolio/backtest",
+        json={
+            "holdings": [{"symbol": "SPY", "weight": 0.5}, {"symbol": "TLT", "weight": 0.5}],
+            "strategy": {"type": "time_series_momentum", "lookback": 252},
+            "period": "1y",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "252-bar momentum lookback" in response.json()["detail"]

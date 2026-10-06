@@ -29,6 +29,8 @@ class ReturnPanel:
     """Decimal returns, one column per asset, indexed by date, oldest first."""
     excluded_dates: int
     """Dates with a close for some assets but not all, left out of every column."""
+    closes: pd.DataFrame
+    """The closes the returns are taken from, on the same dates plus the one before."""
 
     @property
     def observations(self) -> int:
@@ -113,4 +115,4 @@ def return_panel(
         raise InsufficientDataError(
             f"Prices never change over the window for {', '.join(flat)}; leave them out."
         )
-    return ReturnPanel(returns=returns, excluded_dates=excluded)
+    return ReturnPanel(returns=returns, excluded_dates=excluded, closes=common)

@@ -160,6 +160,21 @@ The result gives the distribution of final value and return, expected return, pr
 
 Runs are limited to 2.6 million path-days and 15 million draws (paths × horizon × assets), and at most two compute at once. Results are stored: list them with `GET /api/v1/portfolio/simulations` (filter by `symbol`), fetch one with `GET /api/v1/portfolio/simulations/{id}`, and remove it with `DELETE`.
 
+### Backtesting
+
+`POST /api/v1/stocks/{symbol}/backtest` scores a strategy on one stock against buy-and-hold, and `POST /api/v1/portfolio/backtest` runs it on every holding of a portfolio against holding the same weights. Strategies (`strategy.type`):
+
+* `buy_and_hold`.
+* `sma_crossover`: long while the `fast`-bar moving average is above the `slow` one (default 50/200).
+* `time_series_momentum`: long while the stock's own return from `lookback` bars ago (default 252, a year) to `skip` bars ago is positive.
+* `mean_reversion`: buy when the close is `entry_z` rolling standard deviations below its `window`-bar average (default 2 below a 20-day average), and sell once it is back within `exit_z` of it.
+
+Each takes `allow_short` to go short instead of flat. A position set at a close is held over the next bar, and trades pay `cost_bps` per unit of turnover. With `cash_interest`, capital not invested earns the risk-free rate (the one-month T-bill from Ken French's data, compounded over each bar), as do a short's sale proceeds; otherwise it earns nothing.
+
+In a portfolio, each holding is traded on its own prices on the days every holding traded, its position is scaled by its weight, and weights are reset daily. `assets` gives each holding's contribution, exposure and trades.
+
+Both return `attribution` for daily bars: a regression of the strategy's daily excess returns on `carhart4` factors (or `ff3`, `ff5`, or `null` to skip). `attribution.fit.alpha` is the annualized return the factors leave unexplained, with a Newey-West t-statistic, and the betas show how much of the result was simply market, size, value or momentum exposure. Single-stock backtests are stored as described above; portfolio backtests are not.
+
 ## License
 
 Distributed under the MIT License. See `LICENSE` for details.

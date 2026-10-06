@@ -44,7 +44,12 @@ def daily_returns(closes: pd.Series) -> pd.Series:
     Prices are cleaned first, so a return spans from one valid close to the next.
     """
     prices = clean_prices(closes)
-    returns = prices.pct_change().iloc[1:]
+    return by_calendar_date(prices.pct_change().iloc[1:])
+
+
+def by_calendar_date(returns: pd.Series) -> pd.Series:
+    """Index daily ``returns`` by calendar date without time zone, as the factor files are."""
+    returns = returns.copy()
     index = pd.DatetimeIndex(returns.index)
     if index.tz is not None:
         # Daily bars are stamped at midnight exchange time; dropping the zone keeps
@@ -91,8 +96,16 @@ def _warnings(observations: int, r_squared: float) -> list[str]:
 def fit_factor_model(closes: pd.Series, factors: pd.DataFrame, model: FactorModel) -> FactorFit:
     """Regress the daily excess returns of ``closes`` on the factors of ``model``.
 
+    See :func:`fit_factor_returns`; returns are taken between consecutive valid closes.
+    """
+    return fit_factor_returns(daily_returns(closes), factors, model)
+
+
+def fit_factor_returns(returns: pd.Series, factors: pd.DataFrame, model: FactorModel) -> FactorFit:
+    """Regress daily excess ``returns`` on the factors of ``model``.
+
     Args:
-        closes: Daily adjusted close prices indexed by bar timestamp.
+        returns: Daily simple returns of a stock or strategy, indexed by bar timestamp.
         factors: Daily factor returns as decimals, indexed by date, with a column for
             every factor of ``model`` and for ``RF``, as returned by
             :func:`app.data.factors.fetch_factors`.
@@ -104,11 +117,11 @@ def fit_factor_model(closes: pd.Series, factors: pd.DataFrame, model: FactorMode
 
     Raises:
         InsufficientDataError: If fewer than :data:`MIN_OBSERVATIONS` days have both a
-            stock return and factor returns, or the stock's price never changes.
+            return and factor returns, or the returns never change.
     """
     names = MODEL_FACTORS[model]
     data = pd.concat(
-        [daily_returns(closes).rename("stock"), factors.loc[:, [*names, RISK_FREE]]],
+        [by_calendar_date(returns).rename("stock"), factors.loc[:, [*names, RISK_FREE]]],
         axis=1,
         join="inner",
     ).dropna()
@@ -121,7 +134,9 @@ def fit_factor_model(closes: pd.Series, factors: pd.DataFrame, model: FactorMode
         )
     excess = data["stock"] - data[RISK_FREE]
     if float(excess.std(ddof=1)) == 0.0:
-        raise InsufficientDataError("Prices never change over the window; there is nothing to fit.")
+        raise InsufficientDataError(
+            "Returns never change over the window; there is nothing to fit."
+        )
 
     regressors = data.loc[:, names]
     lags = hac_lags(observations)

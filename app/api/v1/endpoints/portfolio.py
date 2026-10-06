@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, st
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.endpoints.backtest import attribute, equity_points, load_factors
 from app.api.v1.endpoints.stocks import COVERAGE_TOLERANCE, PERIOD_OFFSETS, upstream_error
 from app.data.fetcher import DataFetchError
 from app.data.panel import fetch_close_panel
@@ -30,8 +31,15 @@ from app.models.portfolio import (
     PortfolioPeriod,
     StudentTCopula,
 )
+from app.models.backtest import (
+    AssetBacktest,
+    PortfolioBacktestRequest,
+    PortfolioBacktestResponse,
+)
+from app.models.factors import RISK_FREE
 from app.models.simulation import SimulationList, SimulationRequest, SimulationResponse
 from app.models.stock import SYMBOL_PATTERN
+from app.stats.backtest import cash_returns, run_portfolio_backtest, strategy_for
 from app.stats.copulas import CopulaFit, asynchronous_trading_warning, fit_copulas
 from app.stats.monte_carlo import SimulationError, simulate_portfolio
 from app.stats.panel import ReturnPanel, first_date, return_panel
@@ -269,6 +277,91 @@ async def create_simulation(
         await session.rollback()
         logger.error("Could not store the simulation: %s", exc)
         return response
+
+
+@router.post(
+    "/backtest",
+    response_model=PortfolioBacktestResponse,
+    summary="Backtest a strategy on every holding of a portfolio",
+)
+async def create_portfolio_backtest(
+    request: Annotated[PortfolioBacktestRequest, Body()],
+) -> PortfolioBacktestResponse:
+    """Run ``strategy`` on each holding and combine the holdings at their weights.
+
+    Daily closes are aligned on the days every holding traded, as for ``/simulate``. Each
+    holding's position is set by the strategy on its own prices and scaled by its weight,
+    and weights are reset every day. Trades pay ``cost_bps`` per unit of turnover;
+    capital not invested earns nothing, or the risk-free rate with ``cash_interest``.
+    The benchmark holds the same weights, rebalanced daily, without costs.
+
+    ``assets`` gives each holding's contribution, and ``attribution`` regresses the
+    portfolio's daily returns on a factor model to separate alpha from factor exposure.
+    Results are not stored.
+
+    Returns 404 naming unknown symbols, 422 for too little shared history for the
+    strategy, and 502 when the price provider fails, or the risk-free rate cannot be
+    fetched for ``cash_interest``.
+    """
+    (panel, closes, timezones), (factors, factor_notice) = await asyncio.gather(
+        _load_returns(request.symbols, request.period),
+        load_factors(request.attribution, request.cash_interest),
+    )
+    cash = (
+        cash_returns(factors[RISK_FREE], panel.closes.index)
+        if request.cash_interest and factors is not None
+        else None
+    )
+    try:
+        result = await asyncio.to_thread(
+            run_portfolio_backtest,
+            panel.closes,
+            request.weights,
+            strategy_for(request.strategy),
+            252,
+            cost_bps=request.cost_bps,
+            risk_free_rate=request.risk_free_rate,
+            cash=cash,
+        )
+    except InsufficientDataError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+    attribution, attribution_notice = attribute(result.returns, factors, request.attribution)
+    notices = [
+        _window_notice(panel, closes, request.period),
+        asynchronous_trading_warning(timezones),
+        factor_notice,
+        attribution_notice,
+    ]
+    return PortfolioBacktestResponse(
+        holdings=request.holdings,
+        period=request.period,
+        strategy=request.strategy,
+        cost_bps=request.cost_bps,
+        risk_free_rate=request.risk_free_rate,
+        cash_interest=request.cash_interest,
+        observations=panel.observations,
+        excluded_dates=panel.excluded_dates,
+        metrics=result.metrics,
+        benchmark=result.benchmark,
+        trades=result.trades,
+        exposure=result.exposure,
+        assets=[
+            AssetBacktest(
+                symbol=symbol,
+                weight=part.weight,
+                contribution=part.contribution,
+                exposure=part.exposure,
+                trades=part.trades,
+            )
+            for symbol, part in result.assets.items()
+        ],
+        attribution=attribution,
+        equity_curve=equity_points(result),
+        notice=" ".join(notice for notice in notices if notice) or None,
+    )
 
 
 @router.get("/simulations", response_model=SimulationList, summary="List stored simulations")

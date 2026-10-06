@@ -10,7 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.factors import FactorFit, FactorModel
+from app.models.factors import FactorContext
 from app.models.fundamentals import Fundamentals
 from app.models.stock import HistoryCoverage, TickerInfo
 from app.models.volatility import VolatilityPeriod
@@ -120,16 +120,6 @@ class PriceSummary(BaseModel):
     current_drawdown: float = Field(le=0, description="Decline of the last close from its peak.")
     best_return: float = Field(description="Largest single-bar return.")
     worst_return: float = Field(description="Largest single-bar loss.")
-
-
-class FactorContext(BaseModel):
-    """The security's exposures to a factor model, estimated over the analysis window."""
-
-    model: FactorModel
-    factor_data_end: date = Field(
-        description="Last date of the published factor data; the regression stops there."
-    )
-    fit: FactorFit
 
 
 class AnalysisContext(BaseModel):
