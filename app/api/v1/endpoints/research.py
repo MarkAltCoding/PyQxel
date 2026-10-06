@@ -63,13 +63,12 @@ from app.models.research import (
     AnalysisRequest,
     AnalysisResponse,
     AnalysisStreamError,
-    FactorContext,
     Filing,
     InvestmentThesis,
     RiskSummary,
 )
 from app.models.stock import SYMBOL_PATTERN, TickerInfo
-from app.models.factors import FactorModel
+from app.models.factors import FactorContext, FactorModel
 from app.stats.factors import fit_factor_model
 from app.stats.indicators import summarize_prices
 from app.stats.volatility import InsufficientDataError

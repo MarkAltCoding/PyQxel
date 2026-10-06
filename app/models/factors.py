@@ -98,3 +98,13 @@ class FactorRegression(BaseModel):
         "Factor returns from the Kenneth R. French Data Library "
         "(mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html)."
     )
+
+
+class FactorContext(BaseModel):
+    """Exposures to a factor model, estimated over a window of daily returns."""
+
+    model: FactorModel
+    factor_data_end: date = Field(
+        description="Last date of the published factor data; the regression stops there."
+    )
+    fit: FactorFit

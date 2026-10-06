@@ -806,9 +806,15 @@ def test_analysis_can_skip_filings(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _serve_backtest_history(
-    monkeypatch: pytest.MonkeyPatch, frame: pd.DataFrame | Exception
+    monkeypatch: pytest.MonkeyPatch,
+    frame: pd.DataFrame | Exception,
+    factors: pd.DataFrame | Exception | None = None,
 ) -> list[tuple[str, str]]:
-    """Fake the backtest route's price fetch; return the (period, interval) requested."""
+    """Fake the backtest route's price and factor fetches; return the (period, interval)
+    requested.
+
+    The factor fetch returns ``factors``, or by default factors on every date of ``frame``.
+    """
     calls: list[tuple[str, str]] = []
 
     async def fake_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
@@ -817,8 +823,22 @@ def _serve_backtest_history(
             raise frame
         return frame
 
+    async def fake_factors(model: str) -> pd.DataFrame:
+        if isinstance(factors, Exception):
+            raise factors
+        if factors is not None:
+            return factors
+        dates = frame.index if isinstance(frame, pd.DataFrame) else pd.DatetimeIndex([])
+        return _factor_table(pd.DatetimeIndex(dates))
+
     monkeypatch.setattr(backtest, "fetch_price_history", fake_history)
+    monkeypatch.setattr(backtest, "fetch_factors", fake_factors)
     return calls
+
+
+def _weekly(frame: pd.DataFrame) -> pd.DataFrame:
+    """Every fifth bar of ``frame``, standing in for weekly bars."""
+    return frame.iloc[::5]
 
 
 def _trending_frame(years: int) -> pd.DataFrame:
@@ -878,6 +898,68 @@ def test_backtest_buy_and_hold_equals_benchmark(monkeypatch: pytest.MonkeyPatch)
     body = response.json()
     assert body["metrics"] == body["benchmark"]
     assert body["trades"] == 1
+
+
+def test_backtest_attributes_returns_to_factors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Daily backtests come with the strategy's alpha and Carhart betas by default."""
+    _serve_backtest_history(monkeypatch, _trending_frame(2))
+
+    response = client.post(
+        "/api/v1/stocks/SPY/backtest",
+        json={"strategy": {"type": "time_series_momentum", "lookback": 60}, "period": "2y"},
+    )
+
+    assert response.status_code == 200
+    attribution = response.json()["attribution"]
+    assert attribution["model"] == "carhart4"
+    assert [e["factor"] for e in attribution["fit"]["exposures"]] == ["Mkt-RF", "SMB", "HML", "Mom"]
+    assert "alpha" in attribution["fit"]
+
+
+def test_backtest_cash_interest_raises_a_partly_flat_strategy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Earning the risk-free rate on idle capital adds to a strategy that is often flat."""
+    _serve_backtest_history(monkeypatch, _trending_frame(2))
+    body = {"strategy": {"type": "mean_reversion"}, "period": "2y", "attribution": None}
+
+    without = client.post("/api/v1/stocks/SPY/backtest", json=body).json()
+    with_cash = client.post(
+        "/api/v1/stocks/SPY/backtest", json=body | {"cash_interest": True}
+    ).json()
+
+    assert with_cash["cash_interest"] is True
+    assert with_cash["metrics"]["total_return"] > without["metrics"]["total_return"]
+    assert with_cash["benchmark"] == without["benchmark"]
+    assert without["attribution"] is None
+
+
+def test_weekly_backtest_skips_attribution(monkeypatch: pytest.MonkeyPatch) -> None:
+    _serve_backtest_history(monkeypatch, _weekly(_trending_frame(5)))
+
+    response = client.post(
+        "/api/v1/stocks/SPY/backtest",
+        json={"strategy": {"type": "buy_and_hold"}, "period": "5y", "interval": "1wk"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["attribution"] is None
+    assert "needs daily bars" in response.json()["notice"]
+
+
+def test_missing_factor_data_degrades_or_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Attribution alone degrades to a notice; cash interest cannot do without the rate."""
+    _serve_backtest_history(monkeypatch, _trending_frame(2), factors=DataFetchError("down"))
+
+    attribution_only = client.post("/api/v1/stocks/SPY/backtest", json={"period": "2y"})
+    with_cash = client.post(
+        "/api/v1/stocks/SPY/backtest", json={"period": "2y", "cash_interest": True}
+    )
+
+    assert attribution_only.status_code == 200
+    assert attribution_only.json()["attribution"] is None
+    assert "factor data could not be fetched" in attribution_only.json()["notice"]
+    assert with_cash.status_code == 502
 
 
 @pytest.mark.parametrize(

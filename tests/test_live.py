@@ -282,6 +282,26 @@ def test_backtest(client: TestClient) -> None:
     assert last["benchmark"] == pytest.approx(1 + body["benchmark"]["total_return"])
 
 
+def test_portfolio_backtest_with_cash_and_attribution(client: TestClient) -> None:
+    """Momentum across stocks and bonds, with T-bill interest on cash and factor attribution."""
+    response = client.post(
+        "/api/v1/portfolio/backtest",
+        json={
+            "holdings": [{"symbol": "SPY", "weight": 0.6}, {"symbol": "TLT", "weight": 0.4}],
+            "strategy": {"type": "time_series_momentum"},
+            "cash_interest": True,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [asset["symbol"] for asset in body["assets"]] == ["SPY", "TLT"]
+    fit = body["attribution"]["fit"]
+    assert fit["observations"] > 500
+    market = next(e for e in fit["exposures"] if e["factor"] == "Mkt-RF")
+    assert -0.5 < market["estimate"] < 1.0
+
+
 @pytest.mark.paid
 @needs_sec
 def test_claude_analysis_with_filings(client: TestClient) -> None:

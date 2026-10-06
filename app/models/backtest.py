@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.models.factors import FactorContext, FactorModel
+from app.models.portfolio import Holding, Portfolio, PortfolioPeriod
 from app.models.stock import HistoryCoverage
 
 BacktestPeriod = Literal["1y", "2y", "5y", "10y", "max"]
@@ -41,8 +43,68 @@ class SmaCrossover(BaseModel):
         return self
 
 
-StrategySpec = Annotated[BuyAndHold | SmaCrossover, Field(discriminator="type")]
+class TimeSeriesMomentum(BaseModel):
+    """Hold the asset while its own past return is positive: time-series momentum.
+
+    The return is measured from ``lookback`` bars ago to ``skip`` bars ago; skipping the
+    latest month sidesteps its short-term reversal. When the return is negative the
+    strategy is flat, or short when ``allow_short`` is set.
+    """
+
+    type: Literal["time_series_momentum"] = "time_series_momentum"
+    lookback: int = Field(
+        default=252, ge=5, le=756, description="Bars back the return starts; 252 is a year."
+    )
+    skip: int = Field(
+        default=0, ge=0, le=126, description="Most recent bars left out of the return."
+    )
+    allow_short: bool = Field(default=False, description="Go short instead of flat.")
+
+    @model_validator(mode="after")
+    def _skip_within_lookback(self) -> Self:
+        """Reject a skip that leaves no return to measure."""
+        if self.skip >= self.lookback:
+            raise ValueError("skip must be shorter than lookback")
+        return self
+
+
+class MeanReversion(BaseModel):
+    """Buy a stretched fall below the moving average and sell once the price reverts.
+
+    The z-score is the close's distance from its ``window``-bar average in rolling
+    standard deviations. A long opens when it falls to ``-entry_z`` and closes once it
+    rises back to ``-exit_z``; with ``allow_short`` a short mirrors it above the average.
+    """
+
+    type: Literal["mean_reversion"] = "mean_reversion"
+    window: int = Field(default=20, ge=5, le=250, description="Moving-average window, in bars.")
+    entry_z: float = Field(
+        default=2.0, gt=0, le=5, description="Distance from the average that opens a trade."
+    )
+    exit_z: float = Field(
+        default=0.0,
+        ge=0,
+        le=5,
+        description="Distance from the average at which a trade closes; 0 waits for the "
+        "average itself.",
+    )
+    allow_short: bool = Field(default=False, description="Also short stretched rises.")
+
+    @model_validator(mode="after")
+    def _exit_inside_entry(self) -> Self:
+        """Reject an exit band that a new trade would close in at once."""
+        if self.exit_z >= self.entry_z:
+            raise ValueError("exit_z must be smaller than entry_z")
+        return self
+
+
+StrategySpec = Annotated[
+    BuyAndHold | SmaCrossover | TimeSeriesMomentum | MeanReversion, Field(discriminator="type")
+]
 """A strategy and its parameters, chosen by ``type``."""
+
+StrategyType = Literal["buy_and_hold", "sma_crossover", "time_series_momentum", "mean_reversion"]
+"""The ``type`` of each strategy."""
 
 
 class BacktestRequest(BaseModel):
@@ -62,6 +124,16 @@ class BacktestRequest(BaseModel):
         ge=-0.05,
         le=0.25,
         description="Annual risk-free rate for Sharpe and Sortino, as a decimal (0.04 = 4%).",
+    )
+    cash_interest: bool = Field(
+        default=False,
+        description="Let capital not invested in the asset earn the risk-free rate (the "
+        "one-month T-bill, from Ken French's data library), as would short sale proceeds.",
+    )
+    attribution: FactorModel | None = Field(
+        default="carhart4",
+        description="Factor model to regress the strategy's daily returns on, separating "
+        "alpha from factor exposure; null to skip.",
     )
 
 
@@ -133,7 +205,15 @@ class BacktestResponse(BaseModel):
     metrics: PerformanceMetrics
     benchmark: PerformanceMetrics = Field(description="Buy-and-hold over the same bars, no costs.")
     trades: int = Field(ge=0, description="Bars on which the position changed.")
-    exposure: float = Field(ge=0, le=1, description="Share of bars with a position held.")
+    exposure: float = Field(
+        ge=0, le=1, description="Average share of capital in positions, long or short."
+    )
+    cash_interest: bool = False
+    attribution: FactorContext | None = Field(
+        default=None,
+        description="The strategy's alpha and factor betas; null when skipped or not "
+        "estimable, as for weekly bars.",
+    )
     equity_curve: list[EquityPoint]
     coverage: HistoryCoverage
     notice: str | None = None
@@ -165,3 +245,74 @@ class BacktestList(BaseModel):
     total: int = Field(ge=0, description="Stored backtests matching the filters, on any page.")
     limit: int
     offset: int
+
+
+class PortfolioBacktestRequest(Portfolio):
+    """A strategy run on each holding of a portfolio, rebalanced to its weights every day."""
+
+    strategy: StrategySpec = Field(default_factory=SmaCrossover)
+    period: PortfolioPeriod = Field(default="5y", description="Lookback window of daily bars.")
+    cost_bps: float = Field(
+        default=5.0,
+        ge=0,
+        le=500,
+        description="Trading cost per unit of turnover, in basis points (5 = 0.05%).",
+    )
+    risk_free_rate: float = Field(
+        default=0.0,
+        ge=-0.05,
+        le=0.25,
+        description="Annual risk-free rate for Sharpe and Sortino, as a decimal (0.04 = 4%).",
+    )
+    cash_interest: bool = Field(
+        default=False,
+        description="Let capital not invested earn the risk-free rate (the one-month T-bill).",
+    )
+    attribution: FactorModel | None = Field(
+        default="carhart4",
+        description="Factor model to regress the portfolio's daily returns on; null to skip.",
+    )
+
+
+class AssetBacktest(BaseModel):
+    """One holding's part in a portfolio backtest."""
+
+    symbol: str
+    weight: float = Field(ge=0, le=1)
+    contribution: float = Field(
+        description="Sum of the holding's weighted daily returns, net of its trading costs: "
+        "its share of the portfolio's arithmetic return."
+    )
+    exposure: float = Field(ge=0, le=1, description="Share of days the holding was held.")
+    trades: int = Field(ge=0, description="Days on which its position changed.")
+
+
+class PortfolioBacktestResponse(BaseModel):
+    """A strategy's performance on a portfolio, against holding the same weights."""
+
+    holdings: list[Holding]
+    period: PortfolioPeriod
+    strategy: StrategySpec
+    cost_bps: float
+    risk_free_rate: float
+    cash_interest: bool
+    observations: int = Field(ge=1, description="Days on which every holding traded.")
+    excluded_dates: int = Field(
+        ge=0, description="Dates some holdings traded and others did not, left out."
+    )
+    metrics: PerformanceMetrics
+    benchmark: PerformanceMetrics = Field(
+        description="Holding the same weights, rebalanced daily, without costs."
+    )
+    trades: int = Field(ge=0, description="Days on which any position changed.")
+    exposure: float = Field(
+        ge=0, le=1, description="Average share of capital in positions, long or short."
+    )
+    assets: list[AssetBacktest]
+    attribution: FactorContext | None = None
+    equity_curve: list[EquityPoint]
+    notice: str | None = None
+    disclaimer: str = (
+        "Backtested on historical adjusted prices. Past performance does not predict "
+        "future results."
+    )
