@@ -3,10 +3,10 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.ai.agent import close_anthropic_client
+from app.api.auth import authenticate
 from app.api.v1.api import api_router
 from app.core.cache import close_cache
 from app.core.config import get_settings
@@ -23,7 +23,6 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     start_r()
     await init_db()
     yield
-    await close_anthropic_client()
     await close_cache()
     await close_database()
 
@@ -49,7 +48,10 @@ def create_app() -> FastAPI:
         """Report that the service is up."""
         return HealthResponse(status="ok", app=settings.app_name, version=__version__)
 
-    application.include_router(api_router, prefix=settings.api_v1_prefix)
+    # Every API route needs a PyQxel API key; /health and the docs stay open.
+    application.include_router(
+        api_router, prefix=settings.api_v1_prefix, dependencies=[Depends(authenticate)]
+    )
 
     return application
 

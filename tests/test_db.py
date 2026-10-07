@@ -43,6 +43,10 @@ pytestmark = pytest.mark.asyncio
 START = datetime(2025, 1, 2, 5, tzinfo=timezone.utc)
 
 
+OWNER: str = "00000000-0000-0000-0000-000000000001"
+"""The account the stored results belong to."""
+
+
 def _metrics(total_return: float, sharpe: float | None = 1.2) -> PerformanceMetrics:
     """Performance metrics with the given headline numbers."""
     return PerformanceMetrics(
@@ -93,8 +97,8 @@ async def test_saved_backtest_reads_back_unchanged(session: AsyncSession) -> Non
     """A stored result is returned in full, with the ID and time it was saved under."""
     original = _result()
 
-    saved = await save_backtest(session, original)
-    loaded = await get_backtest(session, saved.id)  # type: ignore[arg-type]
+    saved = await save_backtest(session, OWNER, original)
+    loaded = await get_backtest(session, OWNER, saved.id)  # type: ignore[arg-type]
 
     assert saved.id is not None
     assert saved.saved_at is not None and saved.saved_at.tzinfo is not None
@@ -106,15 +110,15 @@ async def test_saved_backtest_reads_back_unchanged(session: AsyncSession) -> Non
 
 async def test_unknown_id_reads_as_none(session: AsyncSession) -> None:
     """Looking up an ID that was never stored returns ``None``."""
-    assert await get_backtest(session, uuid4()) is None
+    assert await get_backtest(session, OWNER, uuid4()) is None
 
 
 async def test_list_is_newest_first_with_headline_metrics(session: AsyncSession) -> None:
     """Listings summarize each result without its curve, the latest first."""
-    first = await save_backtest(session, _result(total_return=0.01))
-    second = await save_backtest(session, _result(total_return=0.02))
+    first = await save_backtest(session, OWNER, _result(total_return=0.01))
+    second = await save_backtest(session, OWNER, _result(total_return=0.02))
 
-    page = await list_backtests(session)
+    page = await list_backtests(session, OWNER)
 
     assert page.total == 2
     assert [item.id for item in page.items] == [second.id, first.id]
@@ -130,13 +134,13 @@ async def test_list_is_newest_first_with_headline_metrics(session: AsyncSession)
 async def test_list_filters_and_pages(session: AsyncSession) -> None:
     """Symbol and strategy filters combine, and ``total`` counts every page."""
     for _ in range(3):
-        await save_backtest(session, _result("SPY"))
-    await save_backtest(session, _result("SPY", BuyAndHold()))
-    await save_backtest(session, _result("QQQ"))
+        await save_backtest(session, OWNER, _result("SPY"))
+    await save_backtest(session, OWNER, _result("SPY", BuyAndHold()))
+    await save_backtest(session, OWNER, _result("QQQ"))
 
-    spy = await list_backtests(session, symbol="spy", limit=2)
-    crossover = await list_backtests(session, symbol="SPY", strategy="sma_crossover")
-    last_page = await list_backtests(session, symbol="SPY", limit=2, offset=4)
+    spy = await list_backtests(session, OWNER, symbol="spy", limit=2)
+    crossover = await list_backtests(session, OWNER, symbol="SPY", strategy="sma_crossover")
+    last_page = await list_backtests(session, OWNER, symbol="SPY", limit=2, offset=4)
 
     assert spy.total == 4 and len(spy.items) == 2
     assert all(item.symbol == "SPY" for item in spy.items)
@@ -146,13 +150,13 @@ async def test_list_filters_and_pages(session: AsyncSession) -> None:
 
 async def test_delete_removes_only_that_result(session: AsyncSession) -> None:
     """Deleting reports whether the ID existed and leaves other results alone."""
-    kept = await save_backtest(session, _result())
-    dropped = await save_backtest(session, _result())
+    kept = await save_backtest(session, OWNER, _result())
+    dropped = await save_backtest(session, OWNER, _result())
 
-    assert await delete_backtest(session, dropped.id) is True  # type: ignore[arg-type]
-    assert await delete_backtest(session, dropped.id) is False  # type: ignore[arg-type]
-    assert await get_backtest(session, dropped.id) is None  # type: ignore[arg-type]
-    assert await get_backtest(session, kept.id) is not None  # type: ignore[arg-type]
+    assert await delete_backtest(session, OWNER, dropped.id) is True  # type: ignore[arg-type]
+    assert await delete_backtest(session, OWNER, dropped.id) is False  # type: ignore[arg-type]
+    assert await get_backtest(session, OWNER, dropped.id) is None  # type: ignore[arg-type]
+    assert await get_backtest(session, OWNER, kept.id) is not None  # type: ignore[arg-type]
 
 
 async def test_file_database_persists_across_engines(tmp_path: Path) -> None:
@@ -162,12 +166,12 @@ async def test_file_database_persists_across_engines(tmp_path: Path) -> None:
     configure_database(url)
     assert await init_db() is True
     async with get_sessionmaker()() as session:
-        saved = await save_backtest(session, _result())
+        saved = await save_backtest(session, OWNER, _result())
     await close_database()
 
     configure_database(url)
     async with get_sessionmaker()() as session:
-        assert await get_backtest(session, saved.id) == saved  # type: ignore[arg-type]
+        assert await get_backtest(session, OWNER, saved.id) == saved  # type: ignore[arg-type]
     await close_database()
 
 

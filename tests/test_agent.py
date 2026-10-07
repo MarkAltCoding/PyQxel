@@ -267,30 +267,23 @@ async def test_filings_without_sections_are_left_out() -> None:
     assert isinstance(content, str) and content.startswith(TASKS["thesis"])
 
 
-async def test_shared_client_uses_settings_and_closes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The shared client takes the key and timeout from settings and is rebuilt after closing."""
-    settings = Settings(anthropic_api_key=SecretStr("sk-test"), anthropic_timeout_seconds=42.0)
+async def test_client_bills_only_the_key_it_is_given(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A client uses the requesting user's key, never the server's or the environment's."""
+    settings = Settings(anthropic_api_key=SecretStr("sk-server"), anthropic_timeout_seconds=42.0)
     monkeypatch.setattr(agent, "get_settings", lambda: settings)
-    agent.get_anthropic_client.cache_clear()
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-environment")
 
-    first = agent.get_anthropic_client()
-    assert first is agent.get_anthropic_client()
-    assert first.api_key == "sk-test"
-    assert first.timeout == 42.0
+    client = agent.anthropic_client(SecretStr("sk-user"))
 
-    await agent.close_anthropic_client()
-    assert first.is_closed()
-    assert agent.get_anthropic_client() is not first
-    await agent.close_anthropic_client()
+    assert client.api_key == "sk-user"
+    assert client.timeout == 42.0
+    await client.close()
 
 
-async def test_closing_an_unused_client_is_a_no_op() -> None:
-    """Shutdown does not create a client just to close it."""
-    agent.get_anthropic_client.cache_clear()
-
-    await agent.close_anthropic_client()
-
-    assert agent.get_anthropic_client.cache_info().currsize == 0
+async def test_client_needs_a_key() -> None:
+    """An empty key is refused instead of letting the SDK find credentials itself."""
+    with pytest.raises(AINotConfiguredError):
+        agent.anthropic_client(SecretStr(""))
 
 
 async def test_unparseable_retry_after_is_ignored() -> None:

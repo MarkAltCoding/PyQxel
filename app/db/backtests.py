@@ -26,8 +26,10 @@ def _summary(record: BacktestRecord) -> BacktestSummary:
     )
 
 
-async def save_backtest(session: AsyncSession, result: BacktestResponse) -> BacktestResponse:
-    """Store ``result`` and return it with its new ``id`` and ``saved_at``.
+async def save_backtest(
+    session: AsyncSession, user_id: str, result: BacktestResponse
+) -> BacktestResponse:
+    """Store ``result`` for ``user_id`` and return it with its new ``id`` and ``saved_at``.
 
     Raises:
         sqlalchemy.exc.SQLAlchemyError: If the database cannot be written.
@@ -37,6 +39,7 @@ async def save_backtest(session: AsyncSession, result: BacktestResponse) -> Back
     session.add(
         BacktestRecord(
             id=str(saved.id),
+            user_id=user_id,
             created_at=saved.saved_at,
             symbol=saved.symbol,
             strategy=saved.strategy.type,
@@ -53,10 +56,12 @@ async def save_backtest(session: AsyncSession, result: BacktestResponse) -> Back
     return saved
 
 
-async def get_backtest(session: AsyncSession, backtest_id: UUID) -> BacktestResponse | None:
-    """Return the stored backtest with ``backtest_id``, or ``None`` if there is none."""
+async def get_backtest(
+    session: AsyncSession, user_id: str, backtest_id: UUID
+) -> BacktestResponse | None:
+    """Return ``user_id``'s stored backtest with ``backtest_id``, or ``None`` if they have none."""
     record = await session.get(BacktestRecord, str(backtest_id))
-    if record is None:
+    if record is None or record.user_id != user_id:
         return None
     return BacktestResponse.model_validate(
         {**record.result, "id": record.id, "saved_at": as_utc(record.created_at)}
@@ -65,13 +70,15 @@ async def get_backtest(session: AsyncSession, backtest_id: UUID) -> BacktestResp
 
 async def list_backtests(
     session: AsyncSession,
+    user_id: str,
     symbol: str | None = None,
     strategy: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> BacktestList:
-    """Return stored backtests newest first, optionally only one symbol's or strategy's."""
-    query = select(BacktestRecord)
+    """Return ``user_id``'s stored backtests newest first, optionally one symbol's or
+    strategy's."""
+    query = select(BacktestRecord).where(BacktestRecord.user_id == user_id)
     if symbol is not None:
         query = query.where(BacktestRecord.symbol == symbol.upper())
     if strategy is not None:
@@ -90,10 +97,12 @@ async def list_backtests(
     )
 
 
-async def delete_backtest(session: AsyncSession, backtest_id: UUID) -> bool:
-    """Delete the stored backtest with ``backtest_id``; return whether one existed."""
+async def delete_backtest(session: AsyncSession, user_id: str, backtest_id: UUID) -> bool:
+    """Delete ``user_id``'s stored backtest with ``backtest_id``; return whether they had it."""
     deleted = await session.execute(
-        delete(BacktestRecord).where(BacktestRecord.id == str(backtest_id))
+        delete(BacktestRecord).where(
+            BacktestRecord.id == str(backtest_id), BacktestRecord.user_id == user_id
+        )
     )
     await session.commit()
     return bool(deleted.rowcount)  # type: ignore[attr-defined]

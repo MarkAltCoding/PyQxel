@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException, Path, Query, status
 
 from app.data.fetcher import (
     DataFetchError,
+    ProviderNotConfiguredError,
+    ProviderPlanError,
     SymbolNotFoundError,
     fetch_price_history,
     fetch_ticker_info,
@@ -125,7 +127,15 @@ def history_coverage(
 
 
 def upstream_error(exc: DataFetchError) -> HTTPException:
-    """Translate a provider failure into a 404 for unknown symbols, otherwise a 502."""
+    """Translate a provider failure into an HTTP error.
+
+    403 when the user has no usable FMP key, 402 when their FMP plan does not cover the
+    request, 404 for unknown symbols, and 502 for other provider failures.
+    """
+    if isinstance(exc, ProviderNotConfiguredError):
+        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    if isinstance(exc, ProviderPlanError):
+        return HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(exc))
     if isinstance(exc, SymbolNotFoundError):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))

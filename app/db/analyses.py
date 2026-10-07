@@ -22,13 +22,14 @@ def _response(record: AnalysisRecord) -> AnalysisResponse:
 
 async def save_analysis(
     session: AsyncSession,
+    user_id: str,
     request: AnalysisRequest,
     response: AnalysisResponse,
     requested_model: str,
     effort: str,
     context_version: int,
 ) -> AnalysisResponse:
-    """Store ``response``, written for ``request``, and return it with its new ``id``.
+    """Store ``response``, written for ``user_id``'s ``request``; return it with its ``id``.
 
     Raises:
         sqlalchemy.exc.SQLAlchemyError: If the database cannot be written.
@@ -37,6 +38,7 @@ async def save_analysis(
     session.add(
         AnalysisRecord(
             id=str(saved.id),
+            user_id=user_id,
             created_at=saved.generated_at,
             symbol=saved.symbol,
             kind=request.kind,
@@ -56,6 +58,7 @@ async def save_analysis(
 
 async def find_recent_analysis(
     session: AsyncSession,
+    user_id: str,
     symbol: str,
     request: AnalysisRequest,
     requested_model: str,
@@ -63,13 +66,16 @@ async def find_recent_analysis(
     context_version: int,
     since: datetime,
 ) -> AnalysisResponse | None:
-    """Return the newest report written since ``since`` for the same request and settings.
+    """Return ``user_id``'s newest report written since ``since`` for the same request and
+    settings.
 
-    Only reports written from the same ``context_version`` of data qualify.
+    Only reports written from the same ``context_version`` of data qualify; other users'
+    reports never do.
     """
     record = await session.scalar(
         select(AnalysisRecord)
         .where(
+            AnalysisRecord.user_id == user_id,
             AnalysisRecord.symbol == symbol.upper(),
             AnalysisRecord.kind == request.kind,
             AnalysisRecord.period == request.period,
@@ -85,21 +91,24 @@ async def find_recent_analysis(
     return None if record is None else _response(record)
 
 
-async def get_analysis(session: AsyncSession, analysis_id: UUID) -> AnalysisResponse | None:
-    """Return the stored analysis with ``analysis_id``, or ``None`` if there is none."""
+async def get_analysis(
+    session: AsyncSession, user_id: str, analysis_id: UUID
+) -> AnalysisResponse | None:
+    """Return ``user_id``'s stored analysis with ``analysis_id``, or ``None`` if they have none."""
     record = await session.get(AnalysisRecord, str(analysis_id))
-    return None if record is None else _response(record)
+    return None if record is None or record.user_id != user_id else _response(record)
 
 
 async def list_analyses(
     session: AsyncSession,
+    user_id: str,
     symbol: str | None = None,
     kind: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> AnalysisList:
-    """Return stored analyses newest first, optionally only one symbol's or kind's."""
-    query = select(AnalysisRecord)
+    """Return ``user_id``'s stored analyses newest first, optionally one symbol's or kind's."""
+    query = select(AnalysisRecord).where(AnalysisRecord.user_id == user_id)
     if symbol is not None:
         query = query.where(AnalysisRecord.symbol == symbol.upper())
     if kind is not None:

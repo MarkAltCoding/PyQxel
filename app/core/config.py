@@ -28,11 +28,37 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     cors_origins: list[str] = ["http://localhost", "http://localhost:3000"]
 
-    anthropic_api_key: SecretStr | None = None
+    anthropic_api_key: SecretStr | None = Field(
+        default=None,
+        description="The server owner's Anthropic key. Never used to serve requests: each "
+        "user's analyses run on the key stored in their account. Only the test suite and "
+        "``python -m app.jobs.users create --import-env-keys`` read it.",
+    )
     anthropic_model: str = "claude-opus-5-5"
     anthropic_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
     anthropic_timeout_seconds: float = 180.0
-    financial_data_api_key: SecretStr | None = None
+    financial_data_api_key: SecretStr | None = Field(
+        default=None,
+        description="The server owner's Financial Modeling Prep key. Like "
+        "``anthropic_api_key``, never used to serve requests.",
+    )
+    credentials_encryption_key: SecretStr | None = Field(
+        default=None,
+        description="Fernet key that encrypts the provider keys users store; generate one "
+        "with ``python -m app.jobs.users generate-encryption-key``. Users cannot store "
+        "keys without it.",
+    )
+    yfinance_fallback: bool = Field(
+        default=False,
+        description="For development: use yfinance when a user has no FMP key, or FMP "
+        "fails or their plan does not cover a request. Off in production, where licensed "
+        "data is required.",
+    )
+    rate_limit_per_minute: int = Field(
+        default=120,
+        ge=1,
+        description="Requests each user may make per minute, across all endpoints.",
+    )
     sec_user_agent: str | None = None
     sec_section_max_chars: int = Field(default=60_000, ge=1_000)
     r_home: Path | None = None

@@ -17,7 +17,6 @@ from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 
-from app.ai import agent
 from app.ai import cache as analysis_cache
 from app.ai.agent import (
     FALLBACK_BETA,
@@ -494,6 +493,9 @@ def test_volatility_ewma_maps_short_history_to_422(monkeypatch: pytest.MonkeyPat
 
 AnalysisCall = tuple[AnalysisContext, str, list[Filing]]
 
+billed_keys: list[str | None] = []
+"""The Anthropic key each faked analysis was written with."""
+
 
 def _serve_analysis(
     monkeypatch: pytest.MonkeyPatch,
@@ -543,9 +545,10 @@ def _serve_analysis(
         return financials or sample_financials()
 
     async def fake_write(
-        context: AnalysisContext, kind: str, filings: list[Filing]
+        context: AnalysisContext, kind: str, filings: list[Filing], *, client: AsyncAnthropic
     ) -> tuple[InvestmentThesis | RiskSummary, str]:
         calls.append((context, kind, filings))
+        billed_keys.append(client.api_key)
         if isinstance(report, Exception):
             raise report
         return report, "claude-opus-5-5"
@@ -686,7 +689,7 @@ def test_analysis_maps_short_history_to_422(monkeypatch: pytest.MonkeyPatch) -> 
 @pytest.mark.parametrize(
     ("error", "status_code"),
     [
-        (AINotConfiguredError("no key"), 503),
+        (AINotConfiguredError("no key"), 403),
         (AIRefusalError("declined"), 422),
         (AIUnavailableError("down"), 502),
         (AnalysisError("truncated"), 502),
@@ -695,14 +698,14 @@ def test_analysis_maps_short_history_to_422(monkeypatch: pytest.MonkeyPatch) -> 
 def test_analysis_maps_ai_errors(
     monkeypatch: pytest.MonkeyPatch, error: AnalysisError, status_code: int
 ) -> None:
-    """AI failures map to status codes with their message as detail."""
+    """AI failures map to status codes with their message leading the detail."""
     info = TickerInfo(symbol="AAPL", source="yfinance")
     _serve_analysis(monkeypatch, info, _recent_frame(), error)
 
     response = client.post("/api/v1/stocks/AAPL/analysis")
 
     assert response.status_code == status_code
-    assert response.json() == {"detail": str(error)}
+    assert response.json()["detail"].startswith(str(error))
 
 
 def test_analysis_rate_limit_sets_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1140,9 +1143,10 @@ def _serve_stream(
     )
 
     async def fake_stream(
-        context: AnalysisContext, kind: str, filings: list[Filing]
+        context: AnalysisContext, kind: str, filings: list[Filing], *, client: AsyncAnthropic
     ) -> AsyncIterator[AnalysisDelta | ModelFallback | WrittenReport]:
         calls.append((context, kind, filings))
+        billed_keys.append(client.api_key)
         for item in items:
             yield item
         if error is not None:
@@ -1332,7 +1336,7 @@ def _replay(monkeypatch: pytest.MonkeyPatch, events: list[dict[str, Any]]) -> li
         max_retries=0,
         http_client=DefaultAsyncHttpxClient(transport=httpx2.MockTransport(handler)),
     )
-    monkeypatch.setattr(agent, "get_anthropic_client", lambda: anthropic_client)
+    monkeypatch.setattr(research, "anthropic_client", lambda api_key: anthropic_client)
     _serve_analysis(
         monkeypatch, TickerInfo(symbol="AAPL", source="yfinance"), _recent_frame(), THESIS
     )

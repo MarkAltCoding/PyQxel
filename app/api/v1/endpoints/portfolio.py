@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, st
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import CurrentUser
 from app.api.v1.endpoints.backtest import attribute, equity_points, load_factors
 from app.api.v1.endpoints.stocks import COVERAGE_TOLERANCE, PERIOD_OFFSETS, upstream_error
 from app.data.fetcher import DataFetchError
@@ -208,7 +209,7 @@ async def _load_returns(
     summary="Monte Carlo simulation of a portfolio's value",
 )
 async def create_simulation(
-    request: Annotated[SimulationRequest, Body()], session: Session
+    request: Annotated[SimulationRequest, Body()], session: Session, user: CurrentUser
 ) -> SimulationResponse:
     """Simulate a portfolio ``horizon`` trading days ahead.
 
@@ -272,7 +273,7 @@ async def create_simulation(
         notice=_window_notice(panel, closes, request.period),
     )
     try:
-        return await save_simulation(session, response)
+        return await save_simulation(session, user.id, response)
     except SQLAlchemyError as exc:
         await session.rollback()
         logger.error("Could not store the simulation: %s", exc)
@@ -367,6 +368,7 @@ async def create_portfolio_backtest(
 @router.get("/simulations", response_model=SimulationList, summary="List stored simulations")
 async def read_simulations(
     session: Session,
+    user: CurrentUser,
     symbol: Annotated[
         str | None,
         Query(pattern=SYMBOL_PATTERN, description="Only simulations holding this symbol."),
@@ -379,7 +381,7 @@ async def read_simulations(
     Returns 503 when the database is unavailable.
     """
     try:
-        return await list_simulations(session, symbol, limit, offset)
+        return await list_simulations(session, user.id, symbol, limit, offset)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
 
@@ -389,13 +391,16 @@ async def read_simulations(
     response_model=SimulationResponse,
     summary="A stored simulation in full",
 )
-async def read_simulation(simulation_id: UUID, session: Session) -> SimulationResponse:
+async def read_simulation(
+    simulation_id: UUID, session: Session, user: CurrentUser
+) -> SimulationResponse:
     """Return a stored simulation with its distributions and fan chart.
 
-    Returns 404 for unknown IDs and 503 when the database is unavailable.
+    Returns 404 for unknown IDs and other users' simulations, and 503 when the database
+    is unavailable.
     """
     try:
-        result = await get_simulation(session, simulation_id)
+        result = await get_simulation(session, user.id, simulation_id)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
     if result is None:
@@ -412,13 +417,14 @@ async def read_simulation(simulation_id: UUID, session: Session) -> SimulationRe
     response_class=Response,
     summary="Delete a stored simulation",
 )
-async def remove_simulation(simulation_id: UUID, session: Session) -> Response:
+async def remove_simulation(simulation_id: UUID, session: Session, user: CurrentUser) -> Response:
     """Delete a stored simulation.
 
-    Returns 404 for unknown IDs and 503 when the database is unavailable.
+    Returns 404 for unknown IDs and other users' simulations, and 503 when the database
+    is unavailable.
     """
     try:
-        deleted = await delete_simulation(session, simulation_id)
+        deleted = await delete_simulation(session, user.id, simulation_id)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
     if not deleted:

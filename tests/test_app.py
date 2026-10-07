@@ -28,7 +28,6 @@ def test_lifespan_opens_and_closes_shared_resources(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(main, "start_r", fake_start_r)
     monkeypatch.setattr(main, "init_db", recorder("init_db", True))
-    monkeypatch.setattr(main, "close_anthropic_client", recorder("close_ai"))
     monkeypatch.setattr(main, "close_cache", recorder("close_cache"))
     monkeypatch.setattr(main, "close_database", recorder("close_database"))
 
@@ -36,7 +35,7 @@ def test_lifespan_opens_and_closes_shared_resources(monkeypatch: pytest.MonkeyPa
         assert events == ["start_r", "init_db"]
         assert client.get("/health").status_code == 200
 
-    assert events == ["start_r", "init_db", "close_ai", "close_cache", "close_database"]
+    assert events == ["start_r", "init_db", "close_cache", "close_database"]
 
 
 def test_app_starts_without_a_database(monkeypatch: pytest.MonkeyPatch) -> None:

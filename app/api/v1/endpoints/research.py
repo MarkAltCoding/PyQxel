@@ -18,10 +18,12 @@ from uuid import UUID
 import pandas as pd
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.sse import EventSourceResponse, ServerSentEvent
+from pydantic import SecretStr
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.agent import (
+    anthropic_client,
     AINotConfiguredError,
     AIRateLimitError,
     AIRefusalError,
@@ -31,6 +33,7 @@ from app.ai.agent import (
     write_analysis,
 )
 from app.ai.cache import analysis_slot, cached_analysis, remember_analysis
+from app.api.auth import CurrentUser
 from app.api.v1.endpoints.fundamentals import build_fundamentals, financials_failure_notice
 from app.api.v1.endpoints.stocks import (
     PERIODS_PER_YEAR,
@@ -53,7 +56,9 @@ from app.data.sec_edgar import (
     fetch_latest_filings,
 )
 from app.db.analyses import get_analysis, list_analyses
-from app.db.session import get_session
+from app.core.security import CredentialsUnavailableError
+from app.db.session import get_session, get_sessionmaker
+from app.db.users import User, ai_usage
 from app.models.fundamentals import Financials, Fundamentals
 from app.models.research import (
     AnalysisContext,
@@ -158,8 +163,9 @@ def _fundamentals(
 def _ai_error(exc: AnalysisError) -> HTTPException:
     """Translate an AI failure into an HTTP error.
 
-    Missing credentials and rate limits are 503s (with ``Retry-After`` when known),
-    refusals are 422s, and other upstream failures are 502s.
+    A rejected Anthropic key is the user's to fix, so it is a 403; Anthropic's rate
+    limits on the user's account are 503s (with ``Retry-After`` when known), refusals are
+    422s, and other upstream failures are 502s.
     """
     if isinstance(exc, AIRateLimitError):
         headers = None if exc.retry_after is None else {"Retry-After": str(exc.retry_after)}
@@ -167,7 +173,10 @@ def _ai_error(exc: AnalysisError) -> HTTPException:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc), headers=headers
         )
     if isinstance(exc, AINotConfiguredError):
-        return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+        return HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"{exc} Update your Anthropic API key with PUT /api/v1/me/credentials.",
+        )
     if isinstance(exc, AIRefusalError):
         return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
     return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
@@ -178,9 +187,12 @@ class PreparedAnalysis:
     """Everything gathered for an analysis before Claude is asked to write it."""
 
     symbol: str
+    user_id: str
     request: AnalysisRequest
     context: AnalysisContext
     filings: list[Filing]
+    api_key: SecretStr | None = None
+    """The user's Anthropic key, which the report is billed to."""
     cached: AnalysisResponse | None = None
     """A recent report for the same request, which makes asking Claude unnecessary."""
 
@@ -196,29 +208,82 @@ class PreparedAnalysis:
         )
 
 
+async def _check_ai_limits(user: User) -> None:
+    """Refuse a new analysis beyond the hourly or daily cap the user set.
+
+    The count is read from the stored analyses, so it holds across workers and restarts.
+    When it cannot be read the analysis is refused rather than risk going over.
+    """
+    limits = user.limits
+    if limits.ai_requests_per_hour is None and limits.ai_requests_per_day is None:
+        return
+    try:
+        async with get_sessionmaker()() as session:
+            usage = await ai_usage(session, user.id)
+    except SQLAlchemyError as exc:
+        logger.error("Could not count the AI usage of user %s: %s", user.id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Your AI limits cannot be checked while the database is unavailable.",
+        ) from exc
+    for cap, used, window, seconds in (
+        (limits.ai_requests_per_hour, usage.last_hour, "hour", 3_600),
+        (limits.ai_requests_per_day, usage.last_day, "day", 86_400),
+    ):
+        if cap is not None and used >= cap:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"You have reached your limit of {cap} new analyses per {window}; "
+                "raise it with PUT /api/v1/me/limits or try again later.",
+                headers={"Retry-After": str(seconds)},
+            )
+
+
+def _anthropic_key(user: User) -> SecretStr:
+    """The user's own Anthropic key, which every analysis they request is billed to."""
+    try:
+        key = user.anthropic_key()
+    except CredentialsUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    if key is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Analyses are billed to your own Anthropic account: add your API key "
+            "with PUT /api/v1/me/credentials.",
+        )
+    return key
+
+
 async def prepare_analysis(
     symbol: Symbol,
+    user: CurrentUser,
     request: Annotated[AnalysisRequest, Body()] = AnalysisRequest(),
 ) -> PreparedAnalysis:
     """Fetch the snapshot, prices, filings and financials an analysis is grounded in.
 
     Runs as a dependency, so a streamed analysis fails with an HTTP status before its
-    stream opens: 404 for unknown symbols, 422 when the window has too few bars, and
-    502 when the price provider fails. A missing snapshot, filings, factor exposures or
-    fundamentals only adds a notice.
+    stream opens: 403 without an Anthropic key, 429 beyond the user's AI limits, 404 for
+    unknown symbols, 422 when the window has too few bars, and 502 when the price
+    provider fails. A missing snapshot, filings, factor exposures or fundamentals only
+    adds a notice.
 
-    When a recent report for the same request is cached, nothing is fetched and the
-    report is returned with the context it was written from.
+    When the user has a recent report for the same request, nothing is fetched or
+    billed and the report is returned with the context it was written from.
     """
-    cached = await cached_analysis(symbol, request)
+    cached = await cached_analysis(user.id, symbol, request)
     if cached is not None:
         return PreparedAnalysis(
             symbol=cached.symbol,
+            user_id=user.id,
             request=request,
             context=cached.context,
             filings=[],
             cached=cached,
         )
+    api_key = _anthropic_key(user)
+    await _check_ai_limits(user)
 
     (
         info_result,
@@ -285,7 +350,14 @@ async def prepare_analysis(
         fundamentals=fundamentals,
         notice=" ".join(notices) or None,
     )
-    return PreparedAnalysis(symbol=symbol, request=request, context=context, filings=filings)
+    return PreparedAnalysis(
+        symbol=symbol,
+        user_id=user.id,
+        request=request,
+        context=context,
+        filings=filings,
+        api_key=api_key,
+    )
 
 
 Prepared = Annotated[PreparedAnalysis, Depends(prepare_analysis)]
@@ -306,28 +378,34 @@ async def create_analysis(prepared: Prepared) -> AnalysisResponse:
     and any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of
     it cannot be fetched the report is written without it and ``context.notice`` says so.
 
-    Every report is stored. A report written for the same options, model and effort
-    within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by default) is returned again with
-    ``cached`` set and no charge, unless ``refresh`` is true. Identical requests that
-    arrive together are written once.
+    The report is written with, and billed to, your own Anthropic key (``PUT
+    /api/v1/me/credentials``), within the hourly and daily limits you set (``PUT
+    /api/v1/me/limits``). Every report is stored under your account. Your report for the
+    same options, model and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by
+    default) is returned again with ``cached`` set and no charge, unless ``refresh`` is
+    true. Identical requests that arrive together are written once.
 
-    Returns 404 for unknown symbols, 422 when the window has too few bars or the model
-    declines, 502 when a provider fails, and 503 when the AI service is unconfigured or
-    rate limited.
+    Returns 403 without a valid Anthropic key, 404 for unknown symbols, 422 when the
+    window has too few bars or the model declines, 429 beyond your AI limits, 502 when a
+    provider fails, and 503 when Anthropic rate limits your account.
     """
     if prepared.cached is not None:
         return prepared.cached
-    async with analysis_slot(prepared.symbol, prepared.request):
-        cached = await cached_analysis(prepared.symbol, prepared.request)
+    async with analysis_slot(prepared.user_id, prepared.symbol, prepared.request):
+        cached = await cached_analysis(prepared.user_id, prepared.symbol, prepared.request)
         if cached is not None:
             return cached
+        assert prepared.api_key is not None
         try:
-            report, model = await write_analysis(
-                prepared.context, prepared.request.kind, prepared.filings
-            )
+            async with anthropic_client(prepared.api_key) as client:
+                report, model = await write_analysis(
+                    prepared.context, prepared.request.kind, prepared.filings, client=client
+                )
         except AnalysisError as exc:
             raise _ai_error(exc) from exc
-        return await remember_analysis(prepared.request, prepared.response(report, model))
+        return await remember_analysis(
+            prepared.user_id, prepared.request, prepared.response(report, model)
+        )
 
 
 @router.post(
@@ -355,26 +433,32 @@ async def stream_analysis_events(prepared: Prepared) -> AsyncIterator[ServerSent
     A reused report, as described for ``create_analysis``, is sent as ``context`` then
     ``result`` alone.
     """
-    async with analysis_slot(prepared.symbol, prepared.request):
-        cached = prepared.cached or await cached_analysis(prepared.symbol, prepared.request)
+    async with analysis_slot(prepared.user_id, prepared.symbol, prepared.request):
+        cached = prepared.cached or await cached_analysis(
+            prepared.user_id, prepared.symbol, prepared.request
+        )
         if cached is not None:
             yield ServerSentEvent(event="context", data=cached.context)
             yield ServerSentEvent(event="result", data=cached)
             return
+        assert prepared.api_key is not None
         yield ServerSentEvent(event="context", data=prepared.context)
         try:
-            async for item in stream_analysis(
-                prepared.context, prepared.request.kind, prepared.filings
-            ):
-                if isinstance(item, WrittenReport):
-                    response = await remember_analysis(
-                        prepared.request, prepared.response(item.report, item.model)
-                    )
-                    yield ServerSentEvent(event="result", data=response)
-                elif isinstance(item, AnalysisDelta):
-                    yield ServerSentEvent(event=item.channel, data=item)
-                else:
-                    yield ServerSentEvent(event="fallback", data=item)
+            async with anthropic_client(prepared.api_key) as client:
+                async for item in stream_analysis(
+                    prepared.context, prepared.request.kind, prepared.filings, client=client
+                ):
+                    if isinstance(item, WrittenReport):
+                        response = await remember_analysis(
+                            prepared.user_id,
+                            prepared.request,
+                            prepared.response(item.report, item.model),
+                        )
+                        yield ServerSentEvent(event="result", data=response)
+                    elif isinstance(item, AnalysisDelta):
+                        yield ServerSentEvent(event=item.channel, data=item)
+                    else:
+                        yield ServerSentEvent(event="fallback", data=item)
         except AnalysisError as exc:
             error = _ai_error(exc)
             yield ServerSentEvent(
@@ -402,6 +486,7 @@ def _database_error(exc: SQLAlchemyError) -> HTTPException:
 @results_router.get("", response_model=AnalysisList, summary="List stored analyses")
 async def read_analyses(
     session: Session,
+    user: CurrentUser,
     symbol: Annotated[
         str | None, Query(pattern=SYMBOL_PATTERN, description="Only this symbol's reports.")
     ] = None,
@@ -409,12 +494,12 @@ async def read_analyses(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> AnalysisList:
-    """Return stored analyses' headlines, newest first. Reading them costs nothing.
+    """Return your stored analyses' headlines, newest first. Reading them costs nothing.
 
     Returns 503 when the database is unavailable.
     """
     try:
-        return await list_analyses(session, symbol, kind, limit, offset)
+        return await list_analyses(session, user.id, symbol, kind, limit, offset)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
 
@@ -422,13 +507,14 @@ async def read_analyses(
 @results_router.get(
     "/{analysis_id}", response_model=AnalysisResponse, summary="A stored analysis in full"
 )
-async def read_analysis(analysis_id: UUID, session: Session) -> AnalysisResponse:
-    """Return a stored analysis with the data it was written from.
+async def read_analysis(analysis_id: UUID, session: Session, user: CurrentUser) -> AnalysisResponse:
+    """Return one of your stored analyses with the data it was written from.
 
-    Returns 404 for unknown IDs and 503 when the database is unavailable.
+    Returns 404 for unknown IDs and other users' analyses, and 503 when the database is
+    unavailable.
     """
     try:
-        result = await get_analysis(session, analysis_id)
+        result = await get_analysis(session, user.id, analysis_id)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
     if result is None:
