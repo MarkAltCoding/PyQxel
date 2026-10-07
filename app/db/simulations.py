@@ -33,8 +33,10 @@ def _listing(record: SimulationRecord) -> SimulationOverview:
     )
 
 
-async def save_simulation(session: AsyncSession, result: SimulationResponse) -> SimulationResponse:
-    """Store ``result`` and return it with its new ``id`` and ``saved_at``.
+async def save_simulation(
+    session: AsyncSession, user_id: str, result: SimulationResponse
+) -> SimulationResponse:
+    """Store ``result`` for ``user_id`` and return it with its new ``id`` and ``saved_at``.
 
     Raises:
         sqlalchemy.exc.SQLAlchemyError: If the database cannot be written.
@@ -46,6 +48,7 @@ async def save_simulation(session: AsyncSession, result: SimulationResponse) -> 
     session.add(
         SimulationRecord(
             id=str(saved.id),
+            user_id=user_id,
             created_at=saved.saved_at,
             symbols=_symbol_key([holding.symbol for holding in saved.holdings]),
             horizon=summary.horizon,
@@ -64,10 +67,12 @@ async def save_simulation(session: AsyncSession, result: SimulationResponse) -> 
     return saved
 
 
-async def get_simulation(session: AsyncSession, simulation_id: UUID) -> SimulationResponse | None:
-    """Return the stored simulation with ``simulation_id``, or ``None`` if there is none."""
+async def get_simulation(
+    session: AsyncSession, user_id: str, simulation_id: UUID
+) -> SimulationResponse | None:
+    """Return ``user_id``'s stored simulation with ``simulation_id``, or ``None``."""
     record = await session.get(SimulationRecord, str(simulation_id))
-    if record is None:
+    if record is None or record.user_id != user_id:
         return None
     return SimulationResponse.model_validate(
         {**record.result, "id": record.id, "saved_at": as_utc(record.created_at)}
@@ -75,10 +80,15 @@ async def get_simulation(session: AsyncSession, simulation_id: UUID) -> Simulati
 
 
 async def list_simulations(
-    session: AsyncSession, symbol: str | None = None, limit: int = 50, offset: int = 0
+    session: AsyncSession,
+    user_id: str,
+    symbol: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
 ) -> SimulationList:
-    """Return stored simulations newest first, optionally only those holding ``symbol``."""
-    query = select(SimulationRecord)
+    """Return ``user_id``'s stored simulations newest first, optionally those holding
+    ``symbol``."""
+    query = select(SimulationRecord).where(SimulationRecord.user_id == user_id)
     if symbol is not None:
         query = query.where(SimulationRecord.symbols.like(f"%,{symbol.upper()},%"))
     total = await session.scalar(select(func.count()).select_from(query.subquery()))
@@ -95,10 +105,13 @@ async def list_simulations(
     )
 
 
-async def delete_simulation(session: AsyncSession, simulation_id: UUID) -> bool:
-    """Delete the stored simulation with ``simulation_id``; return whether one existed."""
+async def delete_simulation(session: AsyncSession, user_id: str, simulation_id: UUID) -> bool:
+    """Delete ``user_id``'s stored simulation with ``simulation_id``; return whether they had
+    it."""
     deleted = await session.execute(
-        delete(SimulationRecord).where(SimulationRecord.id == str(simulation_id))
+        delete(SimulationRecord).where(
+            SimulationRecord.id == str(simulation_id), SimulationRecord.user_id == user_id
+        )
     )
     await session.commit()
     return bool(deleted.rowcount)  # type: ignore[attr-defined]

@@ -13,6 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
+from app.core.credentials import ProviderKeys, use_provider_keys
+from app.db.users import User
 from app.api.v1.endpoints.research import prepare_analysis
 from app.data import fetcher
 from app.data.factors import fetch_factors
@@ -233,9 +235,10 @@ def test_portfolio_simulation(client: TestClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_analysis_context_has_factor_exposures() -> None:
+async def test_analysis_context_has_factor_exposures(user: User) -> None:
     """Real prices and factor data give Claude factor exposures, without calling Claude."""
-    prepared = await prepare_analysis("AAPL", AnalysisRequest(include_filings=False))
+    use_provider_keys(ProviderKeys(fmp=user.fmp_key()))
+    prepared = await prepare_analysis("AAPL", user, AnalysisRequest(include_filings=False))
 
     factors = prepared.context.factors
     assert factors is not None, prepared.context.notice

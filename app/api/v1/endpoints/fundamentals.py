@@ -125,7 +125,7 @@ async def get_fundamentals(symbol: Symbol) -> FundamentalsResponse:
     notices: list[str] = []
     info: TickerInfo | None = None
     if isinstance(info_result, (SymbolNotFoundError, DataFetchError)):
-        notices.append(f"Market data for {symbol} could not be fetched.")
+        notices.append(f"Market data for {symbol} could not be fetched: {info_result}")
     elif isinstance(info_result, BaseException):
         raise info_result
     else:

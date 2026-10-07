@@ -3,7 +3,19 @@
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, Index, Integer, String, Text, false
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    false,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -14,6 +26,43 @@ def as_utc(moment: datetime) -> datetime:
 
 class Base(DeclarativeBase):
     """Declarative base shared by every table."""
+
+
+class UserRecord(Base):
+    """A PyQxel account, with the provider keys and AI limits its owner set.
+
+    Provider keys are encrypted (see :mod:`app.core.security`); the hints are their last
+    characters, shown so the owner can recognize them.
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    anthropic_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    anthropic_key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    fmp_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fmp_key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    ai_requests_per_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ai_requests_per_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class ApiKeyRecord(Base):
+    """A PyQxel API key, stored as the SHA-256 hash of the key."""
+
+    __tablename__ = "api_keys"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(100))
+    prefix: Mapped[str] = mapped_column(String(16))
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class BacktestRecord(Base):
@@ -27,6 +76,9 @@ class BacktestRecord(Base):
     __table_args__ = (Index("ix_backtests_symbol_created_at", "symbol", "created_at"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     symbol: Mapped[str] = mapped_column(String(16))
     strategy: Mapped[str] = mapped_column(String(32))
@@ -64,6 +116,9 @@ class AnalysisRecord(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     symbol: Mapped[str] = mapped_column(String(16))
     kind: Mapped[str] = mapped_column(String(16))
@@ -87,6 +142,9 @@ class SimulationRecord(Base):
     __tablename__ = "simulations"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     symbols: Mapped[str] = mapped_column(Text)
     horizon: Mapped[int] = mapped_column(Integer)

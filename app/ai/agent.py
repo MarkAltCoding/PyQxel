@@ -11,13 +11,12 @@ import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from functools import lru_cache
 
 import anthropic
 from anthropic import AsyncAnthropic, transform_schema
 from anthropic.types.beta import BetaMessage, BetaOutputConfigParam
 from anthropic.types.beta import BetaTextBlockParam
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from app.ai.prompts import SYSTEM_PROMPT, TASKS, render_filings
 from app.core.config import get_settings
@@ -75,27 +74,17 @@ class WrittenReport:
     model: str
 
 
-@lru_cache
-def get_anthropic_client() -> AsyncAnthropic:
-    """Return the shared :class:`AsyncAnthropic` client, created on first use.
+def anthropic_client(api_key: SecretStr) -> AsyncAnthropic:
+    """A client that bills ``api_key``, the requesting user's own key.
 
-    Uses ``ANTHROPIC_API_KEY`` from the settings when set; otherwise the SDK resolves
-    credentials itself (environment variables or an ``ant auth login`` profile). The SDK
-    retries connection errors, 429s and 5xx responses with backoff.
+    The key is always passed explicitly: the SDK would otherwise look for credentials in
+    the environment or a saved login, and bill the server's owner. The SDK retries
+    connection errors, 429s and 5xx responses with backoff. Close the client when done.
     """
-    settings = get_settings()
-    api_key = settings.anthropic_api_key
-    return AsyncAnthropic(
-        api_key=api_key.get_secret_value() if api_key is not None else None,
-        timeout=settings.anthropic_timeout_seconds,
-    )
-
-
-async def close_anthropic_client() -> None:
-    """Close the shared client's connection pool if it was created."""
-    if get_anthropic_client.cache_info().currsize:
-        await get_anthropic_client().close()
-        get_anthropic_client.cache_clear()
+    secret = api_key.get_secret_value()
+    if not secret:
+        raise AINotConfiguredError("An Anthropic API key is required.")
+    return AsyncAnthropic(api_key=secret, timeout=get_settings().anthropic_timeout_seconds)
 
 
 def _retry_after(error: anthropic.RateLimitError) -> int | None:
@@ -192,7 +181,8 @@ async def write_analysis(
     context: AnalysisContext,
     kind: AnalysisKind,
     filings: list[Filing] | None = None,
-    client: AsyncAnthropic | None = None,
+    *,
+    client: AsyncAnthropic,
 ) -> tuple[InvestmentThesis | RiskSummary, str]:
     """Have Claude write a ``kind`` report from ``context``.
 
@@ -200,8 +190,7 @@ async def write_analysis(
         context: Market data the report must be grounded in.
         kind: ``"thesis"`` or ``"risk"``.
         filings: SEC filings whose sections are given to Claude alongside ``context``.
-        client: Client to use; the shared client from
-            :func:`get_anthropic_client` when omitted.
+        client: The requesting user's client, from :func:`anthropic_client`.
 
     Returns:
         The validated report and the ID of the model that wrote it, which differs from
@@ -217,7 +206,6 @@ async def write_analysis(
     settings = get_settings()
     schema = InvestmentThesis if kind == "thesis" else RiskSummary
     with _translated_errors():
-        client = client or get_anthropic_client()
         response = await client.beta.messages.create(
             model=settings.anthropic_model,
             max_tokens=MAX_TOKENS,
@@ -236,7 +224,8 @@ async def stream_analysis(
     context: AnalysisContext,
     kind: AnalysisKind,
     filings: list[Filing] | None = None,
-    client: AsyncAnthropic | None = None,
+    *,
+    client: AsyncAnthropic,
 ) -> AsyncIterator[AnalysisDelta | ModelFallback | WrittenReport]:
     """Have Claude write a ``kind`` report from ``context``, yielding it as it is written.
 
@@ -251,7 +240,6 @@ async def stream_analysis(
     settings = get_settings()
     schema = InvestmentThesis if kind == "thesis" else RiskSummary
     with _translated_errors():
-        client = client or get_anthropic_client()
         async with client.beta.messages.stream(
             model=settings.anthropic_model,
             max_tokens=STREAM_MAX_TOKENS,

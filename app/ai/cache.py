@@ -1,11 +1,12 @@
 """Reuse of finished AI analyses, which are slow and billed per request.
 
-Every report is stored in the results database. A later request for the same symbol
-and options, under the same configured model and effort, and from the same version of
-context data (:data:`~app.models.research.ANALYSIS_CONTEXT_VERSION`), gets the stored
-report back for ``ANALYSIS_CACHE_TTL_SECONDS`` instead of a new, billed one. Within one process,
-identical requests that arrive together are written once: the later ones wait in
-:func:`analysis_slot` and then reuse the first one's report.
+Every report is stored in the results database. A later request by the same user for
+the same symbol and options, under the same configured model and effort, and from the
+same version of context data (:data:`~app.models.research.ANALYSIS_CONTEXT_VERSION`),
+gets the stored report back for ``ANALYSIS_CACHE_TTL_SECONDS`` instead of a new, billed
+one. Reports are never reused across users: each pays for, and sees, only their own.
+Within one process, identical requests that arrive together are written once: the later
+ones wait in :func:`analysis_slot` and then reuse the first one's report.
 
 A database failure never blocks an analysis: lookups then miss and reports go unsaved.
 """
@@ -29,10 +30,11 @@ _slots: dict[tuple[object, ...], tuple[asyncio.Lock, int]] = {}
 """Lock and number of holders or waiters for each request being written."""
 
 
-def _slot_key(symbol: str, request: AnalysisRequest) -> tuple[object, ...]:
+def _slot_key(user_id: str, symbol: str, request: AnalysisRequest) -> tuple[object, ...]:
     """Identify the requests that would get the same report under the current settings."""
     settings = get_settings()
     return (
+        user_id,
         symbol.upper(),
         request.kind,
         request.period,
@@ -42,8 +44,10 @@ def _slot_key(symbol: str, request: AnalysisRequest) -> tuple[object, ...]:
     )
 
 
-async def cached_analysis(symbol: str, request: AnalysisRequest) -> AnalysisResponse | None:
-    """Return a recent report for the same request, or ``None`` if there is none to reuse.
+async def cached_analysis(
+    user_id: str, symbol: str, request: AnalysisRequest
+) -> AnalysisResponse | None:
+    """Return ``user_id``'s recent report for the same request, or ``None`` if there is none.
 
     Requests with ``refresh`` set, and settings with a zero TTL, never reuse a report.
     """
@@ -55,6 +59,7 @@ async def cached_analysis(symbol: str, request: AnalysisRequest) -> AnalysisResp
         async with get_sessionmaker()() as session:
             found = await find_recent_analysis(
                 session,
+                user_id,
                 symbol,
                 request,
                 settings.anthropic_model,
@@ -72,14 +77,16 @@ async def cached_analysis(symbol: str, request: AnalysisRequest) -> AnalysisResp
 
 
 async def remember_analysis(
-    request: AnalysisRequest, response: AnalysisResponse
+    user_id: str, request: AnalysisRequest, response: AnalysisResponse
 ) -> AnalysisResponse:
-    """Store a newly written ``response``; return it with its ID, or unchanged if unsaved."""
+    """Store a response newly written for ``user_id``; return it with its ID, or unchanged
+    if unsaved."""
     settings = get_settings()
     try:
         async with get_sessionmaker()() as session:
             return await save_analysis(
                 session,
+                user_id,
                 request,
                 response,
                 settings.anthropic_model,
@@ -92,13 +99,13 @@ async def remember_analysis(
 
 
 @asynccontextmanager
-async def analysis_slot(symbol: str, request: AnalysisRequest) -> AsyncIterator[None]:
+async def analysis_slot(user_id: str, symbol: str, request: AnalysisRequest) -> AsyncIterator[None]:
     """Hold the right to write the report for this request, waiting for any writer before.
 
     Callers should look for a cached report again once inside, since the writer they
     waited for has usually just stored one.
     """
-    key = _slot_key(symbol, request)
+    key = _slot_key(user_id, symbol, request)
     lock, users = _slots.get(key, (asyncio.Lock(), 0))
     _slots[key] = (lock, users + 1)
     try:

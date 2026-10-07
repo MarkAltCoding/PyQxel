@@ -21,7 +21,7 @@ An AI-native research and quantitative analysis platform that helps investors ch
 * **Primary Backend Engine**: Python 3.14+ (FastAPI, Pandas, NumPy, Statsmodels, Scikit-Learn)
 * **Statistical Modeling**: R 4.3+ (`rpy2` integration for GARCH modeling, time-series analysis, and econometric estimation)
 * **AI Engine & NLP**: Anthropic API (Claude Opus 5.5, `claude-opus-5-5`) through the official `anthropic` SDK, BeautifulSoup4 for SEC filing text
-* **Market Data Feeds**: `yfinance`, Financial Modeling Prep (FMP) / Alpha Vantage API, SEC EDGAR Scraper
+* **Market Data Feeds**: Financial Modeling Prep (FMP, the licensed primary source, on each user's own plan), `yfinance` (development fallback), Alpha Vantage API, SEC EDGAR
 * **Client Interface Target**: Cross-platform REST & WebSocket API servicing macOS and iOS clients (Swift/React Native compatible)
 
 ---
@@ -58,30 +58,38 @@ An AI-native research and quantitative analysis platform that helps investors ch
    cp .env.example .env
    ```
    Then fill in `.env`:
-   * `ANTHROPIC_API_KEY` — from the [Anthropic Console](https://console.anthropic.com/).
-   * `FINANCIAL_DATA_API_KEY` — optional; a [Financial Modeling Prep](https://site.financialmodelingprep.com/developer/docs) key, used as a fallback when `yfinance` fails.
+   * `CREDENTIALS_ENCRYPTION_KEY` — required; encrypts the provider keys accounts store. Generate one with `python -m app.jobs.users generate-encryption-key`, and keep it: changing it makes stored keys unreadable.
+   * `ANTHROPIC_API_KEY` and `FINANCIAL_DATA_API_KEY` — optional; your own [Anthropic](https://console.anthropic.com/) and [Financial Modeling Prep](https://site.financialmodelingprep.com/developer/docs) keys, read only to copy them into your own account (step 4). The server never uses them to serve requests: every account pays for its own usage with the keys it stores.
+   * `YFINANCE_FALLBACK` — `true` for development: use `yfinance` when an account has no FMP key, or FMP fails or the account's plan does not cover a request (FMP's free plan excludes ETFs, indices, foreign listings and intraday bars). Leave it off in production, where data comes only from each account's licensed FMP plan.
    * `SEC_USER_AGENT` — optional; your name and contact email (e.g. `PyQxel jane@example.com`), which the [SEC requires](https://www.sec.gov/os/accessing-edgar-data) of automated clients. When set, the fundamentals endpoint works, and AI analyses also get the company's financial statements and read the Risk Factors and MD&A sections of its latest 10-K and 10-Q.
    * `R_HOME` — the output of `R RHOME` (e.g. `/Library/Frameworks/R.framework/Resources` on macOS).
 
-4. **Run the API Server**:
+4. **Create Your Account**:
+   ```bash
+   python -m app.jobs.users create you@example.com --import-env-keys --claim-unowned
+   export PYQXEL_API_KEY=pq_...   # the key it prints, shown only once
+   ```
+   `--import-env-keys` stores your `.env` provider keys in your account; `--claim-unowned` gives it any results stored before accounts existed. Create other people's accounts without either flag, and send them their key; they store their own provider keys (see [Accounts](#accounts-and-billing)).
+
+5. **Run the API Server**:
    ```bash
    uvicorn app.main:app --reload
    ```
-   The API is served at `http://127.0.0.1:8000`, with interactive docs at `http://127.0.0.1:8000/docs`. Check it with `curl http://127.0.0.1:8000/health`.
+   The API is served at `http://127.0.0.1:8000`, with interactive docs at `http://127.0.0.1:8000/docs`. Check it with `curl http://127.0.0.1:8000/health`. Every `/api/v1` request needs your API key: `curl -H "Authorization: Bearer $PYQXEL_API_KEY" http://127.0.0.1:8000/api/v1/me`.
 
    Two endpoints stream:
-   * `POST /api/v1/stocks/{symbol}/analysis/stream` sends the AI analysis as Server-Sent Events while Claude writes it: `context`, then `thinking` and `report` fragments, then the final `result` (or an `error`). Try it with `curl -N -X POST http://127.0.0.1:8000/api/v1/stocks/AAPL/analysis/stream`.
-   * `ws://127.0.0.1:8000/api/v1/ws/quotes?symbols=AAPL,MSFT` streams live quotes. Change what it follows by sending `{"action": "subscribe", "symbols": ["TSLA"]}` or `{"action": "unsubscribe", ...}`. Quotes are polled every 15 seconds by default (`interval`, 5 to 300 seconds), and only new or changed quotes are sent.
+   * `POST /api/v1/stocks/{symbol}/analysis/stream` sends the AI analysis as Server-Sent Events while Claude writes it: `context`, then `thinking` and `report` fragments, then the final `result` (or an `error`). Try it with `curl -N -X POST -H "Authorization: Bearer $PYQXEL_API_KEY" http://127.0.0.1:8000/api/v1/stocks/AAPL/analysis/stream`.
+   * `ws://127.0.0.1:8000/api/v1/ws/quotes?symbols=AAPL,MSFT&api_key=...` streams live quotes; browsers cannot set WebSocket headers, so this route also takes the key in the URL. Change what it follows by sending `{"action": "subscribe", "symbols": ["TSLA"]}` or `{"action": "unsubscribe", ...}`. Quotes are polled every 15 seconds by default (`interval`, 5 to 300 seconds), and only new or changed quotes are sent.
 
    Backtests (`POST /api/v1/stocks/{symbol}/backtest`) are stored and returned with an `id`. List them with `GET /api/v1/backtests` (filter by `symbol` or `strategy`, page with `limit` and `offset`), fetch one in full with `GET /api/v1/backtests/{id}`, and remove it with `DELETE /api/v1/backtests/{id}`. They go to SQLite at `data_cache/pyqxel.db` by default; to use Postgres, create a database (`createdb pyqxel`) and set `DATABASE_URL=postgresql+asyncpg://localhost/pyqxel`, adding a user and password if your server needs them. If the database is unreachable, backtests still run and are returned with a null `id`.
 
    The schema is managed with [Alembic](https://alembic.sqlalchemy.org/) migrations in `app/db/migrations/`, applied automatically at startup. After changing a table in `app/db/tables.py`, generate a migration with `alembic revision --autogenerate -m "describe the change"`, review it, and commit it; `alembic upgrade head` applies it by hand. The tests fail if the models and migrations disagree.
 
-   AI analyses are stored in the same database, so you only pay for a report once. For 24 hours (`ANALYSIS_CACHE_TTL_SECONDS`), a request with the same symbol, `kind`, `period` and `include_filings`, under the same model and effort, gets the stored report back without fetching data or calling Claude. Identical requests that arrive at the same time are written once. Reused reports have `"cached": true` and keep their original `generated_at`; send `"refresh": true` to pay for a new one. Every report stays readable for free: list them with `GET /api/v1/analyses` (filter by `symbol` or `kind`) and fetch one with `GET /api/v1/analyses/{id}`. Each analysis also gives Claude the stock's Carhart factor exposures and its fundamentals and valuation (see below), so reports can say how much of its risk is market, size, value or momentum, and weigh the price against the company's earnings and cash flow.
+   AI analyses are stored in the same database, so you only pay for a report once. For 24 hours (`ANALYSIS_CACHE_TTL_SECONDS`), your request with the same symbol, `kind`, `period` and `include_filings`, under the same model and effort, gets the stored report back without fetching data or calling Claude. Identical requests that arrive at the same time are written once. Reused reports have `"cached": true` and keep their original `generated_at`; send `"refresh": true` to pay for a new one. Every report stays readable for free: list them with `GET /api/v1/analyses` (filter by `symbol` or `kind`) and fetch one with `GET /api/v1/analyses/{id}`. Each analysis also gives Claude the stock's Carhart factor exposures and its fundamentals and valuation (see below), so reports can say how much of its risk is market, size, value or momentum, and weigh the price against the company's earnings and cash flow.
 
    Set `REDIS_URL` (e.g. `redis://localhost:6379/0`) to also cache ticker info and price history for 5 minutes (1 minute for intraday bars), shared by every worker. Without Redis, or while it is down, those requests go straight to the data providers.
 
-5. **Run the Tests**:
+6. **Run the Tests**:
    ```bash
    pytest                # offline; no network or API calls
    pytest --live         # also call yfinance, FMP, SEC EDGAR, Ken French's library and R
@@ -89,6 +97,15 @@ An AI-native research and quantitative analysis platform that helps investors ch
    ```
 
 ---
+
+## Accounts and Billing
+
+Every `/api/v1` request is made by an account, identified by its PyQxel API key in `Authorization: Bearer <key>` (or `X-API-Key`). Only a hash of each key is stored. Accounts pay for their own usage, and nothing one account does is billed to another or to the server:
+
+* **AI analyses** run on the account's own Anthropic key, and **market data** comes from Financial Modeling Prep on its own FMP key. Store, replace or remove them with `PUT /api/v1/me/credentials` (`{"anthropic_api_key": "...", "fmp_api_key": "..."}`; omit a field to keep it, `null` removes it). Keys are encrypted at rest and never returned; `GET /api/v1/me` shows only their last four characters. Without an Anthropic key, analyses return 403; without an FMP key (and with the development fallback off), market data returns 403, and a request the account's FMP plan does not cover returns 402.
+* **Stored results**, meaning backtests, analyses and simulations, belong to the account that made them; listing, reading and deleting see only its own. Reports are never reused across accounts, and FMP data cached for one account is not served to accounts without their own FMP key.
+* **Limits**: each account can cap its new AI analyses with `PUT /api/v1/me/limits` (`{"ai_requests_per_hour": 10, "ai_requests_per_day": 50}`, `null` for no cap); reused reports are free and do not count, and `GET /api/v1/me` shows recent usage. Every account may also make `RATE_LIMIT_PER_MINUTE` requests a minute (120 by default) across the API, counted in Redis when it is configured.
+* **API keys**: create more with `POST /api/v1/me/api-keys` (`{"name": "laptop"}`; the key is shown once), list them with `GET /api/v1/me/api-keys`, and revoke one with `DELETE /api/v1/me/api-keys/{id}`. If an account loses every key, `python -m app.jobs.users add-key you@example.com` issues a new one.
 
 ## Quantitative Models
 
@@ -115,7 +132,7 @@ For each stock it stores price, market cap, average dollar volume, P/E, P/S, EV/
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/screener \
-  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $PYQXEL_API_KEY" -H 'Content-Type: application/json' \
   -d '{"universe": "large_cap",
        "filters": [{"field": "pe_ratio", "max": 20}, {"field": "momentum_12_1", "min": 0},
                    {"field": "beta_market", "max": 1.2}],
@@ -134,7 +151,7 @@ Ken French publishes the factors monthly, about a month behind, so the regressio
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/portfolio/copula \
-  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $PYQXEL_API_KEY" -H 'Content-Type: application/json' \
   -d '{"symbols": ["SPY", "QQQ", "TLT"], "period": "5y"}'
 ```
 
@@ -144,7 +161,7 @@ Fits Gaussian and Student t copulas to 2-20 assets' daily returns, aligned on th
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/portfolio/simulate \
-  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $PYQXEL_API_KEY" -H 'Content-Type: application/json' \
   -d '{"holdings": [{"symbol": "SPY", "weight": 0.6}, {"symbol": "TLT", "weight": 0.4}],
        "horizon": 252, "paths": 10000, "initial_value": 100000}'
 ```

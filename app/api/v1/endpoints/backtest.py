@@ -17,6 +17,7 @@ from app.api.v1.endpoints.stocks import (
     history_coverage,
     upstream_error,
 )
+from app.api.auth import CurrentUser
 from app.data.factors import fetch_factors
 from app.data.fetcher import DataFetchError, fetch_price_history
 from app.db.backtests import delete_backtest, get_backtest, list_backtests, save_backtest
@@ -118,6 +119,7 @@ def _database_error(exc: SQLAlchemyError) -> HTTPException:
 async def create_backtest(
     symbol: Symbol,
     session: Session,
+    user: CurrentUser,
     request: Annotated[BacktestRequest, Body()] = BacktestRequest(),
 ) -> BacktestResponse:
     """Backtest a strategy on ``symbol``'s adjusted closes and score it against buy-and-hold.
@@ -201,7 +203,7 @@ async def create_backtest(
         notice=notice or None,
     )
     try:
-        return await save_backtest(session, response)
+        return await save_backtest(session, user.id, response)
     except SQLAlchemyError as exc:
         await session.rollback()
         logger.error("Could not store the %s backtest: %s", symbol, exc)
@@ -211,6 +213,7 @@ async def create_backtest(
 @results_router.get("", response_model=BacktestList, summary="List stored backtests")
 async def read_backtests(
     session: Session,
+    user: CurrentUser,
     symbol: Annotated[
         str | None, Query(pattern=SYMBOL_PATTERN, description="Only this symbol's results.")
     ] = None,
@@ -220,12 +223,12 @@ async def read_backtests(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> BacktestList:
-    """Return stored backtests' headline metrics, newest first.
+    """Return your stored backtests' headline metrics, newest first.
 
     Returns 503 when the database is unavailable.
     """
     try:
-        return await list_backtests(session, symbol, strategy, limit, offset)
+        return await list_backtests(session, user.id, symbol, strategy, limit, offset)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
 
@@ -233,13 +236,14 @@ async def read_backtests(
 @results_router.get(
     "/{backtest_id}", response_model=BacktestResponse, summary="A stored backtest in full"
 )
-async def read_backtest(backtest_id: UUID, session: Session) -> BacktestResponse:
+async def read_backtest(backtest_id: UUID, session: Session, user: CurrentUser) -> BacktestResponse:
     """Return a stored backtest with its equity curve.
 
-    Returns 404 for unknown IDs and 503 when the database is unavailable.
+    Returns 404 for unknown IDs and other users' backtests, and 503 when the database is
+    unavailable.
     """
     try:
-        result = await get_backtest(session, backtest_id)
+        result = await get_backtest(session, user.id, backtest_id)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
     if result is None:
@@ -255,13 +259,14 @@ async def read_backtest(backtest_id: UUID, session: Session) -> BacktestResponse
     response_class=Response,
     summary="Delete a stored backtest",
 )
-async def remove_backtest(backtest_id: UUID, session: Session) -> Response:
+async def remove_backtest(backtest_id: UUID, session: Session, user: CurrentUser) -> Response:
     """Delete a stored backtest.
 
-    Returns 404 for unknown IDs and 503 when the database is unavailable.
+    Returns 404 for unknown IDs and other users' backtests, and 503 when the database is
+    unavailable.
     """
     try:
-        deleted = await delete_backtest(session, backtest_id)
+        deleted = await delete_backtest(session, user.id, backtest_id)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
     if not deleted:

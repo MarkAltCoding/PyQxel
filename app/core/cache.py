@@ -101,6 +101,25 @@ async def cache_set(key: str, value: str, ttl_seconds: float) -> None:
         _trip("write", key, exc)
 
 
+async def cache_increment(key: str, ttl_seconds: float) -> int | None:
+    """Add one to the counter at ``key``, starting its ``ttl_seconds`` expiry when it is new.
+
+    Returns:
+        The new count, or ``None`` when caching is off or Redis fails.
+    """
+    client = _get_client()
+    if client is None:
+        return None
+    try:
+        count = int(await client.incr(KEY_PREFIX + key))
+        if count == 1:
+            await client.pexpire(KEY_PREFIX + key, max(1, round(ttl_seconds * 1000)))
+    except RedisError as exc:
+        _trip("count", key, exc)
+        return None
+    return count
+
+
 async def close_cache() -> None:
     """Close the Redis connection pool, if one was opened."""
     global _client, _configured

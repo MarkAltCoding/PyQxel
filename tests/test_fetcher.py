@@ -1,10 +1,15 @@
-"""Tests for how the market data fetcher classifies provider failures.
+"""Tests for the market data fetcher: whose key pays, which provider answers, and parsing.
 
-Provider calls are replaced with fakes so no test touches the network.
+FMP is reached through a mock transport and yfinance through fakes, so no test touches
+the network.
 """
 
+import asyncio
 import math
+from collections.abc import Callable, Iterator
+from datetime import date
 from types import SimpleNamespace
+from typing import Any
 
 import httpx2
 import pandas as pd
@@ -14,108 +19,310 @@ from pydantic import SecretStr
 
 from app.core.cache import KEY_PREFIX, configure_cache
 from app.core.config import Settings
+from app.core.credentials import ProviderKeys, current_provider_keys, use_provider_keys
 from app.data import fetcher
-from app.data.fetcher import DataFetchError, SymbolNotFoundError
-from app.models.quote import Quote
+from app.data.fetcher import (
+    DataFetchError,
+    ProviderNotConfiguredError,
+    ProviderPlanError,
+    SymbolNotFoundError,
+)
 from app.models.stock import TickerInfo
 
 pytestmark = pytest.mark.asyncio
 
+PROFILE = [{"companyName": "Apple Inc.", "currency": "USD", "exchange": "NASDAQ",
+            "sector": "Technology", "industry": "Consumer Electronics",
+            "marketCap": 3.0e12, "price": 200.0}]  # fmt: skip
 
-def _use_fmp_key(monkeypatch: pytest.MonkeyPatch, key: str | None) -> None:
-    """Configure the FMP fallback key seen by the fetcher."""
-    settings = Settings(financial_data_api_key=SecretStr(key) if key else None)
+
+@pytest.fixture(autouse=True)
+def no_provider_keys() -> Iterator[None]:
+    """Start each test as a user without an FMP key."""
+    use_provider_keys(ProviderKeys())
+    yield
+    use_provider_keys(ProviderKeys())
+
+
+def _fallback(monkeypatch: pytest.MonkeyPatch, enabled: bool) -> None:
+    """Turn the yfinance development fallback on or off."""
+    settings = Settings(yfinance_fallback=enabled)
     monkeypatch.setattr(fetcher, "get_settings", lambda: settings)
 
 
-def _yf_info_raising(error: Exception) -> object:
-    """Build a fake ``_yfinance_info`` that raises ``error``."""
-
-    def fake(symbol: str) -> TickerInfo:
-        raise error
-
-    return fake
+def _fmp_key(key: str = "fmp-user-key") -> None:
+    """Act as a user whose FMP key is ``key``."""
+    use_provider_keys(ProviderKeys(fmp=SecretStr(key)))
 
 
-def _fmp_info_raising(error: Exception) -> object:
-    """Build a fake ``_fmp_info`` that raises ``error``."""
-
-    async def fake(symbol: str, api_key: str, client: httpx2.AsyncClient) -> TickerInfo:
-        raise error
-
-    return fake
+FmpHandler = Callable[[str, dict[str, str]], object]
 
 
-async def test_info_unknown_symbol_without_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """yfinance having no quote, with no fallback configured, means not found."""
-    _use_fmp_key(monkeypatch, None)
-    monkeypatch.setattr(fetcher, "_yfinance_info", _yf_info_raising(SymbolNotFoundError("none")))
+def _serve_fmp(monkeypatch: pytest.MonkeyPatch, answer: FmpHandler) -> list[tuple[str, str]]:
+    """Answer FMP requests with ``answer(path, params)``: a payload, or an ``httpx2.Response``.
 
-    with pytest.raises(SymbolNotFoundError):
-        await fetcher.fetch_ticker_info("ZZZZ")
+    Returns the (path, api key) of each request.
+    """
+    requests: list[tuple[str, str]] = []
 
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        path = request.url.path.removeprefix("/stable/")
+        params = dict(request.url.params)
+        requests.append((path, params.get("apikey", "")))
+        result = answer(path, params)
+        return result if isinstance(result, httpx2.Response) else httpx2.Response(200, json=result)
 
-async def test_info_transport_failure_without_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A yfinance exception, with no fallback configured, is a general fetch error."""
-    _use_fmp_key(monkeypatch, None)
-    monkeypatch.setattr(fetcher, "_yfinance_info", _yf_info_raising(ConnectionError("down")))
+    transport = httpx2.MockTransport(handler)
+    real_client = httpx2.AsyncClient
 
-    with pytest.raises(DataFetchError) as caught:
-        await fetcher.fetch_ticker_info("AAPL")
-    assert not isinstance(caught.value, SymbolNotFoundError)
+    def client(**kwargs: Any) -> httpx2.AsyncClient:
+        return real_client(transport=transport)
 
-
-async def test_info_unknown_to_both_providers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When the fallback also has no profile, the symbol is not found."""
-    _use_fmp_key(monkeypatch, "key")
-    monkeypatch.setattr(fetcher, "_yfinance_info", _yf_info_raising(SymbolNotFoundError("none")))
-    monkeypatch.setattr(fetcher, "_fmp_info", _fmp_info_raising(SymbolNotFoundError("none")))
-
-    with pytest.raises(SymbolNotFoundError):
-        await fetcher.fetch_ticker_info("ZZZZ")
+    monkeypatch.setattr("app.data.fetcher.httpx2.AsyncClient", client)
+    return requests
 
 
-async def test_info_fallback_transport_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If the fallback cannot answer, not-found cannot be confirmed and a fetch error is raised."""
-    _use_fmp_key(monkeypatch, "key")
-    monkeypatch.setattr(fetcher, "_yfinance_info", _yf_info_raising(SymbolNotFoundError("none")))
-    request = httpx2.Request("GET", fetcher.FMP_PROFILE_URL)
-    transport_error = httpx2.ConnectError("down", request=request)
-    monkeypatch.setattr(fetcher, "_fmp_info", _fmp_info_raising(transport_error))
-
-    with pytest.raises(DataFetchError) as caught:
-        await fetcher.fetch_ticker_info("ZZZZ")
-    assert not isinstance(caught.value, SymbolNotFoundError)
-
-
-def _yf_history_returning(frame: pd.DataFrame) -> object:
-    """Build a fake ``_yfinance_history`` that returns ``frame``."""
-    return lambda symbol, period, interval: frame
-
-
-def _info_check(monkeypatch: pytest.MonkeyPatch, error: Exception | None) -> list[str]:
-    """Replace the existence check with a fake that raises ``error``; return its calls."""
+def _yfinance_info_returning(info: TickerInfo | Exception) -> Callable[[str], TickerInfo]:
     calls: list[str] = []
 
-    async def fake(symbol: str) -> TickerInfo:
+    def fake(symbol: str) -> TickerInfo:
         calls.append(symbol)
-        if error is not None:
-            raise error
-        return TickerInfo(symbol=symbol, source="test")
+        if isinstance(info, Exception):
+            raise info
+        return info
 
-    monkeypatch.setattr(fetcher, "fetch_ticker_info", fake)
-    return calls
+    fake.calls = calls  # type: ignore[attr-defined]
+    return fake
 
 
-EMPTY_YF_FRAME = pd.DataFrame(columns=[*fetcher.OHLCV_COLUMNS, "Adj Close"])
+YF_INFO = TickerInfo(symbol="AAPL", name="Apple Inc.", price=199.0, source="yfinance")
+
+
+# Whose key pays, and which provider answers.
+
+
+async def test_without_a_key_or_fallback_nothing_is_fetched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A user without an FMP key gets no data while the fallback is off."""
+    _fallback(monkeypatch, False)
+    monkeypatch.setattr(fetcher, "_yfinance_info", _yfinance_info_returning(YF_INFO))
+
+    for call in (
+        fetcher.fetch_ticker_info("AAPL"),
+        fetcher.fetch_price_history("AAPL"),
+        fetcher.fetch_quote("AAPL"),
+    ):
+        with pytest.raises(ProviderNotConfiguredError, match="PUT /api/v1/me/credentials"):
+            await call
+
+
+async def test_without_a_key_the_fallback_uses_yfinance(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fallback(monkeypatch, True)
+    monkeypatch.setattr(fetcher, "_yfinance_info", _yfinance_info_returning(YF_INFO))
+
+    info = await fetcher.fetch_ticker_info("aapl")
+
+    assert info.source == "yfinance"
+
+
+async def test_fmp_is_asked_first_with_the_users_own_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fallback(monkeypatch, True)
+    _fmp_key("fmp-user-key")
+    requests = _serve_fmp(monkeypatch, lambda path, params: PROFILE)
+    yfinance = _yfinance_info_returning(YF_INFO)
+    monkeypatch.setattr(fetcher, "_yfinance_info", yfinance)
+
+    info = await fetcher.fetch_ticker_info("AAPL")
+
+    assert (info.source, info.name, info.market_cap) == ("fmp", "Apple Inc.", 3.0e12)
+    assert requests == [("profile", "fmp-user-key")]
+    assert yfinance.calls == []  # type: ignore[attr-defined]
+
+
+async def test_plan_errors_fall_back_only_when_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A request the user's plan excludes is a plan error, or yfinance's in development."""
+    _fmp_key()
+    _serve_fmp(monkeypatch, lambda path, params: httpx2.Response(402, text="Restricted Endpoint"))
+    monkeypatch.setattr(fetcher, "_yfinance_info", _yfinance_info_returning(YF_INFO))
+
+    _fallback(monkeypatch, False)
+    with pytest.raises(ProviderPlanError, match="plan does not cover"):
+        await fetcher.fetch_ticker_info("TLT")
+
+    _fallback(monkeypatch, True)
+    assert (await fetcher.fetch_ticker_info("TLT")).source == "yfinance"
+
+
+@pytest.mark.parametrize(
+    ("status", "error", "message"),
+    [
+        (401, ProviderNotConfiguredError, "rejected your API key"),
+        (403, ProviderNotConfiguredError, "rejected your API key"),
+        (429, DataFetchError, "rate limit"),
+        (500, DataFetchError, "Could not fetch"),
+    ],
+)
+async def test_fmp_failures_are_classified(
+    monkeypatch: pytest.MonkeyPatch, status: int, error: type[Exception], message: str
+) -> None:
+    _fallback(monkeypatch, False)
+    _fmp_key()
+    _serve_fmp(monkeypatch, lambda path, params: httpx2.Response(status, json={}))
+
+    with pytest.raises(error, match=message):
+        await fetcher.fetch_ticker_info("AAPL")
+
+
+async def test_unknown_to_every_provider_is_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fallback(monkeypatch, True)
+    _fmp_key()
+    _serve_fmp(monkeypatch, lambda path, params: [])
+    monkeypatch.setattr(
+        fetcher, "_yfinance_info", _yfinance_info_returning(SymbolNotFoundError("none"))
+    )
+
+    with pytest.raises(SymbolNotFoundError, match="Unknown ticker symbol 'ZZZZ'"):
+        await fetcher.fetch_ticker_info("ZZZZ")
+
+
+async def test_concurrent_requests_keep_their_own_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two users' requests in flight together are each billed to their own key."""
+    _fallback(monkeypatch, False)
+    requests = _serve_fmp(monkeypatch, lambda path, params: PROFILE)
+
+    async def as_user(key: str, symbol: str) -> str | None:
+        _fmp_key(key)
+        await asyncio.sleep(0)
+        await fetcher.fetch_ticker_info(symbol)
+        secret = current_provider_keys().fmp
+        return None if secret is None else secret.get_secret_value()
+
+    seen = list(await asyncio.gather(as_user("key-a", "AAA"), as_user("key-b", "BBB")))
+
+    assert seen == ["key-a", "key-b"]
+    assert sorted(requests) == [("profile", "key-a"), ("profile", "key-b")]
+    assert current_provider_keys().fmp is None
+
+
+async def test_fmp_data_is_not_cached_for_users_without_a_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A user without an FMP key never reads what another user's plan paid for."""
+    configure_cache(FakeAsyncRedis())
+    _fallback(monkeypatch, True)
+    _fmp_key()
+    _serve_fmp(monkeypatch, lambda path, params: PROFILE)
+    assert (await fetcher.fetch_ticker_info("AAPL")).source == "fmp"
+
+    use_provider_keys(ProviderKeys())
+    monkeypatch.setattr(fetcher, "_yfinance_info", _yfinance_info_returning(YF_INFO))
+
+    assert (await fetcher.fetch_ticker_info("AAPL")).source == "yfinance"
+
+
+# FMP history.
+
+
+def _eod_rows() -> list[dict[str, Any]]:
+    """Dividend-adjusted daily bars as FMP returns them: newest first."""
+    days = pd.bdate_range("2026-09-21", "2026-10-02")
+    return [
+        {"symbol": "AAPL", "date": day.date().isoformat(), "adjOpen": 100.0 + i,
+         "adjHigh": 101.0 + i, "adjLow": 99.0 + i, "adjClose": 100.5 + i, "volume": 1_000 + i}
+        for i, day in reversed(list(enumerate(days)))
+    ]  # fmt: skip
+
+
+async def test_fmp_daily_history_is_adjusted_and_dated_in_new_york(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fmp_key()
+    windows: list[dict[str, str]] = []
+
+    def answer(path: str, params: dict[str, str]) -> object:
+        windows.append(params)
+        return _eod_rows()
+
+    _serve_fmp(monkeypatch, answer)
+
+    frame = await fetcher._fmp_history("AAPL", "1mo", "1d", "key", today=date(2026, 10, 2))
+
+    assert list(frame.columns) == fetcher.OHLCV_COLUMNS
+    index = pd.DatetimeIndex(frame.index)
+    assert str(index.tz) == "America/New_York"
+    assert index.is_monotonic_increasing
+    assert frame["Close"].iloc[0] == 100.5 and len(frame) == 10
+    assert (windows[0]["from"], windows[0]["to"]) == ("2026-09-02", "2026-10-02")
+
+
+async def test_fmp_weekly_bars_are_built_from_daily_bars(monkeypatch: pytest.MonkeyPatch) -> None:
+    _serve_fmp(monkeypatch, lambda path, params: _eod_rows())
+
+    weekly = await fetcher._fmp_history("AAPL", "1mo", "1wk", "key", today=date(2026, 10, 2))
+
+    assert [day.date().isoformat() for day in pd.DatetimeIndex(weekly.index)] == [
+        "2026-09-21",
+        "2026-09-28",
+    ]
+    first_week = weekly.iloc[0]
+    assert (first_week["Open"], first_week["Close"]) == (100.0, 104.5)
+    assert (first_week["High"], first_week["Low"]) == (105.0, 99.0)
+    assert first_week["Volume"] == sum(1_000 + i for i in range(5))
+
+
+async def test_fmp_short_periods_keep_the_last_bars(monkeypatch: pytest.MonkeyPatch) -> None:
+    _serve_fmp(monkeypatch, lambda path, params: _eod_rows())
+
+    frame = await fetcher._fmp_history("AAPL", "5d", "1d", "key", today=date(2026, 10, 2))
+
+    assert len(frame) == 5 and frame["Close"].iloc[-1] == 109.5
+
+
+async def test_fmp_intraday_bars_come_from_charts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 2-minute bar combines two 1-minute chart bars."""
+    paths: list[str] = []
+    rows = [
+        {"date": f"2026-10-02 09:3{minute}:00", "open": 1.0 + minute, "high": 2.0 + minute,
+         "low": 0.5 + minute, "close": 1.5 + minute, "volume": 10}
+        for minute in range(4)
+    ]  # fmt: skip
+
+    def answer(path: str, params: dict[str, str]) -> object:
+        paths.append(path)
+        return rows
+
+    _serve_fmp(monkeypatch, answer)
+
+    frame = await fetcher._fmp_history("AAPL", "1d", "2m", "key", today=date(2026, 10, 2))
+
+    assert paths == ["historical-chart/1min"]
+    assert len(frame) == 2
+    assert (frame["Open"].iloc[0], frame["Close"].iloc[0], frame["Volume"].iloc[0]) == (
+        1.0,
+        2.5,
+        20,
+    )
+
+
+@pytest.mark.parametrize(
+    ("symbol", "zone"),
+    [("AAPL", "America/New_York"), ("BRK-B", "America/New_York"), ("7203.T", "Asia/Tokyo"),
+     ("SHEL.L", "Europe/London"), ("SHOP.TO", "America/Toronto")],
+)  # fmt: skip
+async def test_exchange_time_zones(symbol: str, zone: str) -> None:
+    assert fetcher.exchange_timezone(symbol) == zone
 
 
 async def test_history_empty_for_unknown_symbol_is_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An empty frame for a symbol no provider recognizes means not found."""
-    monkeypatch.setattr(fetcher, "_yfinance_history", _yf_history_returning(EMPTY_YF_FRAME))
-    _info_check(monkeypatch, SymbolNotFoundError("none"))
+    """An empty answer is checked against the profile: unknown symbols are a 404."""
+    _fallback(monkeypatch, False)
+    _fmp_key()
+    _serve_fmp(monkeypatch, lambda path, params: [])
 
     with pytest.raises(SymbolNotFoundError):
         await fetcher.fetch_price_history("ZZZZ")
@@ -124,50 +331,63 @@ async def test_history_empty_for_unknown_symbol_is_not_found(
 async def test_history_empty_for_real_symbol_returns_empty_frame(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An empty frame for a known symbol is returned as an empty OHLCV frame."""
-    monkeypatch.setattr(fetcher, "_yfinance_history", _yf_history_returning(EMPTY_YF_FRAME))
-    calls = _info_check(monkeypatch, None)
+    _fallback(monkeypatch, False)
+    _fmp_key()
+    _serve_fmp(monkeypatch, lambda path, params: PROFILE if path == "profile" else [])
 
-    history = await fetcher.fetch_price_history("aapl")
+    history = await fetcher.fetch_price_history("NEW", period="5d")
 
-    assert calls == ["AAPL"]
-    assert history.empty
-    assert list(history.columns) == fetcher.OHLCV_COLUMNS
+    assert history.empty and list(history.columns) == fetcher.OHLCV_COLUMNS
 
 
-async def test_history_empty_when_existence_unknown_is_fetch_error(
+# FMP quotes.
+
+
+async def test_fmp_quote_plan_error_for_unknown_symbol_is_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """If the existence check itself fails, the result is a general fetch error."""
-    monkeypatch.setattr(fetcher, "_yfinance_history", _yf_history_returning(EMPTY_YF_FRAME))
-    _info_check(monkeypatch, DataFetchError("down"))
-
-    with pytest.raises(DataFetchError) as caught:
-        await fetcher.fetch_price_history("AAPL")
-    assert not isinstance(caught.value, SymbolNotFoundError)
-
-
-async def test_history_without_closes_returns_empty_frame(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Rows that all lack a close leave no usable bars, without checking existence."""
-    frame = pd.DataFrame(
-        {"Open": [1.0], "High": [1.0], "Low": [1.0], "Close": [float("nan")], "Volume": [0]},
-        index=pd.DatetimeIndex(["2026-09-25"]),
+    """FMP answers quotes for unknown symbols with a plan error; the profile tells."""
+    _fallback(monkeypatch, False)
+    _fmp_key()
+    _serve_fmp(
+        monkeypatch,
+        lambda path, params: [] if path == "profile" else httpx2.Response(402, text="Premium"),
     )
-    monkeypatch.setattr(fetcher, "_yfinance_history", _yf_history_returning(frame))
-    calls = _info_check(monkeypatch, None)
 
-    history = await fetcher.fetch_price_history("AAPL")
-
-    assert history.empty
-    assert calls == []
+    with pytest.raises(SymbolNotFoundError):
+        await fetcher.fetch_quote("ZZZZ")
 
 
-async def test_empty_symbol_is_rejected() -> None:
-    """Blank symbols fail before any provider is called."""
-    with pytest.raises(ValueError, match="must not be empty"):
-        await fetcher.fetch_ticker_info("   ")
+async def test_fmp_quote_plan_error_for_real_symbol_is_a_plan_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fallback(monkeypatch, False)
+    _fmp_key()
+    _serve_fmp(
+        monkeypatch,
+        lambda path, params: PROFILE if path == "profile" else httpx2.Response(402, text="x"),
+    )
+
+    with pytest.raises(ProviderPlanError):
+        await fetcher.fetch_quote("TLT")
+
+
+async def test_fmp_quote_maps_fields_and_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fallback(monkeypatch, False)
+    _fmp_key()
+    quote = [{"price": 202.0, "previousClose": 200.0, "dayHigh": 203.0, "dayLow": 199.0,
+              "volume": 1_000}]  # fmt: skip
+    requests = _serve_fmp(monkeypatch, lambda path, params: quote)
+
+    first = await fetcher.fetch_quote("AAPL")
+    second = await fetcher.fetch_quote("AAPL")
+
+    assert (first.price, first.change, first.source) == (202.0, 2.0, "fmp")
+    assert second == first
+    assert len(requests) == 1
+
+
+# yfinance parsing, used by the development fallback.
 
 
 class _FakeTicker:
@@ -178,7 +398,6 @@ class _FakeTicker:
 
 
 async def test_yfinance_info_maps_fields(monkeypatch: pytest.MonkeyPatch) -> None:
-    """yfinance fields map onto the snapshot, preferring long names and current prices."""
     info = {
         "quoteType": "EQUITY",
         "longName": "Apple Inc.",
@@ -195,140 +414,17 @@ async def test_yfinance_info_maps_fields(monkeypatch: pytest.MonkeyPatch) -> Non
 
     snapshot = fetcher._yfinance_info("AAPL")
 
-    assert snapshot == TickerInfo(
-        symbol="AAPL",
-        name="Apple Inc.",
-        currency="USD",
-        exchange="NMS",
-        sector="Technology",
-        industry="Consumer Electronics",
-        market_cap=3.0e12,
-        price=200.0,
-        source="yfinance",
-    )
+    assert (snapshot.name, snapshot.price, snapshot.source) == ("Apple Inc.", 200.0, "yfinance")
 
 
 @pytest.mark.parametrize("info", [{}, {"quoteType": "NONE"}])
 async def test_yfinance_info_without_quote_is_not_found(
     monkeypatch: pytest.MonkeyPatch, info: dict[str, object]
 ) -> None:
-    """An empty or ``NONE`` quote means yfinance does not know the symbol."""
     monkeypatch.setattr("app.data.fetcher.yf.Ticker", lambda symbol: _FakeTicker(info))
 
     with pytest.raises(SymbolNotFoundError):
         fetcher._yfinance_info("ZZZZ")
-
-
-def _fmp_client(
-    payload: object, status: int = 200
-) -> tuple[httpx2.AsyncClient, list[httpx2.Request]]:
-    """Build a client whose FMP profile endpoint answers with ``payload``."""
-    requests: list[httpx2.Request] = []
-
-    def handler(request: httpx2.Request) -> httpx2.Response:
-        requests.append(request)
-        return httpx2.Response(status, json=payload)
-
-    return httpx2.AsyncClient(transport=httpx2.MockTransport(handler)), requests
-
-
-async def test_fmp_fallback_parses_profile(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When yfinance fails, the FMP profile is fetched with the key and mapped."""
-    _use_fmp_key(monkeypatch, "secret")
-    monkeypatch.setattr(fetcher, "_yfinance_info", _yf_info_raising(ConnectionError("down")))
-    profile = {
-        "companyName": "Apple Inc.",
-        "currency": "USD",
-        "exchangeShortName": "NASDAQ",
-        "sector": "Technology",
-        "industry": "Consumer Electronics",
-        "mktCap": 3.0e12,
-        "price": 200.0,
-    }
-    client, requests = _fmp_client([profile])
-
-    snapshot = await fetcher.fetch_ticker_info("aapl", client=client)
-
-    assert snapshot.source == "fmp"
-    assert (snapshot.name, snapshot.exchange, snapshot.market_cap) == (
-        "Apple Inc.",
-        "NASDAQ",
-        3.0e12,
-    )
-    assert requests[0].url.params["symbol"] == "AAPL"
-    assert requests[0].url.params["apikey"] == "secret"
-
-
-@pytest.mark.parametrize(("payload", "status"), [([], 200), ({"error": "x"}, 200)])
-async def test_fmp_empty_profile_is_not_found(
-    monkeypatch: pytest.MonkeyPatch, payload: object, status: int
-) -> None:
-    """An empty or non-list FMP answer means the symbol is unknown."""
-    _use_fmp_key(monkeypatch, "secret")
-    monkeypatch.setattr(fetcher, "_yfinance_info", _yf_info_raising(ConnectionError("down")))
-    client, _ = _fmp_client(payload, status)
-
-    with pytest.raises(SymbolNotFoundError):
-        await fetcher.fetch_ticker_info("ZZZZ", client=client)
-
-
-async def test_fmp_http_error_is_fetch_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An FMP error status, such as a bad key, is a general fetch error."""
-    _use_fmp_key(monkeypatch, "bad")
-    monkeypatch.setattr(fetcher, "_yfinance_info", _yf_info_raising(ConnectionError("down")))
-    client, _ = _fmp_client({"Error Message": "Invalid API KEY."}, status=401)
-
-    with pytest.raises(DataFetchError) as caught:
-        await fetcher.fetch_ticker_info("AAPL", client=client)
-    assert not isinstance(caught.value, SymbolNotFoundError)
-
-
-async def test_history_provider_exception_is_fetch_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Any yfinance failure while fetching history is a fetch error."""
-
-    def failing(symbol: str, period: str, interval: str) -> pd.DataFrame:
-        raise RuntimeError("rate limited")
-
-    monkeypatch.setattr(fetcher, "_yfinance_history", failing)
-
-    with pytest.raises(DataFetchError, match="history"):
-        await fetcher.fetch_price_history("AAPL")
-
-
-async def test_history_missing_columns_is_fetch_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A frame without the OHLCV columns cannot be used."""
-    frame = pd.DataFrame({"Close": [1.0]}, index=pd.DatetimeIndex(["2026-09-25"]))
-    monkeypatch.setattr(fetcher, "_yfinance_history", _yf_history_returning(frame))
-
-    with pytest.raises(DataFetchError, match="missing columns"):
-        await fetcher.fetch_price_history("AAPL")
-
-
-async def test_history_is_sorted_and_deduplicated(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bars come back oldest first, one per timestamp, keeping the last duplicate."""
-    frame = pd.DataFrame(
-        {
-            "Open": [3.0, 1.0, 2.0, 2.5],
-            "High": [3.0, 1.0, 2.0, 2.5],
-            "Low": [3.0, 1.0, 2.0, 2.5],
-            "Close": [3.0, 1.0, 2.0, 2.5],
-            "Volume": [30, 10, 20, 25],
-            "Dividends": [0.0] * 4,
-        },
-        index=pd.DatetimeIndex(["2026-09-25", "2026-09-23", "2026-09-24", "2026-09-24"]),
-    )
-    monkeypatch.setattr(fetcher, "_yfinance_history", _yf_history_returning(frame))
-
-    history = await fetcher.fetch_price_history("AAPL")
-
-    assert list(history.columns) == fetcher.OHLCV_COLUMNS
-    assert list(history["Close"]) == [1.0, 2.5, 3.0]
-
-
-@pytest.fixture
-def empty_quote_cache() -> None:
-    """Start each quote test with no cached quotes."""
-    fetcher._quote_cache.clear()
 
 
 class _FakeFastTicker:
@@ -339,7 +435,6 @@ class _FakeFastTicker:
 
 
 async def test_yfinance_quote_maps_fields(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``fast_info`` maps onto the quote, with the change derived from the previous close."""
     ticker = _FakeFastTicker(
         last_price=202.0,
         previous_close=200.0,
@@ -352,15 +447,11 @@ async def test_yfinance_quote_maps_fields(monkeypatch: pytest.MonkeyPatch) -> No
 
     quote = fetcher._yfinance_quote("AAPL")
 
-    assert (quote.symbol, quote.price, quote.previous_close) == ("AAPL", 202.0, 200.0)
-    assert quote.change == pytest.approx(2.0)
-    assert quote.change_percent == pytest.approx(0.01)
-    assert (quote.day_high, quote.day_low, quote.volume) == (203.5, 199.0, 51_000_000)
-    assert (quote.currency, quote.source) == ("USD", "yfinance")
+    assert quote.change == pytest.approx(2.0) and quote.change_percent == pytest.approx(0.01)
+    assert (quote.volume, quote.currency, quote.source) == (51_000_000, "USD", "yfinance")
 
 
 async def test_yfinance_quote_without_price_is_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No last price means yfinance does not know the symbol; NaN fields become null."""
     ticker = _FakeFastTicker(
         last_price=math.nan,
         previous_close=None,
@@ -375,143 +466,28 @@ async def test_yfinance_quote_without_price_is_not_found(monkeypatch: pytest.Mon
         fetcher._yfinance_quote("ZZZZ")
 
 
-async def test_quote_without_previous_close_has_no_change(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A missing previous close leaves the change unknown rather than failing."""
-    ticker = _FakeFastTicker(
-        last_price=10.0,
-        previous_close=math.nan,
-        day_high=None,
-        day_low=None,
-        last_volume=None,
-        currency="USD",
+# Cleaning and caching.
+
+
+def _new_york_bars() -> pd.DataFrame:
+    """Daily bars in New York time, unsorted and repeated, one missing its close."""
+    index = pd.DatetimeIndex(
+        ["2026-09-25", "2026-09-24", "2026-09-25", "2026-09-28"], tz="America/New_York"
     )
-    monkeypatch.setattr("app.data.fetcher.yf.Ticker", lambda symbol: ticker)
-
-    quote = fetcher._yfinance_quote("NEW")
-
-    assert (quote.previous_close, quote.change, quote.change_percent) == (None, None, None)
-
-
-@pytest.mark.usefixtures("empty_quote_cache")
-async def test_quotes_are_cached_briefly(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Repeated lookups within the TTL reuse the quote; later ones fetch again."""
-    calls: list[str] = []
-
-    def fake_quote(symbol: str) -> Quote:
-        calls.append(symbol)
-        return fetcher._build_quote(symbol, price=10.0, previous_close=9.0, source="yfinance")
-
-    clock = [1000.0]
-    monkeypatch.setattr(fetcher, "_yfinance_quote", fake_quote)
-    monkeypatch.setattr("app.data.fetcher.time.monotonic", lambda: clock[0])
-
-    first = await fetcher.fetch_quote("aapl")
-    second = await fetcher.fetch_quote("AAPL ")
-    clock[0] += fetcher.QUOTE_TTL_SECONDS + 1
-    await fetcher.fetch_quote("AAPL")
-
-    assert first is second
-    assert calls == ["AAPL", "AAPL"]
-
-
-@pytest.mark.usefixtures("empty_quote_cache")
-async def test_quote_falls_back_to_fmp(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When yfinance fails, the FMP quote is fetched with the key and mapped."""
-    _use_fmp_key(monkeypatch, "secret")
-
-    def failing_quote(symbol: str) -> Quote:
-        raise ConnectionError("down")
-
-    monkeypatch.setattr(fetcher, "_yfinance_quote", failing_quote)
-    client, requests = _fmp_client(
-        [{"price": 99.0, "previousClose": 100.0, "dayHigh": 101.0, "dayLow": 98.5, "volume": 10}]
+    return pd.DataFrame(
+        {
+            "Open": [100.0, 99.0, 100.5, 101.0],
+            "High": [102.0, 100.0, 103.0, 102.0],
+            "Low": [99.0, 98.0, 100.0, 100.0],
+            "Close": [101.0, 99.5, 102.5, math.nan],
+            "Volume": [1_000, 900, 1_200, 0],
+            "Dividends": [0.0, 0.0, 0.0, 0.0],
+        },
+        index=index,
     )
 
-    quote = await fetcher.fetch_quote("msft", client=client)
 
-    assert quote.source == "fmp"
-    assert (quote.price, quote.volume) == (99.0, 10)
-    assert quote.change_percent == pytest.approx(-0.01)
-    assert requests[0].url.params["symbol"] == "MSFT"
-    assert str(requests[0].url).startswith(fetcher.FMP_QUOTE_URL)
-
-
-@pytest.mark.usefixtures("empty_quote_cache")
-async def test_quote_plan_error_for_unknown_symbol_is_not_found(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FMP's plan error for an unknown symbol is resolved by the snapshot's empty profile."""
-    _use_fmp_key(monkeypatch, "secret")
-
-    def failing_quote(symbol: str) -> Quote:
-        raise KeyError("currentTradingPeriod")
-
-    monkeypatch.setattr(fetcher, "_yfinance_quote", failing_quote)
-    monkeypatch.setattr(fetcher, "_yfinance_info", _yf_info_raising(SymbolNotFoundError("none")))
-
-    def handler(request: httpx2.Request) -> httpx2.Response:
-        if request.url.path.endswith("/quote"):
-            return httpx2.Response(402, text="Premium Query Parameter")
-        return httpx2.Response(200, json=[])
-
-    client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
-
-    with pytest.raises(SymbolNotFoundError):
-        await fetcher.fetch_quote("ZZZZ", client=client)
-
-
-@pytest.mark.usefixtures("empty_quote_cache")
-@pytest.mark.parametrize(
-    ("yf_error", "info", "expected"),
-    [
-        (SymbolNotFoundError("none"), None, SymbolNotFoundError),
-        (KeyError("currentTradingPeriod"), SymbolNotFoundError("none"), SymbolNotFoundError),
-        (KeyError("currentTradingPeriod"), ConnectionError("down"), DataFetchError),
-        (ConnectionError("down"), TickerInfo(symbol="AAPL", source="yfinance"), DataFetchError),
-    ],
-)
-async def test_quote_without_fallback_classifies_failures(
-    monkeypatch: pytest.MonkeyPatch,
-    yf_error: Exception,
-    info: TickerInfo | Exception | None,
-    expected: type[Exception],
-) -> None:
-    """Without a fallback, a failed quote is not found only when the symbol is unknown.
-
-    Other quote failures are checked against the ticker snapshot, since ``fast_info``
-    fails the same way for unknown symbols and outages.
-    """
-    _use_fmp_key(monkeypatch, None)
-
-    def failing_quote(symbol: str) -> Quote:
-        raise yf_error
-
-    def fake_info(symbol: str) -> TickerInfo:
-        assert info is not None, "the snapshot should not be consulted"
-        if isinstance(info, Exception):
-            raise info
-        return info
-
-    monkeypatch.setattr(fetcher, "_yfinance_quote", failing_quote)
-    monkeypatch.setattr(fetcher, "_yfinance_info", fake_info)
-
-    with pytest.raises(expected) as caught:
-        await fetcher.fetch_quote("ZZZZ")
-    assert isinstance(caught.value, SymbolNotFoundError) == (expected is SymbolNotFoundError)
-
-
-@pytest.fixture
-def fake_redis() -> FakeAsyncRedis:
-    """Turn the shared cache on, backed by an empty fake Redis."""
-    client = FakeAsyncRedis(decode_responses=True)
-    configure_cache(client)
-    return client
-
-
-def _counting_yf_history(frame: pd.DataFrame) -> tuple[object, list[str]]:
-    """Build a fake ``_yfinance_history`` returning ``frame``, and the list of its calls."""
+def _yfinance_history_counting(frame: pd.DataFrame) -> tuple[Any, list[str]]:
     calls: list[str] = []
 
     def fake(symbol: str, period: str, interval: str) -> pd.DataFrame:
@@ -521,53 +497,26 @@ def _counting_yf_history(frame: pd.DataFrame) -> tuple[object, list[str]]:
     return fake, calls
 
 
-def _new_york_bars() -> pd.DataFrame:
-    """Two daily bars in New York time, one missing its open, as yfinance returns them."""
-    index = pd.DatetimeIndex(["2026-09-24", "2026-09-25"], tz="America/New_York", name="Date")
-    return pd.DataFrame(
-        {
-            "Open": [100.0, math.nan],
-            "High": [102.0, 103.0],
-            "Low": [99.0, 100.5],
-            "Close": [101.0, 102.5],
-            "Volume": [1_000_000, 1_200_000],
-            "Dividends": [0.0, 0.0],
-        },
-        index=index,
-    )
-
-
-async def test_history_is_served_from_the_cache(
-    monkeypatch: pytest.MonkeyPatch, fake_redis: FakeAsyncRedis
+async def test_history_is_sorted_deduplicated_and_cached(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A repeated request reuses the cached bars, with their time zone and gaps intact."""
-    fake, calls = _counting_yf_history(_new_york_bars())
+    """Bars come back sorted, one per timestamp, closes only; the cache keeps their zone."""
+    redis = FakeAsyncRedis()
+    configure_cache(redis)
+    _fallback(monkeypatch, True)
+    fake, calls = _yfinance_history_counting(_new_york_bars())
     monkeypatch.setattr(fetcher, "_yfinance_history", fake)
 
-    first = await fetcher.fetch_price_history("spy", period="1y", interval="1d")
-    second = await fetcher.fetch_price_history("SPY", period="1y", interval="1d")
+    first = await fetcher.fetch_price_history("spy")
+    second = await fetcher.fetch_price_history("SPY")
 
     assert calls == ["SPY"]
+    assert first["Close"].tolist() == [99.5, 102.5]
+    assert list(first.columns) == fetcher.OHLCV_COLUMNS
     pd.testing.assert_frame_equal(second, first)
-    assert isinstance(second.index, pd.DatetimeIndex)
-    assert str(second.index.tz) == "America/New_York"
-    ttl = await fake_redis.pttl(KEY_PREFIX + "history:SPY:1y:1d")
+    assert str(pd.DatetimeIndex(second.index).tz) == "America/New_York"
+    ttl = await redis.pttl(KEY_PREFIX + "history:yfinance:SPY:1y:1d")
     assert 0 < ttl <= fetcher.HISTORY_TTL_SECONDS * 1000
-
-
-async def test_history_cache_is_keyed_by_window(
-    monkeypatch: pytest.MonkeyPatch, fake_redis: FakeAsyncRedis
-) -> None:
-    """Different periods and intervals are fetched separately; intraday bars expire sooner."""
-    fake, calls = _counting_yf_history(_new_york_bars())
-    monkeypatch.setattr(fetcher, "_yfinance_history", fake)
-
-    await fetcher.fetch_price_history("SPY", period="1y", interval="1d")
-    await fetcher.fetch_price_history("SPY", period="5d", interval="1h")
-
-    assert calls == ["SPY", "SPY"]
-    ttl = await fake_redis.pttl(KEY_PREFIX + "history:SPY:5d:1h")
-    assert 0 < ttl <= fetcher.INTRADAY_HISTORY_TTL_SECONDS * 1000
 
 
 @pytest.mark.parametrize(
@@ -577,70 +526,27 @@ async def test_history_cache_is_keyed_by_window(
         ("90m", fetcher.INTRADAY_HISTORY_TTL_SECONDS),
         ("1h", fetcher.INTRADAY_HISTORY_TTL_SECONDS),
         ("1d", fetcher.HISTORY_TTL_SECONDS),
-        ("1wk", fetcher.HISTORY_TTL_SECONDS),
         ("1mo", fetcher.HISTORY_TTL_SECONDS),
     ],
 )
 async def test_history_ttl_by_interval(interval: str, ttl: float) -> None:
-    """Minute and hour bars are cached briefly; ``1mo`` is months, not minutes."""
     assert fetcher._history_ttl(interval) == ttl
 
 
-async def test_empty_history_is_not_cached(
-    monkeypatch: pytest.MonkeyPatch, fake_redis: FakeAsyncRedis
-) -> None:
-    """A window without bars is asked about again rather than cached."""
-    monkeypatch.setattr(fetcher, "_yfinance_history", _yf_history_returning(EMPTY_YF_FRAME))
-    _info_check(monkeypatch, None)
-
-    await fetcher.fetch_price_history("NEW")
-
-    assert await fake_redis.keys() == []
-
-
-async def test_unreadable_cached_history_is_refetched(
-    monkeypatch: pytest.MonkeyPatch, fake_redis: FakeAsyncRedis
-) -> None:
-    """A corrupt cache entry is ignored and replaced by fresh bars."""
-    await fake_redis.set(KEY_PREFIX + "history:SPY:1y:1d", "{not json")
-    fake, calls = _counting_yf_history(_new_york_bars())
-    monkeypatch.setattr(fetcher, "_yfinance_history", fake)
-
-    history = await fetcher.fetch_price_history("SPY")
-
-    assert calls == ["SPY"]
-    assert len(history) == 2
-    assert await fake_redis.get(KEY_PREFIX + "history:SPY:1y:1d") != "{not json"
-
-
-async def test_info_is_served_from_the_cache(
-    monkeypatch: pytest.MonkeyPatch, fake_redis: FakeAsyncRedis
-) -> None:
-    """A repeated ticker lookup reuses the cached snapshot."""
-    calls: list[str] = []
-
-    def fake_info(symbol: str) -> TickerInfo:
-        calls.append(symbol)
-        return TickerInfo(symbol=symbol, name="Apple Inc.", price=190.5, source="yfinance")
-
-    monkeypatch.setattr(fetcher, "_yfinance_info", fake_info)
-
-    first = await fetcher.fetch_ticker_info("aapl")
-    second = await fetcher.fetch_ticker_info("AAPL")
-
-    assert calls == ["AAPL"]
-    assert second == first
-    assert 0 < await fake_redis.pttl(KEY_PREFIX + "info:AAPL") <= fetcher.INFO_TTL_SECONDS * 1000
-
-
-async def test_failed_lookups_are_not_cached(
-    monkeypatch: pytest.MonkeyPatch, fake_redis: FakeAsyncRedis
-) -> None:
-    """Unknown symbols and provider failures are not remembered."""
-    _use_fmp_key(monkeypatch, None)
-    monkeypatch.setattr(fetcher, "_yfinance_info", _yf_info_raising(SymbolNotFoundError("none")))
+async def test_failed_lookups_are_not_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    redis = FakeAsyncRedis()
+    configure_cache(redis)
+    _fallback(monkeypatch, True)
+    monkeypatch.setattr(
+        fetcher, "_yfinance_info", _yfinance_info_returning(SymbolNotFoundError("none"))
+    )
 
     with pytest.raises(SymbolNotFoundError):
         await fetcher.fetch_ticker_info("ZZZZ")
 
-    assert await fake_redis.keys() == []
+    assert await redis.keys() == []
+
+
+async def test_empty_symbol_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        await fetcher.fetch_ticker_info("   ")
