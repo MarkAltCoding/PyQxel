@@ -4,8 +4,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import make_url
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
 
@@ -22,6 +23,8 @@ class Settings(BaseSettings):
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        # Secrets pasted into a secret manager often end with a newline.
+        str_strip_whitespace=True,
     )
 
     app_name: str = "PyQxel"
@@ -66,7 +69,14 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default=f"sqlite+aiosqlite:///{PROJECT_ROOT / 'data_cache' / 'pyqxel.db'}",
         description="SQLAlchemy async URL for stored backtests, e.g. "
-        "postgresql+asyncpg://user:pass@host/pyqxel.",
+        "postgresql+asyncpg://user:pass@host/pyqxel. Plain postgres:// URLs, as hosting "
+        "platforms provide them, are converted.",
+    )
+    database_pgbouncer: bool = Field(
+        default=False,
+        description="Set when DATABASE_URL goes through PgBouncer in transaction mode, as "
+        "pooled URLs from Neon and Supabase do: asyncpg's "
+        "prepared statement cache then breaks, so it is turned off. Harmless otherwise.",
     )
     redis_url: SecretStr | None = Field(
         default=None,
@@ -101,6 +111,25 @@ class Settings(BaseSettings):
         description="How long a stored AI analysis is reused instead of paying for a new "
         "one; 0 always writes a new one.",
     )
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_asyncpg(cls, value: str) -> str:
+        """Point plain Postgres URLs at the asyncpg driver.
+
+        asyncpg names libpq's ``sslmode`` ``ssl`` and rejects ``channel_binding``, which it
+        negotiates by itself.
+        """
+        url = make_url(value)
+        if url.drivername not in ("postgres", "postgresql", "postgresql+asyncpg"):
+            return value
+        query = dict(url.query)
+        if "sslmode" in query:
+            query["ssl"] = query.pop("sslmode")
+        query.pop("channel_binding", None)
+        return url.set(drivername="postgresql+asyncpg", query=query).render_as_string(
+            hide_password=False
+        )
 
 
 @lru_cache

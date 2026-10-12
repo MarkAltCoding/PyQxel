@@ -5,13 +5,18 @@ Postgres with a ``postgresql+asyncpg://`` URL. The schema is managed by the Alem
 migrations in ``app/db/migrations``, which :func:`init_db` applies at startup.
 """
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
+from functools import lru_cache
 from pathlib import Path
+from typing import Literal
+from uuid import uuid4
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import Connection, make_url
+from alembic.script import ScriptDirectory
+from sqlalchemy import Connection, make_url, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -35,7 +40,18 @@ def create_engine_for(url: str) -> AsyncEngine:
     """Create an engine for ``url``, preparing SQLite's file or in-memory connection."""
     parsed = make_url(url)
     if parsed.get_backend_name() != "sqlite":
-        return create_async_engine(url, pool_pre_ping=True)
+        if not get_settings().database_pgbouncer:
+            return create_async_engine(url, pool_pre_ping=True)
+        # PgBouncer in transaction mode hands each transaction any server connection, so
+        # prepared statements must not be cached or reuse names across connections.
+        return create_async_engine(
+            parsed.update_query_dict({"prepared_statement_cache_size": "0"}),
+            pool_pre_ping=True,
+            connect_args={
+                "statement_cache_size": 0,
+                "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4()}__",
+            },
+        )
     if parsed.database in (None, "", ":memory:"):
         # Each connection to an in-memory database gets its own empty database, so
         # every session must share one connection.
@@ -81,10 +97,21 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
-def _upgrade(connection: Connection, revision: str) -> None:
-    """Apply migrations up to ``revision`` on ``connection``."""
+def _alembic_config() -> Config:
     config = Config()
     config.set_main_option("script_location", str(MIGRATIONS_DIR))
+    return config
+
+
+@lru_cache(maxsize=1)
+def head_revision() -> str | None:
+    """Return the newest migration's revision, which a current schema is at."""
+    return ScriptDirectory.from_config(_alembic_config()).get_current_head()
+
+
+def _upgrade(connection: Connection, revision: str) -> None:
+    """Apply migrations up to ``revision`` on ``connection``."""
+    config = _alembic_config()
     config.attributes["connection"] = connection
     command.upgrade(config, revision)
 
@@ -102,6 +129,32 @@ async def init_db(revision: str = "head") -> bool:
         logger.error("Backtest database unavailable; results will not be stored: %s", exc)
         return False
     return True
+
+
+async def check_database(
+    timeout_seconds: float = 3.0,
+) -> Literal["ok", "unavailable", "outdated"]:
+    """Check the database for a health check.
+
+    Returns:
+        ``"ok"`` when it answers and its schema is at the newest migration,
+        ``"outdated"`` when it answers but migrations are pending, and
+        ``"unavailable"`` when it does not answer within ``timeout_seconds``.
+    """
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            async with get_engine().connect() as connection:
+                try:
+                    version = await connection.scalar(
+                        text("SELECT version_num FROM alembic_version")
+                    )
+                except SQLAlchemyError:
+                    # Connected, but no migration has ever run.
+                    version = None
+    except (SQLAlchemyError, OSError, TimeoutError) as exc:
+        logger.warning("Database health check failed: %s", exc)
+        return "unavailable"
+    return "ok" if version == head_revision() else "outdated"
 
 
 async def close_database() -> None:

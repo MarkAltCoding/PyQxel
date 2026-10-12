@@ -10,6 +10,7 @@ Values are stored as JSON text; callers serialize and parse their own types.
 
 import logging
 import time
+from typing import Literal
 
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
@@ -118,6 +119,24 @@ async def cache_increment(key: str, ttl_seconds: float) -> int | None:
         _trip("count", key, exc)
         return None
     return count
+
+
+async def check_cache() -> Literal["ok", "unavailable", "not_configured"]:
+    """Ping Redis for a health check.
+
+    Returns:
+        ``"not_configured"`` without ``REDIS_URL``, else whether Redis answered. The
+        ping is sent even while caching is paused after an error.
+    """
+    _get_client()
+    if _client is None:
+        return "not_configured"
+    try:
+        await _client.ping()
+    except RedisError as exc:
+        logger.warning("Redis health check failed: %s", exc)
+        return "unavailable"
+    return "ok"
 
 
 async def close_cache() -> None:

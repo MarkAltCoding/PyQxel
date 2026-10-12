@@ -1,0 +1,26 @@
+# What `gcloud builds submit` leaves out of the upload; the same as .dockerignore, so
+# secrets, local data and tooling never leave this machine.
+.env
+.env.*
+!.env.example
+.git
+.github
+.vscode
+.idea
+.claude
+venv
+.venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+data_cache
+data
+output
+tests
+*.md
+!README.md
+.DS_Store

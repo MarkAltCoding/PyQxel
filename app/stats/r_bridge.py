@@ -39,6 +39,7 @@ RValue = list[str | int | float | bool | None]
 
 _executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="r-session")
 _sourced_scripts: set[str] = set()
+_available: bool | None = None
 
 
 class RError(RuntimeError):
@@ -51,15 +52,18 @@ class RUnavailableError(RError):
 
 def _robjects() -> ModuleType:
     """Import ``rpy2.robjects``, starting the embedded R session on first use."""
+    global _available
     r_home = get_settings().r_home
     if r_home is not None:
         os.environ["R_HOME"] = str(r_home)
     try:
         import rpy2.robjects as robjects
     except Exception as exc:
+        _available = False
         raise RUnavailableError(
             "R is unavailable: install R and rpy2, and set R_HOME to the output of `R RHOME`."
         ) from exc
+    _available = True
     return cast(ModuleType, robjects)
 
 
@@ -130,6 +134,11 @@ def start_r() -> bool:
         logger.warning("R is unavailable; statistical model endpoints will return 503.")
         return False
     return True
+
+
+def r_available() -> bool | None:
+    """Return whether the R session started, or ``None`` before anything tried to start it."""
+    return _available
 
 
 async def call_r(script: str, function: str, *args: RArgument) -> dict[str, RValue]:

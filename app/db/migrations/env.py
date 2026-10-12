@@ -9,6 +9,7 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
+from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from app.core.config import get_settings
@@ -17,9 +18,17 @@ from app.db.tables import Base
 
 target_metadata = Base.metadata
 
+MIGRATION_LOCK_ID: int = 0x5079_5178_656C
+"""Postgres advisory lock held while migrating ("PyQxel" in hex), so app instances
+starting together migrate one at a time instead of racing to create the same tables."""
+
 
 def _run(connection: Connection) -> None:
     """Run the pending migrations on ``connection``."""
+    if connection.dialect.name == "postgresql":
+        # Released when the migration transaction ends; later instances then find
+        # nothing left to do.
+        connection.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": MIGRATION_LOCK_ID})
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
