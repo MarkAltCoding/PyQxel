@@ -34,7 +34,7 @@ describe('sign-in', () => {
 
     expect(router.state.location.pathname).toBe('/screener')
     const [, init] = fetch.mock.calls[0]!
-    expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer pq_good')
+    expect((init!.headers as Record<string, string>).Authorization).toBe('Bearer pq_good')
     expect(window.localStorage.getItem('pyqxel.apiKey')).toBe('pq_good')
   })
 
