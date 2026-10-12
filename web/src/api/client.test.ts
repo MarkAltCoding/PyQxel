@@ -21,7 +21,7 @@ describe('api client', () => {
 
     const [url, init] = fetch.mock.calls[0]!
     expect(url).toBe('/api/v1/screener')
-    expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer pq_secret')
+    expect((init!.headers as Record<string, string>).Authorization).toBe('Bearer pq_secret')
     expect(init?.body).toBe('{"limit":5}')
   })
 
