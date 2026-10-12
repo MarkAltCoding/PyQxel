@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     sec_user_agent: str | None = None
     sec_section_max_chars: int = Field(default=60_000, ge=1_000)
     r_home: Path | None = None
+    web_dist_dir: Path = Field(
+        default=PROJECT_ROOT / "web" / "dist",
+        description="The built web frontend (``npm run build`` in ``web/``), served at ``/`` "
+        "when present.",
+    )
 
     database_url: str = Field(
         default=f"sqlite+aiosqlite:///{PROJECT_ROOT / 'data_cache' / 'pyqxel.db'}",

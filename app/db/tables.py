@@ -159,6 +159,20 @@ class SimulationRecord(Base):
     result: Mapped[dict[str, Any]] = mapped_column(JSON)
 
 
+class HoldingRecord(Base):
+    """One position in an account's saved portfolio."""
+
+    __tablename__ = "holdings"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    shares: Mapped[float] = mapped_column(Float)
+    position: Mapped[int] = mapped_column(Integer)
+    """Order in which the account listed its holdings."""
+
+
 class ScreenerStockRecord(Base):
     """One stock in the screened universe and its precomputed metrics.
 
