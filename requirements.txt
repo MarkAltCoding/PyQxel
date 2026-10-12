@@ -33,17 +33,5 @@ rpy2>=3.6.8
 anthropic>=1.11.0
 beautifulsoup4>=4.15.0
 
-# --- Testing & Code Quality ---
-pytest>=9.1.1
-pytest-asyncio>=1.4.0
-pytest-cov>=7.1.0
-fakeredis>=2.39.0
-black>=26.10.0
-flake8>=7.4.1
-Flake8-pyproject>=1.2.4
-mypy>=2.4.0
-pandas-stubs>=3.0.5
-scipy-stubs>=1.18.1
-
 # --- Planned (not used yet; uncomment when the feature lands) ---
 # scikit-learn>=1.9.1  # machine-learning models

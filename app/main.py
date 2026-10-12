@@ -6,15 +6,16 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import health
 from app.api.auth import authenticate
 from app.api.v1.api import api_router
 from app.core.cache import close_cache
 from app.core.config import get_settings
 from app.db.session import close_database, init_db
-from app.models.health import HealthResponse
 from app.stats.r_bridge import start_r
+from app.version import __version__
 
-__version__: str = "0.1.0"
+__all__ = ["__version__", "app", "create_app"]
 
 
 @asynccontextmanager
@@ -31,7 +32,7 @@ def create_app() -> FastAPI:
     """Build and configure the FastAPI application.
 
     Returns:
-        The configured application with CORS middleware, core routes and the v1 API registered.
+        The configured application with CORS middleware, health checks and the v1 API registered.
     """
     settings = get_settings()
     application = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
@@ -43,12 +44,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    @application.get("/health", response_model=HealthResponse, tags=["health"])
-    async def health() -> HealthResponse:
-        """Report that the service is up."""
-        return HealthResponse(status="ok", app=settings.app_name, version=__version__)
-
-    # Every API route needs a PyQxel API key; /health and the docs stay open.
+    # Every API route needs a PyQxel API key; the health checks and the docs stay open.
+    application.include_router(health.router)
     application.include_router(
         api_router, prefix=settings.api_v1_prefix, dependencies=[Depends(authenticate)]
     )

@@ -33,6 +33,7 @@ An AI-native research and quantitative analysis platform that helps investors ch
 1. **Python 3.14+** installed on your system.
 2. **R 4.3+** installed (required for advanced statistical and econometric modules).
 3. **Claude Code** CLI configured locally (`npm install -g @anthropic-ai/claude-code`).
+4. **Docker** (optional) to run the API with Postgres and Redis in containers instead; see [Docker and Deployment](#docker-and-deployment).
 
 ### Installation
 
@@ -46,8 +47,9 @@ An AI-native research and quantitative analysis platform that helps investors ch
    ```bash
    python3.14 -m venv venv
    source venv/bin/activate
-   pip install -r requirements.txt
+   pip install -r requirements.txt -r requirements-dev.txt
    ```
+   `requirements-dev.txt` adds the test, type-checking and lint tools; servers need only `requirements.txt`.
    Then install the R packages the statistical models use:
    ```bash
    Rscript -e 'install.packages("rugarch", repos = "https://cloud.r-project.org")'
@@ -75,7 +77,7 @@ An AI-native research and quantitative analysis platform that helps investors ch
    ```bash
    uvicorn app.main:app --reload
    ```
-   The API is served at `http://127.0.0.1:8000`, with interactive docs at `http://127.0.0.1:8000/docs`. Check it with `curl http://127.0.0.1:8000/health`. Every `/api/v1` request needs your API key: `curl -H "Authorization: Bearer $PYQXEL_API_KEY" http://127.0.0.1:8000/api/v1/me`.
+   The API is served at `http://127.0.0.1:8000`, with interactive docs at `http://127.0.0.1:8000/docs`. Check it with `curl http://127.0.0.1:8000/health`, or `/health/ready` to also check the database and Redis. Every `/api/v1` request needs your API key: `curl -H "Authorization: Bearer $PYQXEL_API_KEY" http://127.0.0.1:8000/api/v1/me`.
 
    Two endpoints stream:
    * `POST /api/v1/stocks/{symbol}/analysis/stream` sends the AI analysis as Server-Sent Events while Claude writes it: `context`, then `thinking` and `report` fragments, then the final `result` (or an `error`). Try it with `curl -N -X POST -H "Authorization: Bearer $PYQXEL_API_KEY" http://127.0.0.1:8000/api/v1/stocks/AAPL/analysis/stream`.
@@ -97,6 +99,60 @@ An AI-native research and quantitative analysis platform that helps investors ch
    ```
 
 ---
+
+## Docker and Deployment
+
+### Docker Compose
+
+`docker-compose.yml` runs the API with Postgres 18 and Redis 8, reading settings and secrets from `.env` as above:
+```bash
+docker compose up --build                                  # http://localhost:8000
+docker compose run --rm api python -m app.jobs.users create you@example.com --import-env-keys
+docker compose run --rm api python -m app.jobs.screener    # refresh the screened universe
+```
+The `Dockerfile` builds two images: `app`, the default, without R, where GARCH returns 503; and `app-r`, with R and `rugarch`, for GARCH (`PYQXEL_TARGET=app-r docker compose up --build`). Both run as an unprivileged user and contain no secrets. The containers' Postgres and Redis are reachable only from the API container, so they do not clash with servers already running locally; set `POSTGRES_PASSWORD` in `.env` to change the local database's password (`pyqxel` by default), and `PYQXEL_PORT` to serve on another port.
+
+### Health checks
+
+Neither needs an API key, and neither reveals error details.
+
+* `GET /health` is a liveness check: it answers whenever the process does, so a database outage does not get the API restarted. The images' Docker health check calls it.
+* `GET /health/ready` is a readiness check: it reports `database` (`ok`, `unavailable`, or `outdated` when migrations are pending), `redis` (`ok`, `unavailable` or `not_configured`) and `r` (`ok`, `unavailable` or `not_started`). It returns 503 with `"status": "unavailable"` when the database cannot serve, so load balancers send traffic elsewhere until it recovers. Redis and R are optional: a Redis outage only marks the service `degraded`, since caching then stops and rate limits are counted per process.
+
+### Google Cloud Run
+
+`deploy/cloud-run.sh` deploys the image with R to [Cloud Run](https://cloud.google.com/run), which scales to zero and bills only while requests run, so a personal deployment fits in the free tiers: Cloud Run's monthly allowance covers about 50 hours of request time, [Neon](https://neon.com)'s free Postgres holds the database, and [Upstash](https://upstash.com)'s free Redis is optional. The first request after a quiet spell waits 10 to 20 seconds while an instance starts. Secrets live in Google Secret Manager, never in the repository or the image.
+
+One-time setup:
+1. Create a [Google Cloud project](https://console.cloud.google.com/projectcreate) and link a billing account (required even within the free tier), then [set a budget alert](https://console.cloud.google.com/billing/budgets) of a dollar or two. Install the [gcloud CLI](https://cloud.google.com/sdk/docs/install) and run `gcloud auth login`.
+2. Create a free Neon project and copy its **pooled** connection string (the host contains `-pooler`). Optionally create a free Upstash Redis database in the same region as Cloud Run and copy its `rediss://` URL.
+3. Store the secrets. Each command waits for you to paste the value and press Ctrl-D, so it never lands in your shell history:
+   ```bash
+   gcloud config set project YOUR_PROJECT_ID
+   gcloud services enable secretmanager.googleapis.com
+   gcloud secrets create pyqxel-database-url --data-file=-      # the Neon URL
+   python -m app.jobs.users generate-encryption-key | gcloud secrets create pyqxel-credentials-key --data-file=-
+   gcloud secrets create pyqxel-redis-url --data-file=-         # optional: the Upstash URL
+   ```
+   Read a secret back with `gcloud secrets versions access latest --secret pyqxel-credentials-key`. Never change the encryption key: the provider keys accounts stored can only be read with it.
+
+Deploy, and redeploy after each change:
+```bash
+PROJECT_ID=YOUR_PROJECT_ID SEC_USER_AGENT="PyQxel you@example.com" deploy/cloud-run.sh
+```
+The script enables the APIs it needs, builds the image on Cloud Build, and deploys:
+* the `pyqxel` service: 1 CPU and 2 GiB, at most 2 instances (`MAX_INSTANCES`), with the yfinance fallback off so market data comes only from each account's FMP plan. A new revision takes traffic only once `/health/ready` passes, so it never serves from an unreachable or unmigrated database; migrations run at startup, one instance at a time.
+* the `pyqxel-screener` job, which Cloud Scheduler runs at 6:30 pm New York time on weekdays (`SCREENER_SCHEDULE`; run it now with `gcloud run jobs execute pyqxel-screener --region us-central1`).
+
+Set `CORS_ORIGINS='["https://your-client.example"]'` for browser clients, and `REGION` to deploy elsewhere than `us-central1`. Don't store `ANTHROPIC_API_KEY` or `FINANCIAL_DATA_API_KEY` on the server; accounts store their own.
+
+Create your account from your own machine, against the production database, so the API key is printed only in your terminal:
+```bash
+DATABASE_URL="$(gcloud secrets versions access latest --secret pyqxel-database-url)" \
+CREDENTIALS_ENCRYPTION_KEY="$(gcloud secrets versions access latest --secret pyqxel-credentials-key)" \
+DATABASE_PGBOUNCER=true python -m app.jobs.users create you@example.com --import-env-keys
+```
+Then check the deployment with `curl https://<service-url>/health/ready`.
 
 ## Accounts and Billing
 

@@ -1,0 +1,66 @@
+# PyQxel with Postgres and Redis, for running the whole stack locally:
+#
+#   docker compose up --build                         # API at http://localhost:8000
+#   PYQXEL_TARGET=app-r docker compose up --build     # with R, for GARCH
+#   docker compose run --rm api python -m app.jobs.users create you@example.com
+#   docker compose run --rm api python -m app.jobs.screener
+#
+# Settings and secrets come from .env, as when running without Docker; the database,
+# Redis and R locations below override it. Postgres and Redis are reachable only from
+# the API container, so they do not clash with servers already running on this machine.
+
+services:
+  api:
+    build:
+      context: .
+      target: ${PYQXEL_TARGET:-app}
+    image: pyqxel:${PYQXEL_TARGET:-app}
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://pyqxel:${POSTGRES_PASSWORD:-pyqxel}@postgres:5432/pyqxel
+      REDIS_URL: redis://redis:6379/0
+      # The image's R, not the host's R_HOME from .env.
+      R_HOME: /usr/lib/R
+    ports:
+      - "${PYQXEL_PORT:-8000}:8000"
+    volumes:
+      # The screener's SEC bulk archive, kept between runs.
+      - data_cache:/app/data_cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: pyqxel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pyqxel}
+      POSTGRES_DB: pyqxel
+    volumes:
+      # Postgres 18 images keep data in a versioned folder under /var/lib/postgresql.
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pyqxel -d pyqxel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  data_cache:

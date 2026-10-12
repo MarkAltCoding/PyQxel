@@ -17,11 +17,12 @@ jobs:
           python-version: "3.14"
           cache: pip
 
-      # R is not installed yet, so rpy2 is left out and the GARCH tests skip.
+      # R is not installed here, so rpy2 is left out and the GARCH tests skip; the
+      # docker job runs GARCH in the image with R.
       - name: Install dependencies
         run: |
           grep -v '^rpy2' requirements.txt > requirements-ci.txt
-          pip install -r requirements-ci.txt
+          pip install -r requirements-ci.txt -r requirements-dev.txt
 
       - name: Tests (offline)
         run: pytest
@@ -34,3 +35,44 @@ jobs:
 
       - name: black
         run: black --check app tests
+
+  docker:
+    name: Docker image, Postgres, Redis and R
+    runs-on: ubuntu-latest
+    env:
+      PYQXEL_TARGET: app-r
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the image with R
+        run: docker compose build api
+
+      - name: Start the stack
+        run: docker compose up -d --wait
+
+      - name: Readiness covers the database, Redis and R
+        run: |
+          curl -s http://localhost:8000/health/ready | tee ready.json
+          python3 -c "import json; checks = json.load(open('ready.json'))['checks']; \
+            assert checks == {'database': 'ok', 'redis': 'ok', 'r': 'ok'}, checks"
+
+      - name: GARCH fits in the image
+        run: |
+          docker compose exec -T api python -c "
+          import asyncio
+          import numpy as np, pandas as pd
+          from app.stats.garch import fit_garch
+          returns = np.random.default_rng(7).standard_t(5, 1000) * 0.01
+          closes = pd.Series(100 * np.exp(np.cumsum(returns)),
+                             index=pd.bdate_range('2022-01-03', periods=1000))
+          fit = asyncio.run(fit_garch(closes, 252))
+          print(fit.model, fit.observations)
+          "
+
+      - name: Logs
+        if: failure()
+        run: docker compose logs
+
+      - name: Stop
+        if: always()
+        run: docker compose down -v
