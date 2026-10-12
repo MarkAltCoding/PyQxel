@@ -36,6 +36,45 @@ jobs:
       - name: black
         run: black --check app tests
 
+  web:
+    name: Web frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      # web/openapi.json is checked against the API by the Python tests; here the
+      # TypeScript types are checked against it.
+      - name: API types are current
+        run: |
+          npm run gen:api
+          git diff --exit-code -- src/api/schema.d.ts
+
+      - name: Types
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Formatting
+        run: npm run format:check
+
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
   docker:
     name: Docker image, Postgres, Redis and R
     runs-on: ubuntu-latest

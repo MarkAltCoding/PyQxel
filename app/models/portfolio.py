@@ -2,7 +2,7 @@
 
 import math
 from collections import Counter
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Literal, Self
 
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints, model_validator
@@ -155,4 +155,48 @@ class CopulaFitResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     notice: str | None = Field(
         default=None, description="Explains any part of the window without data."
+    )
+
+
+class HoldingShares(BaseModel):
+    """A saved position: how many shares of a symbol the account holds."""
+
+    symbol: PortfolioSymbol
+    shares: float = Field(gt=0, allow_inf_nan=False)
+
+
+class HoldingsUpdate(BaseModel):
+    """The account's whole portfolio, replacing what was saved; empty clears it."""
+
+    holdings: list[HoldingShares] = Field(default_factory=list, max_length=MAX_SYMBOLS)
+
+    @model_validator(mode="after")
+    def _check_distinct(self) -> Self:
+        _unique([holding.symbol for holding in self.holdings])
+        return self
+
+
+class HoldingValue(BaseModel):
+    """A saved position valued at the latest price."""
+
+    symbol: str
+    shares: float
+    name: str | None = None
+    price: float | None = Field(default=None, description="Latest price; null if unavailable.")
+    value: float | None = Field(default=None, description="``shares`` x ``price``.")
+    weight: float | None = Field(
+        default=None,
+        description="Share of the priced holdings' total value, as a decimal; null when "
+        "the price is unavailable.",
+    )
+
+
+class HoldingsResponse(BaseModel):
+    """The account's saved portfolio, valued now, in the order it was saved."""
+
+    holdings: list[HoldingValue]
+    total_value: float = Field(description="Sum of the priced holdings' values.")
+    priced_at: datetime
+    notice: str | None = Field(
+        default=None, description="Which holdings could not be priced, and why."
     )

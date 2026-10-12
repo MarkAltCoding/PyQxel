@@ -1,4 +1,5 @@
-# PyQxel API images. Two targets share every layer up to the R install:
+# PyQxel images: the API, serving the web frontend at /. Two targets share every layer up
+# to the R install:
 #
 #   docker build --target app   -t pyqxel .     # without R; GARCH endpoints return 503
 #   docker build --target app-r -t pyqxel-r .   # with R and rugarch for GARCH
@@ -17,6 +18,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 RUN useradd --create-home --uid 1000 pyqxel
 WORKDIR /app
+
+# ── The web frontend, built to static files the API serves at / ──
+FROM node:24-slim AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/ ./
+RUN npm run build
 
 # ── Python dependencies without rpy2 ──
 FROM base AS deps
@@ -56,6 +65,7 @@ FROM base AS app
 COPY --from=deps /opt/venv /opt/venv
 COPY alembic.ini .
 COPY app ./app
+COPY --from=web /web/dist ./web/dist
 RUN mkdir -p data_cache && chown pyqxel:pyqxel data_cache
 USER pyqxel
 ENV PORT=8000
@@ -74,6 +84,7 @@ COPY --from=r-build /usr/local/lib/R/site-library /usr/local/lib/R/site-library
 COPY --from=r-build /opt/venv /opt/venv
 COPY alembic.ini .
 COPY app ./app
+COPY --from=web /web/dist ./web/dist
 RUN mkdir -p data_cache && chown pyqxel:pyqxel data_cache
 USER pyqxel
 ENV PORT=8000

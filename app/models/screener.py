@@ -187,3 +187,23 @@ class UniverseStatus(BaseModel):
     last_error: str | None = Field(
         default=None, description="Why the latest refresh failed, if it did."
     )
+    sectors: list[str] = Field(
+        default_factory=list, description="Sectors in the universe, for the ``sectors`` filter."
+    )
+
+
+class SearchMatch(BaseModel):
+    """A stock in the screened universe whose symbol or name matches a search."""
+
+    symbol: str
+    name: str
+    exchange: str
+    sector: str | None
+    market_cap: float = Field(description="In US dollars.")
+
+
+class SearchResponse(BaseModel):
+    """Stocks matching a search, best matches first."""
+
+    query: str
+    items: list[SearchMatch]

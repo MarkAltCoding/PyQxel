@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
 
@@ -14,8 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.auth import CurrentUser
 from app.api.v1.endpoints.backtest import attribute, equity_points, load_factors
 from app.api.v1.endpoints.stocks import COVERAGE_TOLERANCE, PERIOD_OFFSETS, upstream_error
-from app.data.fetcher import DataFetchError
+from app.data.fetcher import DataFetchError, fetch_ticker_info
 from app.data.panel import fetch_close_panel
+from app.db.holdings import get_holdings, replace_holdings
 from app.db.session import get_session
 from app.db.simulations import (
     delete_simulation,
@@ -27,6 +29,10 @@ from app.models.portfolio import (
     CopulaFitResponse,
     CopulaRequest,
     GaussianCopula,
+    HoldingShares,
+    HoldingsResponse,
+    HoldingsUpdate,
+    HoldingValue,
     Matrix,
     PairDependence,
     PortfolioPeriod,
@@ -433,3 +439,71 @@ async def remove_simulation(simulation_id: UUID, session: Session, user: Current
             detail=f"No simulation with ID {simulation_id}.",
         )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def _value_holdings(holdings: list[HoldingShares]) -> HoldingsResponse:
+    """Price ``holdings`` concurrently and weight them by value."""
+    results = await asyncio.gather(
+        *(fetch_ticker_info(holding.symbol) for holding in holdings), return_exceptions=True
+    )
+    valued: list[HoldingValue] = []
+    failures: list[str] = []
+    for holding, result in zip(holdings, results, strict=True):
+        if isinstance(result, DataFetchError):
+            failures.append(f"{holding.symbol} ({result})")
+            valued.append(HoldingValue(symbol=holding.symbol, shares=holding.shares))
+            continue
+        if isinstance(result, BaseException):
+            raise result
+        value = None if result.price is None else holding.shares * result.price
+        if value is None:
+            failures.append(f"{holding.symbol} (no price)")
+        valued.append(
+            HoldingValue(
+                symbol=holding.symbol,
+                shares=holding.shares,
+                name=result.name,
+                price=result.price,
+                value=value,
+            )
+        )
+    total = sum(position.value for position in valued if position.value is not None)
+    for position in valued:
+        if position.value is not None and total > 0:
+            position.weight = position.value / total
+    return HoldingsResponse(
+        holdings=valued,
+        total_value=total,
+        priced_at=datetime.now(timezone.utc),
+        notice=f"Could not price {'; '.join(failures)}." if failures else None,
+    )
+
+
+@router.get("/holdings", response_model=HoldingsResponse, summary="Your saved portfolio")
+async def read_holdings(session: Session, user: CurrentUser) -> HoldingsResponse:
+    """Return your saved holdings valued at the latest prices, with their weights.
+
+    Holdings that cannot be priced are listed without a value or weight and named in
+    ``notice``. Returns 503 when the database is unavailable.
+    """
+    try:
+        holdings = await get_holdings(session, user.id)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    return await _value_holdings(holdings)
+
+
+@router.put("/holdings", response_model=HoldingsResponse, summary="Save your portfolio")
+async def store_holdings(
+    session: Session, user: CurrentUser, update: Annotated[HoldingsUpdate, Body()]
+) -> HoldingsResponse:
+    """Replace your saved holdings (up to 20 symbols) and return them valued.
+
+    Simulate or fit a copula to them by sending their ``weight`` values to
+    ``/portfolio/simulate`` or their symbols to ``/portfolio/copula``.
+    """
+    try:
+        await replace_holdings(session, user.id, update.holdings)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    return await _value_holdings(update.holdings)

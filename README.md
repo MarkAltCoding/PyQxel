@@ -23,6 +23,7 @@ An AI-native research and quantitative analysis platform that helps investors ch
 * **AI Engine & NLP**: Anthropic API (Claude Opus 5.5, `claude-opus-5-5`) through the official `anthropic` SDK, BeautifulSoup4 for SEC filing text
 * **Market Data Feeds**: Financial Modeling Prep (FMP, the licensed primary source, on each user's own plan), `yfinance` (development fallback), Alpha Vantage API, SEC EDGAR
 * **Client Interface Target**: Cross-platform REST & WebSocket API servicing macOS and iOS clients (Swift/React Native compatible)
+* **Web Frontend**: React and TypeScript (Vite), with ECharts for charts, served by the API at `/`
 
 ---
 
@@ -33,7 +34,8 @@ An AI-native research and quantitative analysis platform that helps investors ch
 1. **Python 3.14+** installed on your system.
 2. **R 4.3+** installed (required for advanced statistical and econometric modules).
 3. **Claude Code** CLI configured locally (`npm install -g @anthropic-ai/claude-code`).
-4. **Docker** (optional) to run the API with Postgres and Redis in containers instead; see [Docker and Deployment](#docker-and-deployment).
+4. **Node.js 24+** to build or develop the web frontend.
+5. **Docker** (optional) to run the API with Postgres and Redis in containers instead; see [Docker and Deployment](#docker-and-deployment).
 
 ### Installation
 
@@ -91,11 +93,29 @@ An AI-native research and quantitative analysis platform that helps investors ch
 
    Set `REDIS_URL` (e.g. `redis://localhost:6379/0`) to also cache ticker info and price history for 5 minutes (1 minute for intraday bars), shared by every worker. Without Redis, or while it is down, those requests go straight to the data providers.
 
-6. **Run the Tests**:
+6. **Run the Web App**:
+   ```bash
+   cd web
+   npm ci
+   npm run dev     # http://localhost:5173, forwarding API calls to the server above
+   npm run build   # or build it once; the API server then serves it at http://127.0.0.1:8000
+   ```
+   Sign in with your API key. The app has:
+   * **Search** by ticker or company name, over the screened universe (`GET /api/v1/search?q=`); any other ticker, such as an ETF, can be typed in directly.
+   * **Stock pages** with price and volume, factor exposures with confidence intervals, GARCH volatility with its forecast, and the AI research report, written on request and streamed as Claude writes it.
+   * **Portfolio**: holdings saved to your account (`GET` and `PUT /api/v1/portfolio/holdings`, as symbols and share counts valued at the latest prices), a Monte Carlo fan chart of outcomes, and a heatmap of how the holdings move together, from the copula fit.
+   * **Backtest**: run strategies on any symbol, compare them with buy-and-hold, and reopen or delete saved runs.
+   * **Screener**: filter and sort the universe on any metric, by sector and universe.
+   * **Settings**: store your Anthropic and FMP keys and set your AI limits.
+
+   Every chart has a table view, and the app follows the system's light or dark mode. The frontend's TypeScript types are generated from the API: after changing an endpoint, run `python -m app.jobs.openapi`, then `npm run gen:api` in `web/` (the tests fail until both are current).
+
+7. **Run the Tests**:
    ```bash
    pytest                # offline; no network or API calls
    pytest --live         # also call yfinance, FMP, SEC EDGAR, Ken French's library and R
    pytest --live --paid  # also make two billed Claude requests (about $0.15-0.25)
+   cd web && npm test    # the web frontend; npm run typecheck, lint and format:check too
    ```
 
 ---
@@ -110,7 +130,7 @@ docker compose up --build                                  # http://localhost:80
 docker compose run --rm api python -m app.jobs.users create you@example.com --import-env-keys
 docker compose run --rm api python -m app.jobs.screener    # refresh the screened universe
 ```
-The `Dockerfile` builds two images: `app`, the default, without R, where GARCH returns 503; and `app-r`, with R and `rugarch`, for GARCH (`PYQXEL_TARGET=app-r docker compose up --build`). Both run as an unprivileged user and contain no secrets. The containers' Postgres and Redis are reachable only from the API container, so they do not clash with servers already running locally; set `POSTGRES_PASSWORD` in `.env` to change the local database's password (`pyqxel` by default), and `PYQXEL_PORT` to serve on another port.
+The images include the built web frontend, at `http://localhost:8000`. The `Dockerfile` builds two images: `app`, the default, without R, where GARCH returns 503; and `app-r`, with R and `rugarch`, for GARCH (`PYQXEL_TARGET=app-r docker compose up --build`). Both run as an unprivileged user and contain no secrets. The containers' Postgres and Redis are reachable only from the API container, so they do not clash with servers already running locally; set `POSTGRES_PASSWORD` in `.env` to change the local database's password (`pyqxel` by default), and `PYQXEL_PORT` to serve on another port.
 
 ### Health checks
 

@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -25,6 +25,7 @@ from app.models.screener import (
     ScreenField,
     ScreenRequest,
     ScreenResponse,
+    SearchMatch,
     UniverseStatus,
 )
 
@@ -156,6 +157,12 @@ async def universe_status(session: AsyncSession) -> UniverseStatus:
     succeeded = await _latest_run(session, SUCCEEDED)
     latest = await _latest_run(session)
     fundamentals = await fundamentals_refreshed_at(session)
+    sectors = await session.scalars(
+        select(ScreenerStockRecord.sector)
+        .where(ScreenerStockRecord.sector.is_not(None))
+        .distinct()
+        .order_by(ScreenerStockRecord.sector)
+    )
     return UniverseStatus(
         stocks=stocks or 0,
         refreshed_at=(
@@ -167,6 +174,7 @@ async def universe_status(session: AsyncSession) -> UniverseStatus:
         fundamentals_refreshed_at=fundamentals,
         factor_data_end=None if succeeded is None else succeeded.factor_data_end,
         last_error=latest.error if latest is not None and latest.status == FAILED else None,
+        sectors=[sector for sector in sectors if sector is not None],
     )
 
 
@@ -220,3 +228,32 @@ async def screen(session: AsyncSession, request: ScreenRequest) -> ScreenRespons
             else as_utc(succeeded.finished_at)
         ),
     )
+
+
+def _like_pattern(text: str) -> str:
+    """Escape ``LIKE`` wildcards in ``text`` so it matches literally (escape ``\\``)."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+async def search_stocks(session: AsyncSession, query: str, limit: int) -> list[SearchMatch]:
+    """Return up to ``limit`` stocks whose symbol starts with or name contains ``query``.
+
+    An exact symbol comes first, then symbols starting with ``query``, then names
+    containing it; within each, larger companies first. Matching ignores case.
+    """
+    text = query.strip().lower()
+    if not text:
+        return []
+    escaped = _like_pattern(text)
+    symbol = func.lower(ScreenerStockRecord.symbol)
+    name = func.lower(ScreenerStockRecord.name)
+    starts = symbol.like(f"{escaped}%", escape="\\")
+    contains = name.like(f"%{escaped}%", escape="\\")
+    relevance = case((symbol == text, 0), (starts, 1), else_=2)
+    records = await session.scalars(
+        select(ScreenerStockRecord)
+        .where(or_(starts, contains))
+        .order_by(relevance, ScreenerStockRecord.market_cap.desc())
+        .limit(limit)
+    )
+    return [SearchMatch.model_validate(record, from_attributes=True) for record in records]

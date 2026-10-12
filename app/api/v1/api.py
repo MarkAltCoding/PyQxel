@@ -11,6 +11,7 @@ from app.api.v1.endpoints import (
     quotes,
     research,
     screener,
+    search,
     stocks,
 )
 
@@ -24,5 +25,6 @@ api_router.include_router(factors.router, prefix="/stocks", tags=["factors"])
 api_router.include_router(fundamentals.router, prefix="/stocks", tags=["fundamentals"])
 api_router.include_router(backtest.results_router, prefix="/backtests", tags=["backtest"])
 api_router.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
+api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(screener.router, prefix="/screener", tags=["screener"])
 api_router.include_router(quotes.router, prefix="/ws", tags=["quotes"])
