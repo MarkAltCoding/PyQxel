@@ -18,8 +18,8 @@ web/dist
 .ruff_cache
 .coverage
 htmlcov
-data_cache
-data
+/data_cache
+/data
 output
 tests
 *.md
