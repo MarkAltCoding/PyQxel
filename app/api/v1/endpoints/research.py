@@ -34,7 +34,11 @@ from app.ai.agent import (
 )
 from app.ai.cache import analysis_slot, cached_analysis, remember_analysis
 from app.api.auth import CurrentUser
-from app.api.v1.endpoints.fundamentals import build_fundamentals, financials_failure_notice
+from app.api.v1.endpoints.fundamentals import (
+    build_fundamentals,
+    financials_failure_notice,
+    statement_exchange_rate,
+)
 from app.api.v1.endpoints.stocks import (
     PERIODS_PER_YEAR,
     Symbol,
@@ -145,7 +149,7 @@ def _factor_context(
     return FactorContext(model=ANALYSIS_FACTOR_MODEL, factor_data_end=end, fit=fit), None
 
 
-def _fundamentals(
+async def _fundamentals(
     symbol: str, result: Financials | BaseException, info: TickerInfo | None
 ) -> tuple[Fundamentals | None, list[str]]:
     """Value the company from its financials, or explain why there are none.
@@ -157,7 +161,7 @@ def _fundamentals(
         return None, [financials_failure_notice(symbol, result)]
     if isinstance(result, BaseException):
         raise result
-    return build_fundamentals(result, info)
+    return build_fundamentals(result, info, await statement_exchange_rate(result, info))
 
 
 def _ai_error(exc: AnalysisError) -> HTTPException:
@@ -337,7 +341,7 @@ async def prepare_analysis(
     if factor_notice:
         notices.append(factor_notice)
 
-    fundamentals, fundamentals_notices = _fundamentals(symbol, financials_result, market_info)
+    fundamentals, fundamentals_notices = await _fundamentals(symbol, financials_result, market_info)
     notices.extend(fundamentals_notices)
 
     context = AnalysisContext(

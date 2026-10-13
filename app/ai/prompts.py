@@ -24,15 +24,19 @@ not a forecast. The regression ends at factor_data_end, which lags the price dat
 idiosyncratic_share is how much of the return variance the factors leave unexplained.
 
 The snapshot may also hold fundamentals: figures from the company's XBRL financial \
-statements filed with the SEC, in US dollars under US GAAP. Each income and cash flow \
+statements filed with the SEC, under the accounting_standard (US GAAP or IFRS) and in \
+the currency the financials name; foreign issuers file only annual reports, so their \
+TTM figures are their last fiscal year. Each income and cash flow \
 item gives a trailing-twelve-month (TTM) total ending at ttm_end, its growth on the TTM \
 total a year earlier, and up to five fiscal years identified by the date each ended. \
 The balance sheet items are at the latest balance sheet date. The valuation combines \
 the current market cap with those figures, so it pairs today's price with results that \
 may be months old; multiples are plain ratios, while margins, growth, yields and return \
-on equity are decimals. Figures are as reported under GAAP, before the adjustments in \
+on equity are decimals. Figures are as reported, before the adjustments in \
 companies' own non-GAAP measures, and one-time gains or charges can distort a TTM total \
-or its growth; check the fiscal-year history before treating a jump as a trend. A null \
+or its growth; check the fiscal-year history before treating a jump as a trend. When \
+the statements are not in the listing's currency, the valuation converts them at the \
+latest exchange_rate, so currency moves shift the multiples. A null \
 figure or ratio means it was not reported in a recognized form or is not meaningful, \
 not that it is zero; valuation.notes say which.
 

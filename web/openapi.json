@@ -1748,8 +1748,18 @@
         "type": "object"
       },
       "Financials": {
-        "description": "A company's financial statement figures, normalized from its SEC XBRL filings.\n\nPeriods come from each figure's own start and end dates, so fiscal years that do not\nmatch the calendar line up correctly. Figures are as filed under US GAAP, using the\nlatest filing's value when a period was restated.",
+        "description": "A company's financial statement figures, normalized from its SEC XBRL filings.\n\nPeriods come from each figure's own start and end dates, so fiscal years that do not\nmatch the calendar line up correctly. Figures are as filed under US GAAP or IFRS, in\nthe company's reporting currency, using the latest filing's value when a period was\nrestated.",
         "properties": {
+          "accounting_standard": {
+            "default": "US GAAP",
+            "description": "Standard of the latest financial statements.",
+            "enum": [
+              "US GAAP",
+              "IFRS"
+            ],
+            "title": "Accounting Standard",
+            "type": "string"
+          },
           "capital_expenditure": {
             "anyOf": [
               {
@@ -1776,6 +1786,12 @@
             "description": "The company's SEC Central Index Key.",
             "title": "Cik",
             "type": "integer"
+          },
+          "currency": {
+            "default": "USD",
+            "description": "ISO 4217 code of the currency every amount here is in, e.g. ``EUR``.",
+            "title": "Currency",
+            "type": "string"
           },
           "depreciation_amortization": {
             "anyOf": [
@@ -5122,6 +5138,19 @@
             "description": "Enterprise value over TTM EBITDA.",
             "title": "Ev To Ebitda"
           },
+          "exchange_rate": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Units of the listing's currency per unit of the financial statements' currency, at the latest rate, used to compare statement figures with the market value; null when both are in the same currency.",
+            "title": "Exchange Rate"
+          },
           "fcf_margin": {
             "anyOf": [
               {
@@ -6731,7 +6760,7 @@
     },
     "/api/v1/stocks/{symbol}/fundamentals": {
       "get": {
-        "description": "Return ``symbol``'s financial statement figures and valuation.\n\nFigures come from the company's XBRL filings on SEC EDGAR, in US dollars:\ntrailing-twelve-month (TTM) revenue, profits, cash flows and EBITDA with year-on-year\ngrowth, five fiscal years of history, and the latest balance sheet. They are combined\nwith the current market cap into P/E, P/S, EV/EBITDA, free-cash-flow yield, margins\nand return on equity. Growth rates, margins, yields and returns are decimals.\n\nItems a company does not report under a recognized concept are null, as are ratios\nthat are not meaningful; ``valuation.notes`` and ``notice`` say why.\n\nReturns 404 when the symbol has no SEC registrant or no US GAAP financial data, 502\nwhen EDGAR fails, and 503 when ``SEC_USER_AGENT`` is not set.",
+        "description": "Return ``symbol``'s financial statement figures and valuation.\n\nFigures come from the company's XBRL filings on SEC EDGAR, under US GAAP or IFRS and\nin the currency it reports in (``financials.currency``): trailing-twelve-month (TTM)\nrevenue, profits, cash flows and EBITDA with year-on-year\ngrowth, five fiscal years of history, and the latest balance sheet. They are combined\nwith the current market cap into P/E, P/S, EV/EBITDA, free-cash-flow yield, margins\nand return on equity, converting statements in another currency at the latest\nexchange rate. Growth rates, margins, yields and returns are decimals.\n\nItems a company does not report under a recognized concept are null, as are ratios\nthat are not meaningful; ``valuation.notes`` and ``notice`` say why.\n\nReturns 404 when the symbol has no SEC registrant or no US GAAP or IFRS data, 502\nwhen EDGAR fails, and 503 when ``SEC_USER_AGENT`` is not set.",
         "operationId": "get_fundamentals_api_v1_stocks__symbol__fundamentals_get",
         "parameters": [
           {

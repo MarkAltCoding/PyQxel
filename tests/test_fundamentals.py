@@ -67,7 +67,24 @@ def company(
     }
 
 
+def ifrs_company(
+    units: dict[str, dict[str, list[dict[str, Any]]]],
+    us_gaap: dict[str, dict[str, list[dict[str, Any]]]] | None = None,
+) -> dict[str, Any]:
+    """A company facts document holding IFRS (and optionally US GAAP) figures by unit."""
+    return {
+        "cik": CIK,
+        "entityName": "Taiwan Semiconductor Manufacturing Co., Ltd.",
+        "facts": {
+            "ifrs-full": {name: {"units": rows} for name, rows in units.items()},
+            "us-gaap": {name: {"units": rows} for name, rows in (us_gaap or {}).items()},
+        },
+    }
+
+
 EQUITY = {"StockholdersEquity": [fact("2026-06-27", 300.0), fact("2025-06-28", 200.0)]}
+CALENDAR_2024 = ("2024-01-01", "2024-12-31")
+CALENDAR_2025 = ("2025-01-01", "2025-12-31")
 
 
 def test_ttm_adds_year_to_date_to_the_last_fiscal_year() -> None:
@@ -306,10 +323,121 @@ def test_items_no_longer_reported_are_left_out() -> None:
     assert financials.operating_income is None
 
 
-def test_company_without_us_gaap_figures_is_not_found() -> None:
-    """An IFRS filer's document has no US GAAP figures to read."""
+def test_company_without_us_gaap_or_ifrs_figures_is_not_found() -> None:
+    """A fund or shell company has none of the items read here."""
     with pytest.raises(FinancialsNotFoundError):
-        normalize({"facts": {"ifrs-full": {}}}, CIK)
+        normalize({"facts": {"ifrs-full": {}, "dei": {}}}, CIK)
+
+
+def test_ifrs_figures_are_read_in_the_home_currency() -> None:
+    """A 20-F's figures are in its own currency, not its convenience dollar translation."""
+    annual = "20-F"
+    document = ifrs_company(
+        {
+            "Revenue": {
+                "TWD": [
+                    fact(CALENDAR_2024, 2_900.0, filed="2025-04-17", form=annual),
+                    fact(CALENDAR_2025, 3_800.0, filed="2026-04-16", form=annual),
+                ],
+                "USD": [fact(CALENDAR_2025, 116.0, filed="2026-04-16", form=annual)],
+            },
+            "ProfitLoss": {
+                "TWD": [fact(CALENDAR_2025, 1_700.0, filed="2026-04-16", form=annual)],
+            },
+            "EquityAttributableToOwnersOfParent": {
+                "TWD": [fact("2025-12-31", 5_000.0, filed="2026-04-16", form=annual)],
+            },
+            "CashAndCashEquivalents": {
+                "TWD": [fact("2025-12-31", 2_100.0, filed="2026-04-16", form=annual)],
+            },
+        }
+    )
+
+    financials = normalize(document, CIK)
+
+    assert (financials.accounting_standard, financials.currency) == ("IFRS", "TWD")
+    assert financials.revenue is not None
+    assert financials.revenue.concept == "ifrs-full:Revenue"
+    assert financials.revenue.ttm == 3_800.0
+    assert financials.revenue.ttm_growth == pytest.approx(3_800.0 / 2_900.0 - 1)
+    assert financials.net_income is not None and financials.net_income.ttm == 1_700.0
+    assert financials.cash is not None and financials.cash.value == 2_100.0
+    assert financials.stockholders_equity is not None
+    assert financials.total_debt is None
+
+
+def test_a_switch_to_ifrs_keeps_the_us_gaap_history() -> None:
+    """A company that moved from US GAAP to IFRS is read under IFRS, with older years kept."""
+    document = ifrs_company(
+        {"Revenue": {"JPY": [fact(CALENDAR_2025, 13_000.0, filed="2026-06-20", form="20-F")]}},
+        us_gaap={
+            "Revenues": {"JPY": [fact(CALENDAR_2024, 12_000.0, filed="2025-06-20", form="20-F")]}
+        },
+    )
+
+    financials = normalize(document, CIK)
+
+    assert (financials.accounting_standard, financials.currency) == ("IFRS", "JPY")
+    assert financials.revenue is not None
+    assert financials.revenue.concept == "ifrs-full:Revenue"
+    assert [year.value for year in financials.revenue.fiscal_years] == [12_000.0, 13_000.0]
+
+
+@pytest.mark.parametrize(
+    ("borrowings", "expected", "concept"),
+    [
+        (
+            {
+                "LongtermBorrowings": 24.7,
+                "CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings": 3.1,
+                "Borrowings": 29.6,
+            },
+            27.8,
+            "ifrs-full:LongtermBorrowings"
+            " + ifrs-full:CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings",
+        ),
+        (
+            {
+                "LongtermBorrowings": 2_066.8,
+                "CurrentPortionOfLongtermBorrowings": 287.4,
+                "ShorttermBorrowings": 1_844.0,
+            },
+            4_198.2,
+            "ifrs-full:LongtermBorrowings + ifrs-full:CurrentPortionOfLongtermBorrowings"
+            " + ifrs-full:ShorttermBorrowings",
+        ),
+        (
+            {
+                "LongtermBorrowings": 118.9,
+                "CurrentPortionOfLongtermBorrowings": 12.0,
+                "ShorttermBorrowings": 12.0,
+            },
+            130.9,
+            "ifrs-full:LongtermBorrowings + ifrs-full:CurrentPortionOfLongtermBorrowings",
+        ),
+        ({"Borrowings": 6.2}, 6.2, "ifrs-full:Borrowings"),
+        ({"LeaseLiabilities": 1.0}, None, None),
+    ],
+)
+def test_ifrs_total_debt(
+    borrowings: dict[str, float], expected: float | None, concept: str | None
+) -> None:
+    """Borrowings are noncurrent plus current, counting a doubly tagged line once."""
+    balance_date = "2025-12-31"
+    units = {
+        name: {"EUR": [fact(balance_date, value, form="20-F")]}
+        for name, value in borrowings.items()
+    }
+    units["Equity"] = {"EUR": [fact(balance_date, 100.0, form="20-F")]}
+
+    total = normalize(ifrs_company(units), CIK).total_debt
+
+    if expected is None:
+        assert total is None
+    else:
+        assert total is not None
+        assert total.value == pytest.approx(expected)
+        assert total.concept == concept
 
 
 TICKERS = {"0": {"cik_str": CIK, "ticker": "AAPL", "title": "Apple Inc."}}
@@ -317,8 +445,52 @@ FACTS_URL = fundamentals.COMPANY_FACTS_URL.format(cik=CIK)
 DOCUMENT = company({"Revenues": [fact(FY2025, 400.0, form="10-K")]} | EQUITY)
 
 
-def _edgar(facts: httpx2.Response | None = None) -> tuple[httpx2.AsyncClient, list[str]]:
-    """A client for a fake EDGAR serving the ticker map and ``facts``, and its requests."""
+SUBMISSIONS_URL = sec_edgar.SUBMISSIONS_URL.format(cik=CIK)
+FILING_FOLDER = f"https://www.sec.gov/Archives/edgar/data/{CIK}/000032019326000100"
+INSTANCE = """<?xml version="1.0" encoding="utf-8"?>
+<xbrl xmlns="http://www.xbrl.org/2003/instance"
+      xmlns:us-gaap="http://fasb.org/us-gaap/2025"
+      xmlns:xbrldi="http://xbrl.org/2006/xbrldi">
+  <context id="fy">
+    <entity><identifier scheme="http://www.sec.gov/CIK">0000320193</identifier></entity>
+    <period><startDate>2025-09-28</startDate><endDate>2026-09-26</endDate></period>
+  </context>
+  <context id="fy-segment">
+    <entity>
+      <identifier scheme="http://www.sec.gov/CIK">0000320193</identifier>
+      <segment><xbrldi:explicitMember dimension="x">y</xbrldi:explicitMember></segment>
+    </entity>
+    <period><startDate>2025-09-28</startDate><endDate>2026-09-26</endDate></period>
+  </context>
+  <context id="end">
+    <entity><identifier scheme="http://www.sec.gov/CIK">0000320193</identifier></entity>
+    <period><instant>2026-09-26</instant></period>
+  </context>
+  <unit id="usd"><measure>iso4217:USD</measure></unit>
+  <us-gaap:Revenues contextRef="fy" unitRef="usd" decimals="-6">450</us-gaap:Revenues>
+  <us-gaap:Revenues contextRef="fy-segment" unitRef="usd" decimals="-6">999</us-gaap:Revenues>
+  <us-gaap:StockholdersEquity contextRef="end" unitRef="usd" decimals="-6"
+    >320</us-gaap:StockholdersEquity>
+</xbrl>"""
+"""A 10-K's XBRL instance with a total, a segment's figure and a balance."""
+MISSING_FILING = {
+    "filings": {
+        "recent": {
+            "form": ["10-K", "10-Q"],
+            "filingDate": ["2026-10-30", "2026-08-01"],
+            "accessionNumber": ["0000320193-26-000100", "0000320193-26-000050"],
+            "isXBRL": [1, 1],
+        }
+    }
+}
+"""Submissions listing a 10-K that the company facts document lacks."""
+
+
+def _edgar(
+    facts: httpx2.Response | None = None, submissions: dict[str, Any] | None = None
+) -> tuple[httpx2.AsyncClient, list[str]]:
+    """A client for a fake EDGAR serving the ticker map, ``facts`` and, if given,
+    ``submissions`` with the 10-K it lists; and the requests made."""
     requested: list[str] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -328,6 +500,14 @@ def _edgar(facts: httpx2.Response | None = None) -> tuple[httpx2.AsyncClient, li
             return httpx2.Response(200, json=TICKERS)
         if url == FACTS_URL:
             return facts or httpx2.Response(200, json=DOCUMENT)
+        if submissions is not None:
+            if url == SUBMISSIONS_URL:
+                return httpx2.Response(200, json=submissions)
+            if url == f"{FILING_FOLDER}/index.json":
+                names = [{"name": "aapl-20260926.htm"}, {"name": "aapl-20260926_htm.xml"}]
+                return httpx2.Response(200, json={"directory": {"item": names}})
+            if url == f"{FILING_FOLDER}/aapl-20260926_htm.xml":
+                return httpx2.Response(200, content=INSTANCE.encode())
         return httpx2.Response(404)
 
     return httpx2.AsyncClient(transport=httpx2.MockTransport(handler)), requested
@@ -385,6 +565,31 @@ async def test_company_without_xbrl_data_is_not_found() -> None:
 
     with pytest.raises(FinancialsNotFoundError, match="AAPL"):
         await fetch_financials("AAPL", client=client)
+
+
+@pytest.mark.asyncio
+async def test_a_filing_missing_from_company_facts_is_read_from_its_instance() -> None:
+    """A newer 10-K that company facts left out is read, leaving out segment figures."""
+    client, requested = _edgar(submissions=MISSING_FILING)
+
+    financials = await fetch_financials("AAPL", client=client)
+
+    assert str(financials.latest_period_end) == "2026-09-26"
+    assert financials.revenue is not None and financials.revenue.ttm == 450.0
+    assert financials.stockholders_equity is not None
+    assert financials.stockholders_equity.value == 320.0
+    # The 10-Q filed with the figures company facts holds is not read again.
+    assert not any("000032019326000050" in url for url in requested)
+
+
+@pytest.mark.asyncio
+async def test_a_company_missing_from_company_facts_is_read_from_its_filings() -> None:
+    """Without a company facts document, the company's filings alone are read."""
+    client, _ = _edgar(httpx2.Response(404), submissions=MISSING_FILING)
+
+    financials = await fetch_financials("AAPL", client=client)
+
+    assert financials.revenue is not None and financials.revenue.ttm == 450.0
 
 
 @pytest.mark.asyncio

@@ -655,16 +655,18 @@ export interface paths {
      * Financial statements from SEC filings, with valuation multiples
      * @description Return ``symbol``'s financial statement figures and valuation.
      *
-     *     Figures come from the company's XBRL filings on SEC EDGAR, in US dollars:
-     *     trailing-twelve-month (TTM) revenue, profits, cash flows and EBITDA with year-on-year
+     *     Figures come from the company's XBRL filings on SEC EDGAR, under US GAAP or IFRS and
+     *     in the currency it reports in (``financials.currency``): trailing-twelve-month (TTM)
+     *     revenue, profits, cash flows and EBITDA with year-on-year
      *     growth, five fiscal years of history, and the latest balance sheet. They are combined
      *     with the current market cap into P/E, P/S, EV/EBITDA, free-cash-flow yield, margins
-     *     and return on equity. Growth rates, margins, yields and returns are decimals.
+     *     and return on equity, converting statements in another currency at the latest
+     *     exchange rate. Growth rates, margins, yields and returns are decimals.
      *
      *     Items a company does not report under a recognized concept are null, as are ratios
      *     that are not meaningful; ``valuation.notes`` and ``notice`` say why.
      *
-     *     Returns 404 when the symbol has no SEC registrant or no US GAAP financial data, 502
+     *     Returns 404 when the symbol has no SEC registrant or no US GAAP or IFRS data, 502
      *     when EDGAR fails, and 503 when ``SEC_USER_AGENT`` is not set.
      */
     get: operations['get_fundamentals_api_v1_stocks__symbol__fundamentals_get']
@@ -1685,10 +1687,18 @@ export interface components {
      * @description A company's financial statement figures, normalized from its SEC XBRL filings.
      *
      *     Periods come from each figure's own start and end dates, so fiscal years that do not
-     *     match the calendar line up correctly. Figures are as filed under US GAAP, using the
-     *     latest filing's value when a period was restated.
+     *     match the calendar line up correctly. Figures are as filed under US GAAP or IFRS, in
+     *     the company's reporting currency, using the latest filing's value when a period was
+     *     restated.
      */
     Financials: {
+      /**
+       * Accounting Standard
+       * @description Standard of the latest financial statements.
+       * @default US GAAP
+       * @enum {string}
+       */
+      accounting_standard?: 'US GAAP' | 'IFRS'
       /** @description Purchases of property, plant and equipment, as a positive sum. */
       capital_expenditure?: components['schemas']['FlowItem'] | null
       /** @description Cash and cash equivalents. */
@@ -1698,6 +1708,12 @@ export interface components {
        * @description The company's SEC Central Index Key.
        */
       cik: number
+      /**
+       * Currency
+       * @description ISO 4217 code of the currency every amount here is in, e.g. ``EUR``.
+       * @default USD
+       */
+      currency?: string
       depreciation_amortization?: components['schemas']['FlowItem'] | null
       /** @description Operating income plus depreciation and amortization. */
       ebitda?: components['schemas']['FlowItem'] | null
@@ -3366,6 +3382,11 @@ export interface components {
        * @description Enterprise value over TTM EBITDA.
        */
       ev_to_ebitda?: number | null
+      /**
+       * Exchange Rate
+       * @description Units of the listing's currency per unit of the financial statements' currency, at the latest rate, used to compare statement figures with the market value; null when both are in the same currency.
+       */
+      exchange_rate?: number | null
       /** Fcf Margin */
       fcf_margin?: number | null
       /**
