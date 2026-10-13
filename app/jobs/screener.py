@@ -83,7 +83,11 @@ SESSION_SETTLED: time = time(16, 30)
 
 MAX_SINGLE_FETCHES: int = 200
 """Companies new to the universe whose financials are fetched one by one between bulk
-rebuilds; more wait for the next rebuild. The same cap applies to companies caught up."""
+rebuilds; more wait for the next rebuild."""
+
+MAX_CATCH_UPS: int = 500
+"""Companies whose financials look behind that are refetched in one run; each takes two
+or three EDGAR requests, so 500 take about three minutes."""
 
 BEHIND_AFTER_DAYS: dict[AccountingStandard, int] = {"US GAAP": 135, "IFRS": 485}
 """Age of a company's latest period after which a newer filing is probably out: a 10-Q is
@@ -242,7 +246,7 @@ async def _catch_up_fundamentals(ciks: set[int], symbols: dict[int, str], today:
 
     Company facts, in bulk and per company, occasionally leaves out a filing; fetching a
     company on its own reads such filings from their XBRL instances. Companies that are
-    simply late filers are checked again on each run, up to :data:`MAX_SINGLE_FETCHES`.
+    simply late filers are checked again on each run, up to :data:`MAX_CATCH_UPS`.
     """
     async with get_sessionmaker()() as session:
         stored = await load_fundamentals(session, ciks)
@@ -256,7 +260,7 @@ async def _catch_up_fundamentals(ciks: set[int], symbols: dict[int, str], today:
     behind.sort(key=lambda cik: stored[cik].latest_period_end or date.min, reverse=True)
     caught_up: list[Financials] = []
     async with edgar_client() as client:
-        for cik in behind[:MAX_SINGLE_FETCHES]:
+        for cik in behind[:MAX_CATCH_UPS]:
             try:
                 fetched = await fetch_financials(symbols[cik], client=client)
             except FilingFetchError as exc:
