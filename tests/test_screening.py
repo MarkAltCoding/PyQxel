@@ -110,3 +110,20 @@ def test_stale_financials_give_no_ratios() -> None:
 
 def test_market_cap_ranks_put_the_largest_first() -> None:
     assert market_cap_ranks({"S": 1.0, "L": 100.0, "M": 10.0}) == {"L": 1, "M": 2, "S": 3}
+
+
+def test_foreign_statements_are_valued_in_dollars() -> None:
+    """Statements in another currency are converted at its rate; without one, only the
+    multiples comparing them with market cap are left out."""
+    financials = sample_financials(
+        accounting_standard="IFRS", currency="DKK", latest_period_end=TODAY - timedelta(days=60)
+    )
+
+    converted = fundamental_metrics(financials, 10.0, 1_000.0, TODAY, {"DKK": 0.5})
+    unconverted = fundamental_metrics(financials, 10.0, 1_000.0, TODAY, {})
+
+    # 1,000 / (100 DKK x 0.5).
+    assert converted["pe_ratio"] == 20.0
+    assert unconverted["pe_ratio"] is None and unconverted["price_to_sales"] is None
+    assert converted["net_margin"] == unconverted["net_margin"] == 0.25
+    assert unconverted["revenue_growth"] == 0.1

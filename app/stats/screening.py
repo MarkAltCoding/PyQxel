@@ -102,9 +102,17 @@ def _ttm_growth(item: FlowItem | None) -> float | None:
 
 
 def fundamental_metrics(
-    financials: Financials | None, price: float, market_cap: float, today: date
+    financials: Financials | None,
+    price: float,
+    market_cap: float,
+    today: date,
+    exchange_rates: dict[str, float] | None = None,
 ) -> dict[str, float | None]:
-    """Valuation, margins, returns and growth from ``financials`` at ``market_cap``."""
+    """Valuation, margins, returns and growth from ``financials`` at ``market_cap``.
+
+    ``exchange_rates`` gives US dollars per unit of each currency statements may be in;
+    without a rate for theirs, the multiples comparing them with market cap are null.
+    """
     fields = [
         "pe_ratio",
         "price_to_sales",
@@ -122,7 +130,8 @@ def fundamental_metrics(
         return empty
     if today - latest > timedelta(days=STALE_FUNDAMENTALS_DAYS):
         return empty
-    valuation = value_company(financials, price, market_cap)
+    rate = (exchange_rates or {}).get(financials.currency)
+    valuation = value_company(financials, price, market_cap, "USD", rate)
     ratios: dict[str, float | None] = (
         empty if valuation is None else {field: getattr(valuation, field) for field in fields}
     )
@@ -143,6 +152,7 @@ def screen_metrics(
     financials: Financials | None,
     factors: pd.DataFrame | None,
     today: date,
+    exchange_rates: dict[str, float] | None = None,
 ) -> ScreenMetrics | None:
     """Every screening metric of one stock, or ``None`` without a usable price history.
 
@@ -153,13 +163,14 @@ def screen_metrics(
         financials: The company's normalized financials, if any.
         factors: Daily Carhart factor returns with ``RF``; betas are null without them.
         today: The refresh date, for judging whether the financials are current.
+        exchange_rates: US dollars per unit of each currency the financials may be in.
     """
     trading = liquidity(prices)
     if trading is None:
         return None
     closes = prices["Close"].dropna()
     metrics: dict[str, float | None] = price_metrics(closes)
-    metrics |= fundamental_metrics(financials, trading.price, market_cap, today)
+    metrics |= fundamental_metrics(financials, trading.price, market_cap, today, exchange_rates)
     if factors is not None:
         metrics |= factor_betas(closes, factors)
     return ScreenMetrics(

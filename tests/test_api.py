@@ -1647,8 +1647,8 @@ def test_analysis_context_carries_fundamentals(monkeypatch: pytest.MonkeyPatch) 
     ("error", "notice"),
     [
         (EdgarNotConfiguredError("unset"), "SEC financial data is not configured"),
-        (CompanyNotFoundError("none"), "has no US GAAP financial statements"),
-        (FinancialsNotFoundError("none"), "has no US GAAP financial statements"),
+        (CompanyNotFoundError("none"), "has no US GAAP or IFRS financial statements"),
+        (FinancialsNotFoundError("none"), "has no US GAAP or IFRS financial statements"),
         (FilingFetchError("down"), "SEC financial data could not be fetched"),
     ],
 )

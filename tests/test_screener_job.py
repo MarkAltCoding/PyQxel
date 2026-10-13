@@ -58,6 +58,7 @@ PROFILES = {
 }
 YFINANCE_CAPS = {"THIN": 1e9}
 SEC_SHARES = {5: 1e7, 6: 1e7}
+EXCHANGE_RATES = {"EUR": 2.0}
 
 
 class Fakes:
@@ -125,7 +126,12 @@ def fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Fakes]:
     monkeypatch.setattr(job, "download_bulk_company_facts", fake_download)
     monkeypatch.setattr(job, "read_bulk_financials", fake_read)
     monkeypatch.setattr(job, "fetch_financials", fake_single)
+
+    async def fake_rates(currencies: Iterable[str]) -> dict[str, float]:
+        return {currency: EXCHANGE_RATES[currency] for currency in currencies}
+
     monkeypatch.setattr(job, "fetch_factors", fake_factors)
+    monkeypatch.setattr(job, "fetch_exchange_rates", fake_rates)
     monkeypatch.setattr(job, "ARCHIVE_PATH", tmp_path / "companyfacts.zip")
     yield recorded
 
@@ -176,6 +182,43 @@ async def test_recent_fundamentals_are_reused_and_new_companies_fetched(fakes: F
     assert not result.fundamentals_refreshed
     assert fakes.bulk_downloads == 0
     assert sorted(fakes.single_fetches) == ["BIG", "ONE"]
+
+
+@pytest.mark.asyncio
+async def test_companies_behind_are_caught_up_and_valued_in_dollars(
+    fakes: Fakes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An IFRS filer whose bulk financials miss its latest 20-F is refetched on its own,
+    and its euro statements are converted for the screen."""
+    old = date.today() - timedelta(days=600)
+    recent = date.today() - timedelta(days=60)
+
+    def bulk(archive: Path, ciks: Iterable[int]) -> Iterator[Financials]:
+        for cik in ciks:
+            if cik == 1:
+                yield sample_financials(
+                    cik=1, accounting_standard="IFRS", currency="EUR", latest_period_end=old
+                )
+            else:
+                yield sample_financials(cik=cik)
+
+    async def single(symbol: str, client: object = None) -> Financials:
+        fakes.single_fetches.append(symbol)
+        return sample_financials(
+            cik=1, accounting_standard="IFRS", currency="EUR", latest_period_end=recent
+        )
+
+    monkeypatch.setattr(job, "read_bulk_financials", bulk)
+    monkeypatch.setattr(job, "fetch_financials", single)
+
+    await job.refresh_universe()
+
+    assert fakes.single_fetches == ["BIG"]
+    async with get_sessionmaker()() as session:
+        assert (await load_fundamentals(session, [1]))[1].latest_period_end == recent
+    big = (await _stored())["BIG"]
+    # $2T over 100 EUR of net income at $2 per euro.
+    assert big.pe_ratio == pytest.approx(2e12 / 200.0)
 
 
 @pytest.mark.asyncio

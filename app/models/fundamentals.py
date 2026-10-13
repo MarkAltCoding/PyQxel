@@ -1,6 +1,8 @@
 """Schemas for financial statement data from SEC filings and the valuation built on it.
 
-Money amounts are US dollars and share counts are shares. Growth rates, margins, yields
+Statement figures are in the currency the company reports in, named by
+``Financials.currency``; market values are in the listing's currency. Share counts are
+shares. Growth rates, margins, yields
 and returns are decimals (0.25 = 25%); valuation multiples are plain ratios.
 """
 
@@ -22,6 +24,9 @@ FlowItemName = Literal[
 
 BalanceItemName = Literal["cash", "stockholders_equity"]
 """Balance sheet items read from single concepts, each measured at a date."""
+
+AccountingStandard = Literal["US GAAP", "IFRS"]
+"""The accounting standard financial statements were prepared under."""
 
 MarketCapSource = Literal["provider", "shares_outstanding"]
 """``provider`` when the market data provider reported the market capitalization,
@@ -73,12 +78,20 @@ class Financials(BaseModel):
     """A company's financial statement figures, normalized from its SEC XBRL filings.
 
     Periods come from each figure's own start and end dates, so fiscal years that do not
-    match the calendar line up correctly. Figures are as filed under US GAAP, using the
-    latest filing's value when a period was restated.
+    match the calendar line up correctly. Figures are as filed under US GAAP or IFRS, in
+    the company's reporting currency, using the latest filing's value when a period was
+    restated.
     """
 
     cik: int = Field(description="The company's SEC Central Index Key.")
     entity_name: str
+    accounting_standard: AccountingStandard = Field(
+        default="US GAAP", description="Standard of the latest financial statements."
+    )
+    currency: str = Field(
+        default="USD",
+        description="ISO 4217 code of the currency every amount here is in, e.g. ``EUR``.",
+    )
     latest_period_end: date | None = Field(
         default=None, description="End of the most recent period any statement covers."
     )
@@ -139,6 +152,13 @@ class Valuation(BaseModel):
         default=None,
         description="TTM net income over average equity of the latest and year-earlier "
         "balance sheets, or the latest alone.",
+    )
+    exchange_rate: float | None = Field(
+        default=None,
+        gt=0,
+        description="Units of the listing's currency per unit of the financial statements' "
+        "currency, at the latest rate, used to compare statement figures with the market "
+        "value; null when both are in the same currency.",
     )
     notes: list[str] = Field(
         default_factory=list, description="Why ratios are missing or approximate."

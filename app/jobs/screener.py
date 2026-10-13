@@ -13,8 +13,9 @@ Each run:
    cap above the ``SCREENER_MIN_*`` settings. Market caps, sectors and industries come
    from Nasdaq's screener feed, with SEC share counts and yfinance filling gaps.
 4. Rebuilds their financials from the SEC's bulk company facts archive when the stored
-   ones are older than ``SCREENER_FUNDAMENTALS_REFRESH_DAYS`` (weekly by default), and
-   fetches any company that is new to the universe on its own.
+   ones are older than ``SCREENER_FUNDAMENTALS_REFRESH_DAYS`` (weekly by default),
+   fetches any company that is new to the universe on its own, and refetches companies
+   whose financials look a period behind, reading filings company facts left out.
 5. Computes valuation, growth, momentum, volatility and Carhart factor betas, and
    replaces the stored universe with the result.
 
@@ -34,6 +35,7 @@ import httpx2
 import pandas as pd
 
 from app.core.config import PROJECT_ROOT, get_settings
+from app.data.exchange_rates import fetch_exchange_rates
 from app.data.factors import fetch_factors
 from app.data.fetcher import DataFetchError
 from app.data.fundamentals import (
@@ -62,7 +64,7 @@ from app.db.screener import (
     start_run,
 )
 from app.db.session import close_database, get_sessionmaker, init_db
-from app.models.fundamentals import Financials
+from app.models.fundamentals import AccountingStandard, Financials
 from app.models.screener import MarketCapSource, ScreenedStock
 from app.stats.screening import liquidity, market_cap_ranks, screen_metrics
 
@@ -81,7 +83,12 @@ SESSION_SETTLED: time = time(16, 30)
 
 MAX_SINGLE_FETCHES: int = 200
 """Companies new to the universe whose financials are fetched one by one between bulk
-rebuilds; more wait for the next rebuild."""
+rebuilds; more wait for the next rebuild. The same cap applies to companies caught up."""
+
+BEHIND_AFTER_DAYS: dict[AccountingStandard, int] = {"US GAAP": 135, "IFRS": 485}
+"""Age of a company's latest period after which a newer filing is probably out: a 10-Q is
+due within 45 days of the quarter's end, and an IFRS filer's 20-F within four months of
+the fiscal year's."""
 
 
 @dataclass(frozen=True)
@@ -230,12 +237,50 @@ async def _fill_missing_fundamentals(ciks: set[int], symbols: dict[int, str]) ->
     logger.info("Fetched financials for %d of %d new companies.", len(fetched), len(missing))
 
 
+async def _catch_up_fundamentals(ciks: set[int], symbols: dict[int, str], today: date) -> None:
+    """Refetch companies whose stored financials look a period behind.
+
+    Company facts, in bulk and per company, occasionally leaves out a filing; fetching a
+    company on its own reads such filings from their XBRL instances. Companies that are
+    simply late filers are checked again on each run, up to :data:`MAX_SINGLE_FETCHES`.
+    """
+    async with get_sessionmaker()() as session:
+        stored = await load_fundamentals(session, ciks)
+    behind = [
+        cik
+        for cik, company in stored.items()
+        if company.latest_period_end is not None
+        and (today - company.latest_period_end).days
+        > BEHIND_AFTER_DAYS[company.accounting_standard]
+    ]
+    behind.sort(key=lambda cik: stored[cik].latest_period_end or date.min, reverse=True)
+    caught_up: list[Financials] = []
+    async with edgar_client() as client:
+        for cik in behind[:MAX_SINGLE_FETCHES]:
+            try:
+                fetched = await fetch_financials(symbols[cik], client=client)
+            except FilingFetchError as exc:
+                logger.debug("Could not refetch %s: %s", symbols[cik], exc)
+                continue
+            previous = stored[cik].latest_period_end
+            if fetched.latest_period_end and previous and fetched.latest_period_end > previous:
+                caught_up.append(fetched)
+    async with get_sessionmaker()() as session:
+        await save_fundamentals(session, caught_up, datetime.now(timezone.utc))
+    logger.info(
+        "Caught up %d of %d companies whose financials looked behind.",
+        len(caught_up),
+        len(behind),
+    )
+
+
 def _score(
     universe: list[Candidate],
     caps: dict[str, tuple[float, MarketCapSource]],
     profiles: dict[str, Profile],
     financials: dict[int, Financials],
     factors: pd.DataFrame | None,
+    exchange_rates: dict[str, float],
     today: date,
 ) -> list[ScreenedStock]:
     """Compute every stock's metrics (blocking)."""
@@ -245,7 +290,9 @@ def _score(
         listing = candidate.listing
         market_cap, source = caps[listing.symbol]
         company = financials.get(listing.cik)
-        metrics = screen_metrics(candidate.prices, market_cap, company, factors, today)
+        metrics = screen_metrics(
+            candidate.prices, market_cap, company, factors, today, exchange_rates
+        )
         if metrics is None:
             continue
         profile = profiles.get(listing.symbol)
@@ -332,11 +379,11 @@ async def _refresh(force_fundamentals: bool) -> RefreshResult:
         raise RuntimeError("No stock passed the baseline filters; the universe was kept.")
 
     ciks = {candidate.listing.cik for candidate in universe}
+    symbols = {candidate.listing.cik: candidate.listing.symbol for candidate in universe}
     refreshed = await _refresh_fundamentals(ciks, force_fundamentals)
     if not refreshed:
-        await _fill_missing_fundamentals(
-            ciks, {candidate.listing.cik: candidate.listing.symbol for candidate in universe}
-        )
+        await _fill_missing_fundamentals(ciks, symbols)
+    await _catch_up_fundamentals(ciks, symbols, today)
     async with get_sessionmaker()() as session:
         financials = await load_fundamentals(session, ciks)
 
@@ -347,7 +394,13 @@ async def _refresh(force_fundamentals: bool) -> RefreshResult:
         logger.warning("Factor betas are left out: %s", exc)
         factors = None
 
-    stocks = await asyncio.to_thread(_score, universe, caps, profiles, financials, factors, today)
+    # Foreign issuers' statements are in their own currencies; valuation needs dollars.
+    exchange_rates = await fetch_exchange_rates(
+        {company.currency for company in financials.values()} - {"USD"}
+    )
+    stocks = await asyncio.to_thread(
+        _score, universe, caps, profiles, financials, factors, exchange_rates, today
+    )
     async with get_sessionmaker()() as session:
         count = await replace_universe(session, stocks)
     logger.info("Stored %d stocks in the screened universe.", count)

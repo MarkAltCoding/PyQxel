@@ -6,8 +6,11 @@ figures for a handful of income statement, cash flow and balance sheet items and
 them into trailing-twelve-month (TTM) totals, fiscal-year histories and the latest
 balance sheet.
 
-Three things make that harder than reading one number:
+Four things make that harder than reading one number:
 
+* **Standards and currencies.** US companies file under US GAAP in dollars; foreign
+  issuers' 20-F and 40-F reports may use IFRS, usually in their home currency. Each
+  company is read in the taxonomy and currency of its latest filing.
 * **Labels.** Companies tag the same item with different XBRL concepts, and switch
   concepts over time (revenue moved to ``RevenueFromContractWithCustomer...`` when
   ASC 606 took effect in 2018). Each item lists the concepts that can carry it; the one
@@ -17,7 +20,8 @@ Three things make that harder than reading one number:
   figure's own start and end dates.
 * **Year-to-date figures.** 10-Q cash flow statements report the year to date, and no
   filing reports the fourth quarter alone. TTM is the last fiscal year plus the current
-  year to date less the same span a year earlier.
+  year to date less the same span a year earlier. Foreign issuers file only annual
+  reports with EDGAR, so their TTM figures are their last fiscal year.
 
 Company facts change only when the company files, so normalized results are cached.
 """
@@ -39,13 +43,23 @@ from pydantic import ValidationError
 
 from app.core.cache import cache_get, cache_set
 from app.data.sec_edgar import (
+    ARCHIVES_URL,
+    SUBMISSIONS_URL,
     FilingFetchError,
     cik_for,
     edgar_client,
     edgar_errors,
     edgar_get,
 )
+from app.data.xbrl_instance import (
+    instance_facts,
+    instance_name,
+    latest_filed,
+    merge_facts,
+    newer_filings,
+)
 from app.models.fundamentals import (
+    AccountingStandard,
     AnnualValue,
     BalanceItem,
     BalanceItemName,
@@ -147,6 +161,56 @@ CURRENT_DEBT_PARTS: tuple[str, ...] = (
 )
 SHORT_TERM_BORROWINGS: tuple[str, ...] = ("ShortTermBorrowings", "CommercialPaper")
 
+IFRS_FLOW_CONCEPTS: dict[FlowItemName, tuple[str, ...]] = {
+    "revenue": ("Revenue", "RevenueFromContractsWithCustomers"),
+    "gross_profit": ("GrossProfit",),
+    "operating_income": ("ProfitLossFromOperatingActivities",),
+    "net_income": ("ProfitLossAttributableToOwnersOfParent", "ProfitLoss"),
+    "operating_cash_flow": ("CashFlowsFromUsedInOperatingActivities",),
+    "capital_expenditure": (
+        "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+        "PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwill"
+        "InvestmentPropertyAndOtherNoncurrentAssets",
+    ),
+    "depreciation_amortization": (
+        "DepreciationAndAmortisationExpense",
+        "DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss",
+    ),
+}
+"""IFRS concepts that carry each period item, most specific first."""
+
+IFRS_DEPRECIATION_PARTS: tuple[str, str] = ("DepreciationExpense", "AmortisationExpense")
+"""Depreciation and amortization tagged separately, as TSMC does; summed when no IFRS or
+US GAAP concept carries the two together."""
+
+IFRS_BALANCE_CONCEPTS: dict[BalanceItemName, tuple[str, ...]] = {
+    "cash": ("CashAndCashEquivalents",),
+    "stockholders_equity": ("EquityAttributableToOwnersOfParent", "Equity"),
+}
+"""IFRS concepts that carry each balance sheet item, most specific first."""
+
+IFRS_NONCURRENT_BORROWINGS: tuple[str, ...] = (
+    "NoncurrentPortionOfNoncurrentBorrowings",
+    "LongtermBorrowings",
+)
+IFRS_CURRENT_BORROWINGS: str = "CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings"
+"""Short-term borrowings and the current part of long-term borrowings together."""
+IFRS_CURRENT_BORROWING_PARTS: tuple[str, ...] = (
+    "CurrentPortionOfLongtermBorrowings",
+    "ShorttermBorrowings",
+)
+IFRS_TOTAL_BORROWINGS: str = "Borrowings"
+"""Total borrowings; used only without the parts, since some companies leave short-term
+borrowings out of it and others put lease liabilities in."""
+
+US_GAAP, IFRS = "us-gaap", "ifrs-full"
+"""The XBRL taxonomies financial statements are read from."""
+
+STANDARDS: dict[str, AccountingStandard] = {US_GAAP: "US GAAP", IFRS: "IFRS"}
+
+CURRENCY_ITEMS: tuple[FlowItemName, ...] = ("revenue", "net_income", "operating_cash_flow")
+"""Period items whose units, with equity's, decide a company's reporting currency."""
+
 COVER_SHARES: str = "EntityCommonStockSharesOutstanding"
 """Shares outstanding on a filing's cover page, in the ``dei`` taxonomy."""
 BALANCE_SHARES: str = "CommonStockSharesOutstanding"
@@ -154,10 +218,18 @@ BALANCE_SHARES: str = "CommonStockSharesOutstanding"
 
 
 class FinancialsNotFoundError(FilingFetchError):
-    """Raised when a company has no US GAAP financial data on EDGAR.
+    """Raised when a company has no US GAAP or IFRS financial data on EDGAR.
 
-    Foreign private issuers reporting under IFRS, funds and shell companies are examples.
+    Funds, shell companies and foreign issuers filing only PDF reports are examples.
     """
+
+
+@dataclass(frozen=True)
+class Reporting:
+    """The currency and taxonomy a company's latest financial statements use."""
+
+    currency: str
+    taxonomy: str
 
 
 @dataclass(frozen=True)
@@ -199,6 +271,54 @@ def _rows(company: dict[str, Any], taxonomy: str, concept: str, unit: str) -> li
             continue
         facts.append(Fact(_parse_date(row.get("start")), end, float(value), filed))
     return facts
+
+
+def _concepts(us_gaap: tuple[str, ...], ifrs: tuple[str, ...]) -> list[tuple[str, str]]:
+    """(taxonomy, concept) pairs to look for, US GAAP concepts first."""
+    return [(US_GAAP, concept) for concept in us_gaap] + [(IFRS, concept) for concept in ifrs]
+
+
+def _label(taxonomy: str, concept: str) -> str:
+    """How a concept is named in results: IFRS concepts carry their taxonomy prefix."""
+    return concept if taxonomy == US_GAAP else f"{taxonomy}:{concept}"
+
+
+def _key_concepts() -> list[tuple[str, str]]:
+    """The main statement items' concepts: revenue, net income, operating cash flow and
+    equity, in both taxonomies."""
+    return [
+        pair
+        for item in CURRENCY_ITEMS
+        for pair in _concepts(FLOW_CONCEPTS[item], IFRS_FLOW_CONCEPTS[item])
+    ] + _concepts(
+        BALANCE_CONCEPTS["stockholders_equity"], IFRS_BALANCE_CONCEPTS["stockholders_equity"]
+    )
+
+
+def reporting(company: dict[str, Any]) -> Reporting | None:
+    """The currency and taxonomy of the company's most recently filed key figures.
+
+    Foreign issuers report in their home currency, and some also tag convenience
+    translations into dollars, so the currency of the latest filing wins and, within it,
+    the one most figures are in. A company that switched from US GAAP to IFRS, or the
+    reverse, is read in the taxonomy of its latest filing.
+    """
+    seen: dict[tuple[str, str], tuple[date, int]] = {}
+    for taxonomy, concept in _key_concepts():
+        units = company.get("facts", {}).get(taxonomy, {}).get(concept, {}).get("units", {})
+        for unit, rows in units.items():
+            if len(unit) != 3 or not unit.isalpha() or not unit.isupper():
+                continue
+            for row in rows:
+                filed = _parse_date(row.get("filed"))
+                if row.get("form") not in FORMS or filed is None:
+                    continue
+                latest, count = seen.get((unit, taxonomy), (date.min, 0))
+                seen[unit, taxonomy] = (max(latest, filed), count + 1)
+    if not seen:
+        return None
+    currency, taxonomy = max(seen, key=lambda key: seen[key])
+    return Reporting(currency=currency, taxonomy=taxonomy)
 
 
 def _durations(facts: Iterable[Fact]) -> Durations:
@@ -397,12 +517,14 @@ class ChosenFlow:
     fallbacks: list[Durations]
 
 
-def _chosen_flow(company: dict[str, Any], concepts: tuple[str, ...]) -> ChosenFlow | None:
-    """Pick the concept to use for a period item and gather its figures."""
+def _chosen_flow(
+    company: dict[str, Any], concepts: list[tuple[str, str]], currency: str
+) -> ChosenFlow | None:
+    """Pick the concept to use for a period item and gather its figures in ``currency``."""
     candidates = {
-        concept: series
-        for concept in concepts
-        if (series := _durations(_rows(company, "us-gaap", concept, "USD")))
+        _label(taxonomy, concept): series
+        for taxonomy, concept in concepts
+        if (series := _durations(_rows(company, taxonomy, concept, currency)))
     }
     concept = _choose(candidates)
     if concept is None:
@@ -440,7 +562,7 @@ def _balance(instants: dict[str, Instants], as_of: date) -> BalanceItem | None:
     return None
 
 
-def _debt_at(company: dict[str, Any], as_of: date) -> BalanceItem | None:
+def _debt_at(company: dict[str, Any], as_of: date, currency: str) -> BalanceItem | None:
     """Total debt at ``as_of``: long-term debt, including its current part, and borrowings.
 
     Returns ``None`` when no long-term debt concept has a value at ``as_of``: the company
@@ -448,7 +570,7 @@ def _debt_at(company: dict[str, Any], as_of: date) -> BalanceItem | None:
     """
 
     def value(concept: str) -> float | None:
-        return _instants(_rows(company, "us-gaap", concept, "USD")).get(as_of)
+        return _instants(_rows(company, US_GAAP, concept, currency)).get(as_of)
 
     def total(concepts: Iterable[str]) -> tuple[list[str], float]:
         found = [(concept, value(concept)) for concept in concepts]
@@ -476,6 +598,50 @@ def _debt_at(company: dict[str, Any], as_of: date) -> BalanceItem | None:
     else:
         return None
     return BalanceItem(concept=" + ".join(parts), value=amount, as_of=as_of)
+
+
+def _ifrs_debt_at(company: dict[str, Any], as_of: date, currency: str) -> BalanceItem | None:
+    """Total IFRS borrowings at ``as_of``: noncurrent borrowings plus current ones.
+
+    Current borrowings come from the combined concept, or else from the current portion
+    of long-term borrowings and short-term borrowings; a part carrying the same figure as
+    one already counted is the same line tagged twice and is counted once. Without
+    noncurrent borrowings, the ``Borrowings`` total is used. Returns ``None`` when neither
+    is reported, as for US GAAP.
+    """
+
+    def value(concept: str) -> float | None:
+        return _instants(_rows(company, IFRS, concept, currency)).get(as_of)
+
+    noncurrent = next(
+        (
+            (concept, amount)
+            for concept in IFRS_NONCURRENT_BORROWINGS
+            if (amount := value(concept)) is not None
+        ),
+        None,
+    )
+    if noncurrent is None:
+        whole = value(IFRS_TOTAL_BORROWINGS)
+        if whole is None:
+            return None
+        return BalanceItem(concept=_label(IFRS, IFRS_TOTAL_BORROWINGS), value=whole, as_of=as_of)
+    parts, amount = [noncurrent[0]], noncurrent[1]
+    current = value(IFRS_CURRENT_BORROWINGS)
+    if current is not None:
+        parts.append(IFRS_CURRENT_BORROWINGS)
+        amount += current
+    else:
+        counted: list[float] = []
+        for concept in IFRS_CURRENT_BORROWING_PARTS:
+            part = value(concept)
+            if part is not None and part not in counted:
+                counted.append(part)
+                parts.append(concept)
+                amount += part
+    return BalanceItem(
+        concept=" + ".join(_label(IFRS, concept) for concept in parts), value=amount, as_of=as_of
+    )
 
 
 def _shares(company: dict[str, Any]) -> BalanceItem | None:
@@ -510,10 +676,37 @@ def _last_date(item: FlowItem) -> date | None:
 def normalize(company: dict[str, Any], cik: int) -> Financials:
     """Turn a company facts document into :class:`Financials`.
 
+    Figures are read under US GAAP or IFRS, in the currency the company reports in; see
+    :func:`reporting`.
+
     Raises:
         FinancialsNotFoundError: If the document has none of the items read here.
     """
-    flows = {name: _chosen_flow(company, concepts) for name, concepts in FLOW_CONCEPTS.items()}
+    found = reporting(company)
+    if found is None:
+        raise FinancialsNotFoundError(
+            "SEC EDGAR has no US GAAP or IFRS financial statements for this company."
+        )
+    currency = found.currency
+    flows = {
+        name: _chosen_flow(company, _concepts(concepts, IFRS_FLOW_CONCEPTS[name]), currency)
+        for name, concepts in FLOW_CONCEPTS.items()
+    }
+    if flows["depreciation_amortization"] is None:
+        depreciation, amortisation = (
+            _chosen_flow(company, [(IFRS, concept)], currency)
+            for concept in IFRS_DEPRECIATION_PARTS
+        )
+        if depreciation is not None and amortisation is not None:
+            flows["depreciation_amortization"] = ChosenFlow(
+                f"{depreciation.concept} + {amortisation.concept}",
+                {
+                    period: value + amortisation.series[period]
+                    for period, value in depreciation.series.items()
+                    if period in amortisation.series
+                },
+                [],
+            )
     items: dict[str, FlowItem | None] = {
         name: flow_item(chosen.concept, chosen.series, chosen.fallbacks) if chosen else None
         for name, chosen in flows.items()
@@ -527,9 +720,9 @@ def normalize(company: dict[str, Any], cik: int) -> Financials:
 
     balances = {
         name: {
-            concept: series
-            for concept in concepts
-            if (series := _instants(_rows(company, "us-gaap", concept, "USD")))
+            _label(taxonomy, concept): series
+            for taxonomy, concept in _concepts(concepts, IFRS_BALANCE_CONCEPTS[name])
+            if (series := _instants(_rows(company, taxonomy, concept, currency)))
         }
         for name, concepts in BALANCE_CONCEPTS.items()
     }
@@ -539,14 +732,15 @@ def normalize(company: dict[str, Any], cik: int) -> Financials:
     if balance_date is not None:
         cash = _balance(balances["cash"], balance_date)
         equity_item = _balance(equity, balance_date)
-        debt = _debt_at(company, balance_date)
+        debt_at = _ifrs_debt_at if found.taxonomy == IFRS else _debt_at
+        debt = debt_at(company, balance_date, currency)
 
     reached = [day for item in items.values() if item and (day := _last_date(item))]
     if balance_date is not None:
         reached.append(balance_date)
     if not reached:
         raise FinancialsNotFoundError(
-            "SEC EDGAR has no US GAAP financial statements for this company."
+            "SEC EDGAR has no US GAAP or IFRS financial statements for this company."
         )
     latest = max(reached)
     cutoff = latest - timedelta(days=STALE_AFTER_DAYS)
@@ -558,6 +752,8 @@ def normalize(company: dict[str, Any], cik: int) -> Financials:
     return Financials(
         cik=cik,
         entity_name=str(company.get("entityName") or ""),
+        accounting_standard=STANDARDS[found.taxonomy],
+        currency=currency,
         latest_period_end=latest,
         cash=cash,
         total_debt=debt,
@@ -575,12 +771,60 @@ def clear_memory() -> None:
     _memory.clear()
 
 
-def _parse(content: bytes, cik: int) -> Financials:
-    """Decode and normalize a company facts document (blocking)."""
+def _decode(content: bytes) -> dict[str, Any]:
+    """Decode a company facts document (blocking)."""
     company: Any = json.loads(content)
     if not isinstance(company, dict):
         raise ValueError("The company facts document is not a JSON object.")
-    return normalize(company, cik)
+    return company
+
+
+def _parse(content: bytes, cik: int) -> Financials:
+    """Decode and normalize a company facts document (blocking)."""
+    return normalize(_decode(content), cik)
+
+
+async def _add_missing_filings(
+    company: dict[str, Any], cik: int, client: httpx2.AsyncClient
+) -> int:
+    """Add the figures of periodic filings that company facts leaves out; return how many.
+
+    Company facts occasionally omits a filing made with XBRL; see
+    :mod:`app.data.xbrl_instance`. A filing that cannot be read is skipped, so the
+    company is still valued on what company facts has.
+    """
+    try:
+        submissions: Any = (await edgar_get(client, SUBMISSIONS_URL.format(cik=cik))).json()
+    except (httpx2.HTTPError, ValueError) as exc:
+        logger.warning("Could not list the filings of CIK %d: %s", cik, exc)
+        return 0
+    if not isinstance(submissions, dict):
+        return 0
+    if not company.get("entityName"):
+        company["entityName"] = submissions.get("name")
+    after = latest_filed(company, FORMS, _key_concepts())
+    added = 0
+    for filing in newer_filings(submissions, FORMS, after):
+        accession = str(filing["accessionNumber"])
+        folder = ARCHIVES_URL.format(
+            cik=cik, accession=accession.replace("-", ""), document="index.json"
+        )
+        try:
+            name = instance_name((await edgar_get(client, folder)).json())
+            if name is None:
+                continue
+            instance = await edgar_get(client, folder.replace("index.json", name))
+            facts = await asyncio.to_thread(
+                instance_facts, instance.content, str(filing["form"]), filing["filed"], accession
+            )
+        except (httpx2.HTTPError, ValueError) as exc:
+            logger.warning("Skipping filing %s of CIK %d: %s", accession, cik, exc)
+            continue
+        merge_facts(company, facts)
+        added += 1
+    if added:
+        logger.info("Read %d filing(s) of CIK %d missing from company facts.", added, cik)
+    return added
 
 
 def _remember(cik: int, financials: Financials) -> None:
@@ -615,15 +859,22 @@ async def _fetch(symbol: str, client: httpx2.AsyncClient) -> Financials:
     cached = await _cached(cik)
     if cached is not None:
         return cached
+    company: dict[str, Any] = {"cik": cik, "facts": {}}
     try:
         response = await edgar_get(client, COMPANY_FACTS_URL.format(cik=cik))
+        company = await asyncio.to_thread(_decode, response.content)
     except httpx2.HTTPStatusError as exc:
-        if exc.response.status_code == 404:
-            raise FinancialsNotFoundError(
-                f"SEC EDGAR has no financial data for {symbol!r}."
-            ) from exc
-        raise
-    financials = await asyncio.to_thread(_parse, response.content, cik)
+        if exc.response.status_code != 404:
+            raise
+        missing: httpx2.HTTPStatusError | None = exc
+    else:
+        missing = None
+    added = await _add_missing_filings(company, cik, client)
+    if missing is not None and not added:
+        raise FinancialsNotFoundError(
+            f"SEC EDGAR has no financial data for {symbol!r}."
+        ) from missing
+    financials = await asyncio.to_thread(normalize, company, cik)
     _remember(cik, financials)
     await cache_set(f"fundamentals:{cik}", financials.model_dump_json(), CACHE_TTL_SECONDS)
     return financials
@@ -644,7 +895,7 @@ async def fetch_financials(symbol: str, client: httpx2.AsyncClient | None = None
     Raises:
         EdgarNotConfiguredError: If ``SEC_USER_AGENT`` is not set.
         CompanyNotFoundError: If no SEC registrant has ``symbol`` as a ticker.
-        FinancialsNotFoundError: If the company has no US GAAP financial data.
+        FinancialsNotFoundError: If the company has no US GAAP or IFRS financial data.
         FilingFetchError: If EDGAR cannot be reached or returns an unexpected response.
     """
     symbol = symbol.strip().upper()
@@ -678,7 +929,7 @@ async def download_bulk_company_facts(client: httpx2.AsyncClient, destination: P
 def read_bulk_financials(archive: Path, ciks: Iterable[int]) -> Iterator[Financials]:
     """Normalize the financials of each of ``ciks`` found in a bulk archive (blocking).
 
-    Companies missing from the archive, or without US GAAP figures, are skipped.
+    Companies missing from the archive, or without US GAAP or IFRS figures, are skipped.
     """
     with zipfile.ZipFile(archive) as bundle:
         names = set(bundle.namelist())
