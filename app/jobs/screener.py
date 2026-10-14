@@ -24,7 +24,8 @@ Each run:
 Every account sees the universe, so market data is fetched on the screener's own key,
 ``SCREENER_FMP_API_KEY``, which must be on an FMP plan licensed for showing its data to
 your users, never on an account's key. Without that key the run fails, unless
-``YFINANCE_FALLBACK`` is on, in development, when yfinance stands in, without sectors.
+``YFINANCE_FALLBACK`` is on, for development or personal use, when yfinance and Nasdaq's
+public screener feed stand in.
 
 A full run takes one FMP request per listed stock, about 20 minutes at 300 requests a
 minute (``SCREENER_FMP_REQUESTS_PER_MINUTE``), plus a 1.3 GB download on the days
@@ -380,7 +381,10 @@ async def _market_data() -> AsyncIterator[FmpSession | None]:
                 "The screener needs SCREENER_FMP_API_KEY: a Financial Modeling Prep key on a "
                 "plan licensed for showing its data to your users."
             )
-        logger.warning("SCREENER_FMP_API_KEY is unset, so yfinance stands in (development only).")
+        logger.warning(
+            "SCREENER_FMP_API_KEY is unset, so unlicensed yfinance and Nasdaq data stand in "
+            "(development and personal use only)."
+        )
         yield None
         return
     use_provider_keys(ProviderKeys(fmp=key))
@@ -407,7 +411,7 @@ async def _refresh_with(market: FmpSession | None, force_fundamentals: bool) -> 
     except ProviderNotConfiguredError, ProviderPlanError:
         raise
     except DataFetchError as exc:
-        logger.warning("FMP's company screener is unavailable, so sectors are left out: %s", exc)
+        logger.warning("The stock screener feed is unavailable, so sectors are left out: %s", exc)
         profiles = {}
     listings = [
         listing

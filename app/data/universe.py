@@ -10,8 +10,10 @@ screener's own key, since every account sees the universe it builds: market caps
 and industries from FMP's company screener, a few requests in all, and dividend-adjusted
 daily prices one stock at a time, paced to the plan's rate limit. Market caps the company
 screener lacks come from shares outstanding reported to the SEC, or from FMP company
-profiles. For development without that key, the functions taking a session accept
-``None`` and use yfinance instead, without sectors.
+profiles. Without that key, with ``YFINANCE_FALLBACK`` on, the functions taking a session
+accept ``None`` and use unlicensed sources instead: yfinance, and Nasdaq's public screener
+feed for market caps, sectors and industries. That suits development and personal use, not
+a deployment others use.
 
 All of this is fetched by the refresh job, not while serving requests.
 """
@@ -47,6 +49,9 @@ SCREENER_EXCHANGES: tuple[str, ...] = ("NYSE", "NASDAQ", "AMEX")
 """Exchanges whose listings are read from FMP's company screener, one request each."""
 SCREENER_LIMIT: int = 10_000
 """Rows asked of the company screener per exchange, more than any exchange lists."""
+NASDAQ_SCREENER_URL: str = "https://api.nasdaq.com/api/screener/stocks"
+"""Nasdaq's public stock screener feed, unlicensed: every US-listed stock's market cap,
+sector and industry in one response."""
 FRAMES_URL: str = "https://data.sec.gov/api/xbrl/frames/{taxonomy}/{concept}/shares/{period}.json"
 
 EXCHANGES: frozenset[str] = frozenset({"NYSE", "Nasdaq", "CBOE"})
@@ -96,7 +101,7 @@ T = TypeVar("T")
 
 @dataclass(frozen=True)
 class Profile:
-    """A security's name, market cap and classification from FMP's company screener."""
+    """A security's name, market cap and classification from a stock screener."""
 
     name: str
     market_cap: float | None
@@ -174,6 +179,23 @@ def parse_profiles(rows: object) -> dict[str, Profile]:
         symbol = str(row["symbol"]).strip().upper().replace(".", "-").replace("/", "-")
         profiles[symbol] = Profile(
             name=_text(row.get("companyName")) or "",
+            market_cap=_number(row.get("marketCap")),
+            sector=_text(row.get("sector")),
+            industry=_text(row.get("industry")),
+        )
+    return profiles
+
+
+def parse_nasdaq_profiles(payload: dict[str, Any]) -> dict[str, Profile]:
+    """Read Nasdaq's screener rows, keyed by ticker as EDGAR writes it (``BRK/B`` is BRK-B)."""
+    rows: list[dict[str, Any]] = payload.get("data", {}).get("rows") or []
+    profiles: dict[str, Profile] = {}
+    for row in rows:
+        if not row.get("symbol"):
+            continue
+        symbol = str(row["symbol"]).strip().upper().replace("/", "-")
+        profiles[symbol] = Profile(
+            name=_text(row.get("name")) or "",
             market_cap=_number(row.get("marketCap")),
             sector=_text(row.get("sector")),
             industry=_text(row.get("industry")),
@@ -277,15 +299,14 @@ class FmpSession:
 
 
 async def fetch_profiles(session: FmpSession | None) -> dict[str, Profile]:
-    """Every US-listed stock's name, market cap, sector and industry from FMP.
-
-    Returns nothing without a session, in development, so sectors are left out.
+    """Every US-listed stock's name, market cap, sector and industry from FMP, or without
+    a session from Nasdaq's public feed.
 
     Raises:
-        DataFetchError: If the company screener cannot be read.
+        DataFetchError: If the screener cannot be read.
     """
     if session is None:
-        return {}
+        return await _nasdaq_profiles()
     profiles: dict[str, Profile] = {}
     for exchange in SCREENER_EXCHANGES:
         rows = await session.get(
@@ -302,6 +323,22 @@ async def fetch_profiles(session: FmpSession | None) -> dict[str, Profile]:
         for symbol, profile in parse_profiles(rows).items():
             profiles.setdefault(symbol, profile)
     return profiles
+
+
+async def _nasdaq_profiles() -> dict[str, Profile]:
+    """:func:`fetch_profiles` from Nasdaq's public feed, in one request."""
+    try:
+        async with httpx2.AsyncClient(
+            headers={"User-Agent": "Mozilla/5.0 (PyQxel)", "Accept": "application/json"},
+            timeout=60.0,
+        ) as client:
+            response = await client.get(
+                NASDAQ_SCREENER_URL, params={"tableonly": "true", "download": "true"}
+            )
+            response.raise_for_status()
+            return parse_nasdaq_profiles(response.json())
+    except (httpx2.HTTPError, ValueError) as exc:
+        raise DataFetchError(f"Nasdaq's screener feed is unavailable: {exc}") from exc
 
 
 async def _each_symbol(

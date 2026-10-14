@@ -16,6 +16,7 @@ from app.data.universe import (
     download_prices,
     fetch_market_caps,
     fetch_profiles,
+    parse_nasdaq_profiles,
     fetch_share_counts,
     is_common_name,
     is_common_stock,
@@ -312,7 +313,51 @@ async def test_profiles_come_from_the_company_screener(pauses: list[float]) -> N
 
     assert exchanges == list(universe.SCREENER_EXCHANGES)
     assert profiles["AAPL"].sector == "Technology"
-    assert await fetch_profiles(None) == {}
+
+
+def test_nasdaq_profiles_use_edgar_share_class_tickers() -> None:
+    """``BRK/B`` becomes BRK-B; blank market caps and sectors become null."""
+    payload = {
+        "data": {
+            "rows": [
+                {"symbol": "BRK/B", "marketCap": "1109002410633.00", "sector": "", "industry": ""},
+                {
+                    "symbol": "NVDA",
+                    "marketCap": "5,638,195,000,000",
+                    "sector": "Technology",
+                    "industry": "Semiconductors",
+                },
+                {"symbol": "BF/B", "marketCap": "", "sector": "Consumer Staples", "industry": ""},
+            ]
+        }
+    }
+
+    profiles = parse_nasdaq_profiles(payload)
+
+    assert profiles["BRK-B"] == universe.Profile("", 1109002410633.0, None, None)
+    assert profiles["NVDA"].market_cap == 5.638195e12
+    assert profiles["BF-B"] == universe.Profile("", None, "Consumer Staples", None)
+
+
+@pytest.mark.asyncio
+async def test_without_a_session_profiles_come_from_nasdaq(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without the screener's key, Nasdaq's feed is read, and its failure reported."""
+    answers = [
+        httpx2.Response(200, json={"data": {"rows": [{"symbol": "AAPL", "sector": "Tech"}]}}),
+        httpx2.Response(503),
+    ]
+    real_client = httpx2.AsyncClient
+
+    def fake_client(**options: object) -> httpx2.AsyncClient:
+        return real_client(transport=httpx2.MockTransport(lambda request: answers.pop(0)))
+
+    monkeypatch.setattr("app.data.universe.httpx2.AsyncClient", fake_client)
+
+    assert (await fetch_profiles(None))["AAPL"].sector == "Tech"
+    with pytest.raises(DataFetchError, match="Nasdaq"):
+        await fetch_profiles(None)
 
 
 @pytest.mark.asyncio

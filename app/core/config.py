@@ -53,9 +53,10 @@ class Settings(BaseSettings):
     )
     yfinance_fallback: bool = Field(
         default=False,
-        description="For development: use yfinance when a user has no FMP key, or FMP "
-        "fails or their plan does not cover a request, and for the screener refresh when "
-        "SCREENER_FMP_API_KEY is unset. Off in production, where licensed data is required.",
+        description="For development or personal use: use yfinance when a user has no FMP "
+        "key, or FMP fails or their plan does not cover a request, and yfinance and Nasdaq's "
+        "public feed for the screener refresh when SCREENER_FMP_API_KEY is unset. These "
+        "sources are unlicensed: keep it off once anyone else uses the deployment.",
     )
     rate_limit_per_minute: int = Field(
         default=120,
