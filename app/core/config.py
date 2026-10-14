@@ -54,8 +54,8 @@ class Settings(BaseSettings):
     yfinance_fallback: bool = Field(
         default=False,
         description="For development: use yfinance when a user has no FMP key, or FMP "
-        "fails or their plan does not cover a request. Off in production, where licensed "
-        "data is required.",
+        "fails or their plan does not cover a request, and for the screener refresh when "
+        "SCREENER_FMP_API_KEY is unset. Off in production, where licensed data is required.",
     )
     rate_limit_per_minute: int = Field(
         default=120,
@@ -103,6 +103,19 @@ class Settings(BaseSettings):
         ge=0,
         description="Smallest share price a stock needs to enter the universe, leaving out "
         "penny stocks.",
+    )
+    screener_fmp_api_key: SecretStr | None = Field(
+        default=None,
+        description="Financial Modeling Prep key the screener refresh uses for prices, "
+        "market caps, sectors and exchange rates. Every account sees the universe it builds, "
+        "so it must be on a plan whose terms allow showing FMP data to your users, and cover "
+        "the company screener. Without it, the refresh runs only with YFINANCE_FALLBACK on.",
+    )
+    screener_fmp_requests_per_minute: int = Field(
+        default=300,
+        ge=1,
+        description="FMP requests the screener refresh makes per minute at most; set it to "
+        "your plan's limit. A full price download takes one request per listed stock.",
     )
     screener_fundamentals_refresh_days: float = Field(
         default=7.0,

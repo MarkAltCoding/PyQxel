@@ -23,9 +23,9 @@ BROAD_MARKET_COUNT: int = 3_000
 LIQUID_DOLLAR_VOLUME: float = 5_000_000.0
 
 MarketCapSource = Literal["provider", "sec_shares"]
-"""``provider`` when a market data provider (Nasdaq or yfinance) reported the market cap,
-``sec_shares`` when it was computed as the latest close times shares outstanding from SEC
-filings."""
+"""``provider`` when the market data provider, Financial Modeling Prep (or yfinance in
+development), reported the market cap, ``sec_shares`` when it was computed as the latest
+close times shares outstanding from SEC filings."""
 
 ScreenField = Literal[
     "price",
@@ -103,8 +103,12 @@ class ScreenedStock(ScreenMetrics):
     symbol: str
     name: str
     exchange: str
-    sector: str | None = Field(default=None, description="Sector, as Nasdaq classifies it.")
-    industry: str | None = Field(default=None, description="Industry, as Nasdaq classifies it.")
+    sector: str | None = Field(
+        default=None, description="Sector, as Financial Modeling Prep classifies it."
+    )
+    industry: str | None = Field(
+        default=None, description="Industry, as Financial Modeling Prep classifies it."
+    )
     cik: int
     market_cap_source: MarketCapSource
     market_cap_rank: int = Field(ge=1, description="Rank by market cap in the universe.")

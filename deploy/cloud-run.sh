@@ -16,6 +16,7 @@
 #   MAX_INSTANCES=2           cap on concurrent instances, which bounds the bill
 #   CORS_ORIGINS='["https://app.example"]'   browser origins allowed to call the API
 #   SCREENER_SCHEDULE="30 18 * * 1-5"        cron, New York time; "" skips scheduling
+#   SCREENER_FMP_REQUESTS_PER_MINUTE=300     the screener's FMP plan's rate limit
 
 set -euo pipefail
 
@@ -26,6 +27,7 @@ SERVICE="${SERVICE:-pyqxel}"
 MAX_INSTANCES="${MAX_INSTANCES:-2}"
 CORS_ORIGINS="${CORS_ORIGINS:-}"
 SCREENER_SCHEDULE="${SCREENER_SCHEDULE-30 18 * * 1-5}"
+SCREENER_FMP_REQUESTS_PER_MINUTE="${SCREENER_FMP_REQUESTS_PER_MINUTE:-300}"
 
 REPOSITORY="$SERVICE"
 JOB="$SERVICE-screener"
@@ -36,6 +38,8 @@ IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$(git rev-parse -
 # Secret Manager name -> environment variable. The first two are required.
 SECRET_NAMES=(pyqxel-database-url pyqxel-credentials-key pyqxel-redis-url)
 SECRET_VARIABLES=(DATABASE_URL CREDENTIALS_ENCRYPTION_KEY REDIS_URL)
+# The screener's licensed FMP key, given to the screener job only, never to the service.
+SCREENER_SECRET=pyqxel-screener-fmp-key
 
 gc() { gcloud --project "$PROJECT_ID" --quiet "$@"; }
 step() { printf '\n==> %s\n' "$*"; }
@@ -54,10 +58,18 @@ for i in "${!SECRET_NAMES[@]}"; do
         echo "Missing secret $name; create it as README.md describes." >&2
         exit 1
     else
-        echo "No $name secret: running without Redis."
+        echo "No $name secret: running without Redis, so each instance keeps its own caches and rate limits."
     fi
 done
 secret_flags="$(IFS=,; echo "${secrets[*]}")"
+job_secret_flags="$secret_flags"
+screener_secrets=()
+if gc secrets describe "$SCREENER_SECRET" >/dev/null 2>&1; then
+    screener_secrets+=("SCREENER_FMP_API_KEY=$SCREENER_SECRET:latest")
+    job_secret_flags+=",${screener_secrets[0]}"
+else
+    echo "No $SCREENER_SECRET secret: screener refreshes will fail until it is created." >&2
+fi
 
 step "Service accounts"
 for account in "$RUN_ACCOUNT" "$SCHEDULER_ACCOUNT"; do
@@ -65,8 +77,8 @@ for account in "$RUN_ACCOUNT" "$SCHEDULER_ACCOUNT"; do
         gc iam service-accounts create "${account%%@*}" --display-name "PyQxel ${account%%@*}"
     fi
 done
-for i in "${!secrets[@]}"; do
-    name="${secrets[$i]#*=}"
+for flag in "${secrets[@]}" ${screener_secrets[@]+"${screener_secrets[@]}"}; do
+    name="${flag#*=}"
     gc secrets add-iam-policy-binding "${name%:latest}" \
         --member "serviceAccount:$RUN_ACCOUNT" --role roles/secretmanager.secretAccessor \
         >/dev/null
@@ -133,8 +145,8 @@ gc run jobs deploy "$JOB" \
     --cpu 2 --memory 4Gi \
     --task-timeout 3600 --max-retries 1 \
     --command python --args=-m,app.jobs.screener \
-    --set-env-vars "$env_vars" \
-    --set-secrets "$secret_flags"
+    --set-env-vars "$env_vars|SCREENER_FMP_REQUESTS_PER_MINUTE=$SCREENER_FMP_REQUESTS_PER_MINUTE" \
+    --set-secrets "$job_secret_flags"
 
 if [[ -n "$SCREENER_SCHEDULE" ]]; then
     step "Scheduling the screener: $SCREENER_SCHEDULE (New York time)"

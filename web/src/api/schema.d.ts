@@ -2565,7 +2565,7 @@ export interface components {
       gross_margin?: number | null
       /**
        * Industry
-       * @description Industry, as Nasdaq classifies it.
+       * @description Industry, as Financial Modeling Prep classifies it.
        */
       industry?: string | null
       /** Market Cap */
@@ -2629,7 +2629,7 @@ export interface components {
       revenue_growth?: number | null
       /**
        * Sector
-       * @description Sector, as Nasdaq classifies it.
+       * @description Sector, as Financial Modeling Prep classifies it.
        */
       sector?: string | null
       /** Symbol */

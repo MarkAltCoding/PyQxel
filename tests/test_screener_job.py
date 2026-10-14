@@ -7,13 +7,16 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 
-import httpx2
 import numpy as np
 import pandas as pd
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import select
 
-from app.data.universe import Listing, Profile
+from app.core.config import get_settings
+from app.core.credentials import current_provider_keys
+from app.data.fetcher import DataFetchError, ProviderNotConfiguredError
+from app.data.universe import FmpSession, Listing, Profile
 from app.db.screener import finish_run, load_fundamentals, start_run, universe_status
 from app.db.session import get_sessionmaker
 from app.db.tables import ScreenerRunRecord, ScreenerStockRecord
@@ -56,7 +59,7 @@ PROFILES = {
     "THIN": Profile("Thin Corp Common Stock", None, None, None),
     "PREF": Profile("Big Corp Depositary Shares of Series A Preferred Stock", 5e11, None, None),
 }
-YFINANCE_CAPS = {"THIN": 1e9}
+LOOKED_UP_CAPS = {"THIN": 1e9}
 SEC_SHARES = {5: 1e7, 6: 1e7}
 EXCHANGE_RATES = {"EUR": 2.0}
 
@@ -67,7 +70,8 @@ class Fakes:
     def __init__(self) -> None:
         self.bulk_downloads = 0
         self.single_fetches: list[str] = []
-        self.yfinance_lookups: list[str] = []
+        self.cap_lookups: list[str] = []
+        self.priced: list[str] = []
 
 
 @pytest.fixture
@@ -82,15 +86,18 @@ def fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Fakes]:
     async def fake_listings(client: object) -> list[Listing]:
         return LISTINGS
 
-    async def fake_prices(symbols: Iterable[str], start: date) -> dict[str, pd.DataFrame]:
-        return {symbol: PRICES[symbol] for symbol in symbols}
+    async def fake_prices(
+        symbols: Iterable[str], start: date, market: FmpSession | None
+    ) -> dict[str, pd.DataFrame]:
+        recorded.priced.extend(symbols)
+        return {symbol: PRICES[symbol] for symbol in recorded.priced}
 
-    async def fake_profiles() -> dict[str, Profile]:
+    async def fake_profiles(market: FmpSession | None) -> dict[str, Profile]:
         return PROFILES
 
-    async def fake_caps(symbols: Iterable[str]) -> dict[str, float]:
-        recorded.yfinance_lookups.extend(symbols)
-        return {s: YFINANCE_CAPS[s] for s in recorded.yfinance_lookups if s in YFINANCE_CAPS}
+    async def fake_caps(symbols: Iterable[str], market: FmpSession | None) -> dict[str, float]:
+        recorded.cap_lookups.extend(symbols)
+        return {s: LOOKED_UP_CAPS[s] for s in recorded.cap_lookups if s in LOOKED_UP_CAPS}
 
     async def fake_shares(client: object) -> dict[int, float]:
         return SEC_SHARES
@@ -153,8 +160,10 @@ async def test_refresh_builds_the_filtered_universe(fakes: Fakes, tmp_path: Path
     assert sorted(stored) == ["BIG", "ONE"]
     assert (stored["BIG"].market_cap_source, stored["BIG"].market_cap_rank) == ("provider", 1)
     assert (stored["BIG"].sector, stored["BIG"].industry) == ("Technology", "Semiconductors")
-    # Nasdaq and SEC shares cover the rest; only stocks they miss are looked up one by one.
-    assert sorted(fakes.yfinance_lookups) == ["DUO-A", "DUO-B"]
+    # The company screener and SEC shares cover the rest; only stocks they miss are looked
+    # up one by one, and stocks known to be too small are not priced.
+    assert sorted(fakes.cap_lookups) == ["DUO-A", "DUO-B"]
+    assert "SMALL" not in fakes.priced and "THIN" in fakes.priced
     one = stored["ONE"]
     assert one.market_cap_source == "sec_shares"
     assert one.market_cap == pytest.approx(30.0 * 1e7)
@@ -262,10 +271,10 @@ async def test_failed_lookups_reuse_the_last_share_count(
     """Without a provider value, a stock keeps its implied share count at today's close."""
     await job.refresh_universe()
 
-    async def unavailable() -> dict[str, Profile]:
-        raise httpx2.ConnectError("Nasdaq down")
+    async def unavailable(market: FmpSession | None) -> dict[str, Profile]:
+        raise DataFetchError("FMP down")
 
-    async def throttled(symbols: Iterable[str]) -> dict[str, float]:
+    async def throttled(symbols: Iterable[str], market: FmpSession | None) -> dict[str, float]:
         return {}
 
     monkeypatch.setattr(job, "fetch_profiles", unavailable)
@@ -276,6 +285,44 @@ async def test_failed_lookups_reuse_the_last_share_count(
     assert big.market_cap_source == "provider"
     assert big.market_cap == pytest.approx(2e12)
     assert big.sector is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_needs_a_licensed_key_in_production(
+    fakes: Fakes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the screener's FMP key and the fallback, the run fails and says why."""
+    monkeypatch.setattr(get_settings(), "yfinance_fallback", False)
+    monkeypatch.setattr(get_settings(), "screener_fmp_api_key", None)
+
+    with pytest.raises(ProviderNotConfiguredError):
+        await job.refresh_universe()
+
+    async with get_sessionmaker()() as session:
+        status = await universe_status(session)
+    assert status.last_error is not None and "SCREENER_FMP_API_KEY" in status.last_error
+    assert fakes.priced == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_uses_the_screener_key(fakes: Fakes, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the screener's key, data comes from FMP on it, and so do exchange rates."""
+    seen: list[object] = []
+    keys: list[str | None] = []
+
+    async def record_profiles(market: FmpSession | None) -> dict[str, Profile]:
+        seen.append(market)
+        key = current_provider_keys().fmp
+        keys.append(None if key is None else key.get_secret_value())
+        return PROFILES
+
+    monkeypatch.setattr(get_settings(), "screener_fmp_api_key", SecretStr("screener-key"))
+    monkeypatch.setattr(job, "fetch_profiles", record_profiles)
+
+    await job.refresh_universe()
+
+    assert isinstance(seen[0], FmpSession)
+    assert keys == ["screener-key"]
 
 
 def test_open_sessions_are_dropped_until_prices_settle() -> None:

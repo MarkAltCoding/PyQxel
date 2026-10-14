@@ -1,9 +1,13 @@
-"""Optional Redis cache shared by every worker process.
+"""Optional Redis cache shared by every worker process and every instance.
 
-Caching is enabled by setting ``REDIS_URL``. Without it, or while Redis is
-unreachable, every lookup is a miss and every store is skipped, so callers fall
-through to their data provider. After a Redis error the cache stays off for
+Caching is enabled by setting ``REDIS_URL``, e.g. an Upstash ``rediss://`` URL. Without
+it, or while Redis is unreachable, every lookup is a miss and every store is skipped, so
+callers fall through to their data provider. After a Redis error the cache stays off for
 :data:`RETRY_AFTER_SECONDS` rather than making each request wait out a timeout.
+
+Hosted Redis such as Upstash closes connections left idle, as they are whenever traffic
+pauses. Idle connections are checked before reuse, and a command that finds its
+connection closed is retried once on a new one, so a quiet spell does not pause the cache.
 
 Values are stored as JSON text; callers serialize and parse their own types.
 """
@@ -13,7 +17,11 @@ import time
 from typing import Literal
 
 from redis.asyncio import Redis
+from redis.asyncio.retry import Retry
+from redis.backoff import NoBackoff
+from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from app.core.config import get_settings
 
@@ -26,7 +34,13 @@ RETRY_AFTER_SECONDS: float = 30.0
 """How long the cache stays off after a Redis error."""
 
 SOCKET_TIMEOUT_SECONDS: float = 0.5
-"""Connect and read timeout, kept short because a slow cache is worse than none."""
+"""Read timeout, kept short because a slow cache is worse than none."""
+
+CONNECT_TIMEOUT_SECONDS: float = 1.5
+"""Connect timeout, long enough for a TLS handshake from a newly started instance."""
+
+HEALTH_CHECK_INTERVAL_SECONDS: int = 30
+"""Connections idle longer than this are pinged before reuse."""
 
 _client: Redis | None = None
 _configured: bool = False
@@ -55,7 +69,10 @@ def _get_client() -> Redis | None:
             else Redis.from_url(
                 url.get_secret_value(),
                 socket_timeout=SOCKET_TIMEOUT_SECONDS,
-                socket_connect_timeout=SOCKET_TIMEOUT_SECONDS,
+                socket_connect_timeout=CONNECT_TIMEOUT_SECONDS,
+                health_check_interval=HEALTH_CHECK_INTERVAL_SECONDS,
+                retry=Retry(NoBackoff(), retries=1),
+                retry_on_error=[RedisConnectionError, RedisTimeoutError],
                 decode_responses=True,
             )
         )
@@ -103,7 +120,11 @@ async def cache_set(key: str, value: str, ttl_seconds: float) -> None:
 
 
 async def cache_increment(key: str, ttl_seconds: float) -> int | None:
-    """Add one to the counter at ``key``, starting its ``ttl_seconds`` expiry when it is new.
+    """Add one to the counter at ``key``, which expires ``ttl_seconds`` after its last count.
+
+    The count and its expiry are set together in one transaction, so no counter is left
+    without an expiry; the expiry is restarted on each count, which suits counters keyed
+    by time window.
 
     Returns:
         The new count, or ``None`` when caching is off or Redis fails.
@@ -112,9 +133,10 @@ async def cache_increment(key: str, ttl_seconds: float) -> int | None:
     if client is None:
         return None
     try:
-        count = int(await client.incr(KEY_PREFIX + key))
-        if count == 1:
-            await client.pexpire(KEY_PREFIX + key, max(1, round(ttl_seconds * 1000)))
+        async with client.pipeline(transaction=True) as pipeline:
+            pipeline.incr(KEY_PREFIX + key)
+            pipeline.pexpire(KEY_PREFIX + key, max(1, round(ttl_seconds * 1000)))
+            count = int((await pipeline.execute())[0])
     except RedisError as exc:
         _trip("count", key, exc)
         return None

@@ -3,9 +3,15 @@
 The universe starts from the SEC's list of companies with exchange-listed tickers, which
 covers every US-listed stock whose issuer files with the SEC. Index memberships such as
 the S&P 500 or the Russell indices are licensed, so size and liquidity filters stand in
-for them. Prices come from yfinance in batches. Market caps, sectors and industries come
-from Nasdaq's screener feed in one request; market caps it lacks come from shares
-outstanding reported to the SEC, or from yfinance one stock at a time.
+for them.
+
+Market data comes from Financial Modeling Prep through an :class:`FmpSession` on the
+screener's own key, since every account sees the universe it builds: market caps, sectors
+and industries from FMP's company screener, a few requests in all, and dividend-adjusted
+daily prices one stock at a time, paced to the plan's rate limit. Market caps the company
+screener lacks come from shares outstanding reported to the SEC, or from FMP company
+profiles. For development without that key, the functions taking a session accept
+``None`` and use yfinance instead, without sectors.
 
 All of this is fetched by the refresh job, not while serving requests.
 """
@@ -14,24 +20,33 @@ import asyncio
 import logging
 import math
 import re
-from collections.abc import Iterable
+import time
+from collections.abc import Awaitable, Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
-from typing import Any
+from types import TracebackType
+from typing import Any, Self, TypeVar
 
 import httpx2
 import pandas as pd
 import yfinance as yf
 
+from app.data.fetcher import (
+    FMP_BASE_URL,
+    DataFetchError,
+    ProviderNotConfiguredError,
+    ProviderPlanError,
+)
 from app.data.sec_edgar import edgar_get
 
 logger = logging.getLogger(__name__)
 
 LISTINGS_URL: str = "https://www.sec.gov/files/company_tickers_exchange.json"
-NASDAQ_SCREENER_URL: str = "https://api.nasdaq.com/api/screener/stocks"
-"""Nasdaq's public stock screener feed: every US-listed stock's market cap, sector and
-industry in one response."""
+SCREENER_EXCHANGES: tuple[str, ...] = ("NYSE", "NASDAQ", "AMEX")
+"""Exchanges whose listings are read from FMP's company screener, one request each."""
+SCREENER_LIMIT: int = 10_000
+"""Rows asked of the company screener per exchange, more than any exchange lists."""
 FRAMES_URL: str = "https://data.sec.gov/api/xbrl/frames/{taxonomy}/{concept}/shares/{period}.json"
 
 EXCHANGES: frozenset[str] = frozenset({"NYSE", "Nasdaq", "CBOE"})
@@ -51,7 +66,7 @@ NON_COMMON_NAME: re.Pattern[str] = re.compile(
 as Alphabet's convertible preferred depositary shares GOOGN, whose ticker looks common."""
 
 PRICE_BATCH_SIZE: int = 200
-"""Tickers per yfinance download; larger batches are throttled more often."""
+"""Tickers per yfinance download (development only); larger batches are throttled more often."""
 
 PRICE_RETRIES: int = 2
 """Retries of a failed batch before its tickers are skipped."""
@@ -65,10 +80,23 @@ MARKET_CAP_ROUNDS: int = 3
 MARKET_CAP_PAUSE_SECONDS: float = 60.0
 """Wait before retrying failed lookups, long enough for Yahoo's throttling to lift."""
 
+FMP_TIMEOUT_SECONDS: float = 60.0
+FMP_CONCURRENCY: int = 8
+"""FMP requests in flight at once; the pacer bounds how many start each minute."""
+FMP_RETRIES: int = 3
+"""Retries of an FMP request that was throttled, failed on FMP's side or timed out."""
+FMP_RETRY_PAUSE_SECONDS: float = 15.0
+"""Wait before the first retry; later retries wait longer."""
+PROGRESS_EVERY: int = 1_000
+"""Per-stock requests between progress messages."""
+
+
+T = TypeVar("T")
+
 
 @dataclass(frozen=True)
 class Profile:
-    """A security's name, market cap and classification from Nasdaq's screener feed."""
+    """A security's name, market cap and classification from FMP's company screener."""
 
     name: str
     market_cap: float | None
@@ -122,7 +150,7 @@ def parse_listings(payload: dict[str, Any]) -> list[Listing]:
 
 
 def _number(value: object) -> float | None:
-    """Parse a number the feed writes as text, mapping blanks and non-positive values to None."""
+    """``value`` as a positive, finite float, mapping blanks and other values to None."""
     try:
         number = float(str(value).replace("$", "").replace(",", ""))
     except ValueError:
@@ -130,38 +158,213 @@ def _number(value: object) -> float | None:
     return number if math.isfinite(number) and number > 0 else None
 
 
-def parse_profiles(payload: dict[str, Any]) -> dict[str, Profile]:
-    """Read Nasdaq's screener rows, keyed by ticker as EDGAR writes it (``BRK/B`` is BRK-B)."""
-    rows: list[dict[str, Any]] = payload.get("data", {}).get("rows") or []
+def _text(value: object) -> str | None:
+    """``value`` stripped, or ``None`` when blank or missing."""
+    if value is None:
+        return None
+    return str(value).strip() or None
+
+
+def parse_profiles(rows: object) -> dict[str, Profile]:
+    """Read FMP company screener rows, keyed by ticker as EDGAR writes it (BRK-B)."""
     profiles: dict[str, Profile] = {}
-    for row in rows:
-        if not row.get("symbol"):
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or not row.get("symbol"):
             continue
-        symbol = str(row["symbol"]).strip().upper().replace("/", "-")
+        symbol = str(row["symbol"]).strip().upper().replace(".", "-").replace("/", "-")
         profiles[symbol] = Profile(
-            name=str(row.get("name") or "").strip(),
+            name=_text(row.get("companyName")) or "",
             market_cap=_number(row.get("marketCap")),
-            sector=str(row.get("sector") or "").strip() or None,
-            industry=str(row.get("industry") or "").strip() or None,
+            sector=_text(row.get("sector")),
+            industry=_text(row.get("industry")),
         )
     return profiles
 
 
-async def fetch_profiles() -> dict[str, Profile]:
-    """Fetch every US-listed stock's market cap, sector and industry from Nasdaq.
+class RequestPacer:
+    """Spaces request starts evenly so no more than ``per_minute`` start in any minute."""
+
+    def __init__(self, per_minute: int) -> None:
+        self._interval = 60.0 / per_minute
+        self._next = 0.0
+        self._lock = asyncio.Lock()
+
+    async def wait(self) -> None:
+        """Wait for the next free slot."""
+        async with self._lock:
+            now = time.monotonic()
+            start = max(now, self._next)
+            self._next = start + self._interval
+        if start > now:
+            await asyncio.sleep(start - now)
+
+
+class FmpSession:
+    """FMP requests for one refresh, on the screener's key.
+
+    Requests share one HTTP client, are paced to the plan's rate limit, and are retried
+    when FMP throttles them, fails on its side or times out. Once FMP rejects the key,
+    every later request fails at once rather than calling FMP again.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        requests_per_minute: int,
+        client: httpx2.AsyncClient | None = None,
+    ) -> None:
+        self._api_key = api_key
+        self._pacer = RequestPacer(requests_per_minute)
+        self._slots = asyncio.Semaphore(FMP_CONCURRENCY)
+        self._client = client or httpx2.AsyncClient(timeout=FMP_TIMEOUT_SECONDS)
+        self._owns_client = client is None
+        self._rejected: ProviderNotConfiguredError | None = None
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
+    async def get(self, path: str, params: dict[str, str]) -> Any:
+        """GET an FMP endpoint and return its JSON.
+
+        Raises:
+            ProviderNotConfiguredError: If FMP rejects the key.
+            ProviderPlanError: If the plan does not cover the request.
+            DataFetchError: If the request keeps failing.
+        """
+        what = f"{path} {params.get('symbol', '')}".strip()
+        problem = "no response"
+        for attempt in range(FMP_RETRIES + 1):
+            if attempt:
+                await asyncio.sleep(FMP_RETRY_PAUSE_SECONDS * attempt)
+            if self._rejected is not None:
+                raise self._rejected
+            await self._pacer.wait()
+            try:
+                async with self._slots:
+                    response = await self._client.get(
+                        f"{FMP_BASE_URL}/{path}", params=params | {"apikey": self._api_key}
+                    )
+            except httpx2.TransportError as exc:
+                problem = f"{type(exc).__name__}: {exc}"
+                continue
+            status = response.status_code
+            if status in (401, 403):
+                self._rejected = ProviderNotConfiguredError(
+                    "Financial Modeling Prep rejected SCREENER_FMP_API_KEY."
+                )
+                raise self._rejected
+            if status == 402:
+                raise ProviderPlanError(f"The screener's FMP plan does not cover {what}.")
+            if status == 429 or status >= 500:
+                problem = f"HTTP {status}"
+                continue
+            if status >= 400:
+                raise DataFetchError(f"FMP answered {what} with HTTP {status}.")
+            try:
+                return response.json()
+            except ValueError as exc:
+                raise DataFetchError(f"FMP answered {what} with unreadable JSON.") from exc
+        raise DataFetchError(f"FMP {what} failed after {FMP_RETRIES + 1} attempts: {problem}.")
+
+
+async def fetch_profiles(session: FmpSession | None) -> dict[str, Profile]:
+    """Every US-listed stock's name, market cap, sector and industry from FMP.
+
+    Returns nothing without a session, in development, so sectors are left out.
 
     Raises:
-        httpx2.HTTPError: If the feed cannot be fetched.
+        DataFetchError: If the company screener cannot be read.
     """
-    async with httpx2.AsyncClient(
-        headers={"User-Agent": "Mozilla/5.0 (PyQxel)", "Accept": "application/json"},
-        timeout=60.0,
-    ) as client:
-        response = await client.get(
-            NASDAQ_SCREENER_URL, params={"tableonly": "true", "download": "true"}
+    if session is None:
+        return {}
+    profiles: dict[str, Profile] = {}
+    for exchange in SCREENER_EXCHANGES:
+        rows = await session.get(
+            "company-screener",
+            {
+                "exchange": exchange,
+                "isEtf": "false",
+                "isFund": "false",
+                "limit": str(SCREENER_LIMIT),
+            },
         )
-        response.raise_for_status()
-        return parse_profiles(response.json())
+        if isinstance(rows, list) and len(rows) >= SCREENER_LIMIT:
+            logger.warning("FMP's company screener cut %s off at %d rows.", exchange, len(rows))
+        for symbol, profile in parse_profiles(rows).items():
+            profiles.setdefault(symbol, profile)
+    return profiles
+
+
+async def _each_symbol(
+    symbols: Iterable[str],
+    fetch: Callable[[str], Awaitable[T | None]],
+    what: str,
+) -> dict[str, T]:
+    """Run ``fetch`` for every symbol, concurrently, keeping the values it finds.
+
+    A symbol whose request fails is left out and counted, so one bad symbol does not end
+    the refresh; a rejected key does.
+
+    Raises:
+        ProviderNotConfiguredError: If FMP rejects the key.
+    """
+    pending = list(symbols)
+    found: dict[str, T] = {}
+    failures: list[DataFetchError] = []
+    done = 0
+
+    async def one(symbol: str) -> None:
+        nonlocal done
+        try:
+            value = await fetch(symbol)
+        except ProviderNotConfiguredError:
+            raise
+        except DataFetchError as exc:
+            failures.append(exc)
+            logger.debug("No %s for %s: %s", what, symbol, exc)
+        else:
+            if value is not None:
+                found[symbol] = value
+        done += 1
+        if done % PROGRESS_EVERY == 0:
+            logger.info("Fetched %s for %d of %d symbols.", what, done, len(pending))
+
+    results = await asyncio.gather(*(one(symbol) for symbol in pending), return_exceptions=True)
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+    if failures:
+        logger.warning(
+            "No %s for %d symbols whose requests failed, e.g. %s", what, len(failures), failures[0]
+        )
+    return found
+
+
+def price_frame(rows: object) -> pd.DataFrame | None:
+    """Daily adjusted closes and volumes from FMP's dividend-adjusted bars, oldest first."""
+    if not isinstance(rows, list) or not rows:
+        return None
+    table = pd.DataFrame([row for row in rows if isinstance(row, dict)])
+    if not {"date", "adjClose", "volume"} <= set(table.columns):
+        return None
+    frame = pd.DataFrame(
+        {
+            "Close": pd.to_numeric(table["adjClose"], errors="coerce").to_numpy(),
+            "Volume": pd.to_numeric(table["volume"], errors="coerce").to_numpy(),
+        },
+        index=pd.DatetimeIndex(pd.to_datetime(table["date"])),
+    ).sort_index()
+    frame = frame[~frame.index.duplicated(keep="last")].dropna(subset=["Close"])
+    return None if frame.empty else frame
 
 
 async def fetch_listings(client: httpx2.AsyncClient) -> list[Listing]:
@@ -241,15 +444,35 @@ def _batch_prices(symbols: list[str], start: date) -> dict[str, pd.DataFrame]:
     return frames
 
 
-async def download_prices(symbols: Iterable[str], start: date) -> dict[str, pd.DataFrame]:
+async def download_prices(
+    symbols: Iterable[str], start: date, session: FmpSession | None
+) -> dict[str, pd.DataFrame]:
     """Download daily adjusted closes and volumes since ``start`` for every symbol.
 
-    Batches that keep failing are skipped and their symbols left out, so one throttled
-    batch does not end the refresh.
+    From FMP one symbol at a time, or without a session from yfinance in batches.
+    Symbols whose requests keep failing are left out, so they do not end the refresh.
 
     Returns:
         A frame with ``Close`` and ``Volume`` columns per symbol that has data.
+
+    Raises:
+        ProviderNotConfiguredError: If FMP rejects the key.
     """
+    if session is not None:
+        window = {"from": start.isoformat()}
+
+        async def fetch(symbol: str) -> pd.DataFrame | None:
+            rows = await session.get(
+                "historical-price-eod/dividend-adjusted", window | {"symbol": symbol}
+            )
+            return price_frame(rows)
+
+        return await _each_symbol(symbols, fetch, "prices")
+    return await _yfinance_prices(symbols, start)
+
+
+async def _yfinance_prices(symbols: Iterable[str], start: date) -> dict[str, pd.DataFrame]:
+    """:func:`download_prices` from yfinance, for development; failing batches are skipped."""
     pending = list(symbols)
     prices: dict[str, pd.DataFrame] = {}
     for first in range(0, len(pending), PRICE_BATCH_SIZE):
@@ -296,12 +519,32 @@ def _lookup(symbol: str) -> float | None | LookupFailedError:
         return exc
 
 
-async def fetch_market_caps(symbols: Iterable[str]) -> dict[str, float]:
-    """Market caps from yfinance, which counts every share class.
+async def fetch_market_caps(symbols: Iterable[str], session: FmpSession | None) -> dict[str, float]:
+    """Market caps, counting every share class, from FMP company profiles.
 
-    Lookups run a few at a time, in the order given, so the most important symbols should
-    come first. Failed lookups are retried after a pause; symbols still failing, or
+    Without a session they come from yfinance, a few at a time in the order given, so the
+    most important symbols should come first. Symbols whose lookups keep failing, or
     without a market cap, are left out.
+
+    Raises:
+        ProviderNotConfiguredError: If FMP rejects the key.
+    """
+    if session is not None:
+
+        async def fetch(symbol: str) -> float | None:
+            payload = await session.get("profile", {"symbol": symbol})
+            if not isinstance(payload, list) or not payload or not isinstance(payload[0], dict):
+                return None
+            return _number(payload[0].get("marketCap"))
+
+        return await _each_symbol(symbols, fetch, "market caps")
+    return await _yfinance_market_caps(symbols)
+
+
+async def _yfinance_market_caps(symbols: Iterable[str]) -> dict[str, float]:
+    """:func:`fetch_market_caps` from yfinance, for development.
+
+    Failed lookups are retried after a pause, since Yahoo throttles long runs of them.
     """
     pending = list(symbols)
     caps: dict[str, float] = {}
