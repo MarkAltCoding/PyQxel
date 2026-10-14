@@ -3562,7 +3562,7 @@
                 "type": "null"
               }
             ],
-            "description": "Industry, as Nasdaq classifies it.",
+            "description": "Industry, as Financial Modeling Prep classifies it.",
             "title": "Industry"
           },
           "market_cap": {
@@ -3723,7 +3723,7 @@
                 "type": "null"
               }
             ],
-            "description": "Sector, as Nasdaq classifies it.",
+            "description": "Sector, as Financial Modeling Prep classifies it.",
             "title": "Sector"
           },
           "symbol": {

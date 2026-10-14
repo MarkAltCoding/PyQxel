@@ -4,13 +4,21 @@ Redis is replaced with ``fakeredis`` so no test needs a server.
 """
 
 import pytest
-from fakeredis import FakeAsyncRedis
+from fakeredis import FakeAsyncRedis, FakeServer
 from pydantic import SecretStr
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from app.core import cache
-from app.core.cache import KEY_PREFIX, cache_get, cache_set, close_cache, configure_cache
+from app.core.cache import (
+    KEY_PREFIX,
+    cache_get,
+    cache_increment,
+    cache_set,
+    close_cache,
+    configure_cache,
+)
 from app.core.config import Settings
+from app.core.rate_limit import RateLimitExceeded, check_rate_limit, clear_local_counts
 
 pytestmark = pytest.mark.asyncio
 
@@ -95,7 +103,35 @@ async def test_client_is_created_from_settings(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(cache, "get_settings", lambda: Settings(redis_url=url))
     client = cache._get_client()
     assert client is not None
-    assert client.connection_pool.connection_kwargs["port"] == 6390
+    options = client.connection_pool.connection_kwargs
+    assert options["port"] == 6390
+    # Hosted Redis drops idle connections: they are checked, and a dropped one retried.
+    assert options["health_check_interval"] == cache.HEALTH_CHECK_INTERVAL_SECONDS
+    assert options["retry"].get_retries() == 1
+    assert RedisConnectionError in options["retry_on_error"]
 
     await close_cache()
     assert cache._client is None
+
+
+async def test_counters_always_expire(fake_redis: FakeAsyncRedis) -> None:
+    """Each count sets the counter's expiry with it, so none is left to grow forever."""
+    assert await cache_increment("ratelimit:u:1", ttl_seconds=120) == 1
+    assert await cache_increment("ratelimit:u:1", ttl_seconds=120) == 2
+
+    assert 0 < await fake_redis.pttl(KEY_PREFIX + "ratelimit:u:1") <= 120_000
+
+
+async def test_rate_limits_are_shared_across_instances() -> None:
+    """Instances counting in the same Redis enforce one limit between them."""
+    clear_local_counts()
+    server = FakeServer()
+    first, second = (FakeAsyncRedis(server=server, decode_responses=True) for _ in range(2))
+    now = 1_000_000.0
+
+    configure_cache(first)
+    await check_rate_limit("shared-user", 2, now=now)
+    configure_cache(second)
+    await check_rate_limit("shared-user", 2, now=now)
+    with pytest.raises(RateLimitExceeded):
+        await check_rate_limit("shared-user", 2, now=now)

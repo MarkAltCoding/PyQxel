@@ -8,10 +8,12 @@ Each run:
 
 1. Reads every common stock listed on NYSE, Nasdaq and Cboe from the SEC's ticker list,
    leaving out preferreds, notes, warrants, units and rights by ticker and by name.
-2. Downloads about 13 months of daily prices for all of them from yfinance.
+2. Reads market caps, sectors and industries from Financial Modeling Prep's company
+   screener, and downloads about 13 months of daily prices from FMP for every stock not
+   already known to be below the market cap floor.
 3. Keeps those passing the baseline filter: price, average daily dollar volume and market
-   cap above the ``SCREENER_MIN_*`` settings. Market caps, sectors and industries come
-   from Nasdaq's screener feed, with SEC share counts and yfinance filling gaps.
+   cap above the ``SCREENER_MIN_*`` settings. Market caps FMP's company screener lacks
+   come from SEC share counts, the last refresh, or FMP company profiles.
 4. Rebuilds their financials from the SEC's bulk company facts archive when the stored
    ones are older than ``SCREENER_FUNDAMENTALS_REFRESH_DAYS`` (weekly by default),
    fetches any company that is new to the universe on its own, and refetches companies
@@ -19,25 +21,33 @@ Each run:
 5. Computes valuation, growth, momentum, volatility and Carhart factor betas, and
    replaces the stored universe with the result.
 
-A full run takes a few minutes, plus a 1.3 GB download on the days fundamentals are
-rebuilt. Pass ``--fundamentals`` to rebuild them regardless of age.
+Every account sees the universe, so market data is fetched on the screener's own key,
+``SCREENER_FMP_API_KEY``, which must be on an FMP plan licensed for showing its data to
+your users, never on an account's key. Without that key the run fails, unless
+``YFINANCE_FALLBACK`` is on, in development, when yfinance stands in, without sectors.
+
+A full run takes one FMP request per listed stock, about 20 minutes at 300 requests a
+minute (``SCREENER_FMP_REQUESTS_PER_MINUTE``), plus a 1.3 GB download on the days
+fundamentals are rebuilt. Pass ``--fundamentals`` to rebuild them regardless of age.
 """
 
 import argparse
 import asyncio
 import logging
 from collections import Counter
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-import httpx2
 import pandas as pd
 
 from app.core.config import PROJECT_ROOT, get_settings
+from app.core.credentials import ProviderKeys, use_provider_keys
 from app.data.exchange_rates import fetch_exchange_rates
 from app.data.factors import fetch_factors
-from app.data.fetcher import DataFetchError
+from app.data.fetcher import DataFetchError, ProviderNotConfiguredError, ProviderPlanError
 from app.data.fundamentals import (
     download_bulk_company_facts,
     fetch_financials,
@@ -45,6 +55,7 @@ from app.data.fundamentals import (
 )
 from app.data.sec_edgar import FilingFetchError, edgar_client
 from app.data.universe import (
+    FmpSession,
     Listing,
     Profile,
     download_prices,
@@ -131,15 +142,19 @@ def _liquid(listings: list[Listing], prices: dict[str, pd.DataFrame]) -> list[Ca
 
 
 async def _market_caps(
-    candidates: list[Candidate], all_listings: list[Listing], profiles: dict[str, Profile]
+    candidates: list[Candidate],
+    all_listings: list[Listing],
+    profiles: dict[str, Profile],
+    market: FmpSession | None,
 ) -> dict[str, tuple[float, MarketCapSource]]:
-    """Market caps from Nasdaq, then SEC shares, then the last refresh, then yfinance.
+    """Market caps from FMP's company screener, then SEC shares, then the last refresh,
+    then company profiles.
 
-    Nasdaq's feed covers nearly every stock, including those with several share classes.
-    For the rest, price times SEC shares is used when the company has one listed share
-    class; then the share count implied by the stock's market cap in the previous
-    refresh; and last, yfinance one stock at a time, most traded first since Yahoo
-    throttles long runs of lookups.
+    The company screener covers nearly every stock, including those with several share
+    classes. For the rest, price times SEC shares is used when the company has one listed
+    share class; then the share count implied by the stock's market cap in the previous
+    refresh; and last, profiles one stock at a time, most traded first so that yfinance,
+    which throttles long runs of lookups in development, reaches them.
     """
 
     def last_close(candidate: Candidate) -> float:
@@ -150,7 +165,7 @@ async def _market_caps(
         profile = profiles.get(candidate.listing.symbol)
         if profile is not None and profile.market_cap is not None:
             caps[candidate.listing.symbol] = (profile.market_cap, "provider")
-    from_nasdaq = len(caps)
+    from_screener = len(caps)
 
     classes = Counter(listing.cik for listing in all_listings)
     async with edgar_client() as client:
@@ -173,12 +188,12 @@ async def _market_caps(
             rest.append(candidate)
 
     rest.sort(key=lambda c: -float((c.prices["Close"] * c.prices["Volume"]).tail(63).mean()))
-    provided = await fetch_market_caps(candidate.listing.symbol for candidate in rest)
+    provided = await fetch_market_caps((candidate.listing.symbol for candidate in rest), market)
     caps |= {symbol: (value, "provider") for symbol, value in provided.items()}
     logger.info(
-        "Market caps: %d from Nasdaq, %d from SEC share counts, %d from the last refresh, "
-        "%d from yfinance, %d unknown.",
-        from_nasdaq,
+        "Market caps: %d from the company screener, %d from SEC share counts, %d from the "
+        "last refresh, %d from company profiles, %d unknown.",
+        from_screener,
         from_sec,
         reused,
         len(provided),
@@ -346,16 +361,53 @@ async def refresh_universe(force_fundamentals: bool = False) -> RefreshResult:
     return result
 
 
+@asynccontextmanager
+async def _market_data() -> AsyncIterator[FmpSession | None]:
+    """The screener's FMP session, or ``None`` to use yfinance in development.
+
+    The screener's key also becomes the current provider key, so exchange rates are
+    fetched on it.
+
+    Raises:
+        ProviderNotConfiguredError: If ``SCREENER_FMP_API_KEY`` is unset and the yfinance
+            fallback is off.
+    """
+    settings = get_settings()
+    key = settings.screener_fmp_api_key
+    if key is None:
+        if not settings.yfinance_fallback:
+            raise ProviderNotConfiguredError(
+                "The screener needs SCREENER_FMP_API_KEY: a Financial Modeling Prep key on a "
+                "plan licensed for showing its data to your users."
+            )
+        logger.warning("SCREENER_FMP_API_KEY is unset, so yfinance stands in (development only).")
+        yield None
+        return
+    use_provider_keys(ProviderKeys(fmp=key))
+    async with FmpSession(
+        key.get_secret_value(), settings.screener_fmp_requests_per_minute
+    ) as session:
+        yield session
+
+
 async def _refresh(force_fundamentals: bool) -> RefreshResult:
     """The steps of :func:`refresh_universe`."""
+    async with _market_data() as market:
+        return await _refresh_with(market, force_fundamentals)
+
+
+async def _refresh_with(market: FmpSession | None, force_fundamentals: bool) -> RefreshResult:
+    """:func:`_refresh` with its market data source open."""
     settings = get_settings()
     today = date.today()
     async with edgar_client() as client:
         listings = await fetch_listings(client)
     try:
-        profiles = await fetch_profiles()
-    except (httpx2.HTTPError, ValueError) as exc:
-        logger.warning("Nasdaq's screener feed is unavailable, so sectors are left out: %s", exc)
+        profiles = await fetch_profiles(market)
+    except ProviderNotConfiguredError, ProviderPlanError:
+        raise
+    except DataFetchError as exc:
+        logger.warning("FMP's company screener is unavailable, so sectors are left out: %s", exc)
         profiles = {}
     listings = [
         listing
@@ -364,14 +416,23 @@ async def _refresh(force_fundamentals: bool) -> RefreshResult:
     ]
     logger.info("%d common stocks are listed on US exchanges.", len(listings))
 
+    # Stocks the company screener puts below the market cap floor would be dropped anyway,
+    # so their prices are not downloaded.
+    def known_too_small(listing: Listing) -> bool:
+        profile = profiles.get(listing.symbol)
+        cap = None if profile is None else profile.market_cap
+        return cap is not None and cap < settings.screener_min_market_cap
+
     prices = await download_prices(
-        (listing.symbol for listing in listings), today - timedelta(days=PRICE_HISTORY_DAYS)
+        (listing.symbol for listing in listings if not known_too_small(listing)),
+        today - timedelta(days=PRICE_HISTORY_DAYS),
+        market,
     )
     prices = _completed_sessions(prices, datetime.now(timezone.utc))
     candidates = _liquid(listings, prices)
     logger.info("%d pass the price and dollar volume floors.", len(candidates))
 
-    caps = await _market_caps(candidates, listings, profiles)
+    caps = await _market_caps(candidates, listings, profiles, market)
     universe = [
         candidate
         for candidate in candidates

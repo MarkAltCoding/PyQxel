@@ -125,7 +125,7 @@ def _normalize_symbol(symbol: str) -> str:
     return cleaned
 
 
-def _providers() -> list[tuple[Provider, str | None]]:
+def available_providers() -> list[tuple[Provider, str | None]]:
     """The providers to try for the current user, in order, with the FMP key to use.
 
     Raises:
@@ -145,7 +145,7 @@ def _providers() -> list[tuple[Provider, str | None]]:
     return providers
 
 
-async def _first_success(
+async def first_success(
     symbol: str,
     what: str,
     attempts: list[tuple[Provider, Callable[[], Awaitable[T]]]],
@@ -171,7 +171,7 @@ async def _first_success(
     raise DataFetchError(f"Could not fetch {what} for {symbol!r}.") from errors[-1]
 
 
-async def _fmp_get(
+async def fmp_get(
     path: str, params: dict[str, str], api_key: str, client: httpx2.AsyncClient | None
 ) -> Any:
     """GET an FMP endpoint with the user's key, classifying plan and key errors."""
@@ -220,7 +220,7 @@ def _yfinance_info(symbol: str) -> TickerInfo:
 
 async def _fmp_info(symbol: str, api_key: str, client: httpx2.AsyncClient | None) -> TickerInfo:
     """Fetch ticker info from the FMP company profile endpoint."""
-    payload = await _fmp_get("profile", {"symbol": symbol}, api_key, client)
+    payload = await fmp_get("profile", {"symbol": symbol}, api_key, client)
     if not isinstance(payload, list) or not payload:
         raise SymbolNotFoundError(f"FMP has no profile for {symbol!r}.")
     profile: dict[str, Any] = payload[0]
@@ -276,8 +276,8 @@ async def fetch_ticker_info(symbol: str, client: httpx2.AsyncClient | None = Non
 
         return run
 
-    return await _first_success(
-        symbol, "ticker info", [(p, attempt(p, k)) for p, k in _providers()]
+    return await first_success(
+        symbol, "ticker info", [(p, attempt(p, k)) for p, k in available_providers()]
     )
 
 
@@ -353,13 +353,13 @@ async def _fmp_history(
     window = {"symbol": symbol, "from": start.isoformat(), "to": end.isoformat()}
     if interval in INTRADAY_INTERVALS:
         chart, resample_to = INTRADAY_INTERVALS[interval]
-        rows = await _fmp_get(f"historical-chart/{chart}", window, api_key, None)
+        rows = await fmp_get(f"historical-chart/{chart}", window, api_key, None)
         fields = {"Open": "open", "High": "high", "Low": "low", "Close": "close"}
         frame = _fmp_frame(
             rows if isinstance(rows, list) else [], fields | {"Volume": "volume"}, zone
         )
         return frame if resample_to is None or frame.empty else _resample(frame, resample_to)
-    rows = await _fmp_get("historical-price-eod/dividend-adjusted", window, api_key, None)
+    rows = await fmp_get("historical-price-eod/dividend-adjusted", window, api_key, None)
     fields = {"Open": "adjOpen", "High": "adjHigh", "Low": "adjLow", "Close": "adjClose"}
     frame = _fmp_frame(rows if isinstance(rows, list) else [], fields | {"Volume": "volume"}, zone)
     if period in ("1d", "5d") and not frame.empty:
@@ -468,8 +468,8 @@ async def fetch_price_history(
 
         return run
 
-    frame = await _first_success(
-        symbol, "price history", [(p, attempt(p, k)) for p, k in _providers()]
+    frame = await first_success(
+        symbol, "price history", [(p, attempt(p, k)) for p, k in available_providers()]
     )
     if frame is None:
         # Providers return the same empty answer for an unknown symbol and for a real
@@ -536,7 +536,7 @@ def _yfinance_quote(symbol: str) -> Quote:
 
 async def _fmp_quote(symbol: str, api_key: str, client: httpx2.AsyncClient | None) -> Quote:
     """Fetch the latest quote from the FMP quote endpoint."""
-    payload = await _fmp_get("quote", {"symbol": symbol}, api_key, client)
+    payload = await fmp_get("quote", {"symbol": symbol}, api_key, client)
     if not isinstance(payload, list) or not payload:
         raise SymbolNotFoundError(f"FMP has no quote for {symbol!r}.")
     quote: dict[str, Any] = payload[0]
@@ -602,7 +602,9 @@ async def fetch_quote(symbol: str, client: httpx2.AsyncClient | None = None) -> 
 
         return run
 
-    return await _first_success(symbol, "a quote", [(p, attempt(p, k)) for p, k in _providers()])
+    return await first_success(
+        symbol, "a quote", [(p, attempt(p, k)) for p, k in available_providers()]
+    )
 
 
 def clear_quote_cache() -> None:

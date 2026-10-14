@@ -20,7 +20,7 @@ from app.data import fetcher
 from app.data.factors import fetch_factors
 from app.data.panel import fetch_close_panel
 from app.data.sec_edgar import edgar_client, fetch_latest_filings
-from app.data.universe import fetch_listings, fetch_profiles
+from app.data.universe import FmpSession, fetch_listings, fetch_profiles
 from app.main import app
 from app.models.research import AnalysisRequest
 from app.stats.monte_carlo import simulate_portfolio
@@ -35,6 +35,9 @@ pytestmark = [
 settings = get_settings()
 needs_fmp = pytest.mark.skipif(
     settings.financial_data_api_key is None, reason="FINANCIAL_DATA_API_KEY is not set"
+)
+needs_screener_fmp = pytest.mark.skipif(
+    settings.screener_fmp_api_key is None, reason="SCREENER_FMP_API_KEY is not set"
 )
 needs_sec = pytest.mark.skipif(not settings.sec_user_agent, reason="SEC_USER_AGENT is not set")
 
@@ -104,12 +107,19 @@ async def test_sec_filings() -> None:
 
 
 @needs_sec
+@needs_screener_fmp
 @pytest.mark.asyncio
 async def test_screener_universe_sources() -> None:
-    """The SEC listing and Nasdaq's feed give tickers, market caps and sectors to join."""
+    """The SEC listing and FMP's company screener give tickers, market caps and sectors to
+    join."""
+    assert settings.screener_fmp_api_key is not None
     async with edgar_client() as sec:
         listings = await fetch_listings(sec)
-    profiles = await fetch_profiles()
+    async with FmpSession(
+        settings.screener_fmp_api_key.get_secret_value(),
+        settings.screener_fmp_requests_per_minute,
+    ) as session:
+        profiles = await fetch_profiles(session)
 
     symbols = {listing.symbol for listing in listings}
     assert {"AAPL", "BRK-B", "GOOGL"} <= symbols
