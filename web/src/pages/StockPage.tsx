@@ -68,9 +68,10 @@ export function StockPage() {
     queryFn: () => getFactors(symbol, period, factorModel),
     placeholderData: keepPreviousData,
   })
-  // GARCH needs about two years of daily returns, so shorter periods are fitted on two
-  // years and only the selected period is drawn.
-  const volatilityPeriod: Period = period === '1y' ? '2y' : period
+  // GARCH needs about four years of daily returns to estimate reliably (two years often
+  // leave it with no volatility clustering and a flat line), so shorter periods are fitted
+  // on five years and only the selected period is drawn.
+  const volatilityPeriod: Period = period === '1y' || period === '2y' ? '5y' : period
   const volatility = useQuery({
     queryKey: ['volatility', symbol, volatilityPeriod],
     queryFn: () => loadVolatility(symbol, volatilityPeriod),
@@ -267,7 +268,11 @@ function VolatilityFooter({
           value={percent(fit.forecast.at(-1)?.volatility)}
           detail="Forecast"
         />
-        <Stat label="Realized" value={percent(fit.realized_volatility)} detail="Over the period" />
+        <Stat
+          label="Realized"
+          value={percent(fit.realized_volatility)}
+          detail={`Over ${estimate.period.toUpperCase()}`}
+        />
         {fit.model === 'garch' && (
           <Stat
             label="Long run"
@@ -282,6 +287,11 @@ function VolatilityFooter({
         <Notice>GARCH needs R, which this server does not have, so EWMA is shown.</Notice>
       )}
       {estimate.notice && <Notice tone="warning">{estimate.notice}</Notice>}
+      {(fit.warnings ?? []).map((warning) => (
+        <Notice key={warning} tone="warning">
+          {warning}
+        </Notice>
+      ))}
     </div>
   )
 }
