@@ -17,6 +17,8 @@
 #   CORS_ORIGINS='["https://app.example"]'   browser origins allowed to call the API
 #   SCREENER_SCHEDULE="30 18 * * 1-5"        cron, New York time; "" skips scheduling
 #   SCREENER_FMP_REQUESTS_PER_MINUTE=300     the screener's FMP plan's rate limit
+#   YFINANCE_FALLBACK=false   true fills gaps in FMP's free plan with unlicensed yfinance
+#                             and Nasdaq data; for a deployment only you use
 
 set -euo pipefail
 
@@ -28,6 +30,7 @@ MAX_INSTANCES="${MAX_INSTANCES:-2}"
 CORS_ORIGINS="${CORS_ORIGINS:-}"
 SCREENER_SCHEDULE="${SCREENER_SCHEDULE-30 18 * * 1-5}"
 SCREENER_FMP_REQUESTS_PER_MINUTE="${SCREENER_FMP_REQUESTS_PER_MINUTE:-300}"
+YFINANCE_FALLBACK="${YFINANCE_FALLBACK:-false}"
 
 REPOSITORY="$SERVICE"
 JOB="$SERVICE-screener"
@@ -68,7 +71,9 @@ if gc secrets describe "$SCREENER_SECRET" >/dev/null 2>&1; then
     screener_secrets+=("SCREENER_FMP_API_KEY=$SCREENER_SECRET:latest")
     job_secret_flags+=",${screener_secrets[0]}"
 else
-    echo "No $SCREENER_SECRET secret: screener refreshes will fail until it is created." >&2
+    if [[ "$YFINANCE_FALLBACK" != true ]]; then
+        echo "No $SCREENER_SECRET secret: screener refreshes will fail until it is created." >&2
+    fi
 fi
 
 step "Service accounts"
@@ -113,7 +118,7 @@ step "Building $IMAGE"
 gc builds submit --config deploy/cloudbuild.yaml --substitutions "_IMAGE=$IMAGE" .
 
 # "^|^" makes | the separator, since CORS_ORIGINS is a JSON list with commas.
-env_vars="^|^YFINANCE_FALLBACK=false|DATABASE_PGBOUNCER=true|SEC_USER_AGENT=$SEC_USER_AGENT"
+env_vars="^|^YFINANCE_FALLBACK=$YFINANCE_FALLBACK|DATABASE_PGBOUNCER=true|SEC_USER_AGENT=$SEC_USER_AGENT"
 if [[ -n "$CORS_ORIGINS" ]]; then
     env_vars+="|CORS_ORIGINS=$CORS_ORIGINS"
 fi
