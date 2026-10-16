@@ -1,8 +1,9 @@
 """The authenticated user's account: provider keys, AI limits, and PyQxel API keys.
 
-Each account pays for its own usage. AI analyses run on the Anthropic key stored here
-and market data on the Financial Modeling Prep key; neither is ever used for another
-account, and the server's own keys are never used for anyone.
+Each account pays for its own usage. AI analyses run on the Anthropic key stored here,
+market data on the Financial Modeling Prep key, and data the other sources leave out on
+the Alpha Vantage key; none is ever used for another account, and the server's own keys
+are never used for anyone.
 """
 
 import logging
@@ -60,6 +61,9 @@ async def _account(session: AsyncSession, user: User) -> Account:
             configured=user.anthropic_api_key is not None, hint=user.anthropic_key_hint
         ),
         fmp=ProviderCredential(configured=user.fmp_api_key is not None, hint=user.fmp_key_hint),
+        alpha_vantage=ProviderCredential(
+            configured=user.alpha_vantage_api_key is not None, hint=user.alpha_vantage_key_hint
+        ),
         limits=user.limits,
         usage=await ai_usage(session, user.id),
         rate_limit_per_minute=get_settings().rate_limit_per_minute,
@@ -79,11 +83,12 @@ async def read_account(user: CurrentUser, session: Session) -> Account:
 async def store_credentials(
     user: CurrentUser, session: Session, changes: Annotated[CredentialsUpdate, Body()]
 ) -> Account:
-    """Store, replace or remove your Anthropic and Financial Modeling Prep keys.
+    """Store, replace or remove your Anthropic, Financial Modeling Prep and Alpha Vantage keys.
 
     Omitted fields are left as they are and ``null`` removes a key. Keys are encrypted at
     rest, never returned, and used only for your own requests: analyses are billed to
-    your Anthropic account and market data to your FMP plan.
+    your Anthropic account, market data to your FMP plan, and the gaps Alpha Vantage
+    fills to your Alpha Vantage plan.
 
     Returns 503 when the server has no ``CREDENTIALS_ENCRYPTION_KEY``.
     """

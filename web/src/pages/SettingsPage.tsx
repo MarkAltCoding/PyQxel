@@ -6,23 +6,34 @@ import { ErrorNotice, Notice } from '../components/Notice'
 import { Stat } from '../components/Stat'
 import { shortDate } from '../lib/format'
 
-type Provider = 'anthropic_api_key' | 'fmp_api_key'
+type Provider = 'anthropic_api_key' | 'fmp_api_key' | 'alpha_vantage_api_key'
 
-const PROVIDERS: { field: Provider; name: string; account: 'anthropic' | 'fmp'; about: string }[] =
-  [
-    {
-      field: 'anthropic_api_key',
-      name: 'Anthropic',
-      account: 'anthropic',
-      about: 'Writes AI research reports. Each report is billed to this key.',
-    },
-    {
-      field: 'fmp_api_key',
-      name: 'Financial Modeling Prep',
-      account: 'fmp',
-      about: 'Licensed market data: prices, quotes and company profiles, on your FMP plan.',
-    },
-  ]
+const PROVIDERS: {
+  field: Provider
+  name: string
+  account: 'anthropic' | 'fmp' | 'alpha_vantage'
+  about: string
+}[] = [
+  {
+    field: 'anthropic_api_key',
+    name: 'Anthropic',
+    account: 'anthropic',
+    about: 'Writes AI research reports. Each report is billed to this key.',
+  },
+  {
+    field: 'fmp_api_key',
+    name: 'Financial Modeling Prep',
+    account: 'fmp',
+    about: 'Licensed market data: prices, quotes and company profiles, on your FMP plan.',
+  },
+  {
+    field: 'alpha_vantage_api_key',
+    name: 'Alpha Vantage',
+    account: 'alpha_vantage',
+    about:
+      'Fills gaps: market data when FMP has none, company details FMP leaves empty, and financial statements SEC filings leave out. The free plan allows 25 requests a day.',
+  },
+]
 
 export function SettingsPage() {
   const queryClient = useQueryClient()

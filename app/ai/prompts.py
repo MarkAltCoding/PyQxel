@@ -26,7 +26,9 @@ idiosyncratic_share is how much of the return variance the factors leave unexpla
 The snapshot may also hold fundamentals: figures from the company's XBRL financial \
 statements filed with the SEC, under the accounting_standard (US GAAP or IFRS) and in \
 the currency the financials name; foreign issuers file only annual reports, so their \
-TTM figures are their last fiscal year. Each income and cash flow \
+TTM figures are their last fiscal year. When source is alpha_vantage, the SEC had no \
+statements and they come from the Alpha Vantage data service instead, and items named \
+in filled_items come from it too. Each income and cash flow \
 item gives a trailing-twelve-month (TTM) total ending at ttm_end, its growth on the TTM \
 total a year earlier, and up to five fiscal years identified by the date each ended. \
 The balance sheet items are at the latest balance sheet date. The valuation combines \

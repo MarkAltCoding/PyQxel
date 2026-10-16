@@ -17,6 +17,7 @@ class ProviderKeys:
     """API keys for paid data providers; ``None`` when the user has not stored one."""
 
     fmp: SecretStr | None = None
+    alpha_vantage: SecretStr | None = None
 
 
 _current: ContextVar[ProviderKeys] = ContextVar("provider_keys", default=ProviderKeys())

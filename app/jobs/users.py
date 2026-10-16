@@ -50,6 +50,7 @@ async def _create(email: str, key_name: str, import_env_keys: bool, claim: bool)
                     for name, value in (
                         ("anthropic_api_key", settings.anthropic_api_key),
                         ("fmp_api_key", settings.financial_data_api_key),
+                        ("alpha_vantage_api_key", settings.alpha_vantage_api_key),
                     )
                     if value is not None
                 }

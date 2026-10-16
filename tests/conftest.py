@@ -32,10 +32,10 @@ os.environ["YFINANCE_FALLBACK"] = "true"
 from app.api.auth import authenticate  # noqa: E402
 from app.core.cache import configure_cache  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
-from app.core.credentials import ProviderKeys, use_provider_keys  # noqa: E402
+from app.core.credentials import use_provider_keys  # noqa: E402
 from app.core.rate_limit import clear_local_counts  # noqa: E402
 from app.data.factors import clear_factor_memory  # noqa: E402
-from app.data.fetcher import clear_quote_cache  # noqa: E402
+from app.data.fetcher import clear_alpha_vantage_memory, clear_quote_cache  # noqa: E402
 from app.db.session import (  # noqa: E402
     close_database,
     configure_database,
@@ -81,11 +81,13 @@ def isolated_storage() -> Iterator[None]:
     configure_cache(None)
     clear_factor_memory()
     clear_quote_cache()
+    clear_alpha_vantage_memory()
     clear_local_counts()
     yield
     configure_cache(None)
     clear_factor_memory()
     clear_quote_cache()
+    clear_alpha_vantage_memory()
     asyncio.run(close_database())
 
 
@@ -114,7 +116,7 @@ def user(isolated_storage: None) -> Iterator[User]:
     )
 
     async def signed_in() -> User:
-        use_provider_keys(ProviderKeys(fmp=account.fmp_key()))
+        use_provider_keys(account.provider_keys())
         return account
 
     app.dependency_overrides[authenticate] = signed_in

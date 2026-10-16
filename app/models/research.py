@@ -18,10 +18,11 @@ from app.models.volatility import VolatilityPeriod
 AnalysisKind = Literal["thesis", "risk"]
 """Report types: an investment thesis, or a risk summary."""
 
-ANALYSIS_CONTEXT_VERSION: int = 3
+ANALYSIS_CONTEXT_VERSION: int = 4
 """Version of the data an analysis is written from. Bump it when the context gains data
 that changes reports, so stored reports written without it are not reused. Version 2
-added factor exposures; version 3 added fundamentals and valuation."""
+added factor exposures; version 3 added fundamentals and valuation; version 4 added
+financials and ticker info from Alpha Vantage where other sources leave gaps."""
 
 AnalysisPeriod = VolatilityPeriod
 """Lookback windows an analysis may cover; ``6mo`` or more gives a usable sample."""

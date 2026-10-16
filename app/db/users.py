@@ -8,6 +8,7 @@ from pydantic import SecretStr
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.credentials import ProviderKeys
 from app.core.security import (
     API_KEY_DISPLAY_LENGTH,
     decrypt_secret,
@@ -45,6 +46,8 @@ class User:
     anthropic_key_hint: str | None
     fmp_api_key: str | None
     fmp_key_hint: str | None
+    alpha_vantage_api_key: str | None
+    alpha_vantage_key_hint: str | None
     limits: AiLimits
 
     def anthropic_key(self) -> SecretStr | None:
@@ -54,6 +57,15 @@ class User:
     def fmp_key(self) -> SecretStr | None:
         """The account's Financial Modeling Prep key, decrypted, or ``None``."""
         return None if self.fmp_api_key is None else decrypt_secret(self.fmp_api_key)
+
+    def alpha_vantage_key(self) -> SecretStr | None:
+        """The account's Alpha Vantage key, decrypted, or ``None``."""
+        encrypted = self.alpha_vantage_api_key
+        return None if encrypted is None else decrypt_secret(encrypted)
+
+    def provider_keys(self) -> ProviderKeys:
+        """The account's market data keys, decrypted, for serving its requests."""
+        return ProviderKeys(fmp=self.fmp_key(), alpha_vantage=self.alpha_vantage_key())
 
 
 def _user(record: UserRecord) -> User:
@@ -65,6 +77,8 @@ def _user(record: UserRecord) -> User:
         anthropic_key_hint=record.anthropic_key_hint,
         fmp_api_key=record.fmp_api_key,
         fmp_key_hint=record.fmp_key_hint,
+        alpha_vantage_api_key=record.alpha_vantage_api_key,
+        alpha_vantage_key_hint=record.alpha_vantage_key_hint,
         limits=AiLimits(
             ai_requests_per_hour=record.ai_requests_per_hour,
             ai_requests_per_day=record.ai_requests_per_day,
@@ -185,6 +199,14 @@ async def update_credentials(
         secret = changes.fmp_api_key
         record.fmp_api_key = None if secret is None else encrypt_secret(secret.get_secret_value())
         record.fmp_key_hint = None if secret is None else key_hint(secret.get_secret_value())
+    if "alpha_vantage_api_key" in changes.model_fields_set:
+        secret = changes.alpha_vantage_api_key
+        record.alpha_vantage_api_key = (
+            None if secret is None else encrypt_secret(secret.get_secret_value())
+        )
+        record.alpha_vantage_key_hint = (
+            None if secret is None else key_hint(secret.get_secret_value())
+        )
     await session.commit()
     return _user(record)
 

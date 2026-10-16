@@ -744,7 +744,7 @@ def normalize(company: dict[str, Any], cik: int) -> Financials:
         )
     latest = max(reached)
     cutoff = latest - timedelta(days=STALE_AFTER_DAYS)
-    current = {
+    current: dict[str, Any] = {
         name: item if item and (day := _last_date(item)) and day >= cutoff else None
         for name, item in items.items()
     }

@@ -32,6 +32,10 @@ class TickerInfo(BaseModel):
     market_cap: float | None = Field(default=None, ge=0)
     price: float | None = Field(default=None, ge=0)
     source: str = Field(description="Data provider that produced this record.")
+    filled_fields: list[str] = Field(
+        default_factory=list,
+        description="Fields ``source`` left empty that Alpha Vantage filled in.",
+    )
 
 
 class OHLCVBar(BaseModel):

@@ -220,6 +220,30 @@ def test_market_data_is_fetched_with_the_requesters_fmp_key(
     assert seen == ["fmp-alice-1", None]
 
 
+def test_alpha_vantage_key_is_stored_and_used_for_the_requester(
+    monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str]
+) -> None:
+    """An Alpha Vantage key is stored like the others and reaches the data fetchers."""
+    _, key = alice
+    body = client.put(
+        "/api/v1/me/credentials",
+        headers=_headers(key),
+        json={"alpha_vantage_api_key": "av-secret-9876"},
+    ).json()
+    seen: list[str | None] = []
+
+    async def fake_info(symbol: str) -> TickerInfo:
+        stored = current_provider_keys().alpha_vantage
+        seen.append(None if stored is None else stored.get_secret_value())
+        return TickerInfo(symbol=symbol, source="alpha_vantage")
+
+    monkeypatch.setattr(stocks, "fetch_ticker_info", fake_info)
+    client.get("/api/v1/stocks/AAPL", headers=_headers(key))
+
+    assert body["alpha_vantage"] == {"configured": True, "hint": "…9876"}
+    assert seen == ["av-secret-9876"]
+
+
 # Isolation of stored results.
 
 
@@ -308,7 +332,7 @@ def analysis_calls(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
     monkeypatch.setattr(research, "fetch_price_history", fake_history)
     monkeypatch.setattr(research, "fetch_ticker_info", fake_info)
     monkeypatch.setattr(research, "fetch_factors", no_factors)
-    monkeypatch.setattr(research, "fetch_financials", no_financials)
+    monkeypatch.setattr(research, "fetch_financials_filled", no_financials)
     monkeypatch.setattr(research, "write_analysis", fake_write)
     yield billed
 

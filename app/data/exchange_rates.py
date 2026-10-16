@@ -3,8 +3,10 @@
 Rates are spot quotes of currency pairs from Financial Modeling Prep, on the FMP key of
 the user a request is served for, or the screener's own key while it refreshes (see
 :mod:`app.core.credentials`). FMP quotes some pairs only one way round (``USDTWD`` but
-not ``TWDUSD``), so the inverse pair is tried too. Like other market data, rates come
-from yfinance only when ``YFINANCE_FALLBACK`` is on, for development.
+not ``TWDUSD``), so the inverse pair is tried too. When FMP fails or the user has no FMP
+key, Alpha Vantage's exchange rate on the user's Alpha Vantage key is next. Like other
+market data, rates come from yfinance only when ``YFINANCE_FALLBACK`` is on, for
+development.
 
 A rate is reused for :data:`FRESH_SECONDS`, kept in process memory and, when
 ``REDIS_URL`` is set, in Redis, per provider, so rates FMP returned are only served to
@@ -26,6 +28,8 @@ from app.data.fetcher import (
     Provider,
     ProviderPlanError,
     SymbolNotFoundError,
+    alpha_vantage_get,
+    alpha_vantage_number,
     available_providers,
     first_success,
     fmp_get,
@@ -76,6 +80,18 @@ async def _fmp_rate(base: str, quote: str, api_key: str) -> float:
     raise SymbolNotFoundError(f"FMP has no {base}/{quote} exchange rate.")
 
 
+async def _alpha_vantage_rate(base: str, quote: str, api_key: str) -> float:
+    """The latest ``quote`` per ``base`` rate from Alpha Vantage."""
+    payload = await alpha_vantage_get(
+        "CURRENCY_EXCHANGE_RATE", {"from_currency": base, "to_currency": quote}, api_key
+    )
+    answer: Any = payload.get("Realtime Currency Exchange Rate") or {}
+    rate = _positive(alpha_vantage_number(answer.get("5. Exchange Rate")))
+    if rate is None:
+        raise SymbolNotFoundError(f"Alpha Vantage has no {base}/{quote} exchange rate.")
+    return rate
+
+
 def _yfinance_rate(base: str, quote: str) -> float:
     """The latest ``quote`` per ``base`` rate from yfinance (blocking)."""
     try:
@@ -96,7 +112,7 @@ async def fetch_exchange_rate(base: str, quote: str = "USD") -> float:
         quote: ISO 4217 code of the currency converted to.
 
     Raises:
-        ProviderNotConfiguredError: If there is no FMP key and the fallback is off.
+        ProviderNotConfiguredError: If there is no market data key and the fallback is off.
         DataFetchError: If no rate is available.
     """
     base, quote = base.upper(), quote.upper()
@@ -120,6 +136,9 @@ async def fetch_exchange_rate(base: str, quote: str = "USD") -> float:
                 if provider == "fmp":
                     assert api_key is not None
                     rate = await _fmp_rate(base, quote, api_key)
+                elif provider == "alpha_vantage":
+                    assert api_key is not None
+                    rate = await _alpha_vantage_rate(base, quote, api_key)
                 else:
                     rate = await asyncio.to_thread(_yfinance_rate, base, quote)
                 await cache_set(key, repr(rate), FRESH_SECONDS)

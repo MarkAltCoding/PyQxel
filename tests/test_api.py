@@ -557,7 +557,7 @@ def _serve_analysis(
     monkeypatch.setattr(research, "fetch_price_history", fake_history)
     monkeypatch.setattr(research, "fetch_latest_filings", fake_filings)
     monkeypatch.setattr(research, "fetch_factors", fake_factors)
-    monkeypatch.setattr(research, "fetch_financials", fake_financials)
+    monkeypatch.setattr(research, "fetch_financials_filled", fake_financials)
     monkeypatch.setattr(research, "write_analysis", fake_write)
     return calls
 

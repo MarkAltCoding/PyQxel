@@ -42,6 +42,7 @@ class Account(BaseModel):
     created_at: datetime
     anthropic: ProviderCredential
     fmp: ProviderCredential
+    alpha_vantage: ProviderCredential
     limits: AiLimits
     usage: AiUsage
     rate_limit_per_minute: int = Field(description="Requests allowed per minute, server-wide.")
@@ -58,6 +59,11 @@ class CredentialsUpdate(BaseModel):
     )
     fmp_api_key: ProviderKey | None = Field(
         default=None, description="Financial Modeling Prep key, used for its market data."
+    )
+    alpha_vantage_api_key: ProviderKey | None = Field(
+        default=None,
+        description="Alpha Vantage key, used for market data and financial statements the "
+        "other sources leave out.",
     )
 
 

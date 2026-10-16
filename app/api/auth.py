@@ -16,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.requests import HTTPConnection
 
 from app.core.config import get_settings
-from app.core.credentials import ProviderKeys, use_provider_keys
+from app.core.credentials import use_provider_keys
 from app.core.rate_limit import RateLimitExceeded, check_rate_limit
 from app.core.security import CredentialsUnavailableError
 from app.db.session import get_sessionmaker
@@ -92,7 +92,7 @@ async def authenticate(connection: HTTPConnection) -> User:
         ) from exc
 
     try:
-        use_provider_keys(ProviderKeys(fmp=user.fmp_key()))
+        use_provider_keys(user.provider_keys())
     except CredentialsUnavailableError as exc:
         logger.error("Cannot read the stored credentials of user %s: %s", user.id, exc)
         raise _refuse(connection, status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc

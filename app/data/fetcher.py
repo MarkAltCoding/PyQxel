@@ -2,15 +2,19 @@
 
 Financial Modeling Prep (FMP), a licensed provider, is the primary source, called with
 the requesting user's own API key (see :mod:`app.core.credentials`), so each user's
-data is billed to their own plan. yfinance, which scrapes Yahoo, is used only when
-``YFINANCE_FALLBACK`` is on, for development: for users without an FMP key, and when
-FMP fails or a user's plan does not cover a request. Without it, a user with no FMP key
-gets :class:`ProviderNotConfiguredError`, and a request their plan excludes,
+data is billed to their own plan. Alpha Vantage, also licensed and also on the user's
+own key, comes next: it answers when FMP fails or the user's FMP plan does not cover a
+request, and fills in ticker info fields FMP leaves empty. yfinance, which scrapes
+Yahoo, is used only when ``YFINANCE_FALLBACK`` is on, for development, after the
+licensed providers. A user with no usable key gets
+:class:`ProviderNotConfiguredError`, and a request their plan excludes,
 :class:`ProviderPlanError`.
 
 Results are cached per provider, in Redis when ``REDIS_URL`` is set and for a few
-seconds in memory for quotes. Data FMP returned is only served from the cache to users
-who query FMP themselves, so no one reads licensed data on another user's plan.
+seconds in memory for quotes; Alpha Vantage's answers are also kept in memory, since
+its free plan allows only 25 requests a day. Data a licensed provider returned is only
+served from the cache to users who query that provider themselves, so no one reads
+licensed data on another user's plan.
 
 Providers answer an unknown symbol with an empty result rather than an error, which is
 reported as :class:`SymbolNotFoundError`. Transport and rate-limit failures are reported
@@ -18,10 +22,12 @@ as the broader :class:`DataFetchError`.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime, timezone
 from typing import Any, Literal, TypeVar
@@ -39,6 +45,7 @@ from app.models.stock import TickerInfo
 logger = logging.getLogger(__name__)
 
 FMP_BASE_URL: str = "https://financialmodelingprep.com/stable"
+ALPHA_VANTAGE_URL: str = "https://www.alphavantage.co/query"
 HTTP_TIMEOUT_SECONDS: float = 10.0
 OHLCV_COLUMNS: list[str] = ["Open", "High", "Low", "Close", "Volume"]
 QUOTE_TTL_SECONDS: float = 5.0
@@ -51,7 +58,39 @@ HISTORY_TTL_SECONDS: float = 300.0
 INTRADAY_HISTORY_TTL_SECONDS: float = 60.0
 """How long minute and hourly bars stay in the shared cache."""
 
-Provider = Literal["fmp", "yfinance"]
+ALPHA_VANTAGE_TTL_SECONDS: dict[str, float] = {
+    "OVERVIEW": 24 * 60 * 60,
+    "INCOME_STATEMENT": 24 * 60 * 60,
+    "BALANCE_SHEET": 24 * 60 * 60,
+    "CASH_FLOW": 24 * 60 * 60,
+    "TIME_SERIES_DAILY_ADJUSTED": 60 * 60,
+    "TIME_SERIES_INTRADAY": 60,
+    "GLOBAL_QUOTE": 60,
+    "CURRENCY_EXCHANGE_RATE": 60 * 60,
+}
+"""How long each Alpha Vantage answer is reused, unknown symbols included. Its free plan
+allows 25 requests a day, so even quotes are kept a minute."""
+ALPHA_VANTAGE_MEMORY_SIZE: int = 512
+"""Alpha Vantage answers kept in process memory, for deployments without Redis."""
+ALPHA_VANTAGE_PLAN_TTL_SECONDS: float = 24 * 60 * 60
+"""How long a key's plan is taken not to cover a premium function before asking again."""
+ALPHA_VANTAGE_FREE_FUNCTIONS: frozenset[str] = frozenset(
+    {"GLOBAL_QUOTE", "SYMBOL_SEARCH", "TIME_SERIES_DAILY", "INCOME_STATEMENT",
+     "BALANCE_SHEET", "CASH_FLOW", "CURRENCY_EXCHANGE_RATE"}
+)  # fmt: skip
+"""Functions a free key may call, as checked against a free key in October 2026; the
+company overview, adjusted daily bars and every intraday series need a paid plan.
+Alpha Vantage answers an invalid key as if it asked for a premium function, so a premium
+refusal of one of these means a bad key."""
+ALPHA_VANTAGE_SPACING_SECONDS: float = 1.1
+"""Least time between Alpha Vantage requests from this process: free keys refuse bursts
+of more than one request a second."""
+ALPHA_VANTAGE_FREE_DAILY_BARS: int = 100
+"""Daily bars Alpha Vantage's free plan serves, the latest ones, unadjusted."""
+HISTORY_NOTICE: str = "notice"
+"""Key in a history frame's ``attrs`` for a provider's note on what the bars lack."""
+
+Provider = Literal["fmp", "alpha_vantage", "yfinance"]
 
 DEFAULT_TIMEZONE: str = "America/New_York"
 SUFFIX_TIMEZONES: dict[str, str] = {
@@ -97,6 +136,12 @@ LONG_INTERVALS: dict[str, str] = {"5d": "5D", "1wk": "W-MON", "1mo": "MS", "3mo"
 """Bar sizes longer than a day, built from daily bars with these pandas frequencies."""
 
 _quote_cache: dict[tuple[Provider, str], tuple[float, "Quote"]] = {}
+_alpha_vantage_memory: "OrderedDict[str, tuple[float, str]]" = OrderedDict()
+"""Cache key -> (time fetched, JSON answer)."""
+_alpha_vantage_premium: dict[tuple[str, str], float] = {}
+"""(key digest, request) -> when the key's plan was found not to cover the request."""
+_alpha_vantage_next_slot: float = 0.0
+"""Monotonic time from which the next Alpha Vantage request may be sent."""
 
 T = TypeVar("T")
 
@@ -117,6 +162,10 @@ class ProviderPlanError(DataFetchError):
     """Raised when the user's FMP plan does not cover the request."""
 
 
+class AlphaVantageBurstError(DataFetchError):
+    """Raised when Alpha Vantage refuses requests sent less than a second apart."""
+
+
 def _normalize_symbol(symbol: str) -> str:
     """Return ``symbol`` stripped and upper-cased, rejecting empty input."""
     cleaned = symbol.strip().upper()
@@ -126,23 +175,32 @@ def _normalize_symbol(symbol: str) -> str:
 
 
 def available_providers() -> list[tuple[Provider, str | None]]:
-    """The providers to try for the current user, in order, with the FMP key to use.
+    """The providers to try for the current user, in order, with the key to use.
 
     Raises:
-        ProviderNotConfiguredError: If the user has no FMP key and the fallback is off.
+        ProviderNotConfiguredError: If the user has neither an FMP nor an Alpha Vantage
+            key and the fallback is off.
     """
-    key = current_provider_keys().fmp
+    keys = current_provider_keys()
     providers: list[tuple[Provider, str | None]] = []
-    if key is not None:
-        providers.append(("fmp", key.get_secret_value()))
+    if keys.fmp is not None:
+        providers.append(("fmp", keys.fmp.get_secret_value()))
+    if keys.alpha_vantage is not None:
+        providers.append(("alpha_vantage", keys.alpha_vantage.get_secret_value()))
     if get_settings().yfinance_fallback:
         providers.append(("yfinance", None))
     if not providers:
         raise ProviderNotConfiguredError(
-            "Market data is billed to your own Financial Modeling Prep plan: add your API "
-            "key with PUT /api/v1/me/credentials."
+            "Market data is billed to your own Financial Modeling Prep or Alpha Vantage "
+            "plan: add your API key with PUT /api/v1/me/credentials."
         )
     return providers
+
+
+def alpha_vantage_key() -> str | None:
+    """The current user's Alpha Vantage key, if they stored one."""
+    key = current_provider_keys().alpha_vantage
+    return None if key is None else key.get_secret_value()
 
 
 async def first_success(
@@ -200,6 +258,247 @@ async def fmp_get(
     return response.json()
 
 
+def _alpha_vantage_error(
+    payload: Any, function: str, symbol: str, free: bool = False
+) -> DataFetchError | None:
+    """The error an Alpha Vantage answer reports, if any.
+
+    Alpha Vantage answers every request with status 200 and reports problems in the body:
+    ``Error Message`` for an unknown symbol, and ``Information`` or ``Note`` for a bad
+    key, a rate limit or a function the plan does not cover. It answers an invalid key as
+    if it asked for a premium function, so for a ``free`` request that means a bad key.
+    """
+    if not isinstance(payload, dict):
+        return DataFetchError(f"Alpha Vantage returned an unexpected {function} answer.")
+    if "Error Message" in payload:
+        return SymbolNotFoundError(f"Alpha Vantage has no {function} data for {symbol!r}.")
+    message = str(payload.get("Information") or payload.get("Note") or "")
+    if not message:
+        return None
+    lowered = message.lower()
+    bad_key = "api key" in lowered and any(
+        word in lowered for word in ("invalid", "missing", "demo")
+    )
+    if bad_key or ("premium" in lowered and free and "rate limit" not in lowered):
+        return ProviderNotConfiguredError(
+            "Alpha Vantage rejected your API key; update it with PUT /api/v1/me/credentials."
+        )
+    if "burst" in lowered or "per second" in lowered:
+        return AlphaVantageBurstError(f"Alpha Vantage refused a burst of requests: {message}")
+    if "rate limit" in lowered or "requests per" in lowered or "call frequency" in lowered:
+        return DataFetchError(f"Your Alpha Vantage plan's rate limit was reached: {message}")
+    if "premium" in lowered:
+        return ProviderPlanError(
+            f"Your Alpha Vantage plan does not cover this request ({function} for {symbol})."
+        )
+    return DataFetchError(f"Alpha Vantage refused the {function} request: {message}")
+
+
+async def _alpha_vantage_slot() -> None:
+    """Wait for this request's turn, keeping requests :data:`ALPHA_VANTAGE_SPACING_SECONDS`
+    apart. Turns are handed out without awaiting, so concurrent callers queue up."""
+    global _alpha_vantage_next_slot
+    now = time.monotonic()
+    slot = max(now, _alpha_vantage_next_slot)
+    _alpha_vantage_next_slot = slot + ALPHA_VANTAGE_SPACING_SECONDS
+    if slot > now:
+        await asyncio.sleep(slot - now)
+
+
+def _remember_alpha_vantage(key: str, text: str) -> None:
+    """Keep an answer in memory, dropping the least recently used beyond the limit."""
+    _alpha_vantage_memory[key] = (time.monotonic(), text)
+    _alpha_vantage_memory.move_to_end(key)
+    while len(_alpha_vantage_memory) > ALPHA_VANTAGE_MEMORY_SIZE:
+        _alpha_vantage_memory.popitem(last=False)
+
+
+async def alpha_vantage_get(
+    function: str, params: dict[str, str], api_key: str, client: httpx2.AsyncClient | None = None
+) -> dict[str, Any]:
+    """Call an Alpha Vantage function with the user's key, reusing recent answers.
+
+    Answers, including those for unknown symbols, are cached in memory and Redis for
+    :data:`ALPHA_VANTAGE_TTL_SECONDS`, keyed without the API key: like FMP data, they
+    are only read on behalf of users who query Alpha Vantage themselves.
+
+    Raises:
+        SymbolNotFoundError: If Alpha Vantage has no data for the symbol.
+        ProviderPlanError: If the user's plan does not cover ``function``.
+        ProviderNotConfiguredError: If the key is rejected.
+        DataFetchError: On rate limits, transport failures and unexpected answers.
+    """
+    symbol = params.get("symbol") or params.get("from_currency", "")
+    cache_key = "alphavantage:" + ":".join(
+        [function, *(f"{name}={value}" for name, value in sorted(params.items()))]
+    )
+    ttl = ALPHA_VANTAGE_TTL_SECONDS.get(function, HISTORY_TTL_SECONDS)
+    digest = hashlib.sha256(api_key.encode()).hexdigest()[:16]
+    request = f"{function}:{params.get('outputsize', '')}"
+    free = function in ALPHA_VANTAGE_FREE_FUNCTIONS
+    refused = _alpha_vantage_premium.get((digest, request))
+    if refused is not None and time.monotonic() - refused < ALPHA_VANTAGE_PLAN_TTL_SECONDS:
+        raise ProviderPlanError(
+            f"Your Alpha Vantage plan does not cover this request ({function} for {symbol})."
+        )
+
+    text: str | None = None
+    entry = _alpha_vantage_memory.get(cache_key)
+    if entry is not None and time.monotonic() - entry[0] <= ttl:
+        text = entry[1]
+    if text is None:
+        text = await cache_get(cache_key)
+        if text is not None:
+            _remember_alpha_vantage(cache_key, text)
+    payload: Any = None
+    if text is not None:
+        try:
+            payload = json.loads(text)
+        except ValueError:
+            logger.warning("Ignoring an unreadable cached Alpha Vantage %s answer.", function)
+    if payload is None:
+        query = {"function": function, **params, "apikey": api_key}
+        for attempt in range(2):
+            await _alpha_vantage_slot()
+            try:
+                if client is not None:
+                    response = await client.get(ALPHA_VANTAGE_URL, params=query)
+                else:
+                    async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
+                        response = await own_client.get(ALPHA_VANTAGE_URL, params=query)
+                response.raise_for_status()
+                payload = response.json()
+            except (httpx2.HTTPError, ValueError) as exc:
+                raise DataFetchError(f"Alpha Vantage {function} request failed: {exc}") from exc
+            error = _alpha_vantage_error(payload, function, symbol, free)
+            # Another process may have sent a request just before; one retry waits it out.
+            if not isinstance(error, AlphaVantageBurstError):
+                break
+        if isinstance(error, ProviderPlanError):
+            _alpha_vantage_premium[digest, request] = time.monotonic()
+        if error is None or isinstance(error, SymbolNotFoundError):
+            text = json.dumps(payload)
+            _remember_alpha_vantage(cache_key, text)
+            await cache_set(cache_key, text, ttl)
+    error = _alpha_vantage_error(payload, function, symbol, free)
+    if error is not None:
+        raise error
+    result: dict[str, Any] = payload
+    return result
+
+
+def clear_alpha_vantage_memory() -> None:
+    """Forget Alpha Vantage answers, plan refusals and request spacing kept in memory."""
+    global _alpha_vantage_next_slot
+    _alpha_vantage_memory.clear()
+    _alpha_vantage_premium.clear()
+    _alpha_vantage_next_slot = 0.0
+
+
+def alpha_vantage_number(value: object) -> float | None:
+    """An Alpha Vantage figure as a float; it writes missing ones as ``"None"`` or ``"-"``."""
+    if value is None or value in ("None", "-", ""):
+        return None
+    return _finite(value)
+
+
+async def _alpha_vantage_overview(
+    symbol: str, api_key: str, client: httpx2.AsyncClient | None
+) -> TickerInfo:
+    """Fetch ticker info from Alpha Vantage's company overview, which needs a paid plan.
+
+    The overview has no price; callers needing one ask for a quote.
+    """
+    overview = await alpha_vantage_get("OVERVIEW", {"symbol": symbol}, api_key, client)
+    if not overview.get("Symbol"):
+        raise SymbolNotFoundError(f"Alpha Vantage has no overview for {symbol!r}.")
+
+    def text(field: str) -> str | None:
+        value = overview.get(field)
+        return None if value in (None, "None", "-", "") else str(value)
+
+    sector, industry = text("Sector"), text("Industry")
+    market_cap = alpha_vantage_number(overview.get("MarketCapitalization"))
+    return TickerInfo(
+        symbol=symbol,
+        name=text("Name"),
+        currency=text("Currency"),
+        exchange=text("Exchange"),
+        sector=None if sector is None else sector.title(),
+        industry=None if industry is None else industry.title(),
+        market_cap=market_cap if market_cap and market_cap > 0 else None,
+        source="alpha_vantage",
+    )
+
+
+async def alpha_vantage_name(
+    symbol: str, api_key: str, client: httpx2.AsyncClient | None = None
+) -> tuple[str, str | None]:
+    """The name and currency of ``symbol``'s listing, from Alpha Vantage's symbol search.
+
+    Raises:
+        SymbolNotFoundError: If no listing has exactly ``symbol`` as its symbol.
+    """
+    payload = await alpha_vantage_get("SYMBOL_SEARCH", {"keywords": symbol}, api_key, client)
+    for match in payload.get("bestMatches") or []:
+        if isinstance(match, dict) and str(match.get("1. symbol", "")).upper() == symbol:
+            currency = match.get("8. currency")
+            return str(match.get("2. name") or symbol), None if not currency else str(currency)
+    raise SymbolNotFoundError(f"Alpha Vantage lists no {symbol!r}.")
+
+
+async def _alpha_vantage_info(
+    symbol: str, api_key: str, client: httpx2.AsyncClient | None
+) -> TickerInfo:
+    """Fetch ticker info from Alpha Vantage.
+
+    With a paid plan, the company overview gives sector, industry and market cap. A free
+    key gets the name and currency from the symbol search and the price from a quote, so
+    valuation estimates the market cap from shares outstanding.
+    """
+    try:
+        return await _alpha_vantage_overview(symbol, api_key, client)
+    except ProviderPlanError:
+        pass
+    name, currency = await alpha_vantage_name(symbol, api_key, client)
+    quote = await _alpha_vantage_quote(symbol, api_key, client)
+    return TickerInfo(
+        symbol=symbol, name=name, currency=currency, price=quote.price, source="alpha_vantage"
+    )
+
+
+INFO_GAP_FIELDS: tuple[str, ...] = (
+    "name",
+    "currency",
+    "exchange",
+    "sector",
+    "industry",
+    "market_cap",
+)
+"""Ticker info fields Alpha Vantage's overview fills in when another provider leaves them
+empty. The overview needs a paid plan; a free key's refusal is remembered for a day, so it
+costs one request a day."""
+
+
+async def _fill_info(info: TickerInfo, client: httpx2.AsyncClient | None) -> TickerInfo:
+    """Fill the fields ``info``'s provider left empty from Alpha Vantage, if the user can."""
+    api_key = alpha_vantage_key()
+    missing = [field for field in INFO_GAP_FIELDS if getattr(info, field) is None]
+    if api_key is None or info.source == "alpha_vantage" or not missing:
+        return info
+    try:
+        overview = await _alpha_vantage_overview(info.symbol, api_key, client)
+    except DataFetchError as exc:
+        logger.info("Alpha Vantage could not fill %s's info: %s", info.symbol, exc)
+        return info
+    filled = {field: value for field in missing if (value := getattr(overview, field)) is not None}
+    if not filled:
+        return info
+    return info.model_copy(
+        update=filled | {"filled_fields": [*info.filled_fields, *sorted(filled)]}
+    )
+
+
 def _yfinance_info(symbol: str) -> TickerInfo:
     """Fetch ticker info from yfinance (blocking)."""
     info: dict[str, Any] = yf.Ticker(symbol).info or {}
@@ -246,11 +545,13 @@ async def fetch_ticker_info(symbol: str, client: httpx2.AsyncClient | None = Non
             omitted.
 
     Returns:
-        The normalized ticker snapshot.
+        The normalized ticker snapshot. Fields its provider left empty are filled from
+        Alpha Vantage when the user has a key for it, and named in ``filled_fields``.
 
     Raises:
         ValueError: If ``symbol`` is empty.
-        ProviderNotConfiguredError: If the user has no FMP key and the fallback is off.
+        ProviderNotConfiguredError: If the user has no market data key and the fallback
+            is off.
         ProviderPlanError: If the user's FMP plan does not cover ``symbol``.
         SymbolNotFoundError: If the providers that answered have no data for ``symbol``.
         DataFetchError: If every provider fails.
@@ -269,6 +570,9 @@ async def fetch_ticker_info(symbol: str, client: httpx2.AsyncClient | None = Non
             if provider == "fmp":
                 assert api_key is not None
                 info = await _fmp_info(symbol, api_key, client)
+            elif provider == "alpha_vantage":
+                assert api_key is not None
+                info = await _alpha_vantage_info(symbol, api_key, client)
             else:
                 info = await asyncio.to_thread(_yfinance_info, symbol)
             await cache_set(key, info.model_dump_json(), INFO_TTL_SECONDS)
@@ -276,9 +580,10 @@ async def fetch_ticker_info(symbol: str, client: httpx2.AsyncClient | None = Non
 
         return run
 
-    return await first_success(
+    info = await first_success(
         symbol, "ticker info", [(p, attempt(p, k)) for p, k in available_providers()]
     )
+    return await _fill_info(info, client)
 
 
 def _yfinance_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
@@ -369,14 +674,119 @@ async def _fmp_history(
     return frame
 
 
+ALPHA_VANTAGE_INTRADAY: dict[str, tuple[str, str | None]] = {
+    "1m": ("1min", None),
+    "2m": ("1min", "2min"),
+    "5m": ("5min", None),
+    "15m": ("15min", None),
+    "30m": ("30min", None),
+    "60m": ("60min", None),
+    "1h": ("60min", None),
+    "90m": ("30min", "90min"),
+}
+"""Alpha Vantage intraday interval for each bar size, and the size to resample to, if any."""
+
+
+def _alpha_vantage_frame(
+    series: dict[str, dict[str, str]], zone: str, adjust: bool
+) -> pd.DataFrame:
+    """Build an OHLCV frame from an Alpha Vantage time series, stamped in ``zone``.
+
+    With ``adjust``, every price is scaled by the adjusted close over the close, as
+    Alpha Vantage adjusts only the close for splits and dividends.
+    """
+    rows: list[tuple[pd.Timestamp, list[float | None]]] = []
+    for stamp, bar in series.items():
+        values = [
+            alpha_vantage_number(bar.get(field))
+            for field in ("1. open", "2. high", "3. low", "4. close")
+        ]
+        volume = alpha_vantage_number(bar.get("6. volume", bar.get("5. volume")))
+        close = values[3]
+        if adjust:
+            adjusted = alpha_vantage_number(bar.get("5. adjusted close"))
+            factor = None if adjusted is None or not close else adjusted / close
+            values = [None if v is None or factor is None else v * factor for v in values]
+        rows.append((pd.Timestamp(stamp), [*values, volume]))
+    if not rows:
+        return pd.DataFrame(columns=OHLCV_COLUMNS, index=pd.DatetimeIndex([]), dtype=float)
+    index = pd.DatetimeIndex([stamp for stamp, _ in rows]).tz_localize(zone)
+    frame = pd.DataFrame([values for _, values in rows], index=index, columns=OHLCV_COLUMNS)
+    return frame.astype(float).sort_index()
+
+
+async def _alpha_vantage_history(
+    symbol: str, period: str, interval: str, api_key: str, today: date | None = None
+) -> pd.DataFrame:
+    """Fetch OHLCV history from Alpha Vantage: adjusted daily bars, or intraday bars.
+
+    Bars longer than a day are built from daily bars. Intraday bars cover about the last
+    month, as Alpha Vantage serves them without a ``month`` parameter; they need a paid
+    plan.
+
+    Adjusted daily bars also need a paid plan. On a free key, the latest
+    :data:`ALPHA_VANTAGE_FREE_DAILY_BARS` daily bars are served instead, unadjusted, and
+    the frame's ``attrs`` carry a :data:`HISTORY_NOTICE` saying so; unless the yfinance
+    fallback is on, which has the full adjusted history, so the plan error is passed on
+    for it to answer.
+    """
+    end = today or date.today()
+    start = pd.Timestamp(_window_start(period, end))
+    limited = not get_settings().yfinance_fallback
+    notice: str | None = None
+    if interval in ALPHA_VANTAGE_INTRADAY:
+        size, resample_to = ALPHA_VANTAGE_INTRADAY[interval]
+        payload = await alpha_vantage_get(
+            "TIME_SERIES_INTRADAY",
+            {"symbol": symbol, "interval": size, "outputsize": "full"},
+            api_key,
+        )
+        zone = str(payload.get("Meta Data", {}).get("6. Time Zone") or DEFAULT_TIMEZONE)
+        frame = _alpha_vantage_frame(payload.get(f"Time Series ({size})") or {}, zone, False)
+        frame = frame[frame.index >= start.tz_localize(zone)]
+        return frame if resample_to is None or frame.empty else _resample(frame, resample_to)
+    try:
+        payload = await alpha_vantage_get(
+            "TIME_SERIES_DAILY_ADJUSTED", {"symbol": symbol, "outputsize": "full"}, api_key
+        )
+        adjusted = True
+    except ProviderPlanError:
+        if not limited:
+            raise
+        payload = await alpha_vantage_get(
+            "TIME_SERIES_DAILY", {"symbol": symbol, "outputsize": "compact"}, api_key
+        )
+        adjusted = False
+        notice = (
+            f"Alpha Vantage's free plan serves only the latest "
+            f"{ALPHA_VANTAGE_FREE_DAILY_BARS} trading days of {symbol}, not adjusted for "
+            "splits or dividends: a split shows as a price jump, and returns leave out "
+            "dividends."
+        )
+    zone = exchange_timezone(symbol)
+    frame = _alpha_vantage_frame(payload.get("Time Series (Daily)") or {}, zone, adjusted)
+    frame = frame[frame.index >= start.tz_localize(zone)]
+    if notice is not None:
+        frame.attrs[HISTORY_NOTICE] = notice
+    if period in ("1d", "5d") and not frame.empty:
+        frame = frame.tail(int(period[0]))
+    if interval in LONG_INTERVALS and not frame.empty:
+        notice = frame.attrs.get(HISTORY_NOTICE)
+        frame = _resample(frame, LONG_INTERVALS[interval])
+        if notice is not None:
+            frame.attrs[HISTORY_NOTICE] = notice
+    return frame
+
+
 def _clean_history(frame: pd.DataFrame) -> pd.DataFrame:
     """Keep OHLCV columns, sort by date, and drop rows missing a close price."""
     missing = [column for column in OHLCV_COLUMNS if column not in frame.columns]
     if missing:
         raise DataFetchError(f"History is missing columns: {missing}.")
     cleaned = frame.loc[:, OHLCV_COLUMNS].sort_index()
-    cleaned = cleaned[~cleaned.index.duplicated(keep="last")]
-    return cleaned.dropna(subset=["Close"])
+    cleaned = cleaned[~cleaned.index.duplicated(keep="last")].dropna(subset=["Close"])
+    cleaned.attrs = dict(frame.attrs)
+    return cleaned
 
 
 def _history_to_json(frame: pd.DataFrame) -> str:
@@ -388,6 +798,7 @@ def _history_to_json(frame: pd.DataFrame) -> str:
             "name": index.name,
             "index": [timestamp.isoformat() for timestamp in index],
             "columns": {column: frame[column].tolist() for column in frame.columns},
+            "notice": frame.attrs.get(HISTORY_NOTICE),
         }
     )
 
@@ -401,7 +812,10 @@ def _history_from_json(text: str) -> pd.DataFrame:
     else:
         index = pd.DatetimeIndex(pd.to_datetime(payload["index"], utc=True)).tz_convert(tz)
     index.name = payload["name"]
-    return pd.DataFrame(payload["columns"], index=index, columns=OHLCV_COLUMNS)
+    frame = pd.DataFrame(payload["columns"], index=index, columns=OHLCV_COLUMNS)
+    if payload.get("notice"):
+        frame.attrs[HISTORY_NOTICE] = payload["notice"]
+    return frame
 
 
 def _history_ttl(interval: str) -> float:
@@ -426,11 +840,13 @@ async def fetch_price_history(
         A frame indexed by bar time in the exchange's time zone, with ``Open``, ``High``,
         ``Low``, ``Close`` and ``Volume`` columns, sorted ascending, de-duplicated, and
         without rows lacking a close. It is empty when ``symbol`` exists but has no bars
-        in the window.
+        in the window. When the provider could serve only part of the window, or bars
+        that are not adjusted, ``attrs[HISTORY_NOTICE]`` says so.
 
     Raises:
         ValueError: If ``symbol`` is empty.
-        ProviderNotConfiguredError: If the user has no FMP key and the fallback is off.
+        ProviderNotConfiguredError: If the user has no market data key and the fallback
+            is off.
         ProviderPlanError: If the user's FMP plan does not cover the request.
         SymbolNotFoundError: If no bars are returned and ``symbol`` is unknown.
         DataFetchError: If every provider fails, or the symbol's existence cannot be
@@ -453,6 +869,9 @@ async def fetch_price_history(
                 if provider == "fmp":
                     assert api_key is not None
                     raw = await _fmp_history(symbol, period, interval, api_key)
+                elif provider == "alpha_vantage":
+                    assert api_key is not None
+                    raw = await _alpha_vantage_history(symbol, period, interval, api_key)
                 else:
                     raw = await asyncio.to_thread(_yfinance_history, symbol, period, interval)
             except DataFetchError:
@@ -551,6 +970,25 @@ async def _fmp_quote(symbol: str, api_key: str, client: httpx2.AsyncClient | Non
     )
 
 
+async def _alpha_vantage_quote(
+    symbol: str, api_key: str, client: httpx2.AsyncClient | None
+) -> Quote:
+    """Fetch the latest quote from Alpha Vantage's global quote."""
+    payload = await alpha_vantage_get("GLOBAL_QUOTE", {"symbol": symbol}, api_key, client)
+    quote: dict[str, Any] = payload.get("Global Quote") or {}
+    if not quote:
+        raise SymbolNotFoundError(f"Alpha Vantage has no quote for {symbol!r}.")
+    return _build_quote(
+        symbol,
+        price=alpha_vantage_number(quote.get("05. price")),
+        previous_close=alpha_vantage_number(quote.get("08. previous close")),
+        source="alpha_vantage",
+        day_high=alpha_vantage_number(quote.get("03. high")),
+        day_low=alpha_vantage_number(quote.get("04. low")),
+        volume=alpha_vantage_number(quote.get("06. volume")),
+    )
+
+
 async def fetch_quote(symbol: str, client: httpx2.AsyncClient | None = None) -> Quote:
     """Fetch the latest price of ``symbol`` and its change since the previous close.
 
@@ -566,7 +1004,8 @@ async def fetch_quote(symbol: str, client: httpx2.AsyncClient | None = None) -> 
 
     Raises:
         ValueError: If ``symbol`` is empty.
-        ProviderNotConfiguredError: If the user has no FMP key and the fallback is off.
+        ProviderNotConfiguredError: If the user has no market data key and the fallback
+            is off.
         ProviderPlanError: If the user's FMP plan does not cover ``symbol``.
         SymbolNotFoundError: If the providers that answered have no price for ``symbol``.
         DataFetchError: If every provider fails.
@@ -587,6 +1026,9 @@ async def fetch_quote(symbol: str, client: httpx2.AsyncClient | None = None) -> 
                     # profile tells an unknown symbol apart from an excluded one.
                     await _fmp_info(symbol, api_key, client)
                     raise
+            elif provider == "alpha_vantage":
+                assert api_key is not None
+                quote = await _alpha_vantage_quote(symbol, api_key, client)
             else:
                 try:
                     quote = await asyncio.to_thread(_yfinance_quote, symbol)

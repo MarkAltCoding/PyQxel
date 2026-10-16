@@ -46,7 +46,7 @@ from app.api.v1.endpoints.stocks import (
     upstream_error,
 )
 from app.data.factors import fetch_factors
-from app.data.fundamentals import fetch_financials
+from app.data.alpha_vantage import fetch_financials_filled
 from app.data.fetcher import (
     DataFetchError,
     SymbolNotFoundError,
@@ -300,7 +300,7 @@ async def prepare_analysis(
         fetch_price_history(symbol, period=request.period, interval="1d"),
         fetch_latest_filings(symbol) if request.include_filings else _no_filings(),
         fetch_factors(ANALYSIS_FACTOR_MODEL),
-        fetch_financials(symbol),
+        fetch_financials_filled(symbol),
         return_exceptions=True,
     )
     if isinstance(history_result, DataFetchError):

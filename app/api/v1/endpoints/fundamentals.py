@@ -1,4 +1,8 @@
-"""Fundamentals routes: financial statement figures from SEC filings, and valuation."""
+"""Fundamentals routes: financial statement figures from SEC filings, and valuation.
+
+Alpha Vantage, on the user's own key, stands in when EDGAR has no statements and fills
+items the filings leave out; see :mod:`app.data.alpha_vantage`.
+"""
 
 import asyncio
 from datetime import date, timedelta
@@ -6,9 +10,10 @@ from datetime import date, timedelta
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.v1.endpoints.stocks import Symbol
+from app.data.alpha_vantage import fetch_financials_filled
 from app.data.exchange_rates import fetch_exchange_rate
 from app.data.fetcher import DataFetchError, SymbolNotFoundError, fetch_ticker_info
-from app.data.fundamentals import FinancialsNotFoundError, fetch_financials
+from app.data.fundamentals import FinancialsNotFoundError
 from app.data.sec_edgar import CompanyNotFoundError, EdgarNotConfiguredError, FilingFetchError
 from app.models.fundamentals import Financials, Fundamentals, FundamentalsResponse
 from app.models.stock import TickerInfo
@@ -43,13 +48,50 @@ def financials_failure_notice(symbol: str, exc: FilingFetchError) -> str:
     if isinstance(exc, EdgarNotConfiguredError):
         return "SEC financial data is not configured, so fundamentals were left out."
     if isinstance(exc, (CompanyNotFoundError, FinancialsNotFoundError)):
-        return f"{symbol} has no US GAAP or IFRS financial statements on SEC EDGAR."
+        return (
+            f"{symbol} has no US GAAP or IFRS financial statements on SEC EDGAR, or from "
+            "Alpha Vantage."
+        )
     return "SEC financial data could not be fetched, so fundamentals were left out."
+
+
+ITEM_LABELS: dict[str, str] = {
+    "revenue": "revenue",
+    "gross_profit": "gross profit",
+    "operating_income": "operating income",
+    "net_income": "net income",
+    "operating_cash_flow": "operating cash flow",
+    "capital_expenditure": "capital expenditure",
+    "depreciation_amortization": "depreciation and amortization",
+    "free_cash_flow": "free cash flow",
+    "ebitda": "EBITDA",
+    "cash": "cash",
+    "total_debt": "debt",
+    "stockholders_equity": "equity",
+    "shares_outstanding": "shares outstanding",
+}
+"""How notices name each item of the financials."""
+
+
+def _source_notices(financials: Financials) -> list[str]:
+    """Say which figures come from Alpha Vantage rather than SEC filings."""
+    if financials.source == "alpha_vantage":
+        return [
+            "SEC EDGAR has no financial statements for this company, so they come from "
+            "Alpha Vantage."
+        ]
+    if financials.filled_items:
+        names = ", ".join(ITEM_LABELS.get(name, name) for name in financials.filled_items)
+        return [
+            f"The SEC filings do not report {names} in a recognized form; Alpha Vantage's "
+            "figures for the same period fill them in."
+        ]
+    return []
 
 
 def _freshness_notices(financials: Financials, today: date) -> list[str]:
     """Flag financials that are old, and items that end before the latest period."""
-    notices: list[str] = []
+    notices = _source_notices(financials)
     latest = financials.latest_period_end
     stale_after = (
         STALE_ANNUAL_FINANCIALS_DAYS
@@ -139,11 +181,16 @@ async def get_fundamentals(symbol: Symbol) -> FundamentalsResponse:
     Items a company does not report under a recognized concept are null, as are ratios
     that are not meaningful; ``valuation.notes`` and ``notice`` say why.
 
-    Returns 404 when the symbol has no SEC registrant or no US GAAP or IFRS data, 502
-    when EDGAR fails, and 503 when ``SEC_USER_AGENT`` is not set.
+    With an Alpha Vantage key stored, Alpha Vantage fills in items the filings leave out,
+    when its figures cover the same latest period (``financials.filled_items``), and
+    supplies the statements when EDGAR has none or fails (``financials.source``).
+
+    Returns 404 when the symbol has no SEC registrant or no US GAAP or IFRS data and
+    Alpha Vantage has none either, 502 when EDGAR fails, and 503 when ``SEC_USER_AGENT``
+    is not set.
     """
     financials_result, info_result = await asyncio.gather(
-        fetch_financials(symbol), fetch_ticker_info(symbol), return_exceptions=True
+        fetch_financials_filled(symbol), fetch_ticker_info(symbol), return_exceptions=True
     )
     if isinstance(financials_result, FilingFetchError):
         raise edgar_http_error(financials_result) from financials_result
