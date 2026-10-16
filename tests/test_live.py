@@ -12,11 +12,13 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.credentials import ProviderKeys, use_provider_keys
 from app.db.users import User
 from app.api.v1.endpoints.research import prepare_analysis
 from app.data import fetcher
+from app.data.alpha_vantage import fetch_alpha_vantage_financials
+from app.data.exchange_rates import fetch_exchange_rate
 from app.data.factors import fetch_factors
 from app.data.panel import fetch_close_panel
 from app.data.sec_edgar import edgar_client, fetch_latest_filings
@@ -40,6 +42,9 @@ needs_screener_fmp = pytest.mark.skipif(
     settings.screener_fmp_api_key is None, reason="SCREENER_FMP_API_KEY is not set"
 )
 needs_sec = pytest.mark.skipif(not settings.sec_user_agent, reason="SEC_USER_AGENT is not set")
+needs_alpha_vantage = pytest.mark.skipif(
+    settings.alpha_vantage_api_key is None, reason="ALPHA_VANTAGE_API_KEY is not set"
+)
 
 
 @pytest.fixture(scope="module")
@@ -371,3 +376,33 @@ def test_claude_analysis_stream(client: TestClient) -> None:
     assert events[0] == "context"
     assert "report" in events
     assert events[-1] == "result", events[-3:]
+
+
+@needs_alpha_vantage
+@pytest.mark.asyncio
+async def test_alpha_vantage_serves_everything_on_its_own_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With only an Alpha Vantage key, free or paid, every kind of data has an answer.
+
+    Uses about nine of a free key's 25 daily requests.
+    """
+    key = settings.alpha_vantage_api_key
+    assert key is not None
+    no_fallback = Settings(yfinance_fallback=False)
+    monkeypatch.setattr(fetcher, "get_settings", lambda: no_fallback)
+    use_provider_keys(ProviderKeys(alpha_vantage=key))
+
+    info = await fetcher.fetch_ticker_info("IBM")
+    quote = await fetcher.fetch_quote("IBM")
+    history = await fetcher.fetch_price_history("IBM", period="3mo", interval="1d")
+    rate = await fetch_exchange_rate("EUR", "USD")
+    financials = await fetch_alpha_vantage_financials("IBM", key.get_secret_value())
+
+    # A free key gets no overview, so no sector or market cap; a paid one does.
+    assert info.source == "alpha_vantage" and info.name and info.price
+    assert quote.source == "alpha_vantage" and quote.price > 0
+    assert len(history) > 40 and (history["Close"] > 0).all()
+    assert 0.5 < rate < 2.0
+    assert financials.revenue is not None and financials.revenue.ttm
+    assert financials.total_debt is not None and financials.cash is not None

@@ -177,11 +177,12 @@ export interface paths {
     get?: never
     /**
      * Store your provider keys
-     * @description Store, replace or remove your Anthropic and Financial Modeling Prep keys.
+     * @description Store, replace or remove your Anthropic, Financial Modeling Prep and Alpha Vantage keys.
      *
      *     Omitted fields are left as they are and ``null`` removes a key. Keys are encrypted at
      *     rest, never returned, and used only for your own requests: analyses are billed to
-     *     your Anthropic account and market data to your FMP plan.
+     *     your Anthropic account, market data to your FMP plan, and the gaps Alpha Vantage
+     *     fills to your Alpha Vantage plan.
      *
      *     Returns 503 when the server has no ``CREDENTIALS_ENCRYPTION_KEY``.
      */
@@ -666,8 +667,13 @@ export interface paths {
      *     Items a company does not report under a recognized concept are null, as are ratios
      *     that are not meaningful; ``valuation.notes`` and ``notice`` say why.
      *
-     *     Returns 404 when the symbol has no SEC registrant or no US GAAP or IFRS data, 502
-     *     when EDGAR fails, and 503 when ``SEC_USER_AGENT`` is not set.
+     *     With an Alpha Vantage key stored, Alpha Vantage fills in items the filings leave out,
+     *     when its figures cover the same latest period (``financials.filled_items``), and
+     *     supplies the statements when EDGAR has none or fails (``financials.source``).
+     *
+     *     Returns 404 when the symbol has no SEC registrant or no US GAAP or IFRS data and
+     *     Alpha Vantage has none either, 502 when EDGAR fails, and 503 when ``SEC_USER_AGENT``
+     *     is not set.
      */
     get: operations['get_fundamentals_api_v1_stocks__symbol__fundamentals_get']
     put?: never
@@ -781,6 +787,7 @@ export interface components {
      * @description The authenticated user's account.
      */
     Account: {
+      alpha_vantage: components['schemas']['ProviderCredential']
       anthropic: components['schemas']['ProviderCredential']
       /**
        * Created At
@@ -1259,7 +1266,7 @@ export interface components {
       as_of: string
       /**
        * Concept
-       * @description XBRL concept, or concepts summed, the value comes from.
+       * @description XBRL concept, or concepts summed, the value comes from, or the Alpha Vantage field.
        */
       concept: string
       /** Value */
@@ -1382,6 +1389,11 @@ export interface components {
      *     Keys are encrypted at rest and only ever used for this account's own requests.
      */
     CredentialsUpdate: {
+      /**
+       * Alpha Vantage Api Key
+       * @description Alpha Vantage key, used for market data and financial statements the other sources leave out.
+       */
+      alpha_vantage_api_key?: string | null
       /**
        * Anthropic Api Key
        * @description Anthropic API key, used for this account's analyses.
@@ -1689,25 +1701,26 @@ export interface components {
      *     Periods come from each figure's own start and end dates, so fiscal years that do not
      *     match the calendar line up correctly. Figures are as filed under US GAAP or IFRS, in
      *     the company's reporting currency, using the latest filing's value when a period was
-     *     restated.
+     *     restated. When EDGAR has no statements for the company, they come from Alpha Vantage
+     *     instead (``source``); when the filings leave items out, Alpha Vantage fills them in
+     *     if its figures cover the same latest period (``filled_items``).
      */
     Financials: {
       /**
        * Accounting Standard
-       * @description Standard of the latest financial statements.
+       * @description Standard of the latest financial statements; null when Alpha Vantage, the source, does not say.
        * @default US GAAP
-       * @enum {string}
        */
-      accounting_standard?: 'US GAAP' | 'IFRS'
+      accounting_standard?: ('US GAAP' | 'IFRS') | null
       /** @description Purchases of property, plant and equipment, as a positive sum. */
       capital_expenditure?: components['schemas']['FlowItem'] | null
       /** @description Cash and cash equivalents. */
       cash?: components['schemas']['BalanceItem'] | null
       /**
        * Cik
-       * @description The company's SEC Central Index Key.
+       * @description The company's SEC Central Index Key; null when Alpha Vantage, the source, does not give one.
        */
-      cik: number
+      cik?: number | null
       /**
        * Currency
        * @description ISO 4217 code of the currency every amount here is in, e.g. ``EUR``.
@@ -1719,6 +1732,11 @@ export interface components {
       ebitda?: components['schemas']['FlowItem'] | null
       /** Entity Name */
       entity_name: string
+      /**
+       * Filled Items
+       * @description Items the SEC filings left out that Alpha Vantage filled in.
+       */
+      filled_items?: string[]
       /** @description Operating cash flow less capital expenditure. */
       free_cash_flow?: components['schemas']['FlowItem'] | null
       gross_profit?: components['schemas']['FlowItem'] | null
@@ -1732,6 +1750,12 @@ export interface components {
       operating_income?: components['schemas']['FlowItem'] | null
       revenue?: components['schemas']['FlowItem'] | null
       shares_outstanding?: components['schemas']['BalanceItem'] | null
+      /**
+       * Source
+       * @default sec_edgar
+       * @enum {string}
+       */
+      source?: 'sec_edgar' | 'alpha_vantage'
       /** @description Equity attributable to the company's shareholders. */
       stockholders_equity?: components['schemas']['BalanceItem'] | null
       /** @description Short- and long-term borrowings, excluding operating leases; null when the company does not report its long-term debt in a recognized form. */
@@ -1744,7 +1768,7 @@ export interface components {
     FlowItem: {
       /**
        * Concept
-       * @description XBRL concept the figures come from, e.g. ``Revenues``.
+       * @description XBRL concept the figures come from, e.g. ``Revenues``, or the Alpha Vantage field, e.g. ``alpha_vantage:totalRevenue``.
        */
       concept: string
       /**
@@ -3265,6 +3289,11 @@ export interface components {
       currency?: string | null
       /** Exchange */
       exchange?: string | null
+      /**
+       * Filled Fields
+       * @description Fields ``source`` left empty that Alpha Vantage filled in.
+       */
+      filled_fields?: string[]
       /** Industry */
       industry?: string | null
       /** Market Cap */

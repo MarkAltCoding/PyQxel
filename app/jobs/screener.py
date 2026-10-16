@@ -271,7 +271,7 @@ async def _catch_up_fundamentals(ciks: set[int], symbols: dict[int, str], today:
         for cik, company in stored.items()
         if company.latest_period_end is not None
         and (today - company.latest_period_end).days
-        > BEHIND_AFTER_DAYS[company.accounting_standard]
+        > BEHIND_AFTER_DAYS[company.accounting_standard or "US GAAP"]
     ]
     behind.sort(key=lambda cik: stored[cik].latest_period_end or date.min, reverse=True)
     caught_up: list[Financials] = []

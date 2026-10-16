@@ -45,6 +45,11 @@ class Settings(BaseSettings):
         description="The server owner's Financial Modeling Prep key. Like "
         "``anthropic_api_key``, never used to serve requests.",
     )
+    alpha_vantage_api_key: SecretStr | None = Field(
+        default=None,
+        description="The server owner's Alpha Vantage key. Like ``anthropic_api_key``, never "
+        "used to serve requests.",
+    )
     credentials_encryption_key: SecretStr | None = Field(
         default=None,
         description="Fernet key that encrypts the provider keys users store; generate one "

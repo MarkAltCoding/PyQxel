@@ -4,6 +4,9 @@
       "Account": {
         "description": "The authenticated user's account.",
         "properties": {
+          "alpha_vantage": {
+            "$ref": "#/components/schemas/ProviderCredential"
+          },
           "anthropic": {
             "$ref": "#/components/schemas/ProviderCredential"
           },
@@ -42,6 +45,7 @@
           "created_at",
           "anthropic",
           "fmp",
+          "alpha_vantage",
           "limits",
           "usage",
           "rate_limit_per_minute"
@@ -943,7 +947,7 @@
             "type": "string"
           },
           "concept": {
-            "description": "XBRL concept, or concepts summed, the value comes from.",
+            "description": "XBRL concept, or concepts summed, the value comes from, or the Alpha Vantage field.",
             "title": "Concept",
             "type": "string"
           },
@@ -1187,6 +1191,22 @@
       "CredentialsUpdate": {
         "description": "Provider keys to store. Omitted fields are left as they are; ``null`` removes a key.\n\nKeys are encrypted at rest and only ever used for this account's own requests.",
         "properties": {
+          "alpha_vantage_api_key": {
+            "anyOf": [
+              {
+                "format": "password",
+                "maxLength": 512,
+                "minLength": 8,
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alpha Vantage key, used for market data and financial statements the other sources leave out.",
+            "title": "Alpha Vantage Api Key"
+          },
           "anthropic_api_key": {
             "anyOf": [
               {
@@ -1748,17 +1768,24 @@
         "type": "object"
       },
       "Financials": {
-        "description": "A company's financial statement figures, normalized from its SEC XBRL filings.\n\nPeriods come from each figure's own start and end dates, so fiscal years that do not\nmatch the calendar line up correctly. Figures are as filed under US GAAP or IFRS, in\nthe company's reporting currency, using the latest filing's value when a period was\nrestated.",
+        "description": "A company's financial statement figures, normalized from its SEC XBRL filings.\n\nPeriods come from each figure's own start and end dates, so fiscal years that do not\nmatch the calendar line up correctly. Figures are as filed under US GAAP or IFRS, in\nthe company's reporting currency, using the latest filing's value when a period was\nrestated. When EDGAR has no statements for the company, they come from Alpha Vantage\ninstead (``source``); when the filings leave items out, Alpha Vantage fills them in\nif its figures cover the same latest period (``filled_items``).",
         "properties": {
           "accounting_standard": {
-            "default": "US GAAP",
-            "description": "Standard of the latest financial statements.",
-            "enum": [
-              "US GAAP",
-              "IFRS"
+            "anyOf": [
+              {
+                "enum": [
+                  "US GAAP",
+                  "IFRS"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Accounting Standard",
-            "type": "string"
+            "default": "US GAAP",
+            "description": "Standard of the latest financial statements; null when Alpha Vantage, the source, does not say.",
+            "title": "Accounting Standard"
           },
           "capital_expenditure": {
             "anyOf": [
@@ -1783,9 +1810,16 @@
             "description": "Cash and cash equivalents."
           },
           "cik": {
-            "description": "The company's SEC Central Index Key.",
-            "title": "Cik",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The company's SEC Central Index Key; null when Alpha Vantage, the source, does not give one.",
+            "title": "Cik"
           },
           "currency": {
             "default": "USD",
@@ -1817,6 +1851,14 @@
           "entity_name": {
             "title": "Entity Name",
             "type": "string"
+          },
+          "filled_items": {
+            "description": "Items the SEC filings left out that Alpha Vantage filled in.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Filled Items",
+            "type": "array"
           },
           "free_cash_flow": {
             "anyOf": [
@@ -1902,6 +1944,15 @@
               }
             ]
           },
+          "source": {
+            "default": "sec_edgar",
+            "enum": [
+              "sec_edgar",
+              "alpha_vantage"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
           "stockholders_equity": {
             "anyOf": [
               {
@@ -1926,7 +1977,6 @@
           }
         },
         "required": [
-          "cik",
           "entity_name"
         ],
         "title": "Financials",
@@ -1936,7 +1986,7 @@
         "description": "An income or cash flow statement item over the trailing twelve months and by year.",
         "properties": {
           "concept": {
-            "description": "XBRL concept the figures come from, e.g. ``Revenues``.",
+            "description": "XBRL concept the figures come from, e.g. ``Revenues``, or the Alpha Vantage field, e.g. ``alpha_vantage:totalRevenue``.",
             "title": "Concept",
             "type": "string"
           },
@@ -4875,6 +4925,14 @@
             ],
             "title": "Exchange"
           },
+          "filled_fields": {
+            "description": "Fields ``source`` left empty that Alpha Vantage filled in.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Filled Fields",
+            "type": "array"
+          },
           "industry": {
             "anyOf": [
               {
@@ -5866,7 +5924,7 @@
     },
     "/api/v1/me/credentials": {
       "put": {
-        "description": "Store, replace or remove your Anthropic and Financial Modeling Prep keys.\n\nOmitted fields are left as they are and ``null`` removes a key. Keys are encrypted at\nrest, never returned, and used only for your own requests: analyses are billed to\nyour Anthropic account and market data to your FMP plan.\n\nReturns 503 when the server has no ``CREDENTIALS_ENCRYPTION_KEY``.",
+        "description": "Store, replace or remove your Anthropic, Financial Modeling Prep and Alpha Vantage keys.\n\nOmitted fields are left as they are and ``null`` removes a key. Keys are encrypted at\nrest, never returned, and used only for your own requests: analyses are billed to\nyour Anthropic account, market data to your FMP plan, and the gaps Alpha Vantage\nfills to your Alpha Vantage plan.\n\nReturns 503 when the server has no ``CREDENTIALS_ENCRYPTION_KEY``.",
         "operationId": "store_credentials_api_v1_me_credentials_put",
         "requestBody": {
           "content": {
@@ -6760,7 +6818,7 @@
     },
     "/api/v1/stocks/{symbol}/fundamentals": {
       "get": {
-        "description": "Return ``symbol``'s financial statement figures and valuation.\n\nFigures come from the company's XBRL filings on SEC EDGAR, under US GAAP or IFRS and\nin the currency it reports in (``financials.currency``): trailing-twelve-month (TTM)\nrevenue, profits, cash flows and EBITDA with year-on-year\ngrowth, five fiscal years of history, and the latest balance sheet. They are combined\nwith the current market cap into P/E, P/S, EV/EBITDA, free-cash-flow yield, margins\nand return on equity, converting statements in another currency at the latest\nexchange rate. Growth rates, margins, yields and returns are decimals.\n\nItems a company does not report under a recognized concept are null, as are ratios\nthat are not meaningful; ``valuation.notes`` and ``notice`` say why.\n\nReturns 404 when the symbol has no SEC registrant or no US GAAP or IFRS data, 502\nwhen EDGAR fails, and 503 when ``SEC_USER_AGENT`` is not set.",
+        "description": "Return ``symbol``'s financial statement figures and valuation.\n\nFigures come from the company's XBRL filings on SEC EDGAR, under US GAAP or IFRS and\nin the currency it reports in (``financials.currency``): trailing-twelve-month (TTM)\nrevenue, profits, cash flows and EBITDA with year-on-year\ngrowth, five fiscal years of history, and the latest balance sheet. They are combined\nwith the current market cap into P/E, P/S, EV/EBITDA, free-cash-flow yield, margins\nand return on equity, converting statements in another currency at the latest\nexchange rate. Growth rates, margins, yields and returns are decimals.\n\nItems a company does not report under a recognized concept are null, as are ratios\nthat are not meaningful; ``valuation.notes`` and ``notice`` say why.\n\nWith an Alpha Vantage key stored, Alpha Vantage fills in items the filings leave out,\nwhen its figures cover the same latest period (``financials.filled_items``), and\nsupplies the statements when EDGAR has none or fails (``financials.source``).\n\nReturns 404 when the symbol has no SEC registrant or no US GAAP or IFRS data and\nAlpha Vantage has none either, 502 when EDGAR fails, and 503 when ``SEC_USER_AGENT``\nis not set.",
         "operationId": "get_fundamentals_api_v1_stocks__symbol__fundamentals_get",
         "parameters": [
           {

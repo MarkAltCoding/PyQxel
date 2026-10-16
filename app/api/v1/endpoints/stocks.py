@@ -7,6 +7,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Path, Query, status
 
 from app.data.fetcher import (
+    HISTORY_NOTICE,
     DataFetchError,
     ProviderNotConfiguredError,
     ProviderPlanError,
@@ -110,17 +111,22 @@ def _requested_start(period: HistoryPeriod, now: pd.Timestamp) -> pd.Timestamp |
 def history_coverage(
     symbol: str, period: HistoryPeriod, interval: HistoryInterval, frame: pd.DataFrame
 ) -> tuple[HistoryCoverage, str | None]:
-    """Classify how much of the requested window ``frame`` covers, with a note on any gap."""
+    """Classify how much of the requested window ``frame`` covers, with a note on any gap.
+
+    A provider's own note on the bars, such as a free plan serving only recent ones,
+    explains the gap instead.
+    """
     if frame.empty:
         return "none", (
             f"No price data exists for {symbol} in the requested {period} window "
             f"at {interval} bars."
         )
+    provider_notice: str | None = frame.attrs.get(HISTORY_NOTICE)
     first = pd.Timestamp(frame.index[0])
     start = _requested_start(period, pd.Timestamp.now(tz=first.tz))
     if start is None or first - start <= COVERAGE_TOLERANCE:
-        return "full", None
-    return "partial", (
+        return "full", provider_notice
+    return "partial", provider_notice or (
         f"No price data exists for {symbol} before {first.date()}; the requested {period} "
         f"window starts {start.date()}. Showing all available bars."
     )

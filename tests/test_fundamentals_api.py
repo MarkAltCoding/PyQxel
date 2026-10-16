@@ -43,7 +43,7 @@ def _serve(
             raise DataFetchError(f"No {base}/{quote} rate.")
         return (rates or {})[base, quote]
 
-    monkeypatch.setattr(fundamentals_route, "fetch_financials", fake_financials)
+    monkeypatch.setattr(fundamentals_route, "fetch_financials_filled", fake_financials)
     monkeypatch.setattr(fundamentals_route, "fetch_ticker_info", fake_info)
     monkeypatch.setattr(fundamentals_route, "fetch_exchange_rate", fake_rate)
 

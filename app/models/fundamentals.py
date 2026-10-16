@@ -1,4 +1,6 @@
-"""Schemas for financial statement data from SEC filings and the valuation built on it.
+"""Schemas for financial statement data and the valuation built on it.
+
+Statements come from SEC filings, or from Alpha Vantage for what the filings leave out.
 
 Statement figures are in the currency the company reports in, named by
 ``Financials.currency``; market values are in the listing's currency. Share counts are
@@ -28,6 +30,10 @@ BalanceItemName = Literal["cash", "stockholders_equity"]
 AccountingStandard = Literal["US GAAP", "IFRS"]
 """The accounting standard financial statements were prepared under."""
 
+FinancialsSource = Literal["sec_edgar", "alpha_vantage"]
+"""Where financial statements came from: the company's XBRL filings on SEC EDGAR, or
+Alpha Vantage when EDGAR has none for it."""
+
 MarketCapSource = Literal["provider", "shares_outstanding"]
 """``provider`` when the market data provider reported the market capitalization,
 ``shares_outstanding`` when it was estimated as price times SEC-reported shares."""
@@ -48,7 +54,10 @@ class AnnualValue(BaseModel):
 class FlowItem(BaseModel):
     """An income or cash flow statement item over the trailing twelve months and by year."""
 
-    concept: str = Field(description="XBRL concept the figures come from, e.g. ``Revenues``.")
+    concept: str = Field(
+        description="XBRL concept the figures come from, e.g. ``Revenues``, or the Alpha "
+        "Vantage field, e.g. ``alpha_vantage:totalRevenue``."
+    )
     ttm: float | None = Field(
         default=None, description="Trailing-twelve-month total ending at ``ttm_end``."
     )
@@ -66,7 +75,10 @@ class FlowItem(BaseModel):
 class BalanceItem(BaseModel):
     """A balance sheet item at the latest balance sheet date."""
 
-    concept: str = Field(description="XBRL concept, or concepts summed, the value comes from.")
+    concept: str = Field(
+        description="XBRL concept, or concepts summed, the value comes from, or the Alpha "
+        "Vantage field."
+    )
     value: float
     as_of: date
     year_ago: float | None = Field(
@@ -80,13 +92,22 @@ class Financials(BaseModel):
     Periods come from each figure's own start and end dates, so fiscal years that do not
     match the calendar line up correctly. Figures are as filed under US GAAP or IFRS, in
     the company's reporting currency, using the latest filing's value when a period was
-    restated.
+    restated. When EDGAR has no statements for the company, they come from Alpha Vantage
+    instead (``source``); when the filings leave items out, Alpha Vantage fills them in
+    if its figures cover the same latest period (``filled_items``).
     """
 
-    cik: int = Field(description="The company's SEC Central Index Key.")
+    cik: int | None = Field(
+        default=None,
+        description="The company's SEC Central Index Key; null when Alpha Vantage, the "
+        "source, does not give one.",
+    )
     entity_name: str
-    accounting_standard: AccountingStandard = Field(
-        default="US GAAP", description="Standard of the latest financial statements."
+    source: FinancialsSource = "sec_edgar"
+    accounting_standard: AccountingStandard | None = Field(
+        default="US GAAP",
+        description="Standard of the latest financial statements; null when Alpha Vantage, "
+        "the source, does not say.",
     )
     currency: str = Field(
         default="USD",
@@ -120,6 +141,10 @@ class Financials(BaseModel):
         default=None, description="Equity attributable to the company's shareholders."
     )
     shares_outstanding: BalanceItem | None = None
+    filled_items: list[str] = Field(
+        default_factory=list,
+        description="Items the SEC filings left out that Alpha Vantage filled in.",
+    )
 
 
 class Valuation(BaseModel):
