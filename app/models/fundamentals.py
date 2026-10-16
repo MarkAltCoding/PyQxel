@@ -127,7 +127,8 @@ class Valuation(BaseModel):
 
     Multiples combine today's market value with trailing figures that may be a few months
     old. A ratio is null when an input is missing or the ratio is not meaningful, such as
-    a P/E with negative earnings; ``notes`` say why.
+    EV/EBITDA with negative EBITDA; ``notes`` say why. P/E is the exception: it is
+    negative after a loss.
     """
 
     price: float | None = Field(default=None, ge=0)
@@ -136,7 +137,9 @@ class Valuation(BaseModel):
     enterprise_value: float | None = Field(
         default=None, description="Market capitalization plus total debt less cash."
     )
-    pe_ratio: float | None = Field(default=None, description="Market cap over TTM net income.")
+    pe_ratio: float | None = Field(
+        default=None, description="Market cap over TTM net income; negative after a loss."
+    )
     price_to_sales: float | None = Field(default=None, description="Market cap over TTM revenue.")
     ev_to_ebitda: float | None = Field(
         default=None, description="Enterprise value over TTM EBITDA."

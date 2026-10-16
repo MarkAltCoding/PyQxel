@@ -98,8 +98,10 @@ def value_company(
     else:
         notes.append("Enterprise value is not computed: cash is not reported.")
 
-    if net_income is not None and net_income <= 0:
-        notes.append("P/E is not meaningful: TTM net income is not positive.")
+    if net_income is not None and net_income < 0:
+        notes.append("P/E is negative: TTM net income is a loss.")
+    elif net_income == 0:
+        notes.append("P/E is not computed: TTM net income is zero.")
     if ebitda is None:
         notes.append(
             "EV/EBITDA is not computed: operating income or depreciation is not reported, "
@@ -127,7 +129,7 @@ def value_company(
         market_cap=value,
         market_cap_source=source,
         enterprise_value=enterprise_value,
-        pe_ratio=_ratio(value, converted(net_income)),
+        pe_ratio=None if not (earnings := converted(net_income)) else value / earnings,
         price_to_sales=_ratio(value, converted(revenue)),
         ev_to_ebitda=_ratio(enterprise_value, converted(ebitda)),
         fcf_yield=None if (fcf := converted(free_cash_flow)) is None else fcf / value,

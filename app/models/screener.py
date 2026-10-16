@@ -124,7 +124,11 @@ class RankedStock(ScreenedStock):
 
 
 class ScreenFilter(BaseModel):
-    """Keeps stocks whose ``field`` lies within the bounds; stocks without it are dropped."""
+    """Keeps stocks whose ``field`` lies within the bounds; stocks without it are dropped.
+
+    A P/E filter without ``min`` also drops losses (a negative P/E); a negative ``min``
+    keeps them.
+    """
 
     field: ScreenField
     min: float | None = None
@@ -140,7 +144,8 @@ class ScreenFilter(BaseModel):
 
 
 class ScreenSort(BaseModel):
-    """Orders results by ``field``; stocks without it come last."""
+    """Orders results by ``field``; stocks without it come last, and losses (a negative
+    P/E) come after every positive P/E either way."""
 
     field: ScreenField = "market_cap"
     descending: bool = True

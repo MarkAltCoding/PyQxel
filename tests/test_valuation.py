@@ -38,8 +38,8 @@ def test_no_market_value_means_no_valuation() -> None:
     assert value_company(sample_financials(shares_outstanding=None), 50.0, None) is None
 
 
-def test_losses_leave_earnings_multiples_out() -> None:
-    """A P/E and EV/EBITDA on negative earnings are not meaningful."""
+def test_losses_give_a_negative_pe_and_no_ev_to_ebitda() -> None:
+    """A loss gives a negative P/E; EV/EBITDA on negative EBITDA is not meaningful."""
     financials = sample_financials(
         net_income=flow("NetIncomeLoss", -20.0), ebitda=flow("EBITDA", -5.0)
     )
@@ -47,10 +47,21 @@ def test_losses_leave_earnings_multiples_out() -> None:
     valuation = value_company(financials, price=None, market_cap=1_000.0)
 
     assert valuation is not None
-    assert (valuation.pe_ratio, valuation.ev_to_ebitda) == (None, None)
+    assert (valuation.pe_ratio, valuation.ev_to_ebitda) == (-50.0, None)
     assert valuation.net_margin == -0.05
-    assert any("P/E" in note for note in valuation.notes)
+    assert any("P/E is negative" in note for note in valuation.notes)
     assert any("EBITDA is not positive" in note for note in valuation.notes)
+
+
+def test_break_even_gives_no_pe() -> None:
+    """Zero net income leaves P/E undefined."""
+    financials = sample_financials(net_income=flow("NetIncomeLoss", 0.0))
+
+    valuation = value_company(financials, price=None, market_cap=1_000.0)
+
+    assert valuation is not None
+    assert valuation.pe_ratio is None
+    assert any("net income is zero" in note for note in valuation.notes)
 
 
 def test_unknown_debt_leaves_enterprise_value_out() -> None:
