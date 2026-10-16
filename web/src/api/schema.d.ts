@@ -2765,6 +2765,9 @@ export interface components {
     /**
      * ScreenFilter
      * @description Keeps stocks whose ``field`` lies within the bounds; stocks without it are dropped.
+     *
+     *     A P/E filter without ``min`` also drops losses (a negative P/E); a negative ``min``
+     *     keeps them.
      */
     ScreenFilter: {
       /**
@@ -2859,7 +2862,8 @@ export interface components {
     }
     /**
      * ScreenSort
-     * @description Orders results by ``field``; stocks without it come last.
+     * @description Orders results by ``field``; stocks without it come last, and losses (a negative
+     *     P/E) come after every positive P/E either way.
      */
     ScreenSort: {
       /**
@@ -3369,7 +3373,8 @@ export interface components {
      *
      *     Multiples combine today's market value with trailing figures that may be a few months
      *     old. A ratio is null when an input is missing or the ratio is not meaningful, such as
-     *     a P/E with negative earnings; ``notes`` say why.
+     *     EV/EBITDA with negative EBITDA; ``notes`` say why. P/E is the exception: it is
+     *     negative after a loss.
      */
     Valuation: {
       /**
@@ -3414,7 +3419,7 @@ export interface components {
       operating_margin?: number | null
       /**
        * Pe Ratio
-       * @description Market cap over TTM net income.
+       * @description Market cap over TTM net income; negative after a loss.
        */
       pe_ratio?: number | null
       /** Price */

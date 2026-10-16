@@ -34,7 +34,7 @@ def _stock(symbol: str, rank: int, **metrics: Any) -> ScreenedStock:
 STOCKS = [
     _stock("BIG", 1, pe_ratio=30.0, momentum_12_1=0.2, beta_market=1.3, sector="Technology"),
     _stock("CHEAP", 2, pe_ratio=12.0, momentum_12_1=0.1, beta_market=0.8, sector="Finance"),
-    _stock("LOSS", 3, pe_ratio=None, momentum_12_1=-0.3, beta_market=1.1),
+    _stock("LOSS", 3, pe_ratio=-8.0, momentum_12_1=-0.3, beta_market=1.1),
     _stock("THIN", 600, pe_ratio=15.0, momentum_12_1=0.05, beta_market=0.6, avg_dollar_volume=2e6),
 ]
 
@@ -88,7 +88,7 @@ def test_default_screen_lists_the_largest_first() -> None:
 
 
 def test_filters_combine_and_drop_missing_values() -> None:
-    """P/E < 20 and positive momentum keep only cheap winners; a loss has no P/E."""
+    """P/E < 20 and positive momentum keep only cheap winners."""
     _store(STOCKS)
 
     result = _screen(
@@ -99,6 +99,25 @@ def test_filters_combine_and_drop_missing_values() -> None:
     )
 
     assert _symbols(result) == ["CHEAP", "THIN"]
+
+
+@pytest.mark.parametrize(
+    ("bounds", "expected"),
+    [
+        ({"max": 20}, ["CHEAP", "THIN"]),
+        ({"min": -10, "max": 20}, ["CHEAP", "LOSS", "THIN"]),
+        ({"min": -10, "max": 0}, ["LOSS"]),
+    ],
+)
+def test_pe_filters_leave_out_losses_without_a_negative_min(
+    bounds: dict[str, float], expected: list[str]
+) -> None:
+    """A P/E bound means a profitable company unless the minimum asks for losses."""
+    _store(STOCKS)
+
+    result = _screen(filters=[{"field": "pe_ratio"} | bounds])
+
+    assert sorted(_symbols(result)) == expected
 
 
 def test_factor_ranking_sorts_by_beta_with_paging() -> None:
@@ -115,14 +134,31 @@ def test_factor_ranking_sorts_by_beta_with_paging() -> None:
 
 
 def test_stocks_without_the_sort_field_come_last() -> None:
-    _store(STOCKS)
+    _store(STOCKS + [_stock("NEW", 4)])
 
-    assert _symbols(_screen(sort={"field": "pe_ratio", "descending": False})) == [
-        "CHEAP",
-        "THIN",
+    assert _symbols(_screen(sort={"field": "beta_market"})) == [
         "BIG",
         "LOSS",
+        "CHEAP",
+        "THIN",
+        "NEW",
     ]
+
+
+@pytest.mark.parametrize(
+    ("descending", "expected"),
+    [
+        (False, ["CHEAP", "THIN", "BIG", "LOSS", "NEW"]),
+        (True, ["BIG", "THIN", "CHEAP", "LOSS", "NEW"]),
+    ],
+)
+def test_losses_sort_after_positive_pe_either_way(descending: bool, expected: list[str]) -> None:
+    """A negative P/E is a loss, not the cheapest stock; one without a P/E comes last."""
+    _store(STOCKS + [_stock("NEW", 4)])
+
+    result = _screen(sort={"field": "pe_ratio", "descending": descending})
+
+    assert _symbols(result) == expected
 
 
 @pytest.mark.parametrize(

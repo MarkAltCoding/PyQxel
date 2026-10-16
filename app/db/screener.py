@@ -194,15 +194,23 @@ async def screen(session: AsyncSession, request: ScreenRequest) -> ScreenRespons
     for condition in request.filters:
         column = _column(condition.field)
         query = query.where(column.is_not(None))
-        if condition.min is not None:
-            query = query.where(column >= condition.min)
+        minimum = condition.min
+        if condition.field == "pe_ratio" and minimum is None:
+            # A P/E bound means a profitable company; screening for losses takes a negative min.
+            minimum = 0.0
+        if minimum is not None:
+            query = query.where(column >= minimum)
         if condition.max is not None:
             query = query.where(column <= condition.max)
 
     total = await session.scalar(select(func.count()).select_from(query.subquery()))
     order = _column(request.sort.field)
+    # A negative P/E is a loss, not a bargain: losses follow every profitable company.
+    pe = ScreenerStockRecord.pe_ratio
+    losses_last = case((pe.is_(None), 2), (pe < 0, 1), else_=0)
     records = await session.scalars(
         query.order_by(
+            *([losses_last] if request.sort.field == "pe_ratio" else []),
             (order.desc() if request.sort.descending else order.asc()).nulls_last(),
             ScreenerStockRecord.symbol,
         )

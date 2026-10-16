@@ -3965,7 +3965,7 @@
         "type": "object"
       },
       "ScreenFilter": {
-        "description": "Keeps stocks whose ``field`` lies within the bounds; stocks without it are dropped.",
+        "description": "Keeps stocks whose ``field`` lies within the bounds; stocks without it are dropped.\n\nA P/E filter without ``min`` also drops losses (a negative P/E); a negative ``min``\nkeeps them.",
         "properties": {
           "field": {
             "enum": [
@@ -4133,7 +4133,7 @@
         "type": "object"
       },
       "ScreenSort": {
-        "description": "Orders results by ``field``; stocks without it come last.",
+        "description": "Orders results by ``field``; stocks without it come last, and losses (a negative\nP/E) come after every positive P/E either way.",
         "properties": {
           "descending": {
             "default": true,
@@ -5112,7 +5112,7 @@
         "type": "object"
       },
       "Valuation": {
-        "description": "Valuation multiples and returns from the current market value and the financials.\n\nMultiples combine today's market value with trailing figures that may be a few months\nold. A ratio is null when an input is missing or the ratio is not meaningful, such as\na P/E with negative earnings; ``notes`` say why.",
+        "description": "Valuation multiples and returns from the current market value and the financials.\n\nMultiples combine today's market value with trailing figures that may be a few months\nold. A ratio is null when an input is missing or the ratio is not meaningful, such as\nEV/EBITDA with negative EBITDA; ``notes`` say why. P/E is the exception: it is\nnegative after a loss.",
         "properties": {
           "enterprise_value": {
             "anyOf": [
@@ -5237,7 +5237,7 @@
                 "type": "null"
               }
             ],
-            "description": "Market cap over TTM net income.",
+            "description": "Market cap over TTM net income; negative after a loss.",
             "title": "Pe Ratio"
           },
           "price": {
