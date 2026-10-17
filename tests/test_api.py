@@ -999,6 +999,113 @@ def test_backtest_maps_unknown_symbol_to_404(monkeypatch: pytest.MonkeyPatch) ->
     assert response.status_code == 404
 
 
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        {"type": "rsi"},
+        {"type": "bollinger_bands"},
+        {"type": "bollinger_bands", "mode": "breakout", "allow_short": True},
+        {"type": "donchian_breakout"},
+        {"type": "dual_momentum", "benchmark": "qqq"},
+        {"type": "volatility_targeting", "max_leverage": 2.0},
+        {"type": "macd", "allow_short": True},
+    ],
+)
+def test_backtest_runs_each_built_in_strategy(
+    monkeypatch: pytest.MonkeyPatch, strategy: dict[str, object]
+) -> None:
+    """Every strategy runs with its defaults and is echoed back in full."""
+    _serve_backtest_history(monkeypatch, _trending_frame(5))
+
+    response = client.post("/api/v1/stocks/SPY/backtest", json={"strategy": strategy})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy"]["type"] == strategy["type"]
+    assert 0 <= body["exposure"] <= 2
+    assert len(body["equity_curve"]) == len(_trending_frame(5))
+
+
+def test_dual_momentum_fetches_its_benchmark_on_the_same_bars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The benchmark is fetched over the same period and bar size as the asset."""
+    frame = _trending_frame(5)
+    symbols: list[tuple[str, str, str]] = []
+
+    async def fake_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
+        symbols.append((symbol, period, interval))
+        return frame
+
+    _serve_backtest_history(monkeypatch, frame)
+    monkeypatch.setattr(backtest, "fetch_price_history", fake_history)
+
+    response = client.post(
+        "/api/v1/stocks/AAPL/backtest",
+        json={"strategy": {"type": "dual_momentum", "benchmark": "qqq"}, "interval": "1wk"},
+    )
+
+    assert response.status_code == 200
+    assert sorted(symbols) == [("AAPL", "5y", "1wk"), ("QQQ", "5y", "1wk")]
+    assert response.json()["strategy"]["benchmark"] == "QQQ"
+
+
+@pytest.mark.parametrize(
+    ("failure", "status_code", "message"),
+    [
+        (SymbolNotFoundError("Unknown ticker symbol 'NOPE'."), 422, "not a known symbol"),
+        (DataFetchError("provider down"), 502, "could not be fetched: provider down"),
+        (None, 422, "has no prices in this window"),
+    ],
+)
+def test_dual_momentum_explains_a_benchmark_it_cannot_use(
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Exception | None,
+    status_code: int,
+    message: str,
+) -> None:
+    """An unknown, unavailable or empty benchmark fails naming the benchmark, not the asset."""
+    frame = _trending_frame(5)
+
+    async def fake_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
+        if symbol == "AAPL":
+            return frame
+        if failure is not None:
+            raise failure
+        return frame.iloc[:0]
+
+    _serve_backtest_history(monkeypatch, frame)
+    monkeypatch.setattr(backtest, "fetch_price_history", fake_history)
+
+    response = client.post(
+        "/api/v1/stocks/AAPL/backtest",
+        json={"strategy": {"type": "dual_momentum", "benchmark": "NOPE"}},
+    )
+
+    assert response.status_code == status_code
+    assert "benchmark NOPE" in response.json()["detail"]
+    assert message in response.json()["detail"]
+
+
+def test_backtest_explains_history_too_short_for_a_new_strategy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A weekly window shorter than the strategy's lookback is a 422 naming the lookback."""
+    _serve_backtest_history(monkeypatch, _weekly(_trending_frame(2)))
+
+    response = client.post(
+        "/api/v1/stocks/NEW/backtest",
+        json={
+            "strategy": {"type": "dual_momentum", "lookback": 252},
+            "period": "2y",
+            "interval": "1wk",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "252-bar momentum lookback" in response.json()["detail"]
+
+
 def _database_down(*args: object, **kwargs: object) -> object:
     """Stand in for a storage call while the database is unreachable."""
     raise OperationalError("SELECT 1", {}, ConnectionError("database is down"))

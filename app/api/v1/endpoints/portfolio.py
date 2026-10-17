@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import CurrentUser
-from app.api.v1.endpoints.backtest import attribute, equity_points, load_factors
+from app.api.v1.endpoints.backtest import attribute, equity_points, load_benchmark, load_factors
 from app.api.v1.endpoints.stocks import COVERAGE_TOLERANCE, PERIOD_OFFSETS, upstream_error
 from app.data.fetcher import DataFetchError, fetch_ticker_info
 from app.data.panel import fetch_close_panel
@@ -307,12 +307,13 @@ async def create_portfolio_backtest(
     Results are not stored.
 
     Returns 404 naming unknown symbols, 422 for too little shared history for the
-    strategy, and 502 when the price provider fails, or the risk-free rate cannot be
-    fetched for ``cash_interest``.
+    strategy or an unknown dual momentum benchmark, and 502 when the price provider
+    fails, or the risk-free rate or dual momentum's benchmark cannot be fetched.
     """
-    (panel, closes, timezones), (factors, factor_notice) = await asyncio.gather(
+    (panel, closes, timezones), (factors, factor_notice), benchmark = await asyncio.gather(
         _load_returns(request.symbols, request.period),
         load_factors(request.attribution, request.cash_interest),
+        load_benchmark(request.strategy, request.period, "1d"),
     )
     cash = (
         cash_returns(factors[RISK_FREE], panel.closes.index)
@@ -324,7 +325,7 @@ async def create_portfolio_backtest(
             run_portfolio_backtest,
             panel.closes,
             request.weights,
-            strategy_for(request.strategy),
+            strategy_for(request.strategy, 252, benchmark),
             252,
             cost_bps=request.cost_bps,
             risk_free_rate=request.risk_free_rate,

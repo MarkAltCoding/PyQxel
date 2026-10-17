@@ -1,9 +1,12 @@
 """Vectorized backtesting of position-based strategies on one asset or a portfolio.
 
 A strategy maps closes to a target position per bar: 1.0 fully long, 0.0 flat,
--1.0 fully short, or any fraction between. A target set at a bar's close is held over
-the next bar, so a signal never earns the return of the bar that produced it. Each
-change of position costs ``cost_bps`` per unit of turnover.
+-1.0 fully short, any fraction between, or up to 2.0 for volatility targeting's leverage.
+A target set at a bar's close is held over the next bar, so a signal never earns the
+return of the bar that produced it. Each change of position costs ``cost_bps`` per unit
+of turnover. Every built-in strategy needs only adjusted closes, so it runs on any symbol
+with enough history; a window too short for a strategy's warmup is an
+:class:`~app.stats.volatility.InsufficientDataError` that names it.
 
 In a portfolio the strategy runs on each holding separately, and each holding's
 position is scaled by its weight; weights are reset every bar. Capital not invested
@@ -21,12 +24,18 @@ import numpy as np
 import pandas as pd
 
 from app.models.backtest import (
+    BollingerBands,
     BuyAndHold,
+    DonchianBreakout,
+    DualMomentum,
+    Macd,
     MeanReversion,
     PerformanceMetrics,
+    Rsi,
     SmaCrossover,
     StrategySpec,
     TimeSeriesMomentum,
+    VolatilityTargeting,
 )
 from app.stats.metrics import MIN_METRIC_RETURNS, performance_metrics
 from app.stats.volatility import InsufficientDataError, clean_prices
@@ -117,44 +126,265 @@ def time_series_momentum(lookback: int, skip: int = 0, allow_short: bool = False
     return positions
 
 
+def _hold(
+    valid: np.ndarray,
+    enter_long: np.ndarray,
+    exit_long: np.ndarray,
+    enter_short: np.ndarray,
+    exit_short: np.ndarray,
+    index: pd.Index,
+) -> pd.Series:
+    """Positions from entry and exit signals, one boolean per bar.
+
+    A long opens on ``enter_long`` and is held until ``exit_long``; a short likewise. A
+    trade that closes may open the opposite one on the same bar. The strategy is flat
+    on bars that are not ``valid``, such as a warmup.
+    """
+    held = np.zeros(len(index))
+    position = 0.0
+    for bar in range(len(index)):
+        if not valid[bar]:
+            position = 0.0
+        else:
+            if position > 0 and exit_long[bar]:
+                position = 0.0
+            elif position < 0 and exit_short[bar]:
+                position = 0.0
+            if position == 0.0:
+                if enter_long[bar]:
+                    position = 1.0
+                elif enter_short[bar]:
+                    position = -1.0
+        held[bar] = position
+    return pd.Series(held, index=index)
+
+
+def _z_scores(closes: pd.Series, window: int) -> np.ndarray:
+    """Each close's distance from its ``window``-bar average in rolling standard deviations.
+
+    NaN during the warmup and where the closes did not move over the window.
+    """
+    average = closes.rolling(window).mean()
+    deviation = closes.rolling(window).std(ddof=1)
+    return ((closes - average) / deviation.where(deviation > 0)).to_numpy()
+
+
 def mean_reversion(
-    window: int, entry_z: float, exit_z: float, allow_short: bool = False
+    window: int,
+    entry_z: float,
+    exit_z: float,
+    allow_short: bool = False,
+    label: str = "mean-reversion window",
 ) -> Strategy:
     """Build a strategy that buys when the close is ``entry_z`` rolling standard deviations
     below its ``window``-bar average, and sells once it is back within ``exit_z`` of it.
 
     With ``allow_short`` it also shorts at ``entry_z`` above the average. A trade that
     closes may open the opposite one on the same bar if the price has crossed that far.
+    ``label`` names the window in errors.
     """
 
     def positions(closes: pd.Series) -> pd.Series:
-        _require_bars(closes, window, f"A {window}-bar mean-reversion window")
-        average = closes.rolling(window).mean()
-        deviation = closes.rolling(window).std(ddof=1)
-        scores = ((closes - average) / deviation.where(deviation > 0)).to_numpy()
-        held = np.zeros(len(scores))
+        _require_bars(closes, window, f"A {window}-bar {label}")
+        scores = _z_scores(closes, window)
+        with np.errstate(invalid="ignore"):
+            return _hold(
+                ~np.isnan(scores),
+                enter_long=scores <= -entry_z,
+                exit_long=scores >= -exit_z,
+                enter_short=allow_short & (scores >= entry_z),
+                exit_short=scores <= exit_z,
+                index=closes.index,
+            )
+
+    return positions
+
+
+def bollinger_breakout(window: int, num_std: float, allow_short: bool = False) -> Strategy:
+    """Build a strategy that buys a close at or above the upper band, ``num_std`` rolling
+    standard deviations over the ``window``-bar average, and sells at the average.
+
+    With ``allow_short`` it also shorts a close at or below the lower band.
+    """
+
+    def positions(closes: pd.Series) -> pd.Series:
+        _require_bars(closes, window, f"A {window}-bar Bollinger band")
+        scores = _z_scores(closes, window)
+        with np.errstate(invalid="ignore"):
+            return _hold(
+                ~np.isnan(scores),
+                enter_long=scores >= num_std,
+                exit_long=scores <= 0.0,
+                enter_short=allow_short & (scores <= -num_std),
+                exit_short=scores >= 0.0,
+                index=closes.index,
+            )
+
+    return positions
+
+
+def rsi(closes: pd.Series, period: int) -> pd.Series:
+    """Wilder's relative strength index of ``closes``, from 0 to 100.
+
+    NaN until ``period`` changes have passed; 50 where the closes did not move at all.
+    """
+    change = closes.diff()
+    alpha = 1.0 / period
+    gains = change.clip(lower=0.0).ewm(alpha=alpha, adjust=False, min_periods=period).mean()
+    losses = (-change).clip(lower=0.0).ewm(alpha=alpha, adjust=False, min_periods=period).mean()
+    total = gains + losses
+    return (100.0 * gains / total.where(total > 0)).where(total.isna() | (total > 0), 50.0)
+
+
+def rsi_reversal(
+    period: int, oversold: float, overbought: float, allow_short: bool = False
+) -> Strategy:
+    """Build a strategy that buys at an RSI of ``oversold`` and sells at ``overbought``.
+
+    With ``allow_short`` it also shorts at ``overbought`` and covers at ``oversold``.
+    """
+
+    def positions(closes: pd.Series) -> pd.Series:
+        _require_bars(closes, period + 1, f"A {period}-bar RSI")
+        strength = rsi(closes, period).to_numpy()
+        with np.errstate(invalid="ignore"):
+            return _hold(
+                ~np.isnan(strength),
+                enter_long=strength <= oversold,
+                exit_long=strength >= overbought,
+                enter_short=allow_short & (strength >= overbought),
+                exit_short=strength <= oversold,
+                index=closes.index,
+            )
+
+    return positions
+
+
+def donchian_breakout(entry: int, exit: int, allow_short: bool = False) -> Strategy:
+    """Build a strategy that buys a close above the previous ``entry`` bars' highest close
+    and sells a close below the previous ``exit`` bars' lowest.
+
+    With ``allow_short`` it also shorts a close below the ``entry``-bar low and covers
+    above the ``exit``-bar high.
+    """
+
+    def positions(closes: pd.Series) -> pd.Series:
+        _require_bars(closes, entry + 1, f"A {entry}-bar Donchian channel")
+        prior = closes.shift(1)
+        entry_high = prior.rolling(entry).max().to_numpy()
+        entry_low = prior.rolling(entry).min().to_numpy()
+        exit_high = prior.rolling(exit).max().to_numpy()
+        exit_low = prior.rolling(exit).min().to_numpy()
+        close = closes.to_numpy()
+        with np.errstate(invalid="ignore"):
+            return _hold(
+                ~np.isnan(entry_high),
+                enter_long=close > entry_high,
+                exit_long=close < exit_low,
+                enter_short=allow_short & (close < entry_low),
+                exit_short=close > exit_high,
+                index=closes.index,
+            )
+
+    return positions
+
+
+def macd(fast: int, slow: int, signal: int, allow_short: bool = False) -> Strategy:
+    """Build a strategy that is long while the MACD line is above its signal line.
+
+    Otherwise it is flat, or short when ``allow_short`` is set. It stays flat until the
+    slow average and then the signal line have had a full window each.
+    """
+
+    def positions(closes: pd.Series) -> pd.Series:
+        warmup = slow + signal - 1
+        _require_bars(closes, warmup, f"A {fast}/{slow}/{signal} MACD")
+        line = (
+            closes.ewm(span=fast, adjust=False).mean() - closes.ewm(span=slow, adjust=False).mean()
+        )
+        trigger = line.ewm(span=signal, adjust=False).mean()
+        target = np.where(line > trigger, 1.0, -1.0 if allow_short else 0.0)
+        target[:warmup] = 0.0
+        return pd.Series(target, index=closes.index)
+
+    return positions
+
+
+def dual_momentum(lookback: int, skip: int, benchmark: pd.Series, name: str) -> Strategy:
+    """Build a strategy that is long while the return from ``lookback`` to ``skip`` bars ago
+    is positive and at least ``benchmark``'s over the same dates, and flat otherwise.
+
+    ``benchmark`` closes are matched to each bar's date, carrying the last one over
+    holidays the two markets do not share. The strategy is flat where the benchmark has
+    no price yet. ``name`` labels the benchmark in errors.
+    """
+
+    def positions(closes: pd.Series) -> pd.Series:
+        _require_bars(closes, lookback, f"A {lookback}-bar momentum lookback")
+        dates = _calendar_dates(closes.index)
+        reference = clean_prices(benchmark)
+        reference.index = _calendar_dates(reference.index)
+        reference = reference[~reference.index.duplicated(keep="last")]
+        aligned = reference.reindex(reference.index.union(dates)).ffill().loc[dates]
+        aligned.index = closes.index
+        if aligned.notna().sum() <= lookback:
+            raise InsufficientDataError(
+                f"{name} has too little price history over this window to compare "
+                f"{lookback}-bar returns with. Request a longer period or a shorter lookback."
+            )
+        own = closes.shift(skip) / closes.shift(lookback) - 1.0
+        relative = aligned.shift(skip) / aligned.shift(lookback) - 1.0
+        signal = np.where((own > 0) & (own >= relative), 1.0, 0.0)
+        return pd.Series(signal, index=closes.index).where(own.notna() & relative.notna(), 0.0)
+
+    return positions
+
+
+def volatility_targeting(
+    target_volatility: float,
+    window: int,
+    max_leverage: float,
+    rebalance_threshold: float,
+    periods_per_year: int,
+) -> Strategy:
+    """Build a long strategy sized to ``target_volatility`` over the last ``window`` returns.
+
+    The target is capped at ``max_leverage``, and the position held changes only when the
+    target moves more than ``rebalance_threshold`` from it. Where the closes did not move,
+    the target is the cap. It stays flat until ``window`` returns have passed.
+    """
+
+    def positions(closes: pd.Series) -> pd.Series:
+        _require_bars(closes, window + 1, f"A {window}-bar volatility window")
+        realized = closes.pct_change().rolling(window).std(ddof=1) * math.sqrt(periods_per_year)
+        capped = (target_volatility / realized.where(realized > 0)).clip(upper=max_leverage)
+        targets = capped.where(realized.isna() | (realized > 0), max_leverage).to_numpy()
+        held = np.zeros(len(targets))
         position = 0.0
-        for bar, score in enumerate(scores):
-            if math.isnan(score):
+        for bar, target in enumerate(targets):
+            if math.isnan(target):
                 position = 0.0
-            else:
-                if position > 0 and score >= -exit_z:
-                    position = 0.0
-                elif position < 0 and score <= exit_z:
-                    position = 0.0
-                if position == 0.0:
-                    if score <= -entry_z:
-                        position = 1.0
-                    elif allow_short and score >= entry_z:
-                        position = -1.0
+            elif position == 0.0 or abs(target - position) > rebalance_threshold:
+                position = float(target)
             held[bar] = position
         return pd.Series(held, index=closes.index)
 
     return positions
 
 
-def strategy_for(spec: StrategySpec) -> Strategy:
-    """Return the strategy described by ``spec``."""
+def strategy_for(
+    spec: StrategySpec, periods_per_year: int = 252, benchmark: pd.Series | None = None
+) -> Strategy:
+    """Return the strategy described by ``spec``.
+
+    Args:
+        spec: The strategy and its parameters.
+        periods_per_year: Bars per year, used to annualize volatility targets.
+        benchmark: Closes of ``spec.benchmark`` on the same bar size, for dual momentum.
+
+    Raises:
+        ValueError: If dual momentum is asked for without its benchmark's closes.
+    """
     if isinstance(spec, BuyAndHold):
         return buy_and_hold
     if isinstance(spec, SmaCrossover):
@@ -163,6 +393,30 @@ def strategy_for(spec: StrategySpec) -> Strategy:
         return time_series_momentum(spec.lookback, spec.skip, spec.allow_short)
     if isinstance(spec, MeanReversion):
         return mean_reversion(spec.window, spec.entry_z, spec.exit_z, spec.allow_short)
+    if isinstance(spec, Rsi):
+        return rsi_reversal(spec.period, spec.oversold, spec.overbought, spec.allow_short)
+    if isinstance(spec, BollingerBands):
+        if spec.mode == "breakout":
+            return bollinger_breakout(spec.window, spec.num_std, spec.allow_short)
+        return mean_reversion(
+            spec.window, spec.num_std, 0.0, spec.allow_short, label="Bollinger band"
+        )
+    if isinstance(spec, DonchianBreakout):
+        return donchian_breakout(spec.entry, spec.exit, spec.allow_short)
+    if isinstance(spec, DualMomentum):
+        if benchmark is None:
+            raise ValueError(f"Dual momentum needs {spec.benchmark}'s closes.")
+        return dual_momentum(spec.lookback, spec.skip, benchmark, spec.benchmark)
+    if isinstance(spec, VolatilityTargeting):
+        return volatility_targeting(
+            spec.target_volatility,
+            spec.window,
+            spec.max_leverage,
+            spec.rebalance_threshold,
+            periods_per_year,
+        )
+    if isinstance(spec, Macd):
+        return macd(spec.fast, spec.slow, spec.signal, spec.allow_short)
     raise ValueError(f"Unknown strategy {spec!r}.")
 
 

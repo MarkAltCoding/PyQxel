@@ -654,10 +654,16 @@
           "strategy": {
             "discriminator": {
               "mapping": {
+                "bollinger_bands": "#/components/schemas/BollingerBands",
                 "buy_and_hold": "#/components/schemas/BuyAndHold",
+                "donchian_breakout": "#/components/schemas/DonchianBreakout",
+                "dual_momentum": "#/components/schemas/DualMomentum",
+                "macd": "#/components/schemas/Macd",
                 "mean_reversion": "#/components/schemas/MeanReversion",
+                "rsi": "#/components/schemas/Rsi",
                 "sma_crossover": "#/components/schemas/SmaCrossover",
-                "time_series_momentum": "#/components/schemas/TimeSeriesMomentum"
+                "time_series_momentum": "#/components/schemas/TimeSeriesMomentum",
+                "volatility_targeting": "#/components/schemas/VolatilityTargeting"
               },
               "propertyName": "type"
             },
@@ -673,6 +679,24 @@
               },
               {
                 "$ref": "#/components/schemas/MeanReversion"
+              },
+              {
+                "$ref": "#/components/schemas/Rsi"
+              },
+              {
+                "$ref": "#/components/schemas/BollingerBands"
+              },
+              {
+                "$ref": "#/components/schemas/DonchianBreakout"
+              },
+              {
+                "$ref": "#/components/schemas/DualMomentum"
+              },
+              {
+                "$ref": "#/components/schemas/VolatilityTargeting"
+              },
+              {
+                "$ref": "#/components/schemas/Macd"
               }
             ],
             "title": "Strategy"
@@ -730,8 +754,8 @@
             "type": "array"
           },
           "exposure": {
-            "description": "Average share of capital in positions, long or short.",
-            "maximum": 1.0,
+            "description": "Average share of capital in positions, long or short; above 1 when leveraged.",
+            "maximum": 2.0,
             "minimum": 0.0,
             "title": "Exposure",
             "type": "number"
@@ -806,10 +830,16 @@
           "strategy": {
             "discriminator": {
               "mapping": {
+                "bollinger_bands": "#/components/schemas/BollingerBands",
                 "buy_and_hold": "#/components/schemas/BuyAndHold",
+                "donchian_breakout": "#/components/schemas/DonchianBreakout",
+                "dual_momentum": "#/components/schemas/DualMomentum",
+                "macd": "#/components/schemas/Macd",
                 "mean_reversion": "#/components/schemas/MeanReversion",
+                "rsi": "#/components/schemas/Rsi",
                 "sma_crossover": "#/components/schemas/SmaCrossover",
-                "time_series_momentum": "#/components/schemas/TimeSeriesMomentum"
+                "time_series_momentum": "#/components/schemas/TimeSeriesMomentum",
+                "volatility_targeting": "#/components/schemas/VolatilityTargeting"
               },
               "propertyName": "type"
             },
@@ -825,6 +855,24 @@
               },
               {
                 "$ref": "#/components/schemas/MeanReversion"
+              },
+              {
+                "$ref": "#/components/schemas/Rsi"
+              },
+              {
+                "$ref": "#/components/schemas/BollingerBands"
+              },
+              {
+                "$ref": "#/components/schemas/DonchianBreakout"
+              },
+              {
+                "$ref": "#/components/schemas/DualMomentum"
+              },
+              {
+                "$ref": "#/components/schemas/VolatilityTargeting"
+              },
+              {
+                "$ref": "#/components/schemas/Macd"
               }
             ],
             "title": "Strategy"
@@ -974,6 +1022,51 @@
           "as_of"
         ],
         "title": "BalanceItem",
+        "type": "object"
+      },
+      "BollingerBands": {
+        "description": "Trade the close against bands ``num_std`` rolling standard deviations around its\n``window``-bar average.\n\n``reversion`` buys a close at or below the lower band and sells at the middle band;\n``breakout`` buys a close at or above the upper band and sells when it falls back to\nthe middle band. With ``allow_short`` each mirrors on the other band.",
+        "properties": {
+          "allow_short": {
+            "default": false,
+            "description": "Also trade the opposite band short.",
+            "title": "Allow Short",
+            "type": "boolean"
+          },
+          "mode": {
+            "default": "reversion",
+            "description": "Fade moves to the bands, or follow breaks through them.",
+            "enum": [
+              "reversion",
+              "breakout"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "num_std": {
+            "default": 2.0,
+            "description": "Band width, in rolling standard deviations.",
+            "exclusiveMinimum": 0.0,
+            "maximum": 5.0,
+            "title": "Num Std",
+            "type": "number"
+          },
+          "type": {
+            "const": "bollinger_bands",
+            "default": "bollinger_bands",
+            "title": "Type",
+            "type": "string"
+          },
+          "window": {
+            "default": 20,
+            "description": "Moving-average window, in bars.",
+            "maximum": 250.0,
+            "minimum": 5.0,
+            "title": "Window",
+            "type": "integer"
+          }
+        },
+        "title": "BollingerBands",
         "type": "object"
       },
       "BuyAndHold": {
@@ -1269,6 +1362,77 @@
           "percentiles"
         ],
         "title": "Distribution",
+        "type": "object"
+      },
+      "DonchianBreakout": {
+        "description": "Buy a close above the highest close of the previous ``entry`` bars; sell a close\nbelow the lowest close of the previous ``exit`` bars.\n\nThe channel is built from closes, so it needs no intraday highs and lows. With\n``allow_short`` a short opens below the ``entry``-bar low and closes above the\n``exit``-bar high.",
+        "properties": {
+          "allow_short": {
+            "default": false,
+            "description": "Also short breakdowns.",
+            "title": "Allow Short",
+            "type": "boolean"
+          },
+          "entry": {
+            "default": 20,
+            "description": "Breakout channel, in bars.",
+            "maximum": 250.0,
+            "minimum": 5.0,
+            "title": "Entry",
+            "type": "integer"
+          },
+          "exit": {
+            "default": 10,
+            "description": "Exit channel, in bars.",
+            "maximum": 250.0,
+            "minimum": 2.0,
+            "title": "Exit",
+            "type": "integer"
+          },
+          "type": {
+            "const": "donchian_breakout",
+            "default": "donchian_breakout",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "DonchianBreakout",
+        "type": "object"
+      },
+      "DualMomentum": {
+        "description": "Hold the asset while its return over ``lookback`` bars is positive and at least\nthe ``benchmark``'s over the same bars: absolute and relative momentum together.\n\nOtherwise the strategy is flat. As in time-series momentum, the most recent ``skip``\nbars are left out of both returns.",
+        "properties": {
+          "benchmark": {
+            "default": "SPY",
+            "description": "Symbol whose return the asset must match or beat.",
+            "pattern": "^[A-Za-z0-9.\\-^=]{1,15}$",
+            "title": "Benchmark",
+            "type": "string"
+          },
+          "lookback": {
+            "default": 252,
+            "description": "Bars back the returns start; 252 is a year.",
+            "maximum": 756.0,
+            "minimum": 20.0,
+            "title": "Lookback",
+            "type": "integer"
+          },
+          "skip": {
+            "default": 0,
+            "description": "Most recent bars left out of the returns.",
+            "maximum": 126.0,
+            "minimum": 0.0,
+            "title": "Skip",
+            "type": "integer"
+          },
+          "type": {
+            "const": "dual_momentum",
+            "default": "dual_momentum",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "DualMomentum",
         "type": "object"
       },
       "EquityPoint": {
@@ -2575,6 +2739,49 @@
         "title": "InvestmentThesis",
         "type": "object"
       },
+      "Macd": {
+        "description": "Hold the asset while the MACD line is above its signal line.\n\nThe MACD line is the ``fast``-bar exponential average of closes minus the ``slow``-bar\none, and the signal line is its ``signal``-bar exponential average. Below it the\nstrategy is flat, or short when ``allow_short`` is set.",
+        "properties": {
+          "allow_short": {
+            "default": false,
+            "description": "Go short instead of flat.",
+            "title": "Allow Short",
+            "type": "boolean"
+          },
+          "fast": {
+            "default": 12,
+            "description": "Fast exponential average, in bars.",
+            "maximum": 100.0,
+            "minimum": 2.0,
+            "title": "Fast",
+            "type": "integer"
+          },
+          "signal": {
+            "default": 9,
+            "description": "Signal-line average, in bars.",
+            "maximum": 100.0,
+            "minimum": 2.0,
+            "title": "Signal",
+            "type": "integer"
+          },
+          "slow": {
+            "default": 26,
+            "description": "Slow exponential average, in bars.",
+            "maximum": 250.0,
+            "minimum": 3.0,
+            "title": "Slow",
+            "type": "integer"
+          },
+          "type": {
+            "const": "macd",
+            "default": "macd",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "Macd",
+        "type": "object"
+      },
       "MarginalFit": {
         "description": "How one asset's daily returns were modeled.",
         "properties": {
@@ -3060,10 +3267,16 @@
           "strategy": {
             "discriminator": {
               "mapping": {
+                "bollinger_bands": "#/components/schemas/BollingerBands",
                 "buy_and_hold": "#/components/schemas/BuyAndHold",
+                "donchian_breakout": "#/components/schemas/DonchianBreakout",
+                "dual_momentum": "#/components/schemas/DualMomentum",
+                "macd": "#/components/schemas/Macd",
                 "mean_reversion": "#/components/schemas/MeanReversion",
+                "rsi": "#/components/schemas/Rsi",
                 "sma_crossover": "#/components/schemas/SmaCrossover",
-                "time_series_momentum": "#/components/schemas/TimeSeriesMomentum"
+                "time_series_momentum": "#/components/schemas/TimeSeriesMomentum",
+                "volatility_targeting": "#/components/schemas/VolatilityTargeting"
               },
               "propertyName": "type"
             },
@@ -3079,6 +3292,24 @@
               },
               {
                 "$ref": "#/components/schemas/MeanReversion"
+              },
+              {
+                "$ref": "#/components/schemas/Rsi"
+              },
+              {
+                "$ref": "#/components/schemas/BollingerBands"
+              },
+              {
+                "$ref": "#/components/schemas/DonchianBreakout"
+              },
+              {
+                "$ref": "#/components/schemas/DualMomentum"
+              },
+              {
+                "$ref": "#/components/schemas/VolatilityTargeting"
+              },
+              {
+                "$ref": "#/components/schemas/Macd"
               }
             ],
             "title": "Strategy"
@@ -3141,8 +3372,8 @@
             "type": "integer"
           },
           "exposure": {
-            "description": "Average share of capital in positions, long or short.",
-            "maximum": 1.0,
+            "description": "Average share of capital in positions, long or short; above 1 when leveraged.",
+            "maximum": 2.0,
             "minimum": 0.0,
             "title": "Exposure",
             "type": "number"
@@ -3191,10 +3422,16 @@
           "strategy": {
             "discriminator": {
               "mapping": {
+                "bollinger_bands": "#/components/schemas/BollingerBands",
                 "buy_and_hold": "#/components/schemas/BuyAndHold",
+                "donchian_breakout": "#/components/schemas/DonchianBreakout",
+                "dual_momentum": "#/components/schemas/DualMomentum",
+                "macd": "#/components/schemas/Macd",
                 "mean_reversion": "#/components/schemas/MeanReversion",
+                "rsi": "#/components/schemas/Rsi",
                 "sma_crossover": "#/components/schemas/SmaCrossover",
-                "time_series_momentum": "#/components/schemas/TimeSeriesMomentum"
+                "time_series_momentum": "#/components/schemas/TimeSeriesMomentum",
+                "volatility_targeting": "#/components/schemas/VolatilityTargeting"
               },
               "propertyName": "type"
             },
@@ -3210,6 +3447,24 @@
               },
               {
                 "$ref": "#/components/schemas/MeanReversion"
+              },
+              {
+                "$ref": "#/components/schemas/Rsi"
+              },
+              {
+                "$ref": "#/components/schemas/BollingerBands"
+              },
+              {
+                "$ref": "#/components/schemas/DonchianBreakout"
+              },
+              {
+                "$ref": "#/components/schemas/DualMomentum"
+              },
+              {
+                "$ref": "#/components/schemas/VolatilityTargeting"
+              },
+              {
+                "$ref": "#/components/schemas/Macd"
               }
             ],
             "title": "Strategy"
@@ -4012,6 +4267,49 @@
           "data_limitations"
         ],
         "title": "RiskSummary",
+        "type": "object"
+      },
+      "Rsi": {
+        "description": "Buy when the relative strength index is oversold and sell once it is overbought.\n\nRSI uses Wilder's smoothing of up and down closes over ``period`` bars. A long opens\nwhen it falls to ``oversold`` and closes when it reaches ``overbought``; with\n``allow_short`` a short opens at ``overbought`` and closes at ``oversold``.",
+        "properties": {
+          "allow_short": {
+            "default": false,
+            "description": "Also short when overbought.",
+            "title": "Allow Short",
+            "type": "boolean"
+          },
+          "overbought": {
+            "default": 70.0,
+            "description": "RSI at or above which a long closes.",
+            "exclusiveMaximum": 100.0,
+            "exclusiveMinimum": 50.0,
+            "title": "Overbought",
+            "type": "number"
+          },
+          "oversold": {
+            "default": 30.0,
+            "description": "RSI at or below which a long opens.",
+            "exclusiveMaximum": 50.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Oversold",
+            "type": "number"
+          },
+          "period": {
+            "default": 14,
+            "description": "RSI window, in bars.",
+            "maximum": 100.0,
+            "minimum": 2.0,
+            "title": "Period",
+            "type": "integer"
+          },
+          "type": {
+            "const": "rsi",
+            "default": "rsi",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "Rsi",
         "type": "object"
       },
       "ScreenFilter": {
@@ -5467,6 +5765,51 @@
         ],
         "title": "VolatilityPoint",
         "type": "object"
+      },
+      "VolatilityTargeting": {
+        "description": "Stay long, sized so that recent volatility matches ``target_volatility``.\n\nThe position is the target divided by the annualized standard deviation of the last\n``window`` returns, capped at ``max_leverage``. It is rebalanced only when the target\nmoves more than ``rebalance_threshold`` from the position held, to limit trading.\nAbove 1.0 the rest is borrowed, at the risk-free rate when cash earns interest.",
+        "properties": {
+          "max_leverage": {
+            "default": 1.0,
+            "description": "Largest position, as a multiple of capital.",
+            "exclusiveMinimum": 0.0,
+            "maximum": 2.0,
+            "title": "Max Leverage",
+            "type": "number"
+          },
+          "rebalance_threshold": {
+            "default": 0.1,
+            "description": "Change in target position needed to trade; 0 rebalances every bar.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Rebalance Threshold",
+            "type": "number"
+          },
+          "target_volatility": {
+            "default": 0.15,
+            "description": "Annualized volatility to aim for (0.15 = 15%).",
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Target Volatility",
+            "type": "number"
+          },
+          "type": {
+            "const": "volatility_targeting",
+            "default": "volatility_targeting",
+            "title": "Type",
+            "type": "string"
+          },
+          "window": {
+            "default": 20,
+            "description": "Returns the volatility is measured over.",
+            "maximum": 252.0,
+            "minimum": 5.0,
+            "title": "Window",
+            "type": "integer"
+          }
+        },
+        "title": "VolatilityTargeting",
+        "type": "object"
       }
     }
   },
@@ -5654,7 +5997,13 @@
                     "buy_and_hold",
                     "sma_crossover",
                     "time_series_momentum",
-                    "mean_reversion"
+                    "mean_reversion",
+                    "rsi",
+                    "bollinger_bands",
+                    "donchian_breakout",
+                    "dual_momentum",
+                    "volatility_targeting",
+                    "macd"
                   ],
                   "type": "string"
                 },
@@ -6008,7 +6357,7 @@
     },
     "/api/v1/portfolio/backtest": {
       "post": {
-        "description": "Run ``strategy`` on each holding and combine the holdings at their weights.\n\nDaily closes are aligned on the days every holding traded, as for ``/simulate``. Each\nholding's position is set by the strategy on its own prices and scaled by its weight,\nand weights are reset every day. Trades pay ``cost_bps`` per unit of turnover;\ncapital not invested earns nothing, or the risk-free rate with ``cash_interest``.\nThe benchmark holds the same weights, rebalanced daily, without costs.\n\n``assets`` gives each holding's contribution, and ``attribution`` regresses the\nportfolio's daily returns on a factor model to separate alpha from factor exposure.\nResults are not stored.\n\nReturns 404 naming unknown symbols, 422 for too little shared history for the\nstrategy, and 502 when the price provider fails, or the risk-free rate cannot be\nfetched for ``cash_interest``.",
+        "description": "Run ``strategy`` on each holding and combine the holdings at their weights.\n\nDaily closes are aligned on the days every holding traded, as for ``/simulate``. Each\nholding's position is set by the strategy on its own prices and scaled by its weight,\nand weights are reset every day. Trades pay ``cost_bps`` per unit of turnover;\ncapital not invested earns nothing, or the risk-free rate with ``cash_interest``.\nThe benchmark holds the same weights, rebalanced daily, without costs.\n\n``assets`` gives each holding's contribution, and ``attribution`` regresses the\nportfolio's daily returns on a factor model to separate alpha from factor exposure.\nResults are not stored.\n\nReturns 404 naming unknown symbols, 422 for too little shared history for the\nstrategy or an unknown dual momentum benchmark, and 502 when the price provider\nfails, or the risk-free rate or dual momentum's benchmark cannot be fetched.",
         "operationId": "create_portfolio_backtest_api_v1_portfolio_backtest_post",
         "requestBody": {
           "content": {
@@ -6668,7 +7017,7 @@
     },
     "/api/v1/stocks/{symbol}/backtest": {
       "post": {
-        "description": "Backtest a strategy on ``symbol``'s adjusted closes and score it against buy-and-hold.\n\nStrategies: ``buy_and_hold``, ``sma_crossover``, ``time_series_momentum`` (long while\nthe asset's own past return is positive) and ``mean_reversion`` (buy a stretched\nfall below the moving average, sell as it reverts).\n\nPositions set at a bar's close are held over the next bar, and trades pay\n``cost_bps`` per unit of turnover. Idle capital earns nothing, or the risk-free rate\nwith ``cash_interest``. Returns are total returns, since closes are adjusted for\nsplits and dividends. Returns and volatilities are decimals (0.25 = 25%); volatility,\nSharpe and Sortino are annualized.\n\n``attribution`` regresses the strategy's daily returns on a factor model:\n``attribution.fit.alpha`` is the annualized return the factors do not explain, and\nthe betas show how much of the result is factor exposure. It needs daily bars.\n\nThe result is stored and its ``id`` returned for ``GET /backtests/{id}``. If the\ndatabase is unavailable the result is still returned, with a null ``id``.\n\nReturns 404 for unknown symbols, 422 when the window has too few bars for the\nstrategy, and 502 when the data provider fails, or the risk-free rate cannot be\nfetched for ``cash_interest``.",
+        "description": "Backtest a strategy on ``symbol``'s adjusted closes and score it against buy-and-hold.\n\nStrategies: ``buy_and_hold``, ``sma_crossover``, ``time_series_momentum`` (long while\nthe asset's own past return is positive), ``mean_reversion`` (buy a stretched fall\nbelow the moving average, sell as it reverts), ``rsi`` (buy oversold, sell\noverbought), ``bollinger_bands`` (fade or follow moves to the bands),\n``donchian_breakout`` (buy new highs, sell new lows), ``dual_momentum`` (long while\nthe past return is positive and beats a benchmark's), ``volatility_targeting``\n(long, sized to a target volatility) and ``macd`` (long while MACD is above its\nsignal line). All need only adjusted closes.\n\nPositions set at a bar's close are held over the next bar, and trades pay\n``cost_bps`` per unit of turnover. Idle capital earns nothing, or the risk-free rate\nwith ``cash_interest``. Returns are total returns, since closes are adjusted for\nsplits and dividends. Returns and volatilities are decimals (0.25 = 25%); volatility,\nSharpe and Sortino are annualized.\n\n``attribution`` regresses the strategy's daily returns on a factor model:\n``attribution.fit.alpha`` is the annualized return the factors do not explain, and\nthe betas show how much of the result is factor exposure. It needs daily bars.\n\nThe result is stored and its ``id`` returned for ``GET /backtests/{id}``. If the\ndatabase is unavailable the result is still returned, with a null ``id``.\n\nReturns 404 for unknown symbols, 422 when the window has too few bars for the\nstrategy or dual momentum's benchmark is unknown, and 502 when the data provider\nfails, or the risk-free rate or dual momentum's benchmark cannot be fetched.",
         "operationId": "create_backtest_api_v1_stocks__symbol__backtest_post",
         "parameters": [
           {

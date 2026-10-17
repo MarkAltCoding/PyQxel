@@ -263,8 +263,14 @@ Runs are limited to 2.6 million path-days and 15 million draws (paths × horizon
 * `sma_crossover`: long while the `fast`-bar moving average is above the `slow` one (default 50/200).
 * `time_series_momentum`: long while the stock's own return from `lookback` bars ago (default 252, a year) to `skip` bars ago is positive.
 * `mean_reversion`: buy when the close is `entry_z` rolling standard deviations below its `window`-bar average (default 2 below a 20-day average), and sell once it is back within `exit_z` of it.
+* `rsi`: buy when the `period`-bar RSI falls to `oversold` and sell when it reaches `overbought` (default 14, 30/70).
+* `bollinger_bands`: bands `num_std` standard deviations around a `window`-bar average; `mode` `reversion` buys at the lower band and sells at the middle, `breakout` buys through the upper band and sells back at the middle.
+* `donchian_breakout`: buy a close above the highest close of the last `entry` bars, sell one below the lowest of the last `exit` bars (default 20/10).
+* `dual_momentum`: long while the return over `lookback` bars is positive and at least the `benchmark`'s (default `SPY`), whose closes are fetched over the same window.
+* `volatility_targeting`: always long, sized to `target_volatility` over the last `window` returns, up to `max_leverage` (2 at most), rebalancing only when the target moves by `rebalance_threshold`.
+* `macd`: long while the `fast`/`slow` MACD line is above its `signal` line (default 12/26/9).
 
-Each takes `allow_short` to go short instead of flat. A position set at a close is held over the next bar, and trades pay `cost_bps` per unit of turnover. With `cash_interest`, capital not invested earns the risk-free rate (the one-month T-bill from Ken French's data, compounded over each bar), as do a short's sale proceeds; otherwise it earns nothing.
+Every strategy needs only adjusted closes, so it runs on any symbol; when the window is too short for its warmup, the request fails with a 422 naming the warmup it needed. All but `buy_and_hold`, `dual_momentum` and `volatility_targeting` take `allow_short` to go short instead of flat. A position set at a close is held over the next bar, and trades pay `cost_bps` per unit of turnover. With `cash_interest`, capital not invested earns the risk-free rate (the one-month T-bill from Ken French's data, compounded over each bar), as do a short's sale proceeds; otherwise it earns nothing.
 
 In a portfolio, each holding is traded on its own prices on the days every holding traded, its position is scaled by its weight, and weights are reset daily. `assets` gives each holding's contribution, exposure and trades.
 

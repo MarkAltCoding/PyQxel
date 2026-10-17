@@ -241,8 +241,8 @@ export interface paths {
      *     Results are not stored.
      *
      *     Returns 404 naming unknown symbols, 422 for too little shared history for the
-     *     strategy, and 502 when the price provider fails, or the risk-free rate cannot be
-     *     fetched for ``cash_interest``.
+     *     strategy or an unknown dual momentum benchmark, and 502 when the price provider
+     *     fails, or the risk-free rate or dual momentum's benchmark cannot be fetched.
      */
     post: operations['create_portfolio_backtest_api_v1_portfolio_backtest_post']
     delete?: never
@@ -588,8 +588,13 @@ export interface paths {
      * @description Backtest a strategy on ``symbol``'s adjusted closes and score it against buy-and-hold.
      *
      *     Strategies: ``buy_and_hold``, ``sma_crossover``, ``time_series_momentum`` (long while
-     *     the asset's own past return is positive) and ``mean_reversion`` (buy a stretched
-     *     fall below the moving average, sell as it reverts).
+     *     the asset's own past return is positive), ``mean_reversion`` (buy a stretched fall
+     *     below the moving average, sell as it reverts), ``rsi`` (buy oversold, sell
+     *     overbought), ``bollinger_bands`` (fade or follow moves to the bands),
+     *     ``donchian_breakout`` (buy new highs, sell new lows), ``dual_momentum`` (long while
+     *     the past return is positive and beats a benchmark's), ``volatility_targeting``
+     *     (long, sized to a target volatility) and ``macd`` (long while MACD is above its
+     *     signal line). All need only adjusted closes.
      *
      *     Positions set at a bar's close are held over the next bar, and trades pay
      *     ``cost_bps`` per unit of turnover. Idle capital earns nothing, or the risk-free rate
@@ -605,8 +610,8 @@ export interface paths {
      *     database is unavailable the result is still returned, with a null ``id``.
      *
      *     Returns 404 for unknown symbols, 422 when the window has too few bars for the
-     *     strategy, and 502 when the data provider fails, or the risk-free rate cannot be
-     *     fetched for ``cash_interest``.
+     *     strategy or dual momentum's benchmark is unknown, and 502 when the data provider
+     *     fails, or the risk-free rate or dual momentum's benchmark cannot be fetched.
      */
     post: operations['create_backtest_api_v1_stocks__symbol__backtest_post']
     delete?: never
@@ -1138,6 +1143,12 @@ export interface components {
         | components['schemas']['SmaCrossover']
         | components['schemas']['TimeSeriesMomentum']
         | components['schemas']['MeanReversion']
+        | components['schemas']['Rsi']
+        | components['schemas']['BollingerBands']
+        | components['schemas']['DonchianBreakout']
+        | components['schemas']['DualMomentum']
+        | components['schemas']['VolatilityTargeting']
+        | components['schemas']['Macd']
     }
     /**
      * BacktestResponse
@@ -1169,7 +1180,7 @@ export interface components {
       equity_curve: components['schemas']['EquityPoint'][]
       /**
        * Exposure
-       * @description Average share of capital in positions, long or short.
+       * @description Average share of capital in positions, long or short; above 1 when leveraged.
        */
       exposure: number
       /**
@@ -1205,6 +1216,12 @@ export interface components {
         | components['schemas']['SmaCrossover']
         | components['schemas']['TimeSeriesMomentum']
         | components['schemas']['MeanReversion']
+        | components['schemas']['Rsi']
+        | components['schemas']['BollingerBands']
+        | components['schemas']['DonchianBreakout']
+        | components['schemas']['DualMomentum']
+        | components['schemas']['VolatilityTargeting']
+        | components['schemas']['Macd']
       /** Symbol */
       symbol: string
       /**
@@ -1276,6 +1293,47 @@ export interface components {
        * @description The same item about a year before ``as_of``, if reported.
        */
       year_ago?: number | null
+    }
+    /**
+     * BollingerBands
+     * @description Trade the close against bands ``num_std`` rolling standard deviations around its
+     *     ``window``-bar average.
+     *
+     *     ``reversion`` buys a close at or below the lower band and sells at the middle band;
+     *     ``breakout`` buys a close at or above the upper band and sells when it falls back to
+     *     the middle band. With ``allow_short`` each mirrors on the other band.
+     */
+    BollingerBands: {
+      /**
+       * Allow Short
+       * @description Also trade the opposite band short.
+       * @default false
+       */
+      allow_short?: boolean
+      /**
+       * Mode
+       * @description Fade moves to the bands, or follow breaks through them.
+       * @default reversion
+       * @enum {string}
+       */
+      mode?: 'reversion' | 'breakout'
+      /**
+       * Num Std
+       * @description Band width, in rolling standard deviations.
+       * @default 2
+       */
+      num_std?: number
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'bollinger_bands'
+      /**
+       * Window
+       * @description Moving-average window, in bars.
+       * @default 20
+       */
+      window?: number
     }
     /**
      * BuyAndHold
@@ -1416,6 +1474,73 @@ export interface components {
       percentiles: components['schemas']['Percentile'][]
       /** Std */
       std: number
+    }
+    /**
+     * DonchianBreakout
+     * @description Buy a close above the highest close of the previous ``entry`` bars; sell a close
+     *     below the lowest close of the previous ``exit`` bars.
+     *
+     *     The channel is built from closes, so it needs no intraday highs and lows. With
+     *     ``allow_short`` a short opens below the ``entry``-bar low and closes above the
+     *     ``exit``-bar high.
+     */
+    DonchianBreakout: {
+      /**
+       * Allow Short
+       * @description Also short breakdowns.
+       * @default false
+       */
+      allow_short?: boolean
+      /**
+       * Entry
+       * @description Breakout channel, in bars.
+       * @default 20
+       */
+      entry?: number
+      /**
+       * Exit
+       * @description Exit channel, in bars.
+       * @default 10
+       */
+      exit?: number
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'donchian_breakout'
+    }
+    /**
+     * DualMomentum
+     * @description Hold the asset while its return over ``lookback`` bars is positive and at least
+     *     the ``benchmark``'s over the same bars: absolute and relative momentum together.
+     *
+     *     Otherwise the strategy is flat. As in time-series momentum, the most recent ``skip``
+     *     bars are left out of both returns.
+     */
+    DualMomentum: {
+      /**
+       * Benchmark
+       * @description Symbol whose return the asset must match or beat.
+       * @default SPY
+       */
+      benchmark?: string
+      /**
+       * Lookback
+       * @description Bars back the returns start; 252 is a year.
+       * @default 252
+       */
+      lookback?: number
+      /**
+       * Skip
+       * @description Most recent bars left out of the returns.
+       * @default 0
+       */
+      skip?: number
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'dual_momentum'
     }
     /**
      * EquityPoint
@@ -2069,6 +2194,45 @@ export interface components {
       what_would_change_the_view: string[]
     }
     /**
+     * Macd
+     * @description Hold the asset while the MACD line is above its signal line.
+     *
+     *     The MACD line is the ``fast``-bar exponential average of closes minus the ``slow``-bar
+     *     one, and the signal line is its ``signal``-bar exponential average. Below it the
+     *     strategy is flat, or short when ``allow_short`` is set.
+     */
+    Macd: {
+      /**
+       * Allow Short
+       * @description Go short instead of flat.
+       * @default false
+       */
+      allow_short?: boolean
+      /**
+       * Fast
+       * @description Fast exponential average, in bars.
+       * @default 12
+       */
+      fast?: number
+      /**
+       * Signal
+       * @description Signal-line average, in bars.
+       * @default 9
+       */
+      signal?: number
+      /**
+       * Slow
+       * @description Slow exponential average, in bars.
+       * @default 26
+       */
+      slow?: number
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'macd'
+    }
+    /**
      * MarginalFit
      * @description How one asset's daily returns were modeled.
      */
@@ -2335,6 +2499,12 @@ export interface components {
         | components['schemas']['SmaCrossover']
         | components['schemas']['TimeSeriesMomentum']
         | components['schemas']['MeanReversion']
+        | components['schemas']['Rsi']
+        | components['schemas']['BollingerBands']
+        | components['schemas']['DonchianBreakout']
+        | components['schemas']['DualMomentum']
+        | components['schemas']['VolatilityTargeting']
+        | components['schemas']['Macd']
     }
     /**
      * PortfolioBacktestResponse
@@ -2364,7 +2534,7 @@ export interface components {
       excluded_dates: number
       /**
        * Exposure
-       * @description Average share of capital in positions, long or short.
+       * @description Average share of capital in positions, long or short; above 1 when leveraged.
        */
       exposure: number
       /** Holdings */
@@ -2390,6 +2560,12 @@ export interface components {
         | components['schemas']['SmaCrossover']
         | components['schemas']['TimeSeriesMomentum']
         | components['schemas']['MeanReversion']
+        | components['schemas']['Rsi']
+        | components['schemas']['BollingerBands']
+        | components['schemas']['DonchianBreakout']
+        | components['schemas']['DualMomentum']
+        | components['schemas']['VolatilityTargeting']
+        | components['schemas']['Macd']
       /**
        * Trades
        * @description Days on which any position changed.
@@ -2785,6 +2961,45 @@ export interface components {
       summary: string
       /** Volatility Assessment */
       volatility_assessment: string
+    }
+    /**
+     * Rsi
+     * @description Buy when the relative strength index is oversold and sell once it is overbought.
+     *
+     *     RSI uses Wilder's smoothing of up and down closes over ``period`` bars. A long opens
+     *     when it falls to ``oversold`` and closes when it reaches ``overbought``; with
+     *     ``allow_short`` a short opens at ``overbought`` and closes at ``oversold``.
+     */
+    Rsi: {
+      /**
+       * Allow Short
+       * @description Also short when overbought.
+       * @default false
+       */
+      allow_short?: boolean
+      /**
+       * Overbought
+       * @description RSI at or above which a long closes.
+       * @default 70
+       */
+      overbought?: number
+      /**
+       * Oversold
+       * @description RSI at or below which a long opens.
+       * @default 30
+       */
+      oversold?: number
+      /**
+       * Period
+       * @description RSI window, in bars.
+       * @default 14
+       */
+      period?: number
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'rsi'
     }
     /**
      * ScreenFilter
@@ -3523,6 +3738,46 @@ export interface components {
       /** Volatility */
       volatility: number
     }
+    /**
+     * VolatilityTargeting
+     * @description Stay long, sized so that recent volatility matches ``target_volatility``.
+     *
+     *     The position is the target divided by the annualized standard deviation of the last
+     *     ``window`` returns, capped at ``max_leverage``. It is rebalanced only when the target
+     *     moves more than ``rebalance_threshold`` from the position held, to limit trading.
+     *     Above 1.0 the rest is borrowed, at the risk-free rate when cash earns interest.
+     */
+    VolatilityTargeting: {
+      /**
+       * Max Leverage
+       * @description Largest position, as a multiple of capital.
+       * @default 1
+       */
+      max_leverage?: number
+      /**
+       * Rebalance Threshold
+       * @description Change in target position needed to trade; 0 rebalances every bar.
+       * @default 0.1
+       */
+      rebalance_threshold?: number
+      /**
+       * Target Volatility
+       * @description Annualized volatility to aim for (0.15 = 15%).
+       * @default 0.15
+       */
+      target_volatility?: number
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'volatility_targeting'
+      /**
+       * Window
+       * @description Returns the volatility is measured over.
+       * @default 20
+       */
+      window?: number
+    }
   }
   responses: never
   parameters: never
@@ -3606,7 +3861,19 @@ export interface operations {
         symbol?: string | null
         /** @description Only results of this strategy type. */
         strategy?:
-          ('buy_and_hold' | 'sma_crossover' | 'time_series_momentum' | 'mean_reversion') | null
+          | (
+              | 'buy_and_hold'
+              | 'sma_crossover'
+              | 'time_series_momentum'
+              | 'mean_reversion'
+              | 'rsi'
+              | 'bollinger_bands'
+              | 'donchian_breakout'
+              | 'dual_momentum'
+              | 'volatility_targeting'
+              | 'macd'
+            )
+          | null
         limit?: number
         offset?: number
       }
