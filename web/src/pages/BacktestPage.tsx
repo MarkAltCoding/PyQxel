@@ -18,26 +18,76 @@ import { SearchBox } from '../components/SearchBox'
 import { Stat } from '../components/Stat'
 import { dateTime, number, percent, shortDate, signedPercent, tone } from '../lib/format'
 
-const STRATEGIES: { value: StrategyType; label: string; about: string }[] = [
+type StrategyGroup = 'Trend' | 'Mean reversion' | 'Risk' | 'Baseline'
+
+const STRATEGIES: { value: StrategyType; label: string; group: StrategyGroup; about: string }[] = [
   {
     value: 'sma_crossover',
     label: 'Moving-average crossover',
+    group: 'Trend',
     about: 'Long while the fast average is above the slow one.',
+  },
+  {
+    value: 'macd',
+    label: 'MACD',
+    group: 'Trend',
+    about: 'Long while the MACD line is above its signal line.',
+  },
+  {
+    value: 'donchian_breakout',
+    label: 'Donchian breakout',
+    group: 'Trend',
+    about:
+      'Buys a close above the highest close of the entry window, sells one below the lowest close of the exit window.',
   },
   {
     value: 'time_series_momentum',
     label: 'Time-series momentum',
+    group: 'Trend',
     about: 'Long while the trailing return is positive.',
+  },
+  {
+    value: 'dual_momentum',
+    label: 'Dual momentum',
+    group: 'Trend',
+    about:
+      'Long while the trailing return is positive and at least the benchmark’s over the same window; otherwise flat.',
   },
   {
     value: 'mean_reversion',
     label: 'Mean reversion',
+    group: 'Mean reversion',
     about: 'Buys stretched drops below the moving average, sells on the way back.',
   },
-  { value: 'buy_and_hold', label: 'Buy and hold', about: 'Always invested.' },
+  {
+    value: 'rsi',
+    label: 'RSI',
+    group: 'Mean reversion',
+    about: 'Buys when the relative strength index is oversold, sells once it is overbought.',
+  },
+  {
+    value: 'bollinger_bands',
+    label: 'Bollinger bands',
+    group: 'Mean reversion',
+    about:
+      'Reversion buys at the lower band and sells at the middle; breakout buys through the upper band and sells back at the middle.',
+  },
+  {
+    value: 'volatility_targeting',
+    label: 'Volatility targeting',
+    group: 'Risk',
+    about:
+      'Always long, sized so recent volatility matches the target: smaller in turbulent markets, larger in calm ones.',
+  },
+  { value: 'buy_and_hold', label: 'Buy and hold', group: 'Baseline', about: 'Always invested.' },
 ]
 
+const GROUPS: StrategyGroup[] = ['Trend', 'Mean reversion', 'Risk', 'Baseline']
+
 const STRATEGY_LABEL = Object.fromEntries(STRATEGIES.map((s) => [s.value, s.label]))
+
+/** Strategies that are long or flat only, so the short option does not apply. */
+const LONG_ONLY = new Set<StrategyType>(['buy_and_hold', 'dual_momentum', 'volatility_targeting'])
 
 interface Form {
   symbol: string
@@ -49,6 +99,20 @@ interface Form {
   window: string
   entryZ: string
   exitZ: string
+  rsiPeriod: string
+  oversold: string
+  overbought: string
+  numStd: string
+  bandMode: 'reversion' | 'breakout'
+  channelEntry: string
+  channelExit: string
+  benchmark: string
+  targetVolatility: string
+  maxLeverage: string
+  rebalance: string
+  macdFast: string
+  macdSlow: string
+  macdSignal: string
   allowShort: boolean
   period: NonNullable<BacktestRequest['period']>
   interval: NonNullable<BacktestRequest['interval']>
@@ -66,6 +130,20 @@ const DEFAULTS: Form = {
   window: '20',
   entryZ: '2',
   exitZ: '0',
+  rsiPeriod: '14',
+  oversold: '30',
+  overbought: '70',
+  numStd: '2',
+  bandMode: 'reversion',
+  channelEntry: '20',
+  channelExit: '10',
+  benchmark: 'SPY',
+  targetVolatility: '15',
+  maxLeverage: '1',
+  rebalance: '10',
+  macdFast: '12',
+  macdSlow: '26',
+  macdSignal: '9',
   allowShort: false,
   period: '10y',
   interval: '1d',
@@ -95,6 +173,52 @@ function strategyOf(form: Form): Strategy {
         window: Number(form.window),
         entry_z: Number(form.entryZ),
         exit_z: Number(form.exitZ),
+        allow_short: form.allowShort,
+      }
+    case 'rsi':
+      return {
+        type: 'rsi',
+        period: Number(form.rsiPeriod),
+        oversold: Number(form.oversold),
+        overbought: Number(form.overbought),
+        allow_short: form.allowShort,
+      }
+    case 'bollinger_bands':
+      return {
+        type: 'bollinger_bands',
+        window: Number(form.window),
+        num_std: Number(form.numStd),
+        mode: form.bandMode,
+        allow_short: form.allowShort,
+      }
+    case 'donchian_breakout':
+      return {
+        type: 'donchian_breakout',
+        entry: Number(form.channelEntry),
+        exit: Number(form.channelExit),
+        allow_short: form.allowShort,
+      }
+    case 'dual_momentum':
+      return {
+        type: 'dual_momentum',
+        lookback: Number(form.lookback),
+        skip: Number(form.skip),
+        benchmark: form.benchmark.trim().toUpperCase(),
+      }
+    case 'volatility_targeting':
+      return {
+        type: 'volatility_targeting',
+        target_volatility: Number(form.targetVolatility) / 100,
+        window: Number(form.window),
+        max_leverage: Number(form.maxLeverage),
+        rebalance_threshold: Number(form.rebalance) / 100,
+      }
+    case 'macd':
+      return {
+        type: 'macd',
+        fast: Number(form.macdFast),
+        slow: Number(form.macdSlow),
+        signal: Number(form.macdSignal),
         allow_short: form.allowShort,
       }
     default:
@@ -179,10 +303,14 @@ export function BacktestPage() {
               value={form.type}
               onChange={(event) => set('type', event.target.value as StrategyType)}
             >
-              {STRATEGIES.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
+              {GROUPS.map((group) => (
+                <optgroup key={group} label={group}>
+                  {STRATEGIES.filter((s) => s.group === group).map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </label>
@@ -204,7 +332,7 @@ export function BacktestPage() {
               />
             </>
           )}
-          {form.type === 'time_series_momentum' && (
+          {(form.type === 'time_series_momentum' || form.type === 'dual_momentum') && (
             <>
               <NumberField
                 label="Lookback (bars)"
@@ -243,9 +371,151 @@ export function BacktestPage() {
                 label="Exit z"
                 value={form.exitZ}
                 onChange={(v) => set('exitZ', v)}
-                min={-5}
+                min={0}
                 max={5}
                 step={0.1}
+              />
+            </>
+          )}
+          {form.type === 'dual_momentum' && (
+            <label className="field" style={{ width: 120 }}>
+              <span>Benchmark</span>
+              <input
+                type="text"
+                required
+                pattern="[A-Za-z0-9.\-^=]{1,15}"
+                value={form.benchmark}
+                onChange={(event) => set('benchmark', event.target.value.toUpperCase())}
+              />
+            </label>
+          )}
+          {form.type === 'rsi' && (
+            <>
+              <NumberField
+                label="RSI period (bars)"
+                value={form.rsiPeriod}
+                onChange={(v) => set('rsiPeriod', v)}
+                min={2}
+                max={100}
+              />
+              <NumberField
+                label="Oversold"
+                value={form.oversold}
+                onChange={(v) => set('oversold', v)}
+                min={1}
+                max={49}
+              />
+              <NumberField
+                label="Overbought"
+                value={form.overbought}
+                onChange={(v) => set('overbought', v)}
+                min={51}
+                max={99}
+              />
+            </>
+          )}
+          {form.type === 'bollinger_bands' && (
+            <>
+              <label className="field">
+                <span>Mode</span>
+                <select
+                  value={form.bandMode}
+                  onChange={(event) => set('bandMode', event.target.value as Form['bandMode'])}
+                >
+                  <option value="reversion">Reversion</option>
+                  <option value="breakout">Breakout</option>
+                </select>
+              </label>
+              <NumberField
+                label="Window (bars)"
+                value={form.window}
+                onChange={(v) => set('window', v)}
+                min={5}
+                max={250}
+              />
+              <NumberField
+                label="Band width (σ)"
+                value={form.numStd}
+                onChange={(v) => set('numStd', v)}
+                min={0.1}
+                max={5}
+                step={0.1}
+              />
+            </>
+          )}
+          {form.type === 'donchian_breakout' && (
+            <>
+              <NumberField
+                label="Entry (bars)"
+                value={form.channelEntry}
+                onChange={(v) => set('channelEntry', v)}
+                min={5}
+                max={250}
+              />
+              <NumberField
+                label="Exit (bars)"
+                value={form.channelExit}
+                onChange={(v) => set('channelExit', v)}
+                min={2}
+                max={250}
+              />
+            </>
+          )}
+          {form.type === 'volatility_targeting' && (
+            <>
+              <NumberField
+                label="Target vol (%)"
+                value={form.targetVolatility}
+                onChange={(v) => set('targetVolatility', v)}
+                min={1}
+                max={100}
+              />
+              <NumberField
+                label="Window (bars)"
+                value={form.window}
+                onChange={(v) => set('window', v)}
+                min={5}
+                max={252}
+              />
+              <NumberField
+                label="Max leverage"
+                value={form.maxLeverage}
+                onChange={(v) => set('maxLeverage', v)}
+                min={0.1}
+                max={2}
+                step={0.1}
+              />
+              <NumberField
+                label="Rebalance at (%)"
+                value={form.rebalance}
+                onChange={(v) => set('rebalance', v)}
+                min={0}
+                max={100}
+              />
+            </>
+          )}
+          {form.type === 'macd' && (
+            <>
+              <NumberField
+                label="Fast (bars)"
+                value={form.macdFast}
+                onChange={(v) => set('macdFast', v)}
+                min={2}
+                max={100}
+              />
+              <NumberField
+                label="Slow (bars)"
+                value={form.macdSlow}
+                onChange={(v) => set('macdSlow', v)}
+                min={3}
+                max={250}
+              />
+              <NumberField
+                label="Signal (bars)"
+                value={form.macdSignal}
+                onChange={(v) => set('macdSignal', v)}
+                min={2}
+                max={100}
               />
             </>
           )}
@@ -281,7 +551,7 @@ export function BacktestPage() {
             min={0}
             max={500}
           />
-          {form.type !== 'buy_and_hold' && (
+          {!LONG_ONLY.has(form.type) && (
             <label className="checkbox">
               <input
                 type="checkbox"
@@ -421,6 +691,18 @@ function describe(strategy: BacktestResponse['strategy']): string {
       return `${strategy.lookback}-bar momentum, skipping ${strategy.skip}`
     case 'mean_reversion':
       return `Mean reversion, ${strategy.window}-bar window, entry z ${strategy.entry_z}`
+    case 'rsi':
+      return `${strategy.period}-bar RSI, ${strategy.oversold}/${strategy.overbought}`
+    case 'bollinger_bands':
+      return `Bollinger ${strategy.mode}, ${strategy.window} bars, ${strategy.num_std}σ`
+    case 'donchian_breakout':
+      return `${strategy.entry}/${strategy.exit}-bar Donchian breakout`
+    case 'dual_momentum':
+      return `${strategy.lookback}-bar dual momentum against ${strategy.benchmark}`
+    case 'volatility_targeting':
+      return `Volatility target ${percent(strategy.target_volatility, 0)}, up to ${strategy.max_leverage}×`
+    case 'macd':
+      return `MACD ${strategy.fast}/${strategy.slow}/${strategy.signal}`
     default:
       return 'Buy and hold'
   }
@@ -434,7 +716,7 @@ function BacktestResult({ result, refreshing }: { result: BacktestResponse; refr
     <>
       <ChartCard
         title={`${result.symbol}: ${describe(result.strategy)}`}
-        subtitle={`${shortDate(m.start)} to ${shortDate(m.end)} · ${result.trades} trades · invested ${percent(result.exposure, 0)} of the time · ${result.cost_bps} bps per trade`}
+        subtitle={`${shortDate(m.start)} to ${shortDate(m.end)} · ${result.trades} trades · average exposure ${percent(result.exposure, 0)} · ${result.cost_bps} bps per trade`}
         refreshing={refreshing}
         legend={
           <Legend

@@ -4,11 +4,11 @@ from datetime import datetime
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.factors import FactorContext, FactorModel
 from app.models.portfolio import Holding, Portfolio, PortfolioPeriod
-from app.models.stock import HistoryCoverage
+from app.models.stock import SYMBOL_PATTERN, HistoryCoverage
 
 BacktestPeriod = Literal["1y", "2y", "5y", "10y", "max"]
 """Lookback windows a backtest may cover."""
@@ -98,12 +98,178 @@ class MeanReversion(BaseModel):
         return self
 
 
+class Rsi(BaseModel):
+    """Buy when the relative strength index is oversold and sell once it is overbought.
+
+    RSI uses Wilder's smoothing of up and down closes over ``period`` bars. A long opens
+    when it falls to ``oversold`` and closes when it reaches ``overbought``; with
+    ``allow_short`` a short opens at ``overbought`` and closes at ``oversold``.
+    """
+
+    type: Literal["rsi"] = "rsi"
+    period: int = Field(default=14, ge=2, le=100, description="RSI window, in bars.")
+    oversold: float = Field(
+        default=30.0, gt=0, lt=50, description="RSI at or below which a long opens."
+    )
+    overbought: float = Field(
+        default=70.0, gt=50, lt=100, description="RSI at or above which a long closes."
+    )
+    allow_short: bool = Field(default=False, description="Also short when overbought.")
+
+
+class BollingerBands(BaseModel):
+    """Trade the close against bands ``num_std`` rolling standard deviations around its
+    ``window``-bar average.
+
+    ``reversion`` buys a close at or below the lower band and sells at the middle band;
+    ``breakout`` buys a close at or above the upper band and sells when it falls back to
+    the middle band. With ``allow_short`` each mirrors on the other band.
+    """
+
+    type: Literal["bollinger_bands"] = "bollinger_bands"
+    window: int = Field(default=20, ge=5, le=250, description="Moving-average window, in bars.")
+    num_std: float = Field(
+        default=2.0, gt=0, le=5, description="Band width, in rolling standard deviations."
+    )
+    mode: Literal["reversion", "breakout"] = Field(
+        default="reversion", description="Fade moves to the bands, or follow breaks through them."
+    )
+    allow_short: bool = Field(default=False, description="Also trade the opposite band short.")
+
+
+class DonchianBreakout(BaseModel):
+    """Buy a close above the highest close of the previous ``entry`` bars; sell a close
+    below the lowest close of the previous ``exit`` bars.
+
+    The channel is built from closes, so it needs no intraday highs and lows. With
+    ``allow_short`` a short opens below the ``entry``-bar low and closes above the
+    ``exit``-bar high.
+    """
+
+    type: Literal["donchian_breakout"] = "donchian_breakout"
+    entry: int = Field(default=20, ge=5, le=250, description="Breakout channel, in bars.")
+    exit: int = Field(default=10, ge=2, le=250, description="Exit channel, in bars.")
+    allow_short: bool = Field(default=False, description="Also short breakdowns.")
+
+    @model_validator(mode="after")
+    def _exit_within_entry(self) -> Self:
+        """Reject an exit channel longer than the entry one."""
+        if self.exit > self.entry:
+            raise ValueError("exit must not be longer than entry")
+        return self
+
+
+class DualMomentum(BaseModel):
+    """Hold the asset while its return over ``lookback`` bars is positive and at least
+    the ``benchmark``'s over the same bars: absolute and relative momentum together.
+
+    Otherwise the strategy is flat. As in time-series momentum, the most recent ``skip``
+    bars are left out of both returns.
+    """
+
+    type: Literal["dual_momentum"] = "dual_momentum"
+    lookback: int = Field(
+        default=252, ge=20, le=756, description="Bars back the returns start; 252 is a year."
+    )
+    skip: int = Field(
+        default=0, ge=0, le=126, description="Most recent bars left out of the returns."
+    )
+    benchmark: str = Field(
+        default="SPY",
+        pattern=SYMBOL_PATTERN,
+        description="Symbol whose return the asset must match or beat.",
+    )
+
+    @field_validator("benchmark")
+    @classmethod
+    def _upper(cls, value: str) -> str:
+        """Normalize the benchmark to upper case."""
+        return value.upper()
+
+    @model_validator(mode="after")
+    def _skip_within_lookback(self) -> Self:
+        """Reject a skip that leaves no return to measure."""
+        if self.skip >= self.lookback:
+            raise ValueError("skip must be shorter than lookback")
+        return self
+
+
+class VolatilityTargeting(BaseModel):
+    """Stay long, sized so that recent volatility matches ``target_volatility``.
+
+    The position is the target divided by the annualized standard deviation of the last
+    ``window`` returns, capped at ``max_leverage``. It is rebalanced only when the target
+    moves more than ``rebalance_threshold`` from the position held, to limit trading.
+    Above 1.0 the rest is borrowed, at the risk-free rate when cash earns interest.
+    """
+
+    type: Literal["volatility_targeting"] = "volatility_targeting"
+    target_volatility: float = Field(
+        default=0.15, gt=0, le=1, description="Annualized volatility to aim for (0.15 = 15%)."
+    )
+    window: int = Field(
+        default=20, ge=5, le=252, description="Returns the volatility is measured over."
+    )
+    max_leverage: float = Field(
+        default=1.0, gt=0, le=2, description="Largest position, as a multiple of capital."
+    )
+    rebalance_threshold: float = Field(
+        default=0.1,
+        ge=0,
+        le=1,
+        description="Change in target position needed to trade; 0 rebalances every bar.",
+    )
+
+
+class Macd(BaseModel):
+    """Hold the asset while the MACD line is above its signal line.
+
+    The MACD line is the ``fast``-bar exponential average of closes minus the ``slow``-bar
+    one, and the signal line is its ``signal``-bar exponential average. Below it the
+    strategy is flat, or short when ``allow_short`` is set.
+    """
+
+    type: Literal["macd"] = "macd"
+    fast: int = Field(default=12, ge=2, le=100, description="Fast exponential average, in bars.")
+    slow: int = Field(default=26, ge=3, le=250, description="Slow exponential average, in bars.")
+    signal: int = Field(default=9, ge=2, le=100, description="Signal-line average, in bars.")
+    allow_short: bool = Field(default=False, description="Go short instead of flat.")
+
+    @model_validator(mode="after")
+    def _fast_below_slow(self) -> Self:
+        """Reject averages where the fast one is not faster than the slow one."""
+        if self.fast >= self.slow:
+            raise ValueError("fast must be shorter than slow")
+        return self
+
+
 StrategySpec = Annotated[
-    BuyAndHold | SmaCrossover | TimeSeriesMomentum | MeanReversion, Field(discriminator="type")
+    BuyAndHold
+    | SmaCrossover
+    | TimeSeriesMomentum
+    | MeanReversion
+    | Rsi
+    | BollingerBands
+    | DonchianBreakout
+    | DualMomentum
+    | VolatilityTargeting
+    | Macd,
+    Field(discriminator="type"),
 ]
 """A strategy and its parameters, chosen by ``type``."""
 
-StrategyType = Literal["buy_and_hold", "sma_crossover", "time_series_momentum", "mean_reversion"]
+StrategyType = Literal[
+    "buy_and_hold",
+    "sma_crossover",
+    "time_series_momentum",
+    "mean_reversion",
+    "rsi",
+    "bollinger_bands",
+    "donchian_breakout",
+    "dual_momentum",
+    "volatility_targeting",
+    "macd",
+]
 """The ``type`` of each strategy."""
 
 
@@ -206,7 +372,10 @@ class BacktestResponse(BaseModel):
     benchmark: PerformanceMetrics = Field(description="Buy-and-hold over the same bars, no costs.")
     trades: int = Field(ge=0, description="Bars on which the position changed.")
     exposure: float = Field(
-        ge=0, le=1, description="Average share of capital in positions, long or short."
+        ge=0,
+        le=2,
+        description="Average share of capital in positions, long or short; above 1 when "
+        "leveraged.",
     )
     cash_interest: bool = False
     attribution: FactorContext | None = Field(
@@ -306,7 +475,10 @@ class PortfolioBacktestResponse(BaseModel):
     )
     trades: int = Field(ge=0, description="Days on which any position changed.")
     exposure: float = Field(
-        ge=0, le=1, description="Average share of capital in positions, long or short."
+        ge=0,
+        le=2,
+        description="Average share of capital in positions, long or short; above 1 when "
+        "leveraged.",
     )
     assets: list[AssetBacktest]
     attribution: FactorContext | None = None

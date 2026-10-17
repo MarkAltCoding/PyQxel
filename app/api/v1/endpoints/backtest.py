@@ -19,14 +19,16 @@ from app.api.v1.endpoints.stocks import (
 )
 from app.api.auth import CurrentUser
 from app.data.factors import fetch_factors
-from app.data.fetcher import DataFetchError, fetch_price_history
+from app.data.fetcher import DataFetchError, SymbolNotFoundError, fetch_price_history
 from app.db.backtests import delete_backtest, get_backtest, list_backtests, save_backtest
 from app.db.session import get_session
 from app.models.backtest import (
     BacktestList,
     BacktestRequest,
     BacktestResponse,
+    DualMomentum,
     EquityPoint,
+    StrategySpec,
     StrategyType,
 )
 from app.models.factors import RISK_FREE, FactorContext, FactorModel
@@ -72,6 +74,36 @@ async def load_factors(
         if cash_interest:
             raise upstream_error(exc) from exc
         return None, "Factor attribution was left out: the factor data could not be fetched."
+
+
+async def load_benchmark(spec: StrategySpec, period: str, interval: str) -> pd.Series | None:
+    """Fetch the closes dual momentum compares against, or ``None`` for other strategies.
+
+    Raises:
+        HTTPException: 422 when the benchmark is unknown or has no bars in the window, and
+            the provider's own status, naming the benchmark, when it cannot be fetched.
+    """
+    if not isinstance(spec, DualMomentum):
+        return None
+    try:
+        frame = await fetch_price_history(spec.benchmark, period=period, interval=interval)
+    except SymbolNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Dual momentum's benchmark {spec.benchmark} is not a known symbol.",
+        ) from exc
+    except DataFetchError as exc:
+        error = upstream_error(exc)
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=f"Dual momentum's benchmark {spec.benchmark} could not be fetched: {exc}",
+        ) from exc
+    if frame.empty:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Dual momentum's benchmark {spec.benchmark} has no prices in this window.",
+        )
+    return frame["Close"]
 
 
 def attribute(
@@ -125,8 +157,13 @@ async def create_backtest(
     """Backtest a strategy on ``symbol``'s adjusted closes and score it against buy-and-hold.
 
     Strategies: ``buy_and_hold``, ``sma_crossover``, ``time_series_momentum`` (long while
-    the asset's own past return is positive) and ``mean_reversion`` (buy a stretched
-    fall below the moving average, sell as it reverts).
+    the asset's own past return is positive), ``mean_reversion`` (buy a stretched fall
+    below the moving average, sell as it reverts), ``rsi`` (buy oversold, sell
+    overbought), ``bollinger_bands`` (fade or follow moves to the bands),
+    ``donchian_breakout`` (buy new highs, sell new lows), ``dual_momentum`` (long while
+    the past return is positive and beats a benchmark's), ``volatility_targeting``
+    (long, sized to a target volatility) and ``macd`` (long while MACD is above its
+    signal line). All need only adjusted closes.
 
     Positions set at a bar's close are held over the next bar, and trades pay
     ``cost_bps`` per unit of turnover. Idle capital earns nothing, or the risk-free rate
@@ -142,21 +179,23 @@ async def create_backtest(
     database is unavailable the result is still returned, with a null ``id``.
 
     Returns 404 for unknown symbols, 422 when the window has too few bars for the
-    strategy, and 502 when the data provider fails, or the risk-free rate cannot be
-    fetched for ``cash_interest``.
+    strategy or dual momentum's benchmark is unknown, and 502 when the data provider
+    fails, or the risk-free rate or dual momentum's benchmark cannot be fetched.
     """
     model = request.attribution if request.interval == "1d" else None
-    frame_result, factors_result = await asyncio.gather(
+    frame_result, factors_result, benchmark_result = await asyncio.gather(
         fetch_price_history(symbol, period=request.period, interval=request.interval),
         load_factors(model, request.cash_interest),
+        load_benchmark(request.strategy, request.period, request.interval),
         return_exceptions=True,
     )
     if isinstance(frame_result, DataFetchError):
         raise upstream_error(frame_result) from frame_result
-    for outcome in (frame_result, factors_result):
+    for outcome in (frame_result, factors_result, benchmark_result):
         if isinstance(outcome, BaseException):
             raise outcome
     assert isinstance(frame_result, pd.DataFrame) and isinstance(factors_result, tuple)
+    assert benchmark_result is None or isinstance(benchmark_result, pd.Series)
     factors, factor_notice = factors_result
     symbol = symbol.upper()
     coverage, coverage_notice = history_coverage(
@@ -166,7 +205,7 @@ async def create_backtest(
     try:
         result = run_backtest(
             frame_result["Close"],
-            strategy_for(request.strategy),
+            strategy_for(request.strategy, periods_per_year, benchmark_result),
             periods_per_year,
             cost_bps=request.cost_bps,
             risk_free_rate=request.risk_free_rate,

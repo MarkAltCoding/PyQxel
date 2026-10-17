@@ -6,17 +6,36 @@ import pytest
 
 from pydantic import ValidationError
 
-from app.models.backtest import BuyAndHold, MeanReversion, SmaCrossover, TimeSeriesMomentum
+from app.models.backtest import (
+    BollingerBands,
+    BuyAndHold,
+    DonchianBreakout,
+    DualMomentum,
+    Macd,
+    MeanReversion,
+    Rsi,
+    SmaCrossover,
+    StrategySpec,
+    TimeSeriesMomentum,
+    VolatilityTargeting,
+)
 from app.stats.backtest import (
     Strategy,
+    bollinger_breakout,
     buy_and_hold,
     cash_returns,
+    donchian_breakout,
+    dual_momentum,
+    macd,
     mean_reversion,
+    rsi,
+    rsi_reversal,
     run_backtest,
     run_portfolio_backtest,
     sma_crossover,
     strategy_for,
     time_series_momentum,
+    volatility_targeting,
 )
 from app.stats.volatility import InsufficientDataError
 
@@ -246,3 +265,223 @@ def test_portfolio_backtest_weights_each_holding() -> None:
     assert up.contribution == pytest.approx(0.75 * 0.01 * 39 - 0.0075)
     assert up.contribution + down.contribution == pytest.approx(result.returns.sum())
     assert result.exposure == 1.0
+
+
+def _random_walk(bars: int, seed: int = 0, volatility: float = 0.015) -> pd.Series:
+    """A geometric random walk of daily closes."""
+    steps = np.random.default_rng(seed).normal(0.0003, volatility, bars)
+    return _closes(list(100.0 * np.exp(np.cumsum(steps))))
+
+
+def test_rsi_is_wilder_smoothed_and_bounded() -> None:
+    """RSI is 100 after only gains, 0 after only losses, and 50 when nothing moved."""
+    assert rsi(_closes([100.0 + i for i in range(20)]), 14).iloc[-1] == 100.0
+    assert rsi(_closes([100.0 - i for i in range(20)]), 14).iloc[-1] == 0.0
+    flat = rsi(_closes([100.0] * 20), 14)
+    assert flat.iloc[:14].isna().all()
+    assert flat.iloc[-1] == 50.0
+    values = rsi(_random_walk(300), 14).dropna()
+    assert ((values >= 0) & (values <= 100)).all()
+
+
+def test_rsi_reversal_buys_oversold_and_sells_overbought() -> None:
+    """A slide opens a long that is held through the bounce until RSI is overbought."""
+    path = (
+        [100.0, 101.0] * 10
+        + [100.0 - 2 * i for i in range(1, 11)]
+        + [80.0 + 3 * i for i in range(1, 16)]
+    )
+    closes = _closes(path)
+    strength = rsi(closes, 14)
+
+    positions = rsi_reversal(14, 30.0, 70.0)(closes)
+
+    opened = next(i for i in range(len(path)) if positions.iloc[i] == 1.0)
+    closed = next(i for i in range(opened, len(path)) if positions.iloc[i] == 0.0)
+    assert strength.iloc[opened] <= 30.0 < strength.iloc[opened - 1]
+    assert strength.iloc[closed] >= 70.0
+    assert (strength.iloc[opened:closed] < 70.0).all()
+    shorted = rsi_reversal(14, 30.0, 70.0, allow_short=True)(closes)
+    assert shorted.iloc[closed] == -1.0
+
+
+def test_bollinger_reversion_reuses_mean_reversion_at_the_middle_band() -> None:
+    closes = _random_walk(300)
+
+    bands = strategy_for(BollingerBands(window=20, num_std=1.5))(closes)
+
+    pd.testing.assert_series_equal(bands, mean_reversion(20, 1.5, 0.0)(closes))
+
+
+def test_bollinger_breakout_follows_the_upper_band_until_the_average() -> None:
+    """A surge through the upper band opens a long that closes back at the average."""
+    path = [100.0, 101.0] * 15 + [110.0, 112.0, 113.0, 100.0]
+    closes = _closes(path)
+
+    positions = bollinger_breakout(10, 2.0)(closes)
+
+    assert positions.iloc[:30].eq(0.0).all()
+    assert positions.iloc[30:33].eq(1.0).all()
+    assert positions.iloc[33] == 0.0
+    shorted = bollinger_breakout(10, 2.0, allow_short=True)(_closes([100.0, 101.0] * 15 + [90.0]))
+    assert shorted.iloc[-1] == -1.0
+
+
+def test_donchian_breakout_buys_new_highs_and_sells_new_lows() -> None:
+    """Long from a close above the prior entry-bar high until one below the exit-bar low."""
+    path = [100.0, 101.0] * 20 + [105.0, 106.0, 107.0, 104.0, 99.0, 98.0]
+    closes = _closes(path)
+
+    positions = donchian_breakout(entry=20, exit=3)(closes)
+
+    assert positions.iloc[:40].eq(0.0).all()
+    assert positions.iloc[40:43].eq(1.0).all()
+    assert positions.iloc[43] == 0.0  # 104 is below the 105 to 107 of the last three bars.
+    shorted = donchian_breakout(entry=20, exit=3, allow_short=True)(closes)
+    assert shorted.iloc[44] == -1.0  # 99 is below every close of the previous 20 bars.
+
+
+def test_dual_momentum_needs_a_positive_return_that_beats_the_benchmark() -> None:
+    """Flat while the asset falls, or rises less than the benchmark; long otherwise."""
+    rising = _closes([100.0 + i for i in range(60)])
+    faster = _closes([100.0 + 2 * i for i in range(60)])
+    falling = _closes([100.0 - 0.5 * i for i in range(60)])
+
+    assert dual_momentum(20, 0, falling, "BENCH")(rising).iloc[20:].eq(1.0).all()
+    assert dual_momentum(20, 0, faster, "BENCH")(rising).eq(0.0).all()
+    assert dual_momentum(20, 0, falling, "BENCH")(falling).eq(0.0).all()
+    # Against itself, only the absolute test remains.
+    assert dual_momentum(20, 0, rising, "BENCH")(rising).iloc[20:].eq(1.0).all()
+
+
+def test_dual_momentum_matches_benchmark_dates_across_time_zones() -> None:
+    """A benchmark in another time zone, missing a holiday, is matched by calendar date."""
+    asset = pd.Series(
+        [100.0 + i for i in range(60)],
+        index=pd.bdate_range("2024-01-01", periods=60, tz="Europe/London"),
+    )
+    benchmark = pd.Series(
+        [100.0 - 0.5 * i for i in range(60)],
+        index=pd.bdate_range("2024-01-01", periods=60, tz="America/New_York"),
+    ).drop(pd.Timestamp("2024-02-05", tz="America/New_York"))
+
+    positions = dual_momentum(20, 0, benchmark, "SPY")(asset)
+
+    assert positions.iloc[20:].eq(1.0).all()
+
+
+def test_dual_momentum_rejects_a_benchmark_without_enough_history() -> None:
+    asset = _closes([100.0 + i for i in range(60)])
+    recent = _closes([100.0 + i for i in range(60)]).iloc[-10:]
+
+    with pytest.raises(InsufficientDataError, match="SPY has too little price history"):
+        dual_momentum(20, 0, recent, "SPY")(asset)
+
+
+def test_volatility_targeting_scales_to_the_target() -> None:
+    """The position is the target over realized volatility, capped, and rebalanced rarely."""
+    closes = _random_walk(400, volatility=0.02)
+    realized = closes.pct_change().rolling(20).std() * np.sqrt(252)
+
+    every_bar = volatility_targeting(0.15, 20, 2.0, 0.0, 252)(closes)
+    banded = volatility_targeting(0.15, 20, 2.0, 0.2, 252)(closes)
+    capped = volatility_targeting(1.0, 20, 1.0, 0.0, 252)(closes)
+
+    assert every_bar.iloc[:20].eq(0.0).all()
+    assert every_bar.iloc[20:].to_numpy() == pytest.approx((0.15 / realized).iloc[20:].to_numpy())
+    assert (banded.diff().iloc[21:] != 0).sum() < (every_bar.diff().iloc[21:] != 0).sum()
+    assert (banded.iloc[20:] - (0.15 / realized).iloc[20:]).abs().max() <= 0.2 + 1e-12
+    assert capped.iloc[20:].eq(1.0).all()
+    result = run_backtest(closes, volatility_targeting(0.15, 20, 2.0, 0.0, 252), 252)
+    assert result.metrics.annualized_volatility == pytest.approx(0.15, abs=0.04)
+
+
+def test_volatility_targeting_on_unmoving_closes_holds_the_cap() -> None:
+    positions = volatility_targeting(0.15, 20, 1.5, 0.1, 252)(_closes([100.0] * 50))
+
+    assert positions.iloc[:20].eq(0.0).all()
+    assert positions.iloc[20:].eq(1.5).all()
+
+
+def test_macd_follows_its_signal_line_after_the_warmup() -> None:
+    """Long once MACD is above its signal line, flat (or short) after it crosses below."""
+    closes = _closes([100.0 + i for i in range(60)] + [160.0 - 2 * i for i in range(40)])
+
+    positions = macd(12, 26, 9)(closes)
+    shorted = macd(12, 26, 9, allow_short=True)(closes)
+
+    assert positions.iloc[:34].eq(0.0).all()
+    assert positions.iloc[-1] == 0.0
+    assert shorted.iloc[-1] == -1.0
+    assert shorted.iloc[:34].eq(0.0).all()
+
+
+@pytest.mark.parametrize(
+    ("spec", "message"),
+    [
+        (Rsi(period=50), "50-bar RSI"),
+        (BollingerBands(window=60), "60-bar Bollinger band"),
+        (DonchianBreakout(entry=60, exit=10), "60-bar Donchian channel"),
+        (VolatilityTargeting(window=60), "60-bar volatility window"),
+        (Macd(fast=12, slow=50, signal=20), "12/50/20 MACD"),
+        (DualMomentum(lookback=60), "60-bar momentum lookback"),
+    ],
+)
+def test_new_strategies_explain_a_window_too_short_for_them(
+    spec: StrategySpec, message: str
+) -> None:
+    """Each strategy names its own warmup when the history cannot cover it."""
+    closes = _closes([100.0 + i for i in range(65)])
+
+    with pytest.raises(InsufficientDataError, match=message):
+        run_backtest(closes, strategy_for(spec, 252, closes), 252)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        Rsi(allow_short=True),
+        BollingerBands(),
+        BollingerBands(mode="breakout", allow_short=True),
+        DonchianBreakout(allow_short=True),
+        DualMomentum(),
+        VolatilityTargeting(max_leverage=2.0),
+        Macd(allow_short=True),
+    ],
+)
+def test_new_strategies_run_on_realistic_history(spec: StrategySpec) -> None:
+    """With defaults, every strategy trades a few years of prices with finite results."""
+    closes = _random_walk(1000)
+
+    result = run_backtest(closes, strategy_for(spec, 252, _random_walk(1000, seed=1)), 252, 5.0)
+
+    assert result.trades > 0
+    assert np.isfinite(result.returns).all()
+    assert 0 < result.exposure <= 2
+
+
+def test_dual_momentum_needs_its_benchmark() -> None:
+    with pytest.raises(ValueError, match="SPY's closes"):
+        strategy_for(DualMomentum())
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: Rsi(oversold=50),
+        lambda: Rsi(overbought=100),
+        lambda: BollingerBands.model_validate({"mode": "squeeze"}),
+        lambda: DonchianBreakout(entry=10, exit=20),
+        lambda: DualMomentum(lookback=60, skip=60),
+        lambda: DualMomentum(benchmark="not a symbol"),
+        lambda: VolatilityTargeting(max_leverage=3),
+        lambda: Macd(fast=26, slow=12),
+    ],
+)
+def test_new_strategy_specs_reject_invalid_parameters(build: object) -> None:
+    with pytest.raises(ValidationError):
+        build()  # type: ignore[operator]
+
+
+def test_dual_momentum_benchmark_is_upper_cased() -> None:
+    assert DualMomentum(benchmark="qqq").benchmark == "QQQ"

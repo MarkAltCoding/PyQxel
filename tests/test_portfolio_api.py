@@ -260,3 +260,32 @@ def test_portfolio_backtest_needs_enough_history_for_the_strategy(
 
     assert response.status_code == 422
     assert "252-bar momentum lookback" in response.json()["detail"]
+
+
+def test_portfolio_dual_momentum_compares_each_holding_with_one_benchmark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The benchmark's daily closes are fetched once for every holding."""
+    closes = _closes(["SPY", "TLT"], days=700)
+    _serve(monkeypatch, closes)
+    _serve_factors(monkeypatch, closes)
+    fetched: list[tuple[str, str, str]] = []
+
+    async def fake_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
+        fetched.append((symbol, period, interval))
+        return closes[["SPY"]].rename(columns={"SPY": "Close"})
+
+    monkeypatch.setattr(backtest, "fetch_price_history", fake_history)
+
+    response = client.post(
+        "/api/v1/portfolio/backtest",
+        json={
+            "holdings": [{"symbol": "SPY", "weight": 0.6}, {"symbol": "TLT", "weight": 0.4}],
+            "strategy": {"type": "dual_momentum", "lookback": 126},
+            "period": "5y",
+        },
+    )
+
+    assert response.status_code == 200
+    assert fetched == [("SPY", "5y", "1d")]
+    assert response.json()["strategy"]["benchmark"] == "SPY"
