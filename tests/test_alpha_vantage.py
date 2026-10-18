@@ -9,6 +9,7 @@ from datetime import date, timedelta
 from typing import Any
 
 import httpx2
+import pandas as pd
 import pytest
 from pydantic import SecretStr
 
@@ -167,7 +168,7 @@ async def test_requests_are_spaced_and_a_burst_refusal_is_retried(
     async def no_wait(seconds: float) -> None:
         waits.append(seconds)
 
-    monkeypatch.setattr(fetcher.asyncio, "sleep", no_wait)
+    monkeypatch.setattr("app.data.fetcher.asyncio.sleep", no_wait)
     answers: list[object] = [
         OVERVIEW,
         {"Information": "Burst pattern detected. Please consider spreading out your free "
@@ -223,6 +224,7 @@ async def test_alpha_vantage_alone_serves_info_quotes_and_history(
     # The split-halved bar is scaled by its adjusted close over its close.
     assert history["Close"].tolist() == [5.5, 12.0]
     assert history["Open"].iloc[0] == pytest.approx(5.0)
+    assert isinstance(history.index, pd.DatetimeIndex)
     assert str(history.index.tz) == "America/New_York"
 
 
