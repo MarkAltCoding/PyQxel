@@ -71,7 +71,9 @@ class BacktestRecord(Base):
     """One stored backtest.
 
     The full response is kept as JSON in ``result``; the columns beside it copy the
-    fields used to filter and list results, so listing does not parse every curve.
+    fields used to filter and list results, so listing does not parse every curve. A
+    custom strategy's source and language are kept in ``code`` and ``language`` instead
+    of ``result``.
     """
 
     __tablename__ = "backtests"
@@ -91,6 +93,10 @@ class BacktestRecord(Base):
     max_drawdown: Mapped[float] = mapped_column(Float)
     benchmark_total_return: Mapped[float] = mapped_column(Float)
     result: Mapped[dict[str, Any]] = mapped_column(JSON)
+    code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """A custom strategy's source; null for built-in strategies."""
+    language: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    """The language of ``code``; null for built-in strategies."""
 
 
 class AnalysisRecord(Base):

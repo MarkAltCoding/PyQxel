@@ -29,10 +29,11 @@ from app.db.session import (
     get_sessionmaker,
     init_db,
 )
-from app.db.tables import Base
+from app.db.tables import BacktestRecord, Base
 from app.models.backtest import (
     BacktestResponse,
     BuyAndHold,
+    CustomStrategy,
     EquityPoint,
     PerformanceMetrics,
     SmaCrossover,
@@ -146,6 +147,27 @@ async def test_list_filters_and_pages(session: AsyncSession) -> None:
     assert all(item.symbol == "SPY" for item in spy.items)
     assert crossover.total == 3
     assert last_page.total == 4 and last_page.items == []
+
+
+async def test_custom_code_is_stored_in_its_own_columns(session: AsyncSession) -> None:
+    """A custom strategy's source and language go in their columns, not the result JSON,
+    and read back in place; built-in strategies leave the columns empty."""
+    code = "def strategy(bars):\n    return bars['Close'] * 0 + 1"
+    custom = _result().model_copy(update={"strategy": CustomStrategy(language="python", code=code)})
+
+    saved = await save_backtest(session, OWNER, custom)
+    built_in = await save_backtest(session, OWNER, _result())
+    record = await session.get(BacktestRecord, str(saved.id))
+    built_in_record = await session.get(BacktestRecord, str(built_in.id))
+    loaded = await get_backtest(session, OWNER, saved.id)  # type: ignore[arg-type]
+
+    assert record is not None and built_in_record is not None
+    assert (record.strategy, record.language, record.code) == ("custom", "python", code)
+    assert record.result["strategy"] == {"type": "custom"}
+    assert (built_in_record.code, built_in_record.language) == (None, None)
+    assert loaded == saved
+    listed = await list_backtests(session, OWNER, strategy="custom")
+    assert [item.id for item in listed.items] == [saved.id]
 
 
 async def test_delete_removes_only_that_result(session: AsyncSession) -> None:

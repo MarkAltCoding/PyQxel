@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.tables import BacktestRecord, as_utc
-from app.models.backtest import BacktestList, BacktestResponse, BacktestSummary
+from app.models.backtest import BacktestList, BacktestResponse, BacktestSummary, CustomStrategy
 
 
 def _summary(record: BacktestRecord) -> BacktestSummary:
@@ -36,6 +36,11 @@ async def save_backtest(
     """
     saved = result.model_copy(update={"id": uuid4(), "saved_at": datetime.now(timezone.utc)})
     assert saved.id is not None and saved.saved_at is not None
+    custom = saved.strategy if isinstance(saved.strategy, CustomStrategy) else None
+    stored = saved.model_dump(mode="json", exclude={"id", "saved_at"})
+    if custom is not None:
+        # The source lives in its own columns, so the JSON holds only the type.
+        stored["strategy"] = {"type": custom.type}
     session.add(
         BacktestRecord(
             id=str(saved.id),
@@ -49,7 +54,9 @@ async def save_backtest(
             sharpe_ratio=saved.metrics.sharpe_ratio,
             max_drawdown=saved.metrics.max_drawdown,
             benchmark_total_return=saved.benchmark.total_return,
-            result=saved.model_dump(mode="json", exclude={"id", "saved_at"}),
+            result=stored,
+            code=None if custom is None else custom.code,
+            language=None if custom is None else custom.language,
         )
     )
     await session.commit()
@@ -63,9 +70,12 @@ async def get_backtest(
     record = await session.get(BacktestRecord, str(backtest_id))
     if record is None or record.user_id != user_id:
         return None
-    return BacktestResponse.model_validate(
-        {**record.result, "id": record.id, "saved_at": as_utc(record.created_at)}
-    )
+    result = {**record.result, "id": record.id, "saved_at": as_utc(record.created_at)}
+    if record.code is not None:
+        result["strategy"] = {**result["strategy"], "code": record.code}
+        if record.language is not None:
+            result["strategy"]["language"] = record.language
+    return BacktestResponse.model_validate(result)
 
 
 async def list_backtests(
