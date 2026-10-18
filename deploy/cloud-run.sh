@@ -17,8 +17,10 @@
 #   CORS_ORIGINS='["https://app.example"]'   browser origins allowed to call the API
 #   SCREENER_SCHEDULE="30 18 * * 1-5"        cron, New York time; "" skips scheduling
 #   SCREENER_FMP_REQUESTS_PER_MINUTE=300     the screener's FMP plan's rate limit
-#   YFINANCE_FALLBACK=false   true fills gaps in FMP's free plan with unlicensed yfinance
-#                             and Nasdaq data; for a deployment only you use
+#   YFINANCE_FALLBACK         true fills gaps in FMP's free plan with unlicensed yfinance
+#                             and Nasdaq data, for a deployment only you use; when unset,
+#                             the running service's value is kept (false when deploying
+#                             for the first time)
 
 set -euo pipefail
 
@@ -30,7 +32,7 @@ MAX_INSTANCES="${MAX_INSTANCES:-2}"
 CORS_ORIGINS="${CORS_ORIGINS:-}"
 SCREENER_SCHEDULE="${SCREENER_SCHEDULE-30 18 * * 1-5}"
 SCREENER_FMP_REQUESTS_PER_MINUTE="${SCREENER_FMP_REQUESTS_PER_MINUTE:-300}"
-YFINANCE_FALLBACK="${YFINANCE_FALLBACK:-false}"
+YFINANCE_FALLBACK="${YFINANCE_FALLBACK:-}"
 
 REPOSITORY="$SERVICE"
 JOB="$SERVICE-screener"
@@ -46,6 +48,22 @@ SCREENER_SECRET=pyqxel-screener-fmp-key
 
 gc() { gcloud --project "$PROJECT_ID" --quiet "$@"; }
 step() { printf '\n==> %s\n' "$*"; }
+
+# Unless given, keep the running service's YFINANCE_FALLBACK, so a redeploy never turns the
+# fallback off by leaving it out; a first deployment starts with it off.
+if [[ -z "$YFINANCE_FALLBACK" ]]; then
+    YFINANCE_FALLBACK="$(gc run services describe "$SERVICE" --region "$REGION" --format json \
+        2>/dev/null | python3 -c '
+import json, sys
+env = json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0].get("env", [])
+print(next((e.get("value", "") for e in env if e["name"] == "YFINANCE_FALLBACK"), ""))
+' 2>/dev/null || true)"
+    if [[ -n "$YFINANCE_FALLBACK" ]]; then
+        echo "YFINANCE_FALLBACK=$YFINANCE_FALLBACK, kept from the running service."
+    else
+        YFINANCE_FALLBACK=false
+    fi
+fi
 
 step "Enabling APIs"
 gc services enable run.googleapis.com artifactregistry.googleapis.com \
