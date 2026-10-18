@@ -620,6 +620,37 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/stocks/{symbol}/backtest/custom': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Score the positions of a custom strategy
+     * @description Score positions a custom Python strategy produced in the browser, as
+     *     ``POST /stocks/{symbol}/backtest`` scores a built-in one.
+     *
+     *     The code never runs on the server: it is stored with the result so the run can be
+     *     reproduced and edited. The server fetches ``symbol``'s bars again and backtests the
+     *     ones from the first of ``timestamps`` to the last, so a bar published since the
+     *     positions were computed is left out. Each position is held over the bar after its
+     *     timestamp, and costs, cash interest and attribution work as for built-in strategies.
+     *
+     *     Returns 404 for unknown symbols, 422 when a bar in that range has no position or the
+     *     range has too few bars, and 502 when the data provider fails or the risk-free rate
+     *     cannot be fetched.
+     */
+    post: operations['create_custom_backtest_api_v1_stocks__symbol__backtest_custom_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/stocks/{symbol}/factors': {
     parameters: {
       query?: never
@@ -1096,7 +1127,7 @@ export interface components {
     }
     /**
      * BacktestRequest
-     * @description Options for a backtest.
+     * @description Options for a backtest of a built-in strategy.
      */
     BacktestRequest: {
       /**
@@ -1222,6 +1253,7 @@ export interface components {
         | components['schemas']['DualMomentum']
         | components['schemas']['VolatilityTargeting']
         | components['schemas']['Macd']
+        | components['schemas']['CustomStrategy']
       /** Symbol */
       symbol: string
       /**
@@ -1462,6 +1494,101 @@ export interface components {
        * @description Financial Modeling Prep key, used for its market data.
        */
       fmp_api_key?: string | null
+    }
+    /**
+     * CustomBacktestRequest
+     * @description Positions a custom strategy produced in the browser, to be scored on the server.
+     *
+     *     ``positions[i]`` is the target set at the close of the bar at ``timestamps[i]``; the
+     *     engine holds it over the next bar, as for built-in strategies.
+     */
+    CustomBacktestRequest: {
+      /**
+       * Attribution
+       * @description Factor model to regress the strategy's daily returns on, separating alpha from factor exposure; null to skip.
+       * @default carhart4
+       */
+      attribution?: ('ff3' | 'carhart4' | 'ff5') | null
+      /**
+       * Cash Interest
+       * @description Let capital not invested in the asset earn the risk-free rate (the one-month T-bill, from Ken French's data library), as would short sale proceeds.
+       * @default false
+       */
+      cash_interest?: boolean
+      /**
+       * Code
+       * @description The strategy's source, stored with the result; never run.
+       */
+      code: string
+      /**
+       * Cost Bps
+       * @description Trading cost per unit of turnover, in basis points (5 = 0.05%).
+       * @default 5
+       */
+      cost_bps?: number
+      /**
+       * Interval
+       * @description Bar size.
+       * @default 1d
+       * @enum {string}
+       */
+      interval?: '1d' | '1wk'
+      /**
+       * Language
+       * @description Language of ``code``.
+       * @default python
+       * @enum {string}
+       */
+      language?: 'python' | 'cpp'
+      /**
+       * Period
+       * @description Lookback window.
+       * @default 5y
+       * @enum {string}
+       */
+      period?: '1y' | '2y' | '5y' | '10y' | 'max'
+      /**
+       * Positions
+       * @description Target position at each timestamp's close.
+       */
+      positions: number[]
+      /**
+       * Risk Free Rate
+       * @description Annual risk-free rate for Sharpe and Sortino, as a decimal (0.04 = 4%).
+       * @default 0
+       */
+      risk_free_rate?: number
+      /**
+       * Timestamps
+       * @description Bar timestamps the positions were computed for, oldest first.
+       */
+      timestamps: string[]
+    }
+    /**
+     * CustomStrategy
+     * @description A strategy the user wrote in Python, kept with its result so it can be rerun.
+     *
+     *     The code runs in the user's browser, never on the server; the server only scores
+     *     the positions it produced.
+     */
+    CustomStrategy: {
+      /**
+       * Code
+       * @description Source defining the strategy: in Python, ``strategy(bars: pd.DataFrame) -> pd.Series``.
+       */
+      code: string
+      /**
+       * Language
+       * @description Language of ``code``.
+       * @default python
+       * @enum {string}
+       */
+      language?: 'python' | 'cpp'
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'custom'
     }
     /**
      * Distribution
@@ -3872,6 +3999,7 @@ export interface operations {
               | 'dual_momentum'
               | 'volatility_targeting'
               | 'macd'
+              | 'custom'
             )
           | null
         limit?: number
@@ -4580,6 +4708,42 @@ export interface operations {
     requestBody?: {
       content: {
         'application/json': components['schemas']['BacktestRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BacktestResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  create_custom_backtest_api_v1_stocks__symbol__backtest_custom_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Ticker symbol, e.g. AAPL, BRK-B or ^GSPC. */
+        symbol: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CustomBacktestRequest']
       }
     }
     responses: {

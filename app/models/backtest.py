@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, field_validator, model_validator
 
 from app.models.factors import FactorContext, FactorModel
 from app.models.portfolio import Holding, Portfolio, PortfolioPeriod
@@ -272,11 +272,56 @@ StrategyType = Literal[
 ]
 """The ``type`` of each strategy."""
 
+BacktestStrategyType = Literal[StrategyType, "custom"]
+"""The ``type`` of each strategy a stored backtest may have been scored with."""
 
-class BacktestRequest(BaseModel):
-    """Options for a backtest."""
 
-    strategy: StrategySpec = Field(default_factory=SmaCrossover)
+MAX_CODE_LENGTH = 50_000
+"""Longest custom strategy source, in characters."""
+
+MAX_POSITIONS = 20_000
+"""Most positions a custom backtest may send: decades of daily bars."""
+
+CodeLanguage = Literal["python", "cpp"]
+"""Languages a custom strategy may be written in."""
+
+
+class CustomStrategy(BaseModel):
+    """A strategy the user wrote in Python, kept with its result so it can be rerun.
+
+    The code runs in the user's browser, never on the server; the server only scores
+    the positions it produced.
+    """
+
+    type: Literal["custom"] = "custom"
+    language: CodeLanguage = Field(default="python", description="Language of ``code``.")
+    code: str = Field(
+        max_length=MAX_CODE_LENGTH,
+        description="Source defining the strategy: in Python, "
+        "``strategy(bars: pd.DataFrame) -> pd.Series``.",
+    )
+
+
+BacktestStrategy = Annotated[
+    BuyAndHold
+    | SmaCrossover
+    | TimeSeriesMomentum
+    | MeanReversion
+    | Rsi
+    | BollingerBands
+    | DonchianBreakout
+    | DualMomentum
+    | VolatilityTargeting
+    | Macd
+    | CustomStrategy,
+    Field(discriminator="type"),
+]
+"""The strategy a backtest result was scored with: a built-in one or custom code."""
+
+
+class BacktestOptions(BaseModel):
+    """Options shared by every single-asset backtest."""
+
     period: BacktestPeriod = Field(default="5y", description="Lookback window.")
     interval: BacktestInterval = Field(default="1d", description="Bar size.")
     cost_bps: float = Field(
@@ -301,6 +346,49 @@ class BacktestRequest(BaseModel):
         description="Factor model to regress the strategy's daily returns on, separating "
         "alpha from factor exposure; null to skip.",
     )
+
+
+class BacktestRequest(BacktestOptions):
+    """Options for a backtest of a built-in strategy."""
+
+    strategy: StrategySpec = Field(default_factory=SmaCrossover)
+
+
+Position = Annotated[float, Field(ge=-2.0, le=2.0, allow_inf_nan=False)]
+"""A target position: 1.0 fully long, 0.0 flat, -1.0 fully short, up to 2.0 leveraged."""
+
+
+class CustomBacktestRequest(BacktestOptions):
+    """Positions a custom strategy produced in the browser, to be scored on the server.
+
+    ``positions[i]`` is the target set at the close of the bar at ``timestamps[i]``; the
+    engine holds it over the next bar, as for built-in strategies.
+    """
+
+    language: CodeLanguage = Field(default="python", description="Language of ``code``.")
+    code: str = Field(
+        max_length=MAX_CODE_LENGTH,
+        description="The strategy's source, stored with the result; never run.",
+    )
+    timestamps: list[AwareDatetime] = Field(
+        min_length=1,
+        max_length=MAX_POSITIONS,
+        description="Bar timestamps the positions were computed for, oldest first.",
+    )
+    positions: list[Position] = Field(
+        min_length=1,
+        max_length=MAX_POSITIONS,
+        description="Target position at each timestamp's close.",
+    )
+
+    @model_validator(mode="after")
+    def _one_position_per_bar(self) -> Self:
+        """Reject positions that do not pair one to one with increasing timestamps."""
+        if len(self.positions) != len(self.timestamps):
+            raise ValueError("positions and timestamps must have the same length")
+        if any(later <= earlier for earlier, later in zip(self.timestamps, self.timestamps[1:])):
+            raise ValueError("timestamps must be strictly increasing")
+        return self
 
 
 class PerformanceMetrics(BaseModel):
@@ -365,7 +453,7 @@ class BacktestResponse(BaseModel):
     period: BacktestPeriod
     interval: BacktestInterval
     periods_per_year: int
-    strategy: StrategySpec
+    strategy: BacktestStrategy
     cost_bps: float
     risk_free_rate: float
     metrics: PerformanceMetrics

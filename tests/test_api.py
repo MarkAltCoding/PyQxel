@@ -1236,6 +1236,227 @@ def test_stored_backtest_routes_map_database_failure_to_503(
     assert response.json() == {"detail": "The backtest database is unavailable."}
 
 
+# ── Custom strategies, scored from positions computed in the browser ──
+
+CUSTOM = "/api/v1/stocks/SPY/backtest/custom"
+
+
+def _stamps(index: pd.Index) -> list[str]:
+    """ISO timestamps of ``index``, the fixtures' naive bars taken as UTC."""
+    stamps = pd.DatetimeIndex(index)
+    if stamps.tz is None:
+        stamps = stamps.tz_localize("UTC")
+    return [stamp.isoformat() for stamp in stamps]
+
+
+def _custom(index: pd.Index, positions: list[float], **options: object) -> dict[str, object]:
+    """A custom backtest body holding ``positions`` on the bars of ``index``."""
+    return {
+        "code": "def strategy(bars):\n    return bars['Close'] * 0 + 1",
+        "timestamps": _stamps(index),
+        "positions": positions,
+        "period": "2y",
+        "attribution": None,
+    } | options
+
+
+def _built_in(strategy: dict[str, object], **options: object) -> dict[str, Any]:
+    """Run a built-in ``strategy`` on SPY over two years and return the result."""
+    body = {"strategy": strategy, "period": "2y", "attribution": None} | options
+    response = client.post("/api/v1/stocks/SPY/backtest", json=body)
+    assert response.status_code == 200
+    return dict(response.json())
+
+
+def test_custom_all_long_scores_as_buy_and_hold(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Positions that are always 1.0 score exactly as the built-in buy-and-hold."""
+    frame = _trending_frame(2)
+    _serve_backtest_history(monkeypatch, frame)
+
+    response = client.post(CUSTOM, json=_custom(frame.index, [1.0] * len(frame), cost_bps=0))
+
+    assert response.status_code == 200
+    body = response.json()
+    expected = _built_in({"type": "buy_and_hold"}, cost_bps=0)
+    for field in ("metrics", "benchmark", "trades", "exposure", "equity_curve"):
+        assert body[field] == expected[field]
+    assert body["metrics"] == body["benchmark"]
+
+
+def test_custom_positions_score_as_the_built_in_strategy_they_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 10/30 crossover computed elsewhere matches the built-in one, costs, cash interest
+    and factor attribution included."""
+    frame = _trending_frame(2)
+    _serve_backtest_history(monkeypatch, frame)
+    closes = frame["Close"]
+    slow = closes.rolling(30).mean()
+    positions = (closes.rolling(10).mean() > slow).astype(float).where(slow.notna(), 0.0)
+    options = {"cost_bps": 5, "cash_interest": True, "attribution": "carhart4"}
+
+    response = client.post(CUSTOM, json=_custom(frame.index, positions.tolist(), **options))
+
+    assert response.status_code == 200
+    body = response.json()
+    expected = _built_in({"type": "sma_crossover", "fast": 10, "slow": 30}, **options)
+    for field in ("metrics", "trades", "exposure", "equity_curve", "attribution"):
+        assert body[field] == expected[field]
+    assert body["attribution"] is not None
+    assert body["cash_interest"] is True and body["cost_bps"] == 5
+
+
+@pytest.mark.parametrize(("signal_bar", "total_return"), [(299, 0.10), (300, 0.0)])
+def test_custom_positions_are_held_over_the_next_bar(
+    monkeypatch: pytest.MonkeyPatch, signal_bar: int, total_return: float
+) -> None:
+    """A position set at a bar's close earns the next bar's return, never its own bar's."""
+    frame = _trending_frame(2)
+    frame["Close"] = [100.0] * 300 + [110.0] * (len(frame) - 300)
+    _serve_backtest_history(monkeypatch, frame)
+    positions = [1.0 if bar == signal_bar else 0.0 for bar in range(len(frame))]
+
+    response = client.post(CUSTOM, json=_custom(frame.index, positions, cost_bps=0))
+
+    assert response.status_code == 200
+    assert response.json()["metrics"]["total_return"] == pytest.approx(total_return)
+
+
+def test_custom_backtest_leaves_out_bars_published_since(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bars after the last timestamp, such as one published since the positions were
+    computed, are not scored."""
+    frame = _trending_frame(2)
+    _serve_backtest_history(monkeypatch, frame)
+    computed = frame.index[:-5]
+
+    response = client.post(CUSTOM, json=_custom(computed, [1.0] * len(computed)))
+
+    assert response.status_code == 200
+    curve = response.json()["equity_curve"]
+    assert len(curve) == len(computed)
+    assert pd.Timestamp(curve[-1]["timestamp"]) == computed[-1]
+
+
+def test_custom_timestamps_match_in_any_utc_offset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """New York bars, in EST and EDT, match the same instants written in Tokyo time."""
+    frame = _trending_frame(2)
+    new_york = pd.DatetimeIndex(frame.index).tz_localize("America/New_York")
+    frame.index = new_york
+    _serve_backtest_history(monkeypatch, frame)
+    tokyo = [stamp.isoformat() for stamp in new_york.tz_convert("Asia/Tokyo")]
+    body = _custom(frame.index, [1.0] * len(frame)) | {"timestamps": tokyo}
+
+    response = client.post(CUSTOM, json=body)
+
+    assert response.status_code == 200
+    assert len(response.json()["equity_curve"]) == len(frame)
+
+
+def test_custom_backtest_needs_a_position_for_every_bar(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bar between the first and last timestamps without a position is a 422 naming it."""
+    frame = _trending_frame(2)
+    _serve_backtest_history(monkeypatch, frame)
+    gap = frame.index.delete(100)
+
+    response = client.post(CUSTOM, json=_custom(gap, [1.0] * len(gap)))
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "1 bars" in detail and str(frame.index[100].date()) in detail
+
+
+def test_custom_backtest_needs_positions_on_the_symbols_bars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Positions dated entirely outside the symbol's history are a 422."""
+    frame = _trending_frame(2)
+    _serve_backtest_history(monkeypatch, frame)
+    earlier = pd.bdate_range("2001-01-01", periods=50)
+
+    response = client.post(CUSTOM, json=_custom(earlier, [1.0] * 50))
+
+    assert response.status_code == 422
+    assert "No bars fall between" in response.json()["detail"]
+
+
+THREE_BARS = ["2024-01-02T21:00:00+00:00", "2024-01-03T21:00:00+00:00", "2024-01-04T21:00:00+00:00"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"positions": [1.0, float("nan"), 0.0]},
+        {"positions": [1.0, float("inf"), 0.0]},
+        {"positions": [1.0, 2.5, 0.0]},
+        {"positions": [1.0, -3.0, 0.0]},
+        {"positions": [1.0, 0.0]},
+        {"positions": [], "timestamps": []},
+        {"timestamps": list(reversed(THREE_BARS))},
+        {"timestamps": [THREE_BARS[0], THREE_BARS[0], THREE_BARS[2]]},
+        {"timestamps": ["2024-01-02T21:00:00", "2024-01-03T21:00:00", "2024-01-04T21:00:00"]},
+        {"language": "rust"},
+        {"code": "x" * 50_001},
+    ],
+)
+def test_custom_backtest_rejects_invalid_requests(change: dict[str, object]) -> None:
+    """Non-finite or out-of-range positions, mismatched lengths, unordered or naive
+    timestamps, unknown languages and oversized code fail validation."""
+    body = {"code": "", "timestamps": THREE_BARS, "positions": [1.0, 0.0, 1.0]} | change
+
+    response = client.post(
+        CUSTOM, content=json.dumps(body), headers={"Content-Type": "application/json"}
+    )
+
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], list)
+
+
+def test_custom_code_and_language_are_stored_with_the_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A custom run reads back with its source and language, and lists as ``custom``."""
+    frame = _trending_frame(2)
+    _serve_backtest_history(monkeypatch, frame)
+    client.post("/api/v1/stocks/SPY/backtest", json={"period": "2y"})
+    code = "#include <pyqxel.h>\nvoid strategy(const pyqxel::Bars&, std::span<double>) {}"
+
+    created = client.post(
+        CUSTOM, json=_custom(frame.index, [1.0] * len(frame), code=code, language="cpp")
+    ).json()
+    stored = client.get(f"/api/v1/backtests/{created['id']}").json()
+    listed = client.get("/api/v1/backtests", params={"strategy": "custom"}).json()
+
+    assert created["strategy"] == {"type": "custom", "language": "cpp", "code": code}
+    assert stored == created
+    assert [item["id"] for item in listed["items"]] == [created["id"]]
+    assert listed["items"][0]["strategy"] == "custom"
+
+
+def test_custom_language_defaults_to_python(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Code sent without a language is stored as Python."""
+    frame = _trending_frame(2)
+    _serve_backtest_history(monkeypatch, frame)
+
+    created = client.post(CUSTOM, json=_custom(frame.index, [1.0] * len(frame))).json()
+
+    assert created["strategy"]["language"] == "python"
+
+
+def test_built_in_backtests_reject_custom_strategies() -> None:
+    """Custom code is scored only from its positions, never by the built-in route."""
+    for path in ("/api/v1/stocks/SPY/backtest", "/api/v1/portfolio/backtest"):
+        response = client.post(
+            path,
+            json={
+                "strategy": {"type": "custom", "code": "def strategy(bars): ..."},
+                "holdings": [{"symbol": "SPY", "weight": 1}],
+            },
+        )
+
+        assert response.status_code == 422
+        assert any(error["loc"][:2] == ["body", "strategy"] for error in response.json()["detail"])
+
+
 def _serve_stream(
     monkeypatch: pytest.MonkeyPatch,
     items: list[AnalysisDelta | ModelFallback | WrittenReport],

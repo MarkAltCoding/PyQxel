@@ -586,7 +586,7 @@
         "type": "object"
       },
       "BacktestRequest": {
-        "description": "Options for a backtest.",
+        "description": "Options for a backtest of a built-in strategy.",
         "properties": {
           "attribution": {
             "anyOf": [
@@ -832,6 +832,7 @@
               "mapping": {
                 "bollinger_bands": "#/components/schemas/BollingerBands",
                 "buy_and_hold": "#/components/schemas/BuyAndHold",
+                "custom": "#/components/schemas/CustomStrategy",
                 "donchian_breakout": "#/components/schemas/DonchianBreakout",
                 "dual_momentum": "#/components/schemas/DualMomentum",
                 "macd": "#/components/schemas/Macd",
@@ -873,6 +874,9 @@
               },
               {
                 "$ref": "#/components/schemas/Macd"
+              },
+              {
+                "$ref": "#/components/schemas/CustomStrategy"
               }
             ],
             "title": "Strategy"
@@ -1334,6 +1338,152 @@
           }
         },
         "title": "CredentialsUpdate",
+        "type": "object"
+      },
+      "CustomBacktestRequest": {
+        "description": "Positions a custom strategy produced in the browser, to be scored on the server.\n\n``positions[i]`` is the target set at the close of the bar at ``timestamps[i]``; the\nengine holds it over the next bar, as for built-in strategies.",
+        "properties": {
+          "attribution": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ff3",
+                  "carhart4",
+                  "ff5"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "carhart4",
+            "description": "Factor model to regress the strategy's daily returns on, separating alpha from factor exposure; null to skip.",
+            "title": "Attribution"
+          },
+          "cash_interest": {
+            "default": false,
+            "description": "Let capital not invested in the asset earn the risk-free rate (the one-month T-bill, from Ken French's data library), as would short sale proceeds.",
+            "title": "Cash Interest",
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The strategy's source, stored with the result; never run.",
+            "maxLength": 50000,
+            "title": "Code",
+            "type": "string"
+          },
+          "cost_bps": {
+            "default": 5.0,
+            "description": "Trading cost per unit of turnover, in basis points (5 = 0.05%).",
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "title": "Cost Bps",
+            "type": "number"
+          },
+          "interval": {
+            "default": "1d",
+            "description": "Bar size.",
+            "enum": [
+              "1d",
+              "1wk"
+            ],
+            "title": "Interval",
+            "type": "string"
+          },
+          "language": {
+            "default": "python",
+            "description": "Language of ``code``.",
+            "enum": [
+              "python",
+              "cpp"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
+          "period": {
+            "default": "5y",
+            "description": "Lookback window.",
+            "enum": [
+              "1y",
+              "2y",
+              "5y",
+              "10y",
+              "max"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "positions": {
+            "description": "Target position at each timestamp's close.",
+            "items": {
+              "maximum": 2.0,
+              "minimum": -2.0,
+              "type": "number"
+            },
+            "maxItems": 20000,
+            "minItems": 1,
+            "title": "Positions",
+            "type": "array"
+          },
+          "risk_free_rate": {
+            "default": 0.0,
+            "description": "Annual risk-free rate for Sharpe and Sortino, as a decimal (0.04 = 4%).",
+            "maximum": 0.25,
+            "minimum": -0.05,
+            "title": "Risk Free Rate",
+            "type": "number"
+          },
+          "timestamps": {
+            "description": "Bar timestamps the positions were computed for, oldest first.",
+            "items": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "maxItems": 20000,
+            "minItems": 1,
+            "title": "Timestamps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "timestamps",
+          "positions"
+        ],
+        "title": "CustomBacktestRequest",
+        "type": "object"
+      },
+      "CustomStrategy": {
+        "description": "A strategy the user wrote in Python, kept with its result so it can be rerun.\n\nThe code runs in the user's browser, never on the server; the server only scores\nthe positions it produced.",
+        "properties": {
+          "code": {
+            "description": "Source defining the strategy: in Python, ``strategy(bars: pd.DataFrame) -> pd.Series``.",
+            "maxLength": 50000,
+            "title": "Code",
+            "type": "string"
+          },
+          "language": {
+            "default": "python",
+            "description": "Language of ``code``.",
+            "enum": [
+              "python",
+              "cpp"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
+          "type": {
+            "const": "custom",
+            "default": "custom",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "CustomStrategy",
         "type": "object"
       },
       "Distribution": {
@@ -6003,7 +6153,8 @@
                     "donchian_breakout",
                     "dual_momentum",
                     "volatility_targeting",
-                    "macd"
+                    "macd",
+                    "custom"
                   ],
                   "type": "string"
                 },
@@ -7079,6 +7230,62 @@
           }
         },
         "summary": "Backtest a strategy against buy-and-hold",
+        "tags": [
+          "backtest"
+        ]
+      }
+    },
+    "/api/v1/stocks/{symbol}/backtest/custom": {
+      "post": {
+        "description": "Score positions a custom Python strategy produced in the browser, as\n``POST /stocks/{symbol}/backtest`` scores a built-in one.\n\nThe code never runs on the server: it is stored with the result so the run can be\nreproduced and edited. The server fetches ``symbol``'s bars again and backtests the\nones from the first of ``timestamps`` to the last, so a bar published since the\npositions were computed is left out. Each position is held over the bar after its\ntimestamp, and costs, cash interest and attribution work as for built-in strategies.\n\nReturns 404 for unknown symbols, 422 when a bar in that range has no position or the\nrange has too few bars, and 502 when the data provider fails or the risk-free rate\ncannot be fetched.",
+        "operationId": "create_custom_backtest_api_v1_stocks__symbol__backtest_custom_post",
+        "parameters": [
+          {
+            "description": "Ticker symbol, e.g. AAPL, BRK-B or ^GSPC.",
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "description": "Ticker symbol, e.g. AAPL, BRK-B or ^GSPC.",
+              "pattern": "^[A-Za-z0-9.\\-^=]{1,15}$",
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomBacktestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Score the positions of a custom strategy",
         "tags": [
           "backtest"
         ]

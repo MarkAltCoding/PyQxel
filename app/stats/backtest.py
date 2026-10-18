@@ -17,8 +17,9 @@ bars, without costs, is the benchmark.
 """
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -418,6 +419,61 @@ def strategy_for(
     if isinstance(spec, Macd):
         return macd(spec.fast, spec.slow, spec.signal, spec.allow_short)
     raise ValueError(f"Unknown strategy {spec!r}.")
+
+
+class MisalignedPositionsError(ValueError):
+    """Raised when a custom strategy's positions do not cover the bars they are scored on."""
+
+
+def _utc(index: pd.Index) -> pd.DatetimeIndex:
+    """Timestamps in UTC; naive ones are taken to be UTC already."""
+    stamps = pd.DatetimeIndex(index)
+    return stamps.tz_localize("UTC") if stamps.tz is None else stamps.tz_convert("UTC")
+
+
+def replay_positions(
+    closes: pd.Series, timestamps: Sequence[datetime], positions: Sequence[float]
+) -> tuple[pd.Series, Strategy]:
+    """Turn positions computed elsewhere, as by a custom strategy in the browser, into a
+    strategy over the bars they cover.
+
+    Only bars from the first timestamp to the last are kept, so a bar published since
+    the positions were computed is left out. Timestamps that match no bar, such as one
+    whose close was cleaned away, are ignored.
+
+    Args:
+        closes: Adjusted closes indexed by bar timestamp.
+        timestamps: Time-zone aware bar timestamps, oldest first.
+        positions: The target position set at each timestamp's close.
+
+    Returns:
+        The cleaned closes from the first timestamp to the last, and a strategy that
+        returns ``positions`` on them.
+
+    Raises:
+        MisalignedPositionsError: If no bar falls in that range, or a bar in it has no
+            position.
+    """
+    targets = pd.Series(list(positions), index=_utc(pd.to_datetime(list(timestamps), utc=True)))
+    prices = clean_prices(closes)
+    bars = _utc(prices.index)
+    first, last = targets.index[0], targets.index[-1]
+    covered = (bars >= first) & (bars <= last)
+    if not covered.any():
+        raise MisalignedPositionsError(
+            f"No bars fall between {first.date()} and {last.date()}, the positions' first and "
+            "last timestamps. Fetch the bars again and rerun the strategy."
+        )
+    held = targets.reindex(bars[covered])
+    missing = held.index[held.isna().to_numpy()]
+    if len(missing):
+        raise MisalignedPositionsError(
+            f"{len(missing)} bars between {first.date()} and {last.date()} have no position, "
+            f"the first on {missing[0].date()}. Fetch the bars again and rerun the strategy."
+        )
+    window = prices[covered]
+    held.index = window.index
+    return window, lambda bars_closes: held.reindex(bars_closes.index)
 
 
 def _calendar_dates(index: pd.Index) -> pd.DatetimeIndex:

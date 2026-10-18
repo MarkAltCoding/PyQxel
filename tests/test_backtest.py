@@ -20,6 +20,7 @@ from app.models.backtest import (
     VolatilityTargeting,
 )
 from app.stats.backtest import (
+    MisalignedPositionsError,
     Strategy,
     bollinger_breakout,
     buy_and_hold,
@@ -28,6 +29,7 @@ from app.stats.backtest import (
     dual_momentum,
     macd,
     mean_reversion,
+    replay_positions,
     rsi,
     rsi_reversal,
     run_backtest,
@@ -485,3 +487,57 @@ def test_new_strategy_specs_reject_invalid_parameters(build: object) -> None:
 
 def test_dual_momentum_benchmark_is_upper_cased() -> None:
     assert DualMomentum(benchmark="qqq").benchmark == "QQQ"
+
+
+# ── Positions computed elsewhere ──
+
+
+def _utc(closes: pd.Series) -> list[pd.Timestamp]:
+    """The bar timestamps of ``closes`` as aware UTC instants."""
+    return list(pd.DatetimeIndex(closes.index).tz_localize("UTC"))
+
+
+def test_replayed_positions_are_held_over_the_next_bar() -> None:
+    """Replayed positions get the engine's one-bar shift, like any strategy."""
+    closes = _closes(JUMP)
+    on_jump = [1.0 if bar == 30 else 0.0 for bar in range(len(closes))]
+    before_jump = [1.0 if bar == 29 else 0.0 for bar in range(len(closes))]
+
+    late = run_backtest(*replay_positions(closes, _utc(closes), on_jump), periods_per_year=252)
+    early = run_backtest(*replay_positions(closes, _utc(closes), before_jump), periods_per_year=252)
+
+    assert late.metrics.total_return == pytest.approx(0.0)
+    assert early.metrics.total_return == pytest.approx(0.10)
+
+
+def test_replay_keeps_only_bars_from_the_first_timestamp_to_the_last() -> None:
+    """Bars outside the positions' range are left out, and cleaned-away bars ignored."""
+    closes = _closes([100.0 + bar for bar in range(40)])
+    closes.iloc[20] = 0.0
+    stamps = _utc(closes)[5:35]
+
+    window, strategy = replay_positions(closes, stamps, [0.5] * len(stamps))
+
+    assert list(window.index) == [
+        stamp for stamp in closes.index[5:35] if stamp != closes.index[20]
+    ]
+    assert (strategy(window) == 0.5).all()
+
+
+def test_replay_requires_a_position_for_every_bar_in_range() -> None:
+    """A bar inside the range without a position is an error naming its date."""
+    closes = _closes([100.0] * 40)
+    stamps = _utc(closes)
+    del stamps[12]
+
+    with pytest.raises(MisalignedPositionsError, match=str(closes.index[12].date())):
+        replay_positions(closes, stamps, [1.0] * len(stamps))
+
+
+def test_replay_outside_the_history_is_an_error() -> None:
+    """Positions dated before every bar match nothing."""
+    closes = _closes([100.0] * 40)
+    earlier = list(pd.bdate_range("2001-01-01", periods=5, tz="UTC"))
+
+    with pytest.raises(MisalignedPositionsError, match="No bars fall between"):
+        replay_positions(closes, earlier, [1.0] * 5)

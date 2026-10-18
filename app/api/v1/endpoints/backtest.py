@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from collections.abc import Callable
 from typing import Annotated
 from uuid import UUID
 
@@ -24,16 +25,26 @@ from app.db.backtests import delete_backtest, get_backtest, list_backtests, save
 from app.db.session import get_session
 from app.models.backtest import (
     BacktestList,
+    BacktestOptions,
     BacktestRequest,
     BacktestResponse,
+    BacktestStrategy,
+    CustomBacktestRequest,
+    CustomStrategy,
     DualMomentum,
     EquityPoint,
-    StrategySpec,
-    StrategyType,
+    BacktestStrategyType,
 )
 from app.models.factors import RISK_FREE, FactorContext, FactorModel
 from app.models.stock import SYMBOL_PATTERN
-from app.stats.backtest import BacktestResult, run_backtest, strategy_for
+from app.stats.backtest import (
+    BacktestResult,
+    MisalignedPositionsError,
+    Strategy,
+    replay_positions,
+    run_backtest,
+    strategy_for,
+)
 from app.stats.factors import fit_factor_returns
 from app.stats.volatility import InsufficientDataError
 
@@ -46,6 +57,10 @@ results_router = APIRouter()
 """Routes under ``/backtests`` that read and delete stored results."""
 
 Session = Annotated[AsyncSession, Depends(get_session)]
+
+StrategyBuilder = Callable[[pd.Series, pd.Series | None, int], tuple[pd.Series, Strategy]]
+"""Given the symbol's closes, a benchmark's closes if the strategy needs one, and bars per
+year: the closes to backtest and the strategy to run on them."""
 
 
 async def _no_factors() -> None:
@@ -76,7 +91,7 @@ async def load_factors(
         return None, "Factor attribution was left out: the factor data could not be fetched."
 
 
-async def load_benchmark(spec: StrategySpec, period: str, interval: str) -> pd.Series | None:
+async def load_benchmark(spec: BacktestStrategy, period: str, interval: str) -> pd.Series | None:
     """Fetch the closes dual momentum compares against, or ``None`` for other strategies.
 
     Raises:
@@ -143,6 +158,88 @@ def _database_error(exc: SQLAlchemyError) -> HTTPException:
     )
 
 
+async def backtest_and_store(
+    symbol: str,
+    options: BacktestOptions,
+    spec: BacktestStrategy,
+    build: StrategyBuilder,
+    session: AsyncSession,
+    user_id: str,
+) -> BacktestResponse:
+    """Fetch the bars and factor data a backtest needs, score ``build``'s strategy on them,
+    and store the result.
+
+    Raises:
+        HTTPException: The statuses documented on the backtest routes.
+    """
+    model = options.attribution if options.interval == "1d" else None
+    frame_result, factors_result, benchmark_result = await asyncio.gather(
+        fetch_price_history(symbol, period=options.period, interval=options.interval),
+        load_factors(model, options.cash_interest),
+        load_benchmark(spec, options.period, options.interval),
+        return_exceptions=True,
+    )
+    if isinstance(frame_result, DataFetchError):
+        raise upstream_error(frame_result) from frame_result
+    for outcome in (frame_result, factors_result, benchmark_result):
+        if isinstance(outcome, BaseException):
+            raise outcome
+    assert isinstance(frame_result, pd.DataFrame) and isinstance(factors_result, tuple)
+    assert benchmark_result is None or isinstance(benchmark_result, pd.Series)
+    factors, factor_notice = factors_result
+    symbol = symbol.upper()
+    coverage, coverage_notice = history_coverage(
+        symbol, options.period, options.interval, frame_result
+    )
+    periods_per_year = PERIODS_PER_YEAR[options.interval]
+    try:
+        closes, strategy = build(frame_result["Close"], benchmark_result, periods_per_year)
+        result = run_backtest(
+            closes,
+            strategy,
+            periods_per_year,
+            cost_bps=options.cost_bps,
+            risk_free_rate=options.risk_free_rate,
+            risk_free=(
+                factors[RISK_FREE] if options.cash_interest and factors is not None else None
+            ),
+        )
+    except (InsufficientDataError, MisalignedPositionsError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+    attribution, attribution_notice = attribute(result.returns, factors, model)
+    if options.attribution is not None and options.interval != "1d":
+        attribution_notice = "Factor attribution needs daily bars, so it was left out."
+    notice = " ".join(part for part in (coverage_notice, factor_notice, attribution_notice) if part)
+
+    response = BacktestResponse(
+        symbol=symbol,
+        period=options.period,
+        interval=options.interval,
+        periods_per_year=periods_per_year,
+        strategy=spec,
+        cost_bps=options.cost_bps,
+        risk_free_rate=options.risk_free_rate,
+        metrics=result.metrics,
+        benchmark=result.benchmark,
+        trades=result.trades,
+        exposure=result.exposure,
+        cash_interest=options.cash_interest,
+        attribution=attribution,
+        equity_curve=equity_points(result),
+        coverage=coverage,
+        notice=notice or None,
+    )
+    try:
+        return await save_backtest(session, user_id, response)
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        logger.error("Could not store the %s backtest: %s", symbol, exc)
+        return response
+
+
 @router.post(
     "/{symbol}/backtest",
     response_model=BacktestResponse,
@@ -182,71 +279,53 @@ async def create_backtest(
     strategy or dual momentum's benchmark is unknown, and 502 when the data provider
     fails, or the risk-free rate or dual momentum's benchmark cannot be fetched.
     """
-    model = request.attribution if request.interval == "1d" else None
-    frame_result, factors_result, benchmark_result = await asyncio.gather(
-        fetch_price_history(symbol, period=request.period, interval=request.interval),
-        load_factors(model, request.cash_interest),
-        load_benchmark(request.strategy, request.period, request.interval),
-        return_exceptions=True,
+    return await backtest_and_store(
+        symbol,
+        request,
+        request.strategy,
+        lambda closes, benchmark, periods_per_year: (
+            closes,
+            strategy_for(request.strategy, periods_per_year, benchmark),
+        ),
+        session,
+        user.id,
     )
-    if isinstance(frame_result, DataFetchError):
-        raise upstream_error(frame_result) from frame_result
-    for outcome in (frame_result, factors_result, benchmark_result):
-        if isinstance(outcome, BaseException):
-            raise outcome
-    assert isinstance(frame_result, pd.DataFrame) and isinstance(factors_result, tuple)
-    assert benchmark_result is None or isinstance(benchmark_result, pd.Series)
-    factors, factor_notice = factors_result
-    symbol = symbol.upper()
-    coverage, coverage_notice = history_coverage(
-        symbol, request.period, request.interval, frame_result
-    )
-    periods_per_year = PERIODS_PER_YEAR[request.interval]
-    try:
-        result = run_backtest(
-            frame_result["Close"],
-            strategy_for(request.strategy, periods_per_year, benchmark_result),
-            periods_per_year,
-            cost_bps=request.cost_bps,
-            risk_free_rate=request.risk_free_rate,
-            risk_free=(
-                factors[RISK_FREE] if request.cash_interest and factors is not None else None
-            ),
-        )
-    except InsufficientDataError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
-        ) from exc
 
-    attribution, attribution_notice = attribute(result.returns, factors, model)
-    if request.attribution is not None and request.interval != "1d":
-        attribution_notice = "Factor attribution needs daily bars, so it was left out."
-    notice = " ".join(part for part in (coverage_notice, factor_notice, attribution_notice) if part)
 
-    response = BacktestResponse(
-        symbol=symbol,
-        period=request.period,
-        interval=request.interval,
-        periods_per_year=periods_per_year,
-        strategy=request.strategy,
-        cost_bps=request.cost_bps,
-        risk_free_rate=request.risk_free_rate,
-        metrics=result.metrics,
-        benchmark=result.benchmark,
-        trades=result.trades,
-        exposure=result.exposure,
-        cash_interest=request.cash_interest,
-        attribution=attribution,
-        equity_curve=equity_points(result),
-        coverage=coverage,
-        notice=notice or None,
+@router.post(
+    "/{symbol}/backtest/custom",
+    response_model=BacktestResponse,
+    summary="Score the positions of a custom strategy",
+)
+async def create_custom_backtest(
+    symbol: Symbol,
+    session: Session,
+    user: CurrentUser,
+    request: Annotated[CustomBacktestRequest, Body()],
+) -> BacktestResponse:
+    """Score positions a custom Python strategy produced in the browser, as
+    ``POST /stocks/{symbol}/backtest`` scores a built-in one.
+
+    The code never runs on the server: it is stored with the result so the run can be
+    reproduced and edited. The server fetches ``symbol``'s bars again and backtests the
+    ones from the first of ``timestamps`` to the last, so a bar published since the
+    positions were computed is left out. Each position is held over the bar after its
+    timestamp, and costs, cash interest and attribution work as for built-in strategies.
+
+    Returns 404 for unknown symbols, 422 when a bar in that range has no position or the
+    range has too few bars, and 502 when the data provider fails or the risk-free rate
+    cannot be fetched.
+    """
+    return await backtest_and_store(
+        symbol,
+        request,
+        CustomStrategy(language=request.language, code=request.code),
+        lambda closes, _benchmark, _periods_per_year: replay_positions(
+            closes, request.timestamps, request.positions
+        ),
+        session,
+        user.id,
     )
-    try:
-        return await save_backtest(session, user.id, response)
-    except SQLAlchemyError as exc:
-        await session.rollback()
-        logger.error("Could not store the %s backtest: %s", symbol, exc)
-        return response
 
 
 @results_router.get("", response_model=BacktestList, summary="List stored backtests")
@@ -257,7 +336,7 @@ async def read_backtests(
         str | None, Query(pattern=SYMBOL_PATTERN, description="Only this symbol's results.")
     ] = None,
     strategy: Annotated[
-        StrategyType | None, Query(description="Only results of this strategy type.")
+        BacktestStrategyType | None, Query(description="Only results of this strategy type.")
     ] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,

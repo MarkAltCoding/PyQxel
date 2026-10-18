@@ -1,13 +1,16 @@
 """FastAPI application entry point for PyQxel."""
 
+import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import health
@@ -30,6 +33,29 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     yield
     await close_cache()
     await close_database()
+
+
+def _json_safe(value: object) -> object:
+    """``value`` with every NaN and infinity written as a string, which JSON can hold."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Return FastAPI's usual 422 for an invalid request.
+
+    Errors echo the input they reject, and a rejected NaN or infinity would otherwise
+    make the response itself unserializable, turning the 422 into a 500.
+    """
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"detail": _json_safe(jsonable_encoder(exc.errors()))},
+    )
 
 
 NOT_WEB_PREFIXES: tuple[str, ...] = ("api/", "health", "docs", "redoc", "openapi.json")
@@ -75,6 +101,7 @@ def create_app() -> FastAPI:
     """
     settings = get_settings()
     application = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
+    application.exception_handler(RequestValidationError)(validation_error)
 
     application.add_middleware(
         CORSMiddleware,
