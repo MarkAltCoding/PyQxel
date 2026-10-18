@@ -550,3 +550,172 @@ async def test_failed_lookups_are_not_cached(monkeypatch: pytest.MonkeyPatch) ->
 async def test_empty_symbol_is_rejected() -> None:
     with pytest.raises(ValueError):
         await fetcher.fetch_ticker_info("   ")
+
+
+# What a free FMP plan refuses, remembered so its daily requests are not spent on it.
+
+PREMIUM_SYMBOL = (
+    "Premium Query Parameter: 'Special Endpoint : This value set for 'symbol' is not "
+    "available under your current subscription please visit our subscription page"
+)
+"""FMP's refusal of a symbol outside a free plan's sample list."""
+RESTRICTED_ENDPOINT = (
+    "Restricted Endpoint: This endpoint is not available under your current subscription"
+)
+"""FMP's refusal of an endpoint a free plan excludes for every symbol, such as intraday."""
+
+
+def _free_plan(path: str, params: dict[str, str]) -> object:
+    """Answer as a free FMP plan does: AAPL's daily bars, nothing for GOOG, no intraday."""
+    if path.startswith("historical-chart/"):
+        return httpx2.Response(402, text=RESTRICTED_ENDPOINT)
+    if params.get("symbol") != "AAPL":
+        return httpx2.Response(402, text=PREMIUM_SYMBOL)
+    return _eod_rows()
+
+
+def _yfinance_serving(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Let yfinance answer every history request; return the symbols it was asked for."""
+    fake, calls = _yfinance_history_counting(_new_york_bars())
+    monkeypatch.setattr(fetcher, "_yfinance_history", fake)
+    return calls
+
+
+async def test_a_symbol_the_plan_refuses_is_not_asked_for_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After FMP refuses GOOG, GOOG goes straight to the next provider, while symbols the
+    plan serves are still asked of FMP."""
+    _fallback(monkeypatch, True)
+    _fmp_key()
+    requests = _serve_fmp(monkeypatch, _free_plan)
+    yfinance = _yfinance_serving(monkeypatch)
+
+    await fetcher.fetch_price_history("GOOG", period="1y")
+    await fetcher.fetch_price_history("GOOG", period="5y")
+    await fetcher.fetch_price_history("AAPL", period="1y")
+
+    assert [path for path, _ in requests] == [
+        "historical-price-eod/dividend-adjusted",
+        "historical-price-eod/dividend-adjusted",
+    ]
+    assert yfinance == ["GOOG", "GOOG"]
+
+
+async def test_an_endpoint_the_plan_refuses_is_not_asked_for_any_symbol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Intraday bars refused for one symbol are not asked of FMP for any other."""
+    _fallback(monkeypatch, True)
+    _fmp_key()
+    requests = _serve_fmp(monkeypatch, _free_plan)
+    _yfinance_serving(monkeypatch)
+
+    await fetcher.fetch_price_history("AAPL", period="5d", interval="5m")
+    await fetcher.fetch_price_history("MSFT", period="5d", interval="5m")
+
+    assert [path for path, _ in requests] == ["historical-chart/5min"]
+
+
+async def test_refusals_belong_to_the_key_and_expire(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Another user's key, or the same key a day later, is asked again."""
+    _fallback(monkeypatch, True)
+    requests = _serve_fmp(monkeypatch, _free_plan)
+    _yfinance_serving(monkeypatch)
+    clock = [1_000.0]
+    monkeypatch.setattr(fetcher, "_now", lambda: clock[0])
+
+    _fmp_key("free-key")
+    await fetcher.fetch_price_history("GOOG")
+    _fmp_key("paid-key")
+    await fetcher.fetch_price_history("GOOG")
+    _fmp_key("free-key")
+    clock[0] += fetcher.FMP_REFUSAL_TTL_SECONDS + 1
+    await fetcher.fetch_price_history("GOOG")
+
+    assert [key for _, key in requests] == ["free-key", "paid-key", "free-key"]
+
+
+async def test_refusals_are_shared_through_redis(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Another instance, with nothing in its own memory, reads the refusal from Redis, and
+    no key is stored there in the clear."""
+    redis = FakeAsyncRedis()
+    configure_cache(redis)
+    _fallback(monkeypatch, True)
+    _fmp_key("fmp-user-key")
+    requests = _serve_fmp(monkeypatch, _free_plan)
+    _yfinance_serving(monkeypatch)
+
+    await fetcher.fetch_price_history("GOOG", period="1y")
+    fetcher.clear_alpha_vantage_memory()
+    await fetcher.fetch_price_history("GOOG", period="2y")
+
+    assert len(requests) == 1
+    stored = [
+        key.decode() if isinstance(key, bytes) else key
+        for key in await redis.keys(f"{KEY_PREFIX}fmp:refused:*")
+    ]
+    assert len(stored) == 1 and "fmp-user-key" not in stored[0]
+
+
+async def test_a_reached_limit_leaves_fmp_out_for_a_while(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Once FMP says the key's limit is reached, no symbol is asked of it until the pause
+    ends."""
+    _fallback(monkeypatch, True)
+    _fmp_key()
+    requests = _serve_fmp(
+        monkeypatch, lambda path, params: httpx2.Response(429, text="Limit Reach .")
+    )
+    yfinance = _yfinance_serving(monkeypatch)
+    clock = [1_000.0]
+    monkeypatch.setattr(fetcher, "_now", lambda: clock[0])
+
+    await fetcher.fetch_price_history("AAPL")
+    await fetcher.fetch_price_history("SPY")
+    clock[0] += fetcher.FMP_LIMIT_PAUSE_SECONDS + 1
+    await fetcher.fetch_price_history("QQQ")
+
+    assert len(requests) == 2
+    assert yfinance == ["AAPL", "SPY", "QQQ"]
+
+
+async def test_a_refused_quote_skips_fmp_and_its_profile_check_next_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A quote refused for a real symbol is not asked for again, nor its profile."""
+    _fallback(monkeypatch, True)
+    _fmp_key()
+    requests = _serve_fmp(
+        monkeypatch,
+        lambda path, params: PROFILE if path == "profile" else httpx2.Response(402, text="x"),
+    )
+    monkeypatch.setattr(
+        fetcher,
+        "_yfinance_quote",
+        lambda symbol: fetcher._build_quote(symbol, 10.0, 9.0, "yfinance"),
+    )
+
+    await fetcher.fetch_quote("GOOG")
+    fetcher.clear_quote_cache()
+    await fetcher.fetch_quote("GOOG")
+
+    assert [path for path, _ in requests] == ["quote", "profile"]
+
+
+async def test_an_unknown_symbols_refused_quote_is_not_kept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FMP refuses quotes for symbols that do not exist; those stay unknown, not refused."""
+    _fallback(monkeypatch, False)
+    _fmp_key()
+    requests = _serve_fmp(
+        monkeypatch,
+        lambda path, params: [] if path == "profile" else httpx2.Response(402, text="x"),
+    )
+
+    for _ in range(2):
+        with pytest.raises(SymbolNotFoundError):
+            await fetcher.fetch_quote("ZZZZ")
+        fetcher.clear_quote_cache()
+
+    assert [path for path, _ in requests] == ["quote", "profile", "quote", "profile"]

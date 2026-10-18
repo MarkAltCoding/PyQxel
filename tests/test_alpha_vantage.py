@@ -26,6 +26,7 @@ from app.data.alpha_vantage import (
     parse_statements,
 )
 from app.data.fetcher import (
+    AlphaVantageDailyLimitError,
     DataFetchError,
     ProviderNotConfiguredError,
     ProviderPlanError,
@@ -96,7 +97,7 @@ OVERVIEW = {"Symbol": "ACME", "Name": "Acme Corp", "CIK": "123456", "Currency": 
         ({"Information": "The **demo** API key is for demo purposes only. "
           "Please claim your free API key... the apikey is invalid."}, ProviderNotConfiguredError),
         ({"Information": "Our standard API rate limit is 25 requests per day. Please "
-          "subscribe to any of the premium plans."}, DataFetchError),
+          "subscribe to any of the premium plans."}, AlphaVantageDailyLimitError),
         ({"Information": "Thank you for using Alpha Vantage! This is a premium endpoint."},
          ProviderPlanError),
     ],
@@ -111,6 +112,30 @@ async def test_errors_in_the_body_are_classified(
         await alpha_vantage_get("TIME_SERIES_DAILY_ADJUSTED", {"symbol": "ACME"}, KEY)
 
     assert type(raised.value) is error
+
+
+async def test_a_used_up_day_leaves_alpha_vantage_out_without_waiting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After the daily limit answer, other requests on the key fail at once, without a
+    request or a turn in the one-a-second queue, until the pause ends."""
+    requests = _serve(
+        monkeypatch,
+        lambda params: {"Information": "Our standard API rate limit is 25 requests per day."},
+    )
+    clock = [1_000.0]
+    monkeypatch.setattr(fetcher, "_now", lambda: clock[0])
+
+    with pytest.raises(AlphaVantageDailyLimitError):
+        await alpha_vantage_get("GLOBAL_QUOTE", {"symbol": "ACME"}, KEY)
+    with pytest.raises(DataFetchError, match="daily limit"):
+        await alpha_vantage_get("GLOBAL_QUOTE", {"symbol": "OTHER"}, KEY)
+    assert len(requests) == 1
+
+    clock[0] += fetcher.ALPHA_VANTAGE_LIMIT_PAUSE_SECONDS + 1
+    with pytest.raises(AlphaVantageDailyLimitError):
+        await alpha_vantage_get("GLOBAL_QUOTE", {"symbol": "OTHER"}, KEY)
+    assert len(requests) == 2
 
 
 async def test_a_premium_refusal_of_a_free_function_means_a_bad_key(

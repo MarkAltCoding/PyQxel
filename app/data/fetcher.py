@@ -87,6 +87,18 @@ ALPHA_VANTAGE_SPACING_SECONDS: float = 1.1
 of more than one request a second."""
 ALPHA_VANTAGE_FREE_DAILY_BARS: int = 100
 """Daily bars Alpha Vantage's free plan serves, the latest ones, unadjusted."""
+FMP_REFUSAL_TTL_SECONDS: float = 24 * 60 * 60
+"""How long a key's FMP plan is taken not to cover a request before asking again. A free
+plan serves prices and quotes for a short sample list of symbols and refuses the rest,
+and refuses intraday bars outright; remembering this saves its 250 requests a day for
+the symbols it does serve."""
+FMP_LIMIT_PAUSE_SECONDS: float = 30 * 60
+"""How long FMP is left out for a key after it answers that the key's limit is reached,
+such as a free plan's 250 requests a day."""
+ALPHA_VANTAGE_LIMIT_PAUSE_SECONDS: float = 60 * 60
+"""How long Alpha Vantage is left out for a key after its daily limit is reached."""
+RECALL_MEMORY_SIZE: int = 4096
+"""Refusals and pauses kept in process memory, in front of Redis."""
 HISTORY_NOTICE: str = "notice"
 """Key in a history frame's ``attrs`` for a provider's note on what the bars lack."""
 
@@ -142,6 +154,8 @@ _alpha_vantage_premium: dict[tuple[str, str], float] = {}
 """(key digest, request) -> when the key's plan was found not to cover the request."""
 _alpha_vantage_next_slot: float = 0.0
 """Monotonic time from which the next Alpha Vantage request may be sent."""
+_recalled: "OrderedDict[str, float]" = OrderedDict()
+"""Recall key -> monotonic time it expires: refusals and pauses known to this process."""
 
 T = TypeVar("T")
 
@@ -159,11 +173,22 @@ class ProviderNotConfiguredError(DataFetchError):
 
 
 class ProviderPlanError(DataFetchError):
-    """Raised when the user's FMP plan does not cover the request."""
+    """Raised when the user's FMP plan does not cover the request.
+
+    ``remembered`` is true when the refusal was recalled rather than just received.
+    """
+
+    def __init__(self, message: str, remembered: bool = False) -> None:
+        super().__init__(message)
+        self.remembered = remembered
 
 
 class AlphaVantageBurstError(DataFetchError):
     """Raised when Alpha Vantage refuses requests sent less than a second apart."""
+
+
+class AlphaVantageDailyLimitError(DataFetchError):
+    """Raised when a key has used up its Alpha Vantage requests for the day."""
 
 
 def _normalize_symbol(symbol: str) -> str:
@@ -229,10 +254,79 @@ async def first_success(
     raise DataFetchError(f"Could not fetch {what} for {symbol!r}.") from errors[-1]
 
 
+def _key_digest(api_key: str) -> str:
+    """A short hash naming a key in recall keys, so keys never reach memory or Redis."""
+    return hashlib.sha256(api_key.encode()).hexdigest()[:16]
+
+
+def _now() -> float:
+    """The monotonic clock refusals and pauses expire by."""
+    return time.monotonic()
+
+
+async def _recall(*keys: str) -> bool:
+    """Whether any of ``keys`` is a refusal or pause still in force, here or in Redis."""
+    now = _now()
+    for key in keys:
+        expires = _recalled.get(key)
+        if expires is not None:
+            if expires > now:
+                return True
+            del _recalled[key]
+    for key in keys:
+        if await cache_get(key) is not None:
+            _recalled[key] = now + 60.0
+            return True
+    return False
+
+
+async def _remember(key: str, ttl_seconds: float) -> None:
+    """Record a refusal or pause for ``ttl_seconds``, here and in Redis for every instance."""
+    _recalled[key] = _now() + ttl_seconds
+    _recalled.move_to_end(key)
+    while len(_recalled) > RECALL_MEMORY_SIZE:
+        _recalled.popitem(last=False)
+    await cache_set(key, "1", ttl_seconds)
+
+
+async def _forget(key: str) -> None:
+    """Drop a recorded refusal, here and in Redis."""
+    _recalled.pop(key, None)
+    await cache_set(key, "", 0.001)
+
+
+def _fmp_refusal_keys(path: str, symbol: str, api_key: str) -> tuple[str, str]:
+    """Recall keys of FMP refusing ``path`` outright, and for ``symbol``, on this key."""
+    base = f"fmp:refused:{_key_digest(api_key)}:{path}"
+    return base, f"{base}:{symbol}"
+
+
+async def forget_fmp_refusal(path: str, symbol: str, api_key: str) -> None:
+    """Forget that FMP refused ``path`` for ``symbol``, as when the symbol turns out not to
+    exist: FMP answers some requests for unknown symbols with a plan error."""
+    await _forget(_fmp_refusal_keys(path, symbol, api_key)[1])
+
+
 async def fmp_get(
     path: str, params: dict[str, str], api_key: str, client: httpx2.AsyncClient | None
 ) -> Any:
-    """GET an FMP endpoint with the user's key, classifying plan and key errors."""
+    """GET an FMP endpoint with the user's key, classifying plan and key errors.
+
+    Refusals are remembered for :data:`FMP_REFUSAL_TTL_SECONDS`, for the symbol or, for an
+    endpoint the plan excludes, for every symbol, and a reached limit leaves FMP out for
+    :data:`FMP_LIMIT_PAUSE_SECONDS`; either is answered at once, without a request.
+    """
+    symbol = params.get("symbol", "")
+    whole, one = _fmp_refusal_keys(path, symbol, api_key)
+    paused = f"fmp:paused:{_key_digest(api_key)}"
+    if await _recall(paused):
+        raise DataFetchError("Your Financial Modeling Prep plan's limit was reached.")
+    if await _recall(whole, one):
+        raise ProviderPlanError(
+            f"Your Financial Modeling Prep plan does not cover this request ({path} for "
+            f"{symbol}).",
+            remembered=True,
+        )
 
     async def get(http: httpx2.AsyncClient) -> httpx2.Response:
         return await http.get(f"{FMP_BASE_URL}/{path}", params=params | {"apikey": api_key})
@@ -243,9 +337,12 @@ async def fmp_get(
         async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
             response = await get(own_client)
     if response.status_code == 402:
+        # "Restricted Endpoint" refuses the endpoint; "Premium Query Parameter", the symbol.
+        restricted = "restricted endpoint" in response.text.lower()
+        await _remember(whole if restricted else one, FMP_REFUSAL_TTL_SECONDS)
         raise ProviderPlanError(
             f"Your Financial Modeling Prep plan does not cover this request ({path} for "
-            f"{params.get('symbol', '')})."
+            f"{symbol})."
         )
     if response.status_code in (401, 403):
         raise ProviderNotConfiguredError(
@@ -253,6 +350,7 @@ async def fmp_get(
             "/api/v1/me/credentials."
         )
     if response.status_code == 429:
+        await _remember(paused, FMP_LIMIT_PAUSE_SECONDS)
         raise DataFetchError("Your Financial Modeling Prep plan's rate limit was reached.")
     response.raise_for_status()
     return response.json()
@@ -285,6 +383,10 @@ def _alpha_vantage_error(
         )
     if "burst" in lowered or "per second" in lowered:
         return AlphaVantageBurstError(f"Alpha Vantage refused a burst of requests: {message}")
+    if "per day" in lowered or "daily" in lowered:
+        return AlphaVantageDailyLimitError(
+            f"Your Alpha Vantage plan's daily limit was reached: {message}"
+        )
     if "rate limit" in lowered or "requests per" in lowered or "call frequency" in lowered:
         return DataFetchError(f"Your Alpha Vantage plan's rate limit was reached: {message}")
     if "premium" in lowered:
@@ -336,6 +438,7 @@ async def alpha_vantage_get(
     digest = hashlib.sha256(api_key.encode()).hexdigest()[:16]
     request = f"{function}:{params.get('outputsize', '')}"
     free = function in ALPHA_VANTAGE_FREE_FUNCTIONS
+    paused = f"alphavantage:paused:{digest}"
     refused = _alpha_vantage_premium.get((digest, request))
     if refused is not None and time.monotonic() - refused < ALPHA_VANTAGE_PLAN_TTL_SECONDS:
         raise ProviderPlanError(
@@ -357,6 +460,8 @@ async def alpha_vantage_get(
         except ValueError:
             logger.warning("Ignoring an unreadable cached Alpha Vantage %s answer.", function)
     if payload is None:
+        if await _recall(paused):
+            raise DataFetchError("Your Alpha Vantage plan's daily limit was reached.")
         query = {"function": function, **params, "apikey": api_key}
         for attempt in range(2):
             await _alpha_vantage_slot()
@@ -376,6 +481,8 @@ async def alpha_vantage_get(
                 break
         if isinstance(error, ProviderPlanError):
             _alpha_vantage_premium[digest, request] = time.monotonic()
+        if isinstance(error, AlphaVantageDailyLimitError):
+            await _remember(paused, ALPHA_VANTAGE_LIMIT_PAUSE_SECONDS)
         if error is None or isinstance(error, SymbolNotFoundError):
             text = json.dumps(payload)
             _remember_alpha_vantage(cache_key, text)
@@ -388,11 +495,13 @@ async def alpha_vantage_get(
 
 
 def clear_alpha_vantage_memory() -> None:
-    """Forget Alpha Vantage answers, plan refusals and request spacing kept in memory."""
+    """Forget Alpha Vantage answers, plan refusals and request spacing kept in memory, and
+    every provider's refusals and pauses."""
     global _alpha_vantage_next_slot
     _alpha_vantage_memory.clear()
     _alpha_vantage_premium.clear()
     _alpha_vantage_next_slot = 0.0
+    _recalled.clear()
 
 
 def alpha_vantage_number(value: object) -> float | None:
@@ -1021,10 +1130,16 @@ async def fetch_quote(symbol: str, client: httpx2.AsyncClient | None = None) -> 
                 assert api_key is not None
                 try:
                     quote = await _fmp_quote(symbol, api_key, client)
-                except ProviderPlanError:
+                except ProviderPlanError as exc:
                     # FMP answers quotes for unknown symbols with a plan error; its
-                    # profile tells an unknown symbol apart from an excluded one.
-                    await _fmp_info(symbol, api_key, client)
+                    # profile tells an unknown symbol apart from an excluded one, and an
+                    # unknown symbol's refusal is not kept.
+                    if not exc.remembered:
+                        try:
+                            await _fmp_info(symbol, api_key, client)
+                        except SymbolNotFoundError:
+                            await forget_fmp_refusal("quote", symbol, api_key)
+                            raise
                     raise
             elif provider == "alpha_vantage":
                 assert api_key is not None
