@@ -10,6 +10,7 @@ import type {
   BacktestResponse,
   CopulaFitResponse,
   CredentialsUpdate,
+  CustomBacktestRequest,
   AiLimits,
   FactorRegression,
   HoldingShares,
@@ -53,6 +54,9 @@ export const streamAnalysis = (symbol: string, body: AnalysisRequest, signal: Ab
 
 export const runBacktest = (symbol: string, body: BacktestRequest) =>
   api<BacktestResponse>(`${path(symbol)}/backtest`, { method: 'POST', body })
+/** Scores positions a custom strategy computed in the browser; the server never runs its code. */
+export const runCustomBacktest = (symbol: string, body: CustomBacktestRequest) =>
+  api<BacktestResponse>(`${path(symbol)}/backtest/custom`, { method: 'POST', body })
 export const listBacktests = () => api<BacktestList>(`${V1}/backtests`, { query: { limit: 50 } })
 export const getBacktest = (id: string) => api<BacktestResponse>(`${V1}/backtests/${id}`)
 export const deleteBacktest = (id: string) =>

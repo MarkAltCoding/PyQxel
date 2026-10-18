@@ -11,6 +11,7 @@ venv
 .venv
 web/node_modules
 web/dist
+web/public/pyodide
 **/__pycache__
 **/*.py[cod]
 .pytest_cache

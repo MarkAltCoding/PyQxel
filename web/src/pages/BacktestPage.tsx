@@ -1,10 +1,19 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { lazy, Suspense, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { deleteBacktest, getBacktest, listBacktests, runBacktest } from '../api/endpoints'
+import { ApiError } from '../api/client'
+import {
+  deleteBacktest,
+  getBacktest,
+  getHistory,
+  listBacktests,
+  runBacktest,
+  runCustomBacktest,
+} from '../api/endpoints'
 import type {
   BacktestRequest,
   BacktestResponse,
+  CodeLanguage,
   PerformanceMetrics,
   Strategy,
   StrategyType,
@@ -16,7 +25,18 @@ import { useChartTheme } from '../charts/theme'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { SearchBox } from '../components/SearchBox'
 import { Stat } from '../components/Stat'
+import { StrategyRunOutput } from '../components/StrategyRunOutput'
+import type { EditorError } from '../editor/StrategyEditor'
+import type { EditorLanguage } from '../editor/languages'
+import { starterCode } from '../editor/starters'
 import { dateTime, number, percent, shortDate, signedPercent, tone } from '../lib/format'
+import { readStored, writeStored } from '../lib/storage'
+import { runnerFor, StrategyRunError } from '../runners'
+
+// CodeMirror loads only when someone opens a custom strategy.
+const StrategyEditor = lazy(() =>
+  import('../editor/StrategyEditor').then((module) => ({ default: module.StrategyEditor })),
+)
 
 type StrategyGroup = 'Trend' | 'Mean reversion' | 'Risk' | 'Baseline'
 
@@ -84,14 +104,30 @@ const STRATEGIES: { value: StrategyType; label: string; group: StrategyGroup; ab
 
 const GROUPS: StrategyGroup[] = ['Trend', 'Mean reversion', 'Risk', 'Baseline']
 
-const STRATEGY_LABEL = Object.fromEntries(STRATEGIES.map((s) => [s.value, s.label]))
+const STRATEGY_LABEL: Record<string, string> = {
+  ...Object.fromEntries(STRATEGIES.map((s) => [s.value, s.label])),
+  custom: 'Custom',
+}
+
+/** A built-in strategy, or the user's own code. */
+type StrategyChoice = StrategyType | 'custom'
+
+const LANGUAGE_LABEL: Record<CodeLanguage, string> = { python: 'Python', cpp: 'C++' }
+
+const CUSTOM_ABOUT =
+  'Your own Python, run in this browser on NumPy and pandas. Only the positions it returns are sent to PyQxel, which backtests them like any built-in strategy.'
+
+/** Where the code being written is kept between visits. */
+const draftKey = (language: EditorLanguage) => `pyqxel.strategyDraft.${language}`
 
 /** Strategies that are long or flat only, so the short option does not apply. */
 const LONG_ONLY = new Set<StrategyType>(['buy_and_hold', 'dual_momentum', 'volatility_targeting'])
 
 interface Form {
   symbol: string
-  type: StrategyType
+  type: StrategyChoice
+  code: string
+  language: EditorLanguage
   fast: string
   slow: string
   lookback: string
@@ -123,6 +159,8 @@ interface Form {
 const DEFAULTS: Form = {
   symbol: '',
   type: 'sma_crossover',
+  code: '',
+  language: 'python',
   fast: '50',
   slow: '200',
   lookback: '252',
@@ -221,6 +259,8 @@ function strategyOf(form: Form): Strategy {
         signal: Number(form.macdSignal),
         allow_short: form.allowShort,
       }
+    case 'custom':
+      throw new Error('Custom strategies run in the browser, not as a built-in strategy.')
     default:
       return { type: 'buy_and_hold' }
   }
@@ -233,9 +273,22 @@ export function BacktestPage() {
   const [form, setForm] = useState<Form>(() => ({
     ...DEFAULTS,
     symbol: params.get('symbol')?.toUpperCase() ?? '',
+    code: readStored(draftKey(DEFAULTS.language)) ?? starterCode(DEFAULTS.language),
   }))
   const set = <K extends keyof Form>(key: K, value: Form[K]) =>
     setForm((current) => ({ ...current, [key]: value }))
+  const custom = form.type === 'custom'
+  const setCode = (code: string) => {
+    set('code', code)
+    writeStored(draftKey(form.language), code)
+  }
+  /** What a custom run is doing, for the Run button. */
+  const [phase, setPhase] = useState('')
+  /** What the last custom run printed. */
+  const [printed, setPrinted] = useState('')
+  const stopper = useRef<AbortController | null>(null)
+  /** The stored backtest whose settings are in the form, so they are loaded only once. */
+  const [loadedId, setLoadedId] = useState<string | null>(null)
 
   const saved = useQuery({ queryKey: ['backtests'], queryFn: listBacktests })
   const opened = useQuery({
@@ -245,17 +298,49 @@ export function BacktestPage() {
     staleTime: Infinity,
   })
   const run = useMutation({
-    mutationFn: () =>
-      runBacktest(form.symbol, {
-        strategy: strategyOf(form),
+    mutationFn: async (): Promise<BacktestResponse> => {
+      const options = {
         period: form.period,
         interval: form.interval,
         cost_bps: Number(form.costBps),
         cash_interest: form.cashInterest,
-      }),
+      }
+      if (form.type !== 'custom') {
+        return runBacktest(form.symbol, { strategy: strategyOf(form), ...options })
+      }
+      // The code runs here, in a worker; the server only sees and scores its positions.
+      const controller = new AbortController()
+      stopper.current = controller
+      try {
+        setPrinted('')
+        setPhase('Fetching prices…')
+        const history = await getHistory(form.symbol, form.period, form.interval)
+        if (history.bars.length === 0) {
+          throw new ApiError(422, history.notice ?? `${form.symbol} has no prices in this window.`)
+        }
+        setPhase('Loading Python…')
+        const outcome = await runnerFor(form.language).run(form.code, history.bars, {
+          signal: controller.signal,
+          onStart: () => setPhase('Running strategy…'),
+        })
+        setPrinted(outcome.output)
+        if (!outcome.ok) throw new StrategyRunError(outcome.error, outcome.output)
+        setPhase('Scoring…')
+        return await runCustomBacktest(form.symbol, {
+          ...options,
+          code: form.code,
+          language: form.language,
+          timestamps: outcome.timestamps,
+          positions: outcome.positions,
+        })
+      } finally {
+        stopper.current = null
+      }
+    },
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['backtests'] })
       if (result.id) {
+        setLoadedId(result.id)
         queryClient.setQueryData(['backtest', result.id], result)
         setParams({ id: result.id })
       }
@@ -269,12 +354,50 @@ export function BacktestPage() {
     },
   })
 
+  // Opening a stored custom backtest puts its code and settings back in the form, so it
+  // can be rerun as it was or edited. This adjusts state while rendering, once per opened
+  // backtest, as React recommends for state that follows other data.
+  const openedResult = opened.data
+  if (openedResult?.id && openedResult.id !== loadedId) {
+    setLoadedId(openedResult.id)
+    const { strategy } = openedResult
+    // Only Python opens in the editor until C++ strategies can be run.
+    if (strategy.type === 'custom' && (strategy.language ?? 'python') === 'python') {
+      setForm((current) => ({
+        ...current,
+        type: 'custom',
+        language: 'python',
+        code: strategy.code,
+        symbol: openedResult.symbol,
+        period: openedResult.period,
+        interval: openedResult.interval,
+        costBps: String(openedResult.cost_bps),
+        cashInterest: openedResult.cash_interest ?? current.cashInterest,
+      }))
+    }
+  }
+
   const result = (openId ? opened.data : undefined) ?? run.data
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (form.symbol) run.mutate()
   }
   const strategy = STRATEGIES.find((s) => s.value === form.type)
+  const about = custom ? CUSTOM_ABOUT : strategy?.about
+  // Failures in the browser are shown under the code; the rest, under the form.
+  const runFailure = run.error instanceof StrategyRunError ? run.error.failure : null
+  const editorError = useMemo<EditorError | null>(
+    () =>
+      runFailure && runFailure.kind !== 'cancelled'
+        ? { line: runFailure.line, message: runFailure.message }
+        : null,
+    [runFailure],
+  )
+  const resetCode = () => {
+    if (window.confirm('Replace your code with the starting template?')) {
+      setCode(starterCode(form.language))
+    }
+  }
 
   return (
     <div className="stack">
@@ -287,7 +410,7 @@ export function BacktestPage() {
         </div>
       </header>
 
-      <form className="card stack" style={{ gap: 14 }} onSubmit={submit}>
+      <form id="backtest-form" className="card stack" style={{ gap: 14 }} onSubmit={submit}>
         <div className="filter-row">
           <div className="field" style={{ width: 220 }}>
             <span>Symbol</span>
@@ -301,7 +424,12 @@ export function BacktestPage() {
             <span>Strategy</span>
             <select
               value={form.type}
-              onChange={(event) => set('type', event.target.value as StrategyType)}
+              onChange={(event) => {
+                const choice = event.target.value as StrategyChoice
+                set('type', choice)
+                // Python starts downloading while the code is being written.
+                if (choice === 'custom') runnerFor(form.language).warm()
+              }}
             >
               {GROUPS.map((group) => (
                 <optgroup key={group} label={group}>
@@ -312,6 +440,9 @@ export function BacktestPage() {
                   ))}
                 </optgroup>
               ))}
+              <optgroup label="Custom">
+                <option value="custom">Custom (Python)</option>
+              </optgroup>
             </select>
           </label>
           {form.type === 'sma_crossover' && (
@@ -551,7 +682,7 @@ export function BacktestPage() {
             min={0}
             max={500}
           />
-          {!LONG_ONLY.has(form.type) && (
+          {form.type !== 'custom' && !LONG_ONLY.has(form.type) && (
             <label className="checkbox">
               <input
                 type="checkbox"
@@ -575,15 +706,87 @@ export function BacktestPage() {
             disabled={!form.symbol || run.isPending}
             style={{ marginLeft: 'auto' }}
           >
-            {run.isPending ? 'Running…' : form.symbol ? `Backtest ${form.symbol}` : 'Backtest'}
+            {run.isPending
+              ? custom
+                ? phase
+                : 'Running…'
+              : form.symbol
+                ? `Backtest ${form.symbol}`
+                : 'Backtest'}
           </button>
         </div>
-        {strategy && <p className="disclaimer">{strategy.about}</p>}
-        {run.error !== null && <ErrorNotice error={run.error} />}
+        {about && <p className="disclaimer">{about}</p>}
+        {run.error !== null && !(run.error instanceof StrategyRunError) && (
+          <ErrorNotice error={run.error} />
+        )}
       </form>
 
       {opened.error !== null && <ErrorNotice error={opened.error} />}
-      {result && <BacktestResult result={result} refreshing={run.isPending} />}
+      {custom ? (
+        <div className="strategy-workspace">
+          <section className="card stack" style={{ gap: 12 }}>
+            <div className="card-header">
+              <div>
+                <h2>Strategy code</h2>
+                <div className="subtitle">
+                  {LANGUAGE_LABEL[form.language]} with NumPy and pandas, run in this browser
+                </div>
+              </div>
+              <div className="filter-row">
+                <button
+                  type="button"
+                  className="button ghost small"
+                  disabled={run.isPending || form.code === starterCode(form.language)}
+                  onClick={resetCode}
+                >
+                  Reset to template
+                </button>
+                {run.isPending ? (
+                  <button
+                    type="button"
+                    className="button small"
+                    onClick={() => stopper.current?.abort()}
+                  >
+                    Stop
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    form="backtest-form"
+                    className="button primary small"
+                    disabled={!form.symbol}
+                  >
+                    Run
+                  </button>
+                )}
+              </div>
+            </div>
+            <Suspense fallback={<div className="empty">Loading the editor…</div>}>
+              <StrategyEditor
+                language={form.language}
+                value={form.code}
+                onChange={setCode}
+                error={editorError}
+                label={`${LANGUAGE_LABEL[form.language]} strategy code`}
+              />
+            </Suspense>
+            <StrategyRunOutput error={runFailure} output={printed} />
+          </section>
+          {result ? (
+            <ResultChart result={result} refreshing={run.isPending} />
+          ) : (
+            <section className="card">
+              <div className="empty">
+                Choose a symbol and run your strategy to see its equity curve against buying and
+                holding.
+              </div>
+            </section>
+          )}
+        </div>
+      ) : (
+        result && <ResultChart result={result} refreshing={run.isPending} />
+      )}
+      {result && <ResultDetails result={result} />}
 
       <section className="card">
         <div className="card-header">
@@ -703,98 +906,103 @@ function describe(strategy: BacktestResponse['strategy']): string {
       return `Volatility target ${percent(strategy.target_volatility, 0)}, up to ${strategy.max_leverage}×`
     case 'macd':
       return `MACD ${strategy.fast}/${strategy.slow}/${strategy.signal}`
+    case 'custom':
+      return `Custom ${LANGUAGE_LABEL[strategy.language ?? 'python']} strategy`
     default:
       return 'Buy and hold'
   }
 }
 
-function BacktestResult({ result, refreshing }: { result: BacktestResponse; refreshing: boolean }) {
+function ResultChart({ result, refreshing }: { result: BacktestResponse; refreshing: boolean }) {
   const theme = useChartTheme()
   const m = result.metrics
   const b = result.benchmark
   return (
-    <>
-      <ChartCard
-        title={`${result.symbol}: ${describe(result.strategy)}`}
-        subtitle={`${shortDate(m.start)} to ${shortDate(m.end)} · ${result.trades} trades · average exposure ${percent(result.exposure, 0)} · ${result.cost_bps} bps per trade`}
-        refreshing={refreshing}
-        legend={
-          <Legend
-            items={[
-              { label: 'Strategy', color: theme.series1 },
-              { label: 'Buy and hold', color: theme.series2 },
-            ]}
-          />
-        }
-        chart={<EquityChart points={result.equity_curve} />}
-        table={<EquityTable points={result.equity_curve} />}
-        footer={
-          <div className="stack" style={{ gap: 12, marginTop: 14 }}>
-            <div className="stats">
-              <Stat
-                label="Total return"
-                value={signedPercent(m.total_return)}
-                className={tone(m.total_return)}
-                detail={`Buy and hold ${signedPercent(b.total_return)}`}
-              />
-              <Stat
-                label="Annualized"
-                value={signedPercent(m.annualized_return)}
-                detail={`Buy and hold ${signedPercent(b.annualized_return)}`}
-              />
-              <Stat
-                label="Sharpe ratio"
-                value={number(m.sharpe_ratio)}
-                detail={`Buy and hold ${number(b.sharpe_ratio)}`}
-              />
-              <Stat
-                label="Max drawdown"
-                value={percent(m.max_drawdown)}
-                detail={`Buy and hold ${percent(b.max_drawdown)}`}
-              />
-            </div>
-            {result.notice && <Notice tone="warning">{result.notice}</Notice>}
-            <p className="disclaimer">{result.disclaimer}</p>
+    <ChartCard
+      title={`${result.symbol}: ${describe(result.strategy)}`}
+      subtitle={`${shortDate(m.start)} to ${shortDate(m.end)} · ${result.trades} trades · average exposure ${percent(result.exposure, 0)} · ${result.cost_bps} bps per trade`}
+      refreshing={refreshing}
+      legend={
+        <Legend
+          items={[
+            { label: 'Strategy', color: theme.series1 },
+            { label: 'Buy and hold', color: theme.series2 },
+          ]}
+        />
+      }
+      chart={<EquityChart points={result.equity_curve} />}
+      table={<EquityTable points={result.equity_curve} />}
+      footer={
+        <div className="stack" style={{ gap: 12, marginTop: 14 }}>
+          <div className="stats">
+            <Stat
+              label="Total return"
+              value={signedPercent(m.total_return)}
+              className={tone(m.total_return)}
+              detail={`Buy and hold ${signedPercent(b.total_return)}`}
+            />
+            <Stat
+              label="Annualized"
+              value={signedPercent(m.annualized_return)}
+              detail={`Buy and hold ${signedPercent(b.annualized_return)}`}
+            />
+            <Stat
+              label="Sharpe ratio"
+              value={number(m.sharpe_ratio)}
+              detail={`Buy and hold ${number(b.sharpe_ratio)}`}
+            />
+            <Stat
+              label="Max drawdown"
+              value={percent(m.max_drawdown)}
+              detail={`Buy and hold ${percent(b.max_drawdown)}`}
+            />
           </div>
-        }
-      />
-      <div className="grid-2">
-        <section className="card">
-          <div className="card-header">
-            <h2>Performance</h2>
+          {result.notice && <Notice tone="warning">{result.notice}</Notice>}
+          <p className="disclaimer">{result.disclaimer}</p>
+        </div>
+      }
+    />
+  )
+}
+
+function ResultDetails({ result }: { result: BacktestResponse }) {
+  const m = result.metrics
+  const b = result.benchmark
+  return (
+    <div className="grid-2">
+      <section className="card">
+        <div className="card-header">
+          <h2>Performance</h2>
+        </div>
+        <MetricsTable strategy={m} benchmark={b} />
+      </section>
+      <section className="card">
+        <div className="card-header">
+          <div>
+            <h2>Return attribution</h2>
+            <div className="subtitle">The strategy's daily returns regressed on factor returns</div>
           </div>
-          <MetricsTable strategy={m} benchmark={b} />
-        </section>
-        <section className="card">
-          <div className="card-header">
-            <div>
-              <h2>Return attribution</h2>
-              <div className="subtitle">
-                The strategy's daily returns regressed on factor returns
-              </div>
-            </div>
-          </div>
-          {result.attribution ? (
-            <table className="data">
-              <tbody>
-                <Row label="Alpha (annualized)">
-                  {signedPercent(result.attribution.fit.alpha.estimate)} (t{' '}
-                  {number(result.attribution.fit.alpha.t_stat)})
+        </div>
+        {result.attribution ? (
+          <table className="data">
+            <tbody>
+              <Row label="Alpha (annualized)">
+                {signedPercent(result.attribution.fit.alpha.estimate)} (t{' '}
+                {number(result.attribution.fit.alpha.t_stat)})
+              </Row>
+              {result.attribution.fit.exposures.map((exposure) => (
+                <Row key={exposure.factor} label={`${FACTOR_NAMES[exposure.factor]} beta`}>
+                  {number(exposure.estimate)}
                 </Row>
-                {result.attribution.fit.exposures.map((exposure) => (
-                  <Row key={exposure.factor} label={`${FACTOR_NAMES[exposure.factor]} beta`}>
-                    {number(exposure.estimate)}
-                  </Row>
-                ))}
-                <Row label="R²">{percent(result.attribution.fit.r_squared, 0)}</Row>
-              </tbody>
-            </table>
-          ) : (
-            <div className="empty">No attribution for this backtest.</div>
-          )}
-        </section>
-      </div>
-    </>
+              ))}
+              <Row label="R²">{percent(result.attribution.fit.r_squared, 0)}</Row>
+            </tbody>
+          </table>
+        ) : (
+          <div className="empty">No attribution for this backtest.</div>
+        )}
+      </section>
+    </div>
   )
 }
 

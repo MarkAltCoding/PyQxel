@@ -1,4 +1,5 @@
 dist
+public/pyodide
 node_modules
 openapi.json
 package-lock.json

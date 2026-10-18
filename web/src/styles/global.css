@@ -30,6 +30,14 @@
   --div-mid: #f0efec;
   --div-pos: #e34948;
 
+  /* Syntax colors for the strategy editor */
+  --code-keyword: #8b3dbf;
+  --code-string: #1f7a1f;
+  --code-number: #a65200;
+  --code-comment: #66645f;
+  --code-function: #1d63b8;
+  --code-class: #a1325f;
+
   --good: #006300;
   --good-mark: #0ca30c;
   --warning: #8a5a00;
@@ -75,6 +83,14 @@
     --div-mid: #383835;
     --div-pos: #e66767;
 
+    /* Syntax colors for the strategy editor */
+    --code-keyword: #c792ea;
+    --code-string: #8bd18b;
+    --code-number: #f2a65a;
+    --code-comment: #9a988f;
+    --code-function: #82b1ff;
+    --code-class: #f07ab0;
+
     --good: #0ca30c;
     --good-mark: #0ca30c;
     --warning: #fab219;
@@ -114,6 +130,14 @@
   --div-neg: #3987e5;
   --div-mid: #383835;
   --div-pos: #e66767;
+
+  /* Syntax colors for the strategy editor */
+  --code-keyword: #c792ea;
+  --code-string: #8bd18b;
+  --code-number: #f2a65a;
+  --code-comment: #9a988f;
+  --code-function: #82b1ff;
+  --code-class: #f07ab0;
 
   --good: #0ca30c;
   --good-mark: #0ca30c;
@@ -600,6 +624,9 @@ select:disabled {
 
 /* ── Tables ── */
 .table-wrap {
+  /* Positioned, so absolutely positioned content such as screen-reader-only labels is
+     clipped by the scroll box instead of widening the page on phones. */
+  position: relative;
   overflow-x: auto;
 }
 
@@ -855,4 +882,55 @@ table.data .muted {
   margin-top: 4px;
   color: var(--text-secondary);
   font-size: 0.88rem;
+}
+
+/* ── Strategy editor ── */
+.strategy-editor .cm-editor {
+  min-height: 320px;
+  max-height: 70vh;
+}
+
+.strategy-editor .cm-scroller {
+  overflow: auto;
+}
+
+/* The editor beside the equity curve, stacked above it on narrow screens. */
+.strategy-workspace {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .strategy-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.code-output {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 240px;
+  overflow: auto;
+  border-radius: var(--radius-small);
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.run-output summary {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+/* iOS zooms the page into any focused text under 16px, so touch screens get 16px. */
+@media (pointer: coarse) {
+  .strategy-editor .cm-editor {
+    font-size: 16px;
+  }
 }

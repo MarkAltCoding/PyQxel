@@ -28,13 +28,13 @@ jobs:
         run: pytest
 
       - name: mypy
-        run: mypy app tests
+        run: mypy app tests web/src/runners/python
 
       - name: flake8
-        run: flake8 app tests
+        run: flake8 app tests web/src/runners/python
 
       - name: black
-        run: black --check app tests
+        run: black --check app tests web/src/runners/python
 
   web:
     name: Web frontend

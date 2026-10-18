@@ -8,6 +8,8 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+# Pyodide and its wheels, copied in by scripts/vendor-pyodide.mjs.
+public/pyodide
 dist
 dist-ssr
 *.local

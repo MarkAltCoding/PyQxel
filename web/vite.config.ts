@@ -14,6 +14,8 @@ export default defineConfig({
       '/health': api,
     },
   },
+  // The Python runner's worker loads Pyodide with a dynamic import, which needs ES modules.
+  worker: { format: 'es' },
   build: {
     // The ECharts chunk (charts, axes, tooltips, heatmap) is about 220 kB gzipped.
     chunkSizeWarningLimit: 700,
