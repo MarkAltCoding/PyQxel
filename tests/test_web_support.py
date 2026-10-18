@@ -11,7 +11,7 @@ from app.api.v1.endpoints import portfolio
 from app.data.fetcher import DataFetchError
 from app.db.users import User
 from app.jobs.openapi import SCHEMA_PATH, openapi_schema, render
-from app.main import app, mount_web
+from app.main import WORKER_CONTENT_SECURITY_POLICY, app, mount_web
 from app.models.stock import TickerInfo
 from tests.conftest import make_user
 from tests.test_screener_api import STOCKS, _stock, _store
@@ -205,6 +205,7 @@ def web_client(tmp_path: Path) -> TestClient:
     (tmp_path / "assets").mkdir()
     (tmp_path / "index.html").write_text("<div id=root></div>")
     (tmp_path / "assets" / "app-1a2b.js").write_text("console.log(1)")
+    (tmp_path / "assets" / "app-1a2b.css").write_text("body{}")
     (tmp_path / "favicon.svg").write_text("<svg/>")
     (tmp_path.parent / "secret.txt").write_text("secret")
     application = FastAPI()
@@ -230,6 +231,19 @@ def test_built_files_are_served(web_client: TestClient) -> None:
     """Assets and files at the root are served as they are."""
     assert web_client.get("/assets/app-1a2b.js").text == "console.log(1)"
     assert web_client.get("/favicon.svg").text == "<svg/>"
+
+
+def test_scripts_carry_the_worker_content_security_policy(web_client: TestClient) -> None:
+    """JavaScript assets, the strategy worker's among them, set the policy a worker runs
+    under: this origin only, WebAssembly but no eval."""
+    script = web_client.get("/assets/app-1a2b.js")
+    style = web_client.get("/assets/app-1a2b.css")
+
+    assert script.headers["content-security-policy"] == WORKER_CONTENT_SECURITY_POLICY
+    assert "'wasm-unsafe-eval'" in WORKER_CONTENT_SECURITY_POLICY
+    assert "'unsafe-eval'" not in WORKER_CONTENT_SECURITY_POLICY.replace("'wasm-unsafe-eval'", "")
+    assert "content-security-policy" not in style.headers
+    assert "content-security-policy" not in web_client.get("/").headers
 
 
 def test_api_routes_win_and_unknown_api_paths_are_404(web_client: TestClient) -> None:
