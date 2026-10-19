@@ -8,8 +8,9 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-# Pyodide and its wheels, copied in by scripts/vendor-pyodide.mjs.
+# Pyodide and its wheels, and the Clang toolchain, copied in by scripts/vendor-*.mjs.
 public/pyodide
+public/clang
 dist
 dist-ssr
 *.local
