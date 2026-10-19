@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "npm run vendor && vite",
-    "build": "npm run vendor && tsc -b && vite build",
+    "build": "npm run vendor && tsc -b && vite build && npm run precompress",
+    "precompress": "node scripts/precompress.mjs",
     "vendor": "npm run pyodide && npm run clang",
     "pyodide": "node scripts/vendor-pyodide.mjs",
     "clang": "node scripts/vendor-clang.mjs",

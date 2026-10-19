@@ -53,6 +53,14 @@ jobs:
 
       - run: npm ci
 
+      # Pyodide's wheels and the build's Brotli copies, so a build downloads and compresses
+      # only what changed; restored after npm ci, which empties node_modules.
+      - uses: actions/cache@v6
+        with:
+          path: web/node_modules/.cache
+          key: web-build-${{ hashFiles('web/package-lock.json') }}-${{ github.sha }}
+          restore-keys: web-build-${{ hashFiles('web/package-lock.json') }}-
+
       # web/openapi.json is checked against the API by the Python tests; here the
       # TypeScript types are checked against it.
       - name: API types are current

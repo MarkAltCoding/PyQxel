@@ -1,17 +1,26 @@
 """Tests for the API routes the web frontend relies on, and for serving it."""
 
 import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import portfolio
 from app.data.fetcher import DataFetchError
 from app.db.users import User
 from app.jobs.openapi import SCHEMA_PATH, openapi_schema, render
-from app.main import WORKER_CONTENT_SECURITY_POLICY, app, mount_web
+from app.main import app
+from app import web
+from app.web import (
+    WORKER_CONTENT_SECURITY_POLICY,
+    CompressApiResponses,
+    accepts_brotli,
+    mount_web,
+)
 from app.models.stock import TickerInfo
 from tests.conftest import make_user
 from tests.test_screener_api import STOCKS, _stock, _store
@@ -206,6 +215,11 @@ def web_client(tmp_path: Path) -> TestClient:
     (tmp_path / "index.html").write_text("<div id=root></div>")
     (tmp_path / "assets" / "app-1a2b.js").write_text("console.log(1)")
     (tmp_path / "assets" / "app-1a2b.css").write_text("body{}")
+    (tmp_path / "assets" / "worker-9z.js").write_text("compute()" * 100)
+    (tmp_path / "assets" / "worker-9z.js.br").write_bytes(b"brotli worker")
+    (tmp_path / "clang").mkdir()
+    (tmp_path / "clang" / "llvm.core.wasm").write_bytes(b"\0asm" + b"x" * 4000)
+    (tmp_path / "clang" / "llvm.core.wasm.br").write_bytes(b"brotli wasm")
     (tmp_path / "favicon.svg").write_text("<svg/>")
     (tmp_path.parent / "secret.txt").write_text("secret")
     application = FastAPI()
@@ -263,6 +277,133 @@ def test_files_outside_the_build_are_not_served(web_client: TestClient) -> None:
 def test_nothing_is_mounted_without_a_build(tmp_path: Path) -> None:
     """Without a built frontend, the API runs alone."""
     assert not mount_web(FastAPI(), tmp_path)
+
+
+@pytest.mark.parametrize("path", ["/clang/llvm.core.wasm", "/assets/worker-9z.js"])
+def test_brotli_copies_go_to_clients_that_accept_brotli(web_client: TestClient, path: str) -> None:
+    """A file's build-time Brotli copy is sent, under the file's own type, only to
+    clients that accept Brotli; both answers say they vary by encoding."""
+    brotli = web_client.get(path, headers={"Accept-Encoding": "gzip, deflate, br, zstd"})
+    plain = web_client.get(path, headers={"Accept-Encoding": "gzip"})
+    refused = web_client.get(path, headers={"Accept-Encoding": "br;q=0, gzip"})
+
+    assert brotli.headers["content-encoding"] == "br"
+    assert brotli.headers["content-type"] == plain.headers["content-type"]
+    assert brotli.headers["content-type"].split(";")[0] in ("application/wasm", "text/javascript")
+    assert brotli.headers["vary"] == plain.headers["vary"] == "Accept-Encoding"
+    assert "content-encoding" not in plain.headers and "content-encoding" not in refused.headers
+    assert brotli.content in (b"brotli wasm", b"brotli worker")
+    assert plain.content == refused.content != brotli.content
+    assert brotli.headers["etag"] != plain.headers["etag"]
+
+
+def test_files_without_a_brotli_copy_are_sent_as_they_are(web_client: TestClient) -> None:
+    response = web_client.get("/favicon.svg", headers={"Accept-Encoding": "br"})
+
+    assert response.text == "<svg/>"
+    assert "content-encoding" not in response.headers and "vary" not in response.headers
+
+
+@pytest.mark.parametrize("path", ["/clang/llvm.core.wasm", "/assets/app-1a2b.js", "/"])
+def test_unchanged_files_are_not_sent_again(web_client: TestClient, path: str) -> None:
+    """A client that already has a file, by its ETag, gets a 304 without a body."""
+    headers = {"Accept-Encoding": "br"}
+    first = web_client.get(path, headers=headers)
+    again = web_client.get(path, headers=headers | {"If-None-Match": first.headers["etag"]})
+
+    assert again.status_code == 304
+    assert again.content == b""
+    assert again.headers["etag"] == first.headers["etag"]
+
+
+def test_caching_follows_whether_names_change_with_content(web_client: TestClient) -> None:
+    """Fingerprinted assets are kept for good; files with fixed names are revalidated."""
+    assert "immutable" in web_client.get("/assets/app-1a2b.js").headers["cache-control"]
+    assert web_client.get("/clang/llvm.core.wasm").headers["cache-control"] == "no-cache"
+    assert web_client.get("/stocks/AAPL").headers["cache-control"] == "no-cache"
+
+
+@pytest.mark.parametrize("path", ["/", "/clang/llvm.core.wasm", "/assets/app-1a2b.js"])
+def test_head_requests_are_answered(web_client: TestClient, path: str) -> None:
+    """HEAD gets GET's status and headers without the body."""
+    head = web_client.head(path)
+    get = web_client.get(path)
+
+    assert head.status_code == 200
+    assert head.content == b""
+    assert head.headers["content-length"] == get.headers["content-length"]
+    assert head.headers["etag"] == get.headers["etag"]
+
+
+def test_large_files_are_streamed_without_a_length(
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Files over the threshold are streamed without a stated length, which servers send
+    chunked, as Cloud Run allows responses over 32 MiB only that way; HEAD still reports
+    the size."""
+    monkeypatch.setattr(web, "STREAM_ABOVE_BYTES", 1000)
+    monkeypatch.setattr(web, "CHUNK_BYTES", 512)
+
+    response = web_client.get("/clang/llvm.core.wasm", headers={"Accept-Encoding": "gzip"})
+    head = web_client.head("/clang/llvm.core.wasm", headers={"Accept-Encoding": "gzip"})
+
+    assert response.status_code == 200
+    assert response.content == b"\0asm" + b"x" * 4000
+    assert "content-length" not in response.headers
+    assert response.headers["content-type"] == "application/wasm"
+    assert head.headers["content-length"] == "4004"
+
+
+@pytest.mark.parametrize(
+    ("header", "accepted"),
+    [
+        ("gzip, deflate, br, zstd", True),
+        ("br", True),
+        ("BR;q=0.5", True),
+        ("br;q=0", False),
+        ("br; q=0.0", False),
+        ("gzip, deflate", False),
+        ("", False),
+        ("brotli", False),
+    ],
+)
+def test_accept_encoding_is_read_for_brotli(header: str, accepted: bool) -> None:
+    assert accepts_brotli(header) is accepted
+
+
+def test_only_api_responses_are_gzipped() -> None:
+    """Large API answers are gzipped; other paths and event streams are left alone."""
+    application = FastAPI()
+    application.add_middleware(CompressApiResponses, prefix="/api/v1")
+    body = "price " * 1000
+
+    @application.get("/api/v1/big", response_class=PlainTextResponse)
+    async def big() -> str:
+        return body
+
+    @application.get("/api/v1/small", response_class=PlainTextResponse)
+    async def small() -> str:
+        return "ok"
+
+    @application.get("/big.txt", response_class=PlainTextResponse)
+    async def outside() -> str:
+        return body
+
+    @application.get("/api/v1/stream")
+    async def stream() -> StreamingResponse:
+        async def events() -> AsyncIterator[str]:
+            yield "event: delta\ndata: " + body + "\n\n"
+
+        return StreamingResponse(events(), media_type="text/event-stream")
+
+    client = TestClient(application)
+    gzip = {"Accept-Encoding": "gzip"}
+
+    compressed = client.get("/api/v1/big", headers=gzip)
+    assert compressed.headers["content-encoding"] == "gzip" and compressed.text == body
+    assert "content-encoding" not in client.get("/api/v1/small", headers=gzip).headers
+    assert "content-encoding" not in client.get("/big.txt", headers=gzip).headers
+    assert "content-encoding" not in client.get("/api/v1/stream", headers=gzip).headers
 
 
 # ── The frontend's types ──
