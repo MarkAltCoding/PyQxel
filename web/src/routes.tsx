@@ -4,6 +4,7 @@ import { BacktestPage } from './pages/BacktestPage'
 import { HomePage } from './pages/HomePage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { PortfolioPage } from './pages/PortfolioPage'
+import { PrivacyPage } from './pages/PrivacyPage'
 import { ScreenerPage } from './pages/ScreenerPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SignInPage } from './pages/SignInPage'
@@ -11,6 +12,8 @@ import { StockPage } from './pages/StockPage'
 
 export const routes = [
   { path: '/signin', element: <SignInPage /> },
+  // Public, so it can be read before signing in.
+  { path: '/privacy', element: <PrivacyPage /> },
   {
     element: (
       <RequireKey>

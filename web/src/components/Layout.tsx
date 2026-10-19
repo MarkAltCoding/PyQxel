@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from 'react-router'
+import { Link, NavLink, Outlet, useNavigate } from 'react-router'
 import { useAuth } from '../auth/useAuth'
 import { SearchBox } from './SearchBox'
 import { ThemeToggle } from './ThemeToggle'
@@ -39,7 +39,7 @@ export function Layout() {
       </main>
       <footer className="footer">
         PyQxel helps investors research securities. Analyses, backtests and simulations are built
-        from historical data and are not investment advice.
+        from historical data and are not investment advice. <Link to="/privacy">Privacy</Link>
       </footer>
     </div>
   )

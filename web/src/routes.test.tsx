@@ -156,4 +156,13 @@ describe('sign-in', () => {
     expect(window.localStorage.getItem('pyqxel.apiKey')).toBeNull()
     expect(calls.some((call) => call.path === '/api/v1/auth/signout')).toBe(false)
   })
+
+  it('shows the privacy policy without signing in', async () => {
+    serve({ '/api/v1/auth/providers': () => json(PROVIDERS) })
+    const router = renderAt('/privacy')
+
+    expect(await screen.findByRole('heading', { name: 'Privacy policy' })).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/privacy')
+    expect(screen.getByText(/never sells data/)).toBeInTheDocument()
+  })
 })

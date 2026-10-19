@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { getSignInProviders } from '../api/endpoints'
 import { useAuth } from '../auth/useAuth'
@@ -136,6 +136,9 @@ export function SignInPage() {
             </p>
           )}
         </form>
+        <p className="disclaimer">
+          <Link to="/privacy">Privacy policy</Link>
+        </p>
       </section>
     </main>
   )
