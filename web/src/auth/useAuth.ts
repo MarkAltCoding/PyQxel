@@ -5,6 +5,7 @@ export interface Auth {
   apiKey: string | null
   /** Checks `key` against the API, then keeps it; throws ApiError when it is refused. */
   signIn: (key: string, remember: boolean) => Promise<Account>
+  /** Signs this browser out, revoking its key if signing in with GitHub or Google issued it. */
   signOut: () => void
 }
 

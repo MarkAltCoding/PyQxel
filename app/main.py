@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from app.api import health
 from app.api.auth import authenticate
 from app.api.v1.api import api_router
+from app.api.v1.endpoints import signin
 from app.core.cache import close_cache
 from app.core.config import get_settings
 from app.db.session import close_database, init_db
@@ -77,6 +78,10 @@ def create_app() -> FastAPI:
 
     # Every API route needs a PyQxel API key; the health checks and the docs stay open.
     application.include_router(health.router)
+    # Signing in comes before an account has an API key.
+    application.include_router(
+        signin.router, prefix=f"{settings.api_v1_prefix}/auth", tags=["sign-in"]
+    )
     application.include_router(
         api_router, prefix=settings.api_v1_prefix, dependencies=[Depends(authenticate)]
     )

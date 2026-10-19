@@ -4736,6 +4736,29 @@
         "title": "SearchResponse",
         "type": "object"
       },
+      "SignInProvider": {
+        "description": "A provider people can sign in with on this server.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "enum": [
+              "github",
+              "google"
+            ],
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label"
+        ],
+        "title": "SignInProvider",
+        "type": "object"
+      },
       "SimulationList": {
         "description": "One page of stored simulations, newest first.",
         "properties": {
@@ -6108,6 +6131,47 @@
         "summary": "A stored analysis in full",
         "tags": [
           "research"
+        ]
+      }
+    },
+    "/api/v1/auth/providers": {
+      "get": {
+        "description": "The providers people can sign in with here, in the order to show them.",
+        "operationId": "sign_in_providers_api_v1_auth_providers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SignInProvider"
+                  },
+                  "title": "Response Sign In Providers Api V1 Auth Providers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ways to sign in",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/auth/signout": {
+      "post": {
+        "description": "Revoke the API key this request carries if a sign-in issued it. Keys created for\nscripts keep working, so signing out of the website does not break them.",
+        "operationId": "sign_out_api_v1_auth_signout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sign out",
+        "tags": [
+          "sign-in"
         ]
       }
     },

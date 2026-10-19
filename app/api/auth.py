@@ -26,7 +26,7 @@ from app.db.users import authenticate as user_for_key
 logger = logging.getLogger(__name__)
 
 
-def _presented_key(connection: HTTPConnection) -> str | None:
+def presented_key(connection: HTTPConnection) -> str | None:
     """The API key the client sent, if any."""
     authorization = connection.headers.get("authorization", "")
     scheme, _, token = authorization.partition(" ")
@@ -57,7 +57,7 @@ async def authenticate(connection: HTTPConnection) -> User:
             limit; 503 when the account database or stored credentials are unavailable.
             WebSocket connections are closed with code 1008 instead.
     """
-    key = _presented_key(connection)
+    key = presented_key(connection)
     if key is None:
         raise _refuse(
             connection,

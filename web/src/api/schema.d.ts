@@ -49,6 +49,47 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/auth/providers': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Ways to sign in
+     * @description The providers people can sign in with here, in the order to show them.
+     */
+    get: operations['sign_in_providers_api_v1_auth_providers_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/auth/signout': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Sign out
+     * @description Revoke the API key this request carries if a sign-in issued it. Keys created for
+     *     scripts keep working, so signing out of the website does not break them.
+     */
+    post: operations['sign_out_api_v1_auth_signout_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/backtests': {
     parameters: {
       query?: never
@@ -3297,6 +3338,19 @@ export interface components {
       query: string
     }
     /**
+     * SignInProvider
+     * @description A provider people can sign in with on this server.
+     */
+    SignInProvider: {
+      /** Label */
+      label: string
+      /**
+       * Name
+       * @enum {string}
+       */
+      name: 'github' | 'google'
+    }
+    /**
      * SimulationList
      * @description One page of stored simulations, newest first.
      */
@@ -3978,6 +4032,44 @@ export interface operations {
         content: {
           'application/json': components['schemas']['HTTPValidationError']
         }
+      }
+    }
+  }
+  sign_in_providers_api_v1_auth_providers_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SignInProvider'][]
+        }
+      }
+    }
+  }
+  sign_out_api_v1_auth_signout_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
       }
     }
   }

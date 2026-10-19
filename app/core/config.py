@@ -56,6 +56,18 @@ class Settings(BaseSettings):
         "with ``python -m app.jobs.users generate-encryption-key``. Users cannot store "
         "keys without it.",
     )
+    github_client_id: str | None = Field(
+        default=None,
+        description="Client ID of the GitHub OAuth app people sign in with; GitHub sign-in "
+        "is offered when it and ``github_client_secret`` are set.",
+    )
+    github_client_secret: SecretStr | None = None
+    google_client_id: str | None = Field(
+        default=None,
+        description="Client ID of the Google OAuth client people sign in with; Google "
+        "sign-in is offered when it and ``google_client_secret`` are set.",
+    )
+    google_client_secret: SecretStr | None = None
     yfinance_fallback: bool = Field(
         default=False,
         description="For development or personal use: use yfinance when a user has no FMP "

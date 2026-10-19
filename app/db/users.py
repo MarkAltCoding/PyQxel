@@ -21,6 +21,7 @@ from app.db.tables import (
     AnalysisRecord,
     ApiKeyRecord,
     BacktestRecord,
+    IdentityRecord,
     SimulationRecord,
     UserRecord,
     as_utc,
@@ -126,8 +127,14 @@ async def get_user(session: AsyncSession, user_id: str) -> User | None:
     return None if record is None else _user(record)
 
 
-async def create_api_key(session: AsyncSession, user_id: str, name: str) -> NewApiKey:
-    """Issue an API key for the account; the key is returned this once and stored hashed."""
+async def create_api_key(
+    session: AsyncSession, user_id: str, name: str, signed_in_with: str | None = None
+) -> NewApiKey:
+    """Issue an API key for the account; the key is returned this once and stored hashed.
+
+    ``signed_in_with`` names the provider of a sign-in the key is issued for, which marks
+    it as one that signing out revokes.
+    """
     key = generate_api_key()
     record = ApiKeyRecord(
         id=str(uuid4()),
@@ -136,10 +143,61 @@ async def create_api_key(session: AsyncSession, user_id: str, name: str) -> NewA
         prefix=key[:API_KEY_DISPLAY_LENGTH],
         key_hash=hash_api_key(key),
         created_at=datetime.now(timezone.utc),
+        signed_in_with=signed_in_with,
     )
     session.add(record)
     await session.commit()
     return NewApiKey(**_key_info(record).model_dump(), key=key)
+
+
+async def user_for_identity(session: AsyncSession, provider: str, subject: str, email: str) -> User:
+    """The account a GitHub or Google identity signs in to, made on its first sign-in.
+
+    A known identity keeps its account, and its email is brought up to date. A new one
+    joins the account that already uses its email, which the provider has verified, so
+    the same person can sign in either way; failing that, a new account is made.
+    """
+    email = email.strip().lower()
+    identity = await session.scalar(
+        select(IdentityRecord).where(
+            IdentityRecord.provider == provider, IdentityRecord.subject == subject
+        )
+    )
+    if identity is not None:
+        identity.email = email
+        await session.commit()
+        user = await get_user(session, identity.user_id)
+        assert user is not None, "an identity's account is deleted with it"
+        return user
+    user = await find_user_by_email(session, email) or await create_user(session, email)
+    session.add(
+        IdentityRecord(
+            id=str(uuid4()),
+            user_id=user.id,
+            provider=provider,
+            subject=subject,
+            email=email,
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    await session.commit()
+    return user
+
+
+async def revoke_signed_in_key(session: AsyncSession, key: str) -> bool:
+    """Revoke ``key`` if a sign-in issued it, as signing out does; keys made for scripts
+    are left alone. Returns whether a key was revoked."""
+    revoked = await session.execute(
+        update(ApiKeyRecord)
+        .where(
+            ApiKeyRecord.key_hash == hash_api_key(key),
+            ApiKeyRecord.signed_in_with.is_not(None),
+            ApiKeyRecord.revoked_at.is_(None),
+        )
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+    await session.commit()
+    return bool(revoked.rowcount)  # type: ignore[attr-defined]
 
 
 async def authenticate(session: AsyncSession, key: str) -> User | None:

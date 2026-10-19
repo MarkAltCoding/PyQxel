@@ -19,6 +19,7 @@ import type {
   ScreenRequest,
   ScreenResponse,
   SearchResponse,
+  SignInProvider,
   SimulationRequest,
   SimulationResponse,
   TickerInfo,
@@ -30,6 +31,10 @@ const V1 = '/api/v1'
 const path = (symbol: string) => `${V1}/stocks/${encodeURIComponent(symbol)}`
 
 export const getAccount = (key?: string) => api<Account>(`${V1}/me`, { key })
+export const getSignInProviders = () => api<SignInProvider[]>(`${V1}/auth/providers`)
+/** Revokes `key` if signing in issued it; keys made for scripts keep working. */
+export const revokeSignIn = (key: string) =>
+  api<void>(`${V1}/auth/signout`, { method: 'POST', key })
 export const updateCredentials = (body: CredentialsUpdate) =>
   api<Account>(`${V1}/me/credentials`, { method: 'PUT', body })
 export const updateLimits = (body: AiLimits) =>

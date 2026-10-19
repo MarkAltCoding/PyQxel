@@ -101,7 +101,7 @@ An AI-native research and quantitative analysis platform that helps investors ch
    npm run dev     # http://localhost:5173, forwarding API calls to the server above
    npm run build   # or build it once; the API server then serves it at http://127.0.0.1:8000
    ```
-   Sign in with your API key. The app has:
+   Sign in with GitHub or Google (see [signing in](#signing-in-with-github-and-google)) or with your API key. The app has:
    * **Search** by ticker or company name, over the screened universe (`GET /api/v1/search?q=`); any other ticker, such as an ETF, can be typed in directly.
    * **Stock pages** with price and volume, factor exposures with confidence intervals, GARCH volatility with its forecast, and the AI research report, written on request and streamed as Claude writes it.
    * **Portfolio**: holdings saved to your account (`GET` and `PUT /api/v1/portfolio/holdings`, as symbols and share counts valued at the latest prices), a Monte Carlo fan chart of outcomes, and a heatmap of how the holdings move together, from the copula fit.
@@ -176,9 +176,26 @@ DATABASE_PGBOUNCER=true python -m app.jobs.users create you@example.com --import
 ```
 Then check the deployment with `curl https://<service-url>/health/ready`.
 
+#### Signing in with GitHub and Google
+
+Anyone can then make an account by signing in with GitHub or Google. Each needs an OAuth client of your own, registered with the service's address; set up either or both. Cloud Run serves the service at two addresses (`gcloud run services describe pyqxel --region us-central1 --format='value(metadata.annotations."run.googleapis.com/urls")'` lists them), and a sign-in comes back to the one it started from, so register the callback at each:
+
+* **GitHub**: in GitHub, go to *Settings → Developer settings → OAuth Apps → New OAuth App*. Set the homepage URL to `https://<service-url>`, and add `https://<service-url>/api/v1/auth/github/callback` under *Redirect URIs* for each address, leaving wildcard matching and the device flow off. Copy the client ID, generate a client secret, and store the secret:
+  ```bash
+  printf %s 'the-client-secret' | gcloud secrets create pyqxel-github-client-secret --data-file=-
+  ```
+* **Google**: in the Google Cloud console, under *APIs & Services*, set up the *OAuth consent screen* (external, with the `openid`, `email` and `profile` scopes) and publish it, since while it is in testing only the test users you list can sign in. Then under *Credentials*, create an *OAuth client ID* for a *web application* with the authorized redirect URI `https://<service-url>/api/v1/auth/google/callback` for each address, and store its secret:
+  ```bash
+  printf %s 'the-client-secret' | gcloud secrets create pyqxel-google-client-secret --data-file=-
+  ```
+
+Deploy once with the client IDs, `GITHUB_CLIENT_ID=... GOOGLE_CLIENT_ID=... deploy/cloud-run.sh`; later deploys keep them. The sign-in page shows a button for each provider that has both its ID and secret. To try it locally, register a second client whose callback is `http://127.0.0.1:8000/api/v1/auth/<provider>/callback`, and set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` (or the `GOOGLE_` pair) in `.env`.
+
 ## Accounts and Billing
 
 Every `/api/v1` request is made by an account, identified by its PyQxel API key in `Authorization: Bearer <key>` (or `X-API-Key`). Only a hash of each key is stored. Accounts pay for their own usage, and nothing one account does is billed to another or to the server:
+
+* **Signing in**: anyone can make an account by signing in with GitHub or Google, when the server [has them set up](#signing-in-with-github-and-google). Accounts are matched by the provider's permanent ID for the person and by their verified email, so a GitHub and a Google account with the same verified address sign in to the same PyQxel account, as does an account made before with `python -m app.jobs.users create`. Signing in gives the browser an API key; signing out revokes it, while keys created for scripts keep working.
 
 * **AI analyses** run on the account's own Anthropic key, and **market data** comes from Financial Modeling Prep on its own FMP key. An optional **Alpha Vantage** key fills the gaps: it answers market data requests (quotes, prices, company profiles, exchange rates) when FMP fails or the account's FMP plan does not cover them, fills in profile fields FMP leaves empty (`filled_fields`), and supplies financial statements the SEC filings leave out (see [fundamentals](#fundamentals-and-valuation)). It works on a [free key](https://www.alphavantage.co/support/#api-key), which allows 25 requests a day and one a second: answers are reused for up to a day (a minute for quotes), requests are spaced a second apart, and only the statements covering missing items are requested. The free plan covers quotes, financial statements, exchange rates and symbol search, but not the company overview, adjusted prices or intraday bars, so on a free key: profiles have a name, currency and price but no sector, industry or market cap (valuation then estimates the market cap from shares outstanding), and filling in profile fields FMP leaves empty is skipped; price history is the latest 100 daily bars, not adjusted for splits or dividends, with a `notice` saying so (with `YFINANCE_FALLBACK` on, yfinance's full adjusted history is used instead); and intraday bars return 402. `pytest --live` checks the key in `ALPHA_VANTAGE_API_KEY` against the real service, using about nine requests. Store, replace or remove keys with `PUT /api/v1/me/credentials` (`{"anthropic_api_key": "...", "fmp_api_key": "...", "alpha_vantage_api_key": "..."}`; omit a field to keep it, `null` removes it). Keys are encrypted at rest and never returned; `GET /api/v1/me` shows only their last four characters. Without an Anthropic key, analyses return 403; without an FMP or Alpha Vantage key (and with the development fallback off), market data returns 403, and a request the account's FMP plan does not cover returns 402.
 * **Stored results**, meaning backtests, analyses and simulations, belong to the account that made them; listing, reading and deleting see only its own. Reports are never reused across accounts, and FMP or Alpha Vantage data cached for one account is not served to accounts without their own key for that provider.

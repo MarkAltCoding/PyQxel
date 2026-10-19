@@ -21,6 +21,10 @@
 #                             and Nasdaq data, for a deployment only you use; when unset,
 #                             the running service's value is kept (false when deploying
 #                             for the first time)
+#   GITHUB_CLIENT_ID          the GitHub OAuth app people sign in with, beside the
+#                             pyqxel-github-client-secret secret; kept when unset
+#   GOOGLE_CLIENT_ID          the Google OAuth client people sign in with, beside the
+#                             pyqxel-google-client-secret secret; kept when unset
 
 set -euo pipefail
 
@@ -33,6 +37,8 @@ CORS_ORIGINS="${CORS_ORIGINS:-}"
 SCREENER_SCHEDULE="${SCREENER_SCHEDULE-30 18 * * 1-5}"
 SCREENER_FMP_REQUESTS_PER_MINUTE="${SCREENER_FMP_REQUESTS_PER_MINUTE:-300}"
 YFINANCE_FALLBACK="${YFINANCE_FALLBACK:-}"
+GITHUB_CLIENT_ID="${GITHUB_CLIENT_ID:-}"
+GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
 
 REPOSITORY="$SERVICE"
 JOB="$SERVICE-screener"
@@ -40,30 +46,38 @@ RUN_ACCOUNT="$SERVICE-run@$PROJECT_ID.iam.gserviceaccount.com"
 SCHEDULER_ACCOUNT="$SERVICE-scheduler@$PROJECT_ID.iam.gserviceaccount.com"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$(git rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M%S)"
 
-# Secret Manager name -> environment variable. The first two are required.
-SECRET_NAMES=(pyqxel-database-url pyqxel-credentials-key pyqxel-redis-url)
-SECRET_VARIABLES=(DATABASE_URL CREDENTIALS_ENCRYPTION_KEY REDIS_URL)
+# Secret Manager name -> environment variable. The first two are required; the first three
+# go to the screener job too, and the sign-in clients' secrets to the service only.
+SECRET_NAMES=(pyqxel-database-url pyqxel-credentials-key pyqxel-redis-url
+    pyqxel-github-client-secret pyqxel-google-client-secret)
+SECRET_VARIABLES=(DATABASE_URL CREDENTIALS_ENCRYPTION_KEY REDIS_URL
+    GITHUB_CLIENT_SECRET GOOGLE_CLIENT_SECRET)
 # The screener's licensed FMP key, given to the screener job only, never to the service.
 SCREENER_SECRET=pyqxel-screener-fmp-key
 
 gc() { gcloud --project "$PROJECT_ID" --quiet "$@"; }
 step() { printf '\n==> %s\n' "$*"; }
 
-# Unless given, keep the running service's YFINANCE_FALLBACK, so a redeploy never turns the
-# fallback off by leaving it out; a first deployment starts with it off.
-if [[ -z "$YFINANCE_FALLBACK" ]]; then
-    YFINANCE_FALLBACK="$(gc run services describe "$SERVICE" --region "$REGION" --format json \
-        2>/dev/null | python3 -c '
+# Unless given, these keep the running service's values, so a redeploy never drops one by
+# leaving it out; a first deployment starts without them, and with the fallback off.
+running="$(gc run services describe "$SERVICE" --region "$REGION" --format json 2>/dev/null || true)"
+running_env() {
+    printf '%s' "$running" | python3 -c '
 import json, sys
 env = json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0].get("env", [])
-print(next((e.get("value", "") for e in env if e["name"] == "YFINANCE_FALLBACK"), ""))
-' 2>/dev/null || true)"
-    if [[ -n "$YFINANCE_FALLBACK" ]]; then
-        echo "YFINANCE_FALLBACK=$YFINANCE_FALLBACK, kept from the running service."
-    else
-        YFINANCE_FALLBACK=false
+print(next((e.get("value", "") for e in env if e["name"] == sys.argv[1]), ""))
+' "$1" 2>/dev/null || true
+}
+for name in YFINANCE_FALLBACK GITHUB_CLIENT_ID GOOGLE_CLIENT_ID; do
+    if [[ -z "${!name}" ]]; then
+        value="$(running_env "$name")"
+        if [[ -n "$value" ]]; then
+            printf -v "$name" '%s' "$value"
+            echo "$name=$value, kept from the running service."
+        fi
     fi
-fi
+done
+YFINANCE_FALLBACK="${YFINANCE_FALLBACK:-false}"
 
 step "Enabling APIs"
 gc services enable run.googleapis.com artifactregistry.googleapis.com \
@@ -71,19 +85,35 @@ gc services enable run.googleapis.com artifactregistry.googleapis.com \
 
 step "Checking secrets"
 secrets=()
+job_secrets=()
 for i in "${!SECRET_NAMES[@]}"; do
     name="${SECRET_NAMES[$i]}"
     if gc secrets describe "$name" >/dev/null 2>&1; then
         secrets+=("${SECRET_VARIABLES[$i]}=$name:latest")
+        if [[ $i -lt 3 ]]; then job_secrets+=("${SECRET_VARIABLES[$i]}=$name:latest"); fi
     elif [[ $i -lt 2 ]]; then
         echo "Missing secret $name; create it as README.md describes." >&2
         exit 1
-    else
+    elif [[ $i -eq 2 ]]; then
         echo "No $name secret: running without Redis, so each instance keeps its own caches and rate limits."
+    else
+        provider="GitHub"
+        if [[ $name == *google* ]]; then provider="Google"; fi
+        echo "No $name secret: signing in with $provider is off; see README.md."
+    fi
+done
+for pair in "GITHUB_CLIENT_ID:pyqxel-github-client-secret" "GOOGLE_CLIENT_ID:pyqxel-google-client-secret"; do
+    variable="${pair%%:*}" secret="${pair#*:}"
+    has_secret=false
+    if printf '%s\n' "${secrets[@]}" | grep -q "=$secret:"; then has_secret=true; fi
+    if [[ -n "${!variable}" && $has_secret == false ]]; then
+        echo "$variable is set but the $secret secret is missing, so that sign-in stays off." >&2
+    elif [[ -z "${!variable}" && $has_secret == true ]]; then
+        echo "The $secret secret exists but $variable is unset, so that sign-in stays off." >&2
     fi
 done
 secret_flags="$(IFS=,; echo "${secrets[*]}")"
-job_secret_flags="$secret_flags"
+job_secret_flags="$(IFS=,; echo "${job_secrets[*]}")"
 screener_secrets=()
 if gc secrets describe "$SCREENER_SECRET" >/dev/null 2>&1; then
     screener_secrets+=("SCREENER_FMP_API_KEY=$SCREENER_SECRET:latest")
@@ -140,6 +170,9 @@ env_vars="^|^YFINANCE_FALLBACK=$YFINANCE_FALLBACK|DATABASE_PGBOUNCER=true|SEC_US
 if [[ -n "$CORS_ORIGINS" ]]; then
     env_vars+="|CORS_ORIGINS=$CORS_ORIGINS"
 fi
+for name in GITHUB_CLIENT_ID GOOGLE_CLIENT_ID; do
+    if [[ -n "${!name}" ]]; then env_vars+="|$name=${!name}"; fi
+done
 
 step "Deploying the $SERVICE service"
 # Scales to zero when idle; billed only while handling requests. The startup probe keeps a

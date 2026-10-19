@@ -14,6 +14,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     false,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -65,6 +66,30 @@ class ApiKeyRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signed_in_with: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    """The provider a sign-in issued the key through, such as ``github``; null for keys
+    created for scripts, which signing out leaves alone."""
+
+
+class IdentityRecord(Base):
+    """A GitHub or Google account that signs in to a PyQxel account.
+
+    ``subject`` is the provider's own, permanent ID for the person; ``email`` is the
+    verified address they had when they last signed in. One PyQxel account may have an
+    identity at each provider.
+    """
+
+    __tablename__ = "identities"
+    __table_args__ = (UniqueConstraint("provider", "subject", name="uq_identities_provider"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    provider: Mapped[str] = mapped_column(String(16))
+    subject: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str] = mapped_column(String(320))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class BacktestRecord(Base):

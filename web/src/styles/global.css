@@ -847,6 +847,27 @@ table.data .muted {
   gap: 14px;
 }
 
+.signin-provider {
+  justify-content: center;
+  width: 100%;
+  text-decoration: none;
+}
+
+.signin-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.signin-divider::before,
+.signin-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
 .hero-search {
   max-width: 640px;
   margin: 8vh auto 32px;

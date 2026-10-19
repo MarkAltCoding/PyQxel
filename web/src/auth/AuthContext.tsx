@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { configureClient } from '../api/client'
-import { getAccount } from '../api/endpoints'
+import { getAccount, revokeSignIn } from '../api/endpoints'
 import { readStored, writeStored } from '../lib/storage'
 import { AuthContext } from './useAuth'
 
@@ -15,15 +15,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return stored
   })
 
-  const signOut = useCallback(() => {
+  /** Drops the key from this browser, as when the API no longer accepts it. */
+  const forget = useCallback(() => {
     writeStored(STORAGE_KEY, null)
     configureClient(null)
     setApiKey(null)
     queryClient.clear()
   }, [queryClient])
 
+  const signOut = useCallback(() => {
+    // Best effort: signing out of this browser does not wait on the server.
+    if (apiKey) revokeSignIn(apiKey).catch(() => {})
+    forget()
+  }, [apiKey, forget])
+
   // Configured during render, not in an effect, so the first queries already send the key.
-  configureClient(apiKey, signOut)
+  configureClient(apiKey, forget)
 
   const signIn = useCallback(async (key: string, remember: boolean) => {
     const trimmed = key.trim()
