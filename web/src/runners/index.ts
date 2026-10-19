@@ -1,6 +1,7 @@
 // One runner per language for the whole session, so a loaded runtime is reused across
 // runs and pages instead of downloaded again.
 import type { CodeLanguage } from '../api/types'
+import { createCppRunner } from './cpp'
 import { createPythonRunner } from './python'
 import type { RunError, StrategyRunner } from './types'
 
@@ -9,8 +10,7 @@ const runners = new Map<CodeLanguage, StrategyRunner>()
 export function runnerFor(language: CodeLanguage): StrategyRunner {
   let runner = runners.get(language)
   if (!runner) {
-    if (language !== 'python') throw new Error(`${language} strategies cannot be run yet.`)
-    runner = createPythonRunner()
+    runner = language === 'cpp' ? createCppRunner() : createPythonRunner()
     runners.set(language, runner)
   }
   return runner

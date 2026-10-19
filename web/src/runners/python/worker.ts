@@ -6,6 +6,7 @@
 // them. It runs the user's code only in this worker, never on the main thread or server.
 import type { loadPyodide as LoadPyodide } from 'pyodide'
 import harness from './harness.py?raw'
+import { cutNetwork } from '../lockdown'
 import type { WorkerOutcome, WorkerRequest, WorkerResponse } from '../workerRunner'
 
 /** The worker's global scope; the app is typed against the DOM, not WebWorker, library. */
@@ -19,28 +20,6 @@ const BASE = new URL(
   import.meta.env.VITE_PYODIDE_URL || `${import.meta.env.BASE_URL}pyodide/`,
   scope.location.href,
 ).href
-
-/** Globals that reach the network or load code, removed once Pyodide has loaded. */
-const NETWORK = [
-  'fetch',
-  'XMLHttpRequest',
-  'WebSocket',
-  'EventSource',
-  'WebTransport',
-  'importScripts',
-  'Worker',
-  'SharedWorker',
-]
-
-/** Removes every network global, from the scope and the prototypes it inherits them from. */
-function cutNetwork(): void {
-  for (const name of NETWORK) {
-    for (let target: object | null = scope; target; target = Object.getPrototypeOf(target)) {
-      if (Object.prototype.hasOwnProperty.call(target, name)) Reflect.deleteProperty(target, name)
-    }
-    Object.defineProperty(scope, name, { value: undefined, writable: false, configurable: false })
-  }
-}
 
 type RunStrategy = (code: string, payload: string) => string
 
@@ -58,7 +37,7 @@ function load(): Promise<RunStrategy> {
     })
     pyodide.runPython(harness)
     const run = pyodide.globals.get('run_strategy') as RunStrategy
-    cutNetwork()
+    cutNetwork(scope)
     return run
   })()
   ready.catch(() => {

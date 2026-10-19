@@ -3,6 +3,7 @@ import { Notice } from './Notice'
 
 const HEADINGS: Record<RunError['kind'], string> = {
   syntax: 'Syntax error',
+  compile: 'Compile error',
   runtime: 'Error',
   result: 'These positions can’t be backtested',
   timeout: 'Stopped: the strategy took too long',
