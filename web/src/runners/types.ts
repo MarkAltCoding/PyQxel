@@ -3,6 +3,12 @@
 // one target position per bar for the server to score.
 import type { CodeLanguage, OHLCVBar } from '../api/types'
 
+/** What runs each language, as messages name it: "The C++ compiler could not start". */
+export const RUNTIME_NAMES: Record<CodeLanguage, string> = {
+  python: 'Python',
+  cpp: 'The C++ compiler',
+}
+
 export interface RunError {
   /** `syntax` (Python) and `compile` (C++) are errors in the code before it runs,
    * `runtime` while it runs, `result` in what it returned, `timeout` when it ran too long,

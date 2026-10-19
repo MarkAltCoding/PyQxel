@@ -9,6 +9,7 @@ import {
   type RunError,
   type RunOptions,
   type RunResult,
+  RUNTIME_NAMES,
   type StrategyRunner,
 } from './types'
 
@@ -132,14 +133,14 @@ export class WorkerRunner implements StrategyRunner {
         )
       }
       const onError = (event: ErrorEvent) =>
-        stop('load', event.message || `The ${this.language} runtime failed to start.`)
+        stop('load', event.message || `${RUNTIME_NAMES[this.language]} failed to start.`)
       const onAbort = () => stop('cancelled', 'The run was cancelled.')
 
       let timer = setTimeout(
         () =>
           stop(
             'load',
-            `The ${this.language} runtime did not load within ` +
+            `${RUNTIME_NAMES[this.language]} did not load within ` +
               `${seconds(this.timeouts.loadMs)} seconds. Check the connection and try again.`,
           ),
         this.timeouts.loadMs,

@@ -1,9 +1,6 @@
 import type { CodeLanguage } from '../api/types'
-import type { RunError } from '../runners/types'
+import { RUNTIME_NAMES, type RunError } from '../runners/types'
 import { Notice } from './Notice'
-
-/** What fails to start in each language. */
-const RUNTIMES: Record<CodeLanguage, string> = { python: 'Python', cpp: 'The C++ compiler' }
 
 const HEADINGS: Record<Exclude<RunError['kind'], 'load'>, string> = {
   syntax: 'Syntax error',
@@ -34,7 +31,9 @@ export function StrategyRunOutput({
       {shown && (
         <Notice tone="error">
           <strong>
-            {shown.kind === 'load' ? `${RUNTIMES[language]} could not start` : HEADINGS[shown.kind]}
+            {shown.kind === 'load'
+              ? `${RUNTIME_NAMES[language]} could not start`
+              : HEADINGS[shown.kind]}
             {shown.line ? ` on line ${shown.line}` : ''}
           </strong>
           {traceback && traceback !== shown.message ? (
