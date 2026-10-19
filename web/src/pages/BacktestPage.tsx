@@ -24,6 +24,7 @@ import { FACTOR_NAMES } from '../lib/factors'
 import { useChartTheme } from '../charts/theme'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { SearchBox } from '../components/SearchBox'
+import { Segmented } from '../components/Segmented'
 import { Stat } from '../components/Stat'
 import { StrategyRunOutput } from '../components/StrategyRunOutput'
 import type { EditorError } from '../editor/StrategyEditor'
@@ -115,7 +116,29 @@ type StrategyChoice = StrategyType | 'custom'
 const LANGUAGE_LABEL: Record<CodeLanguage, string> = { python: 'Python', cpp: 'C++' }
 
 const CUSTOM_ABOUT =
-  'Your own Python, run in this browser on NumPy and pandas. Only the positions it returns are sent to PyQxel, which backtests them like any built-in strategy.'
+  'Your own Python or C++, run in this browser. Only the positions it returns are sent to PyQxel, which backtests them like any built-in strategy.'
+
+/** What each language offers, and what a run says while it loads and runs. */
+const LANGUAGE_DETAILS: Record<
+  EditorLanguage,
+  { subtitle: string; loading: string; running: string }
+> = {
+  python: {
+    subtitle: 'Python 3.14 with NumPy and pandas, run in this browser',
+    loading: 'Loading Python…',
+    running: 'Running strategy…',
+  },
+  cpp: {
+    subtitle: 'C++20 with its standard library, compiled and run in this browser',
+    loading: 'Loading the C++ compiler…',
+    running: 'Compiling and running…',
+  },
+}
+
+const LANGUAGE_OPTIONS: { value: EditorLanguage; label: string }[] = [
+  { value: 'python', label: 'Python' },
+  { value: 'cpp', label: 'C++' },
+]
 
 /** Where the code being written is kept between visits. */
 const draftKey = (language: EditorLanguage) => `pyqxel.strategyDraft.${language}`
@@ -282,6 +305,17 @@ export function BacktestPage() {
     set('code', code)
     writeStored(draftKey(form.language), code)
   }
+  /** Switches the custom strategy's language, to that language's own draft or starter. */
+  const chooseLanguage = (language: EditorLanguage) => {
+    if (language === form.language) return
+    setForm((current) => ({
+      ...current,
+      language,
+      code: readStored(draftKey(language)) ?? starterCode(language),
+    }))
+    // Its runtime starts downloading while the code is read and written.
+    runnerFor(language).warm()
+  }
   /** What a custom run is doing, for the Run button. */
   const [phase, setPhase] = useState('')
   /** What the last custom run printed. */
@@ -318,10 +352,11 @@ export function BacktestPage() {
         if (history.bars.length === 0) {
           throw new ApiError(422, history.notice ?? `${form.symbol} has no prices in this window.`)
         }
-        setPhase('Loading Python…')
+        const details = LANGUAGE_DETAILS[form.language]
+        setPhase(details.loading)
         const outcome = await runnerFor(form.language).run(form.code, history.bars, {
           signal: controller.signal,
-          onStart: () => setPhase('Running strategy…'),
+          onStart: () => setPhase(details.running),
         })
         setPrinted(outcome.output)
         if (!outcome.ok) throw new StrategyRunError(outcome.error, outcome.output)
@@ -361,12 +396,11 @@ export function BacktestPage() {
   if (openedResult?.id && openedResult.id !== loadedId) {
     setLoadedId(openedResult.id)
     const { strategy } = openedResult
-    // Only Python opens in the editor until C++ strategies can be run.
-    if (strategy.type === 'custom' && (strategy.language ?? 'python') === 'python') {
+    if (strategy.type === 'custom') {
       setForm((current) => ({
         ...current,
         type: 'custom',
-        language: 'python',
+        language: strategy.language ?? 'python',
         code: strategy.code,
         symbol: openedResult.symbol,
         period: openedResult.period,
@@ -441,7 +475,7 @@ export function BacktestPage() {
                 </optgroup>
               ))}
               <optgroup label="Custom">
-                <option value="custom">Custom (Python)</option>
+                <option value="custom">Custom code (Python or C++)</option>
               </optgroup>
             </select>
           </label>
@@ -728,11 +762,15 @@ export function BacktestPage() {
             <div className="card-header">
               <div>
                 <h2>Strategy code</h2>
-                <div className="subtitle">
-                  {LANGUAGE_LABEL[form.language]} with NumPy and pandas, run in this browser
-                </div>
+                <div className="subtitle">{LANGUAGE_DETAILS[form.language].subtitle}</div>
               </div>
               <div className="filter-row">
+                <Segmented
+                  label="Language"
+                  value={form.language}
+                  options={LANGUAGE_OPTIONS}
+                  onChange={chooseLanguage}
+                />
                 <button
                   type="button"
                   className="button ghost small"
@@ -770,7 +808,7 @@ export function BacktestPage() {
                 label={`${LANGUAGE_LABEL[form.language]} strategy code`}
               />
             </Suspense>
-            <StrategyRunOutput error={runFailure} output={printed} />
+            <StrategyRunOutput error={runFailure} output={printed} language={form.language} />
           </section>
           {result ? (
             <ResultChart result={result} refreshing={run.isPending} />

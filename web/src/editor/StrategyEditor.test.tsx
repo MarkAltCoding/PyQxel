@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, waitFor } from '@testing-library/react'
 import { EditorView } from '@codemirror/view'
+import { language } from '@codemirror/language'
 import { forEachDiagnostic } from '@codemirror/lint'
 import { StrategyEditor, type EditorError } from './StrategyEditor'
 import { starterCode } from './starters'
@@ -106,5 +107,19 @@ describe('StrategyEditor', () => {
     expect(starter).toContain('def strategy(bars: pd.DataFrame) -> pd.Series:')
     expect(starter).toContain('.fillna(0.0)')
     expect(starter).toContain('holds each position over the next bar')
+  })
+
+  it('loads each language’s grammar when it is shown', async () => {
+    const onChange = vi.fn()
+    const { container, rerender } = render(
+      <StrategyEditor language="python" value={CODE} onChange={onChange} />,
+    )
+    const view = EditorView.findFromDOM(container.querySelector<HTMLElement>('.cm-editor')!)!
+
+    await waitFor(() => expect(view.state.facet(language)?.name).toBe('python'))
+    rerender(<StrategyEditor language="cpp" value={starterCode('cpp')} onChange={onChange} />)
+
+    await waitFor(() => expect(view.state.facet(language)?.name).toBe('cpp'))
+    expect(container.querySelector('[data-language="cpp"]')).not.toBeNull()
   })
 })

@@ -56,7 +56,7 @@ export function StrategyEditor({
   const changed = useRef(onChange)
   const compartments = useRef({ language: new Compartment(), readOnly: new Compartment() })
   /** The props the view starts from; the effects after its creation apply later ones. */
-  const initial = useRef({ language, value, label, readOnly })
+  const initial = useRef({ value, label, readOnly })
 
   useEffect(() => {
     changed.current = onChange
@@ -94,7 +94,8 @@ export function StrategyEditor({
             ...lintKeymap,
             indentWithTab,
           ]),
-          languageSlot.of(LANGUAGES[start.language].extension()),
+          // Filled in once the language's grammar has loaded, below.
+          languageSlot.of([]),
           readOnlySlot.of(EditorState.readOnly.of(start.readOnly)),
           EditorView.contentAttributes.of({
             'aria-label': start.label,
@@ -123,10 +124,20 @@ export function StrategyEditor({
     current.dispatch({ changes: { from: 0, to: current.state.doc.length, insert: value } })
   }, [value])
 
+  // A language's grammar loads on demand; a later switch wins over an earlier one still
+  // loading.
   useEffect(() => {
-    view.current?.dispatch({
-      effects: compartments.current.language.reconfigure(LANGUAGES[language].extension()),
+    let current = true
+    void LANGUAGES[language].load().then((extension) => {
+      if (current) {
+        view.current?.dispatch({
+          effects: compartments.current.language.reconfigure(extension),
+        })
+      }
     })
+    return () => {
+      current = false
+    }
   }, [language])
 
   useEffect(() => {

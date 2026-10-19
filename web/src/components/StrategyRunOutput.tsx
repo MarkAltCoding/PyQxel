@@ -1,18 +1,29 @@
+import type { CodeLanguage } from '../api/types'
 import type { RunError } from '../runners/types'
 import { Notice } from './Notice'
 
-const HEADINGS: Record<RunError['kind'], string> = {
+/** What fails to start in each language. */
+const RUNTIMES: Record<CodeLanguage, string> = { python: 'Python', cpp: 'The C++ compiler' }
+
+const HEADINGS: Record<Exclude<RunError['kind'], 'load'>, string> = {
   syntax: 'Syntax error',
   compile: 'Compile error',
   runtime: 'Error',
   result: 'These positions can’t be backtested',
   timeout: 'Stopped: the strategy took too long',
   cancelled: 'Stopped',
-  load: 'Python could not start',
 }
 
 /** What a strategy run left behind in the browser: its error, and anything it printed. */
-export function StrategyRunOutput({ error, output }: { error: RunError | null; output: string }) {
+export function StrategyRunOutput({
+  error,
+  output,
+  language,
+}: {
+  error: RunError | null
+  output: string
+  language: CodeLanguage
+}) {
   const shown = error && error.kind !== 'cancelled' ? error : null
   if (!shown && !output) return null
   // A traceback adds the failing code and where it was called from; a plain message
@@ -23,7 +34,7 @@ export function StrategyRunOutput({ error, output }: { error: RunError | null; o
       {shown && (
         <Notice tone="error">
           <strong>
-            {HEADINGS[shown.kind]}
+            {shown.kind === 'load' ? `${RUNTIMES[language]} could not start` : HEADINGS[shown.kind]}
             {shown.line ? ` on line ${shown.line}` : ''}
           </strong>
           {traceback && traceback !== shown.message ? (

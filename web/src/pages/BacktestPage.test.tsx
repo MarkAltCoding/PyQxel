@@ -16,10 +16,15 @@ const runner = vi.hoisted(() => ({
   run: vi.fn(),
   warm: vi.fn(),
   dispose: vi.fn(),
+  /** The languages the page asked for a runner in, in order. */
+  asked: [] as string[],
 }))
 vi.mock('../runners', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../runners')>()),
-  runnerFor: () => runner,
+  runnerFor: (language: string) => {
+    runner.asked.push(language)
+    return runner
+  },
 }))
 // ECharts needs a real layout; the chart itself is not under test here.
 vi.mock('../charts/EChart', () => ({
@@ -133,6 +138,7 @@ const marks = (view: EditorView) => {
 beforeEach(() => {
   runner.run.mockReset()
   runner.warm.mockReset()
+  runner.asked.length = 0
 })
 
 afterEach(() => vi.restoreAllMocks())
@@ -253,7 +259,7 @@ describe('custom strategies on the Backtest page', () => {
     ).toBeInTheDocument()
     const view = await editor()
     expect(view.state.doc.toString()).toBe(code)
-    expect(screen.getByDisplayValue('Custom (Python)')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Custom code (Python or C++)')).toBeInTheDocument()
     expect(screen.getByDisplayValue('5 years')).toBeInTheDocument()
     expect(screen.getByDisplayValue('12')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Backtest QQQ' })).toBeInTheDocument()
@@ -295,5 +301,115 @@ describe('custom strategies on the Backtest page', () => {
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'x = 1\n' } })
 
     expect(window.localStorage.getItem('pyqxel.strategyDraft.python')).toBe('x = 1\n')
+  })
+
+  it('switches languages, each with its own draft, and starts loading the chosen one', async () => {
+    serve(NO_SAVED)
+    renderPage('/backtest?symbol=SPY')
+
+    await userEvent.selectOptions(strategyMenu(), 'custom')
+    const view = await editor()
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'x = 1\n' } })
+    await userEvent.click(screen.getByRole('button', { name: 'C++' }))
+
+    expect(view.state.doc.toString()).toBe(starterCode('cpp'))
+    expect(document.querySelector('[data-language="cpp"]')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'C++' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText(/C\+\+20 with its standard library/)).toBeInTheDocument()
+    expect(runner.asked).toEqual(['python', 'cpp'])
+    expect(runner.warm).toHaveBeenCalledTimes(2)
+
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'int x;\n' } })
+    await userEvent.click(screen.getByRole('button', { name: 'Python' }))
+
+    expect(view.state.doc.toString()).toBe('x = 1\n')
+    expect(window.localStorage.getItem('pyqxel.strategyDraft.python')).toBe('x = 1\n')
+    expect(window.localStorage.getItem('pyqxel.strategyDraft.cpp')).toBe('int x;\n')
+  })
+
+  it('runs C++ in its runner and posts the code with language cpp', async () => {
+    const calls = serve({
+      ...NO_SAVED,
+      'GET /api/v1/stocks/SPY/history': () => ({
+        symbol: 'SPY',
+        period: '10y',
+        interval: '1d',
+        bars: BARS,
+        coverage: 'full',
+      }),
+      'POST /api/v1/stocks/SPY/backtest/custom': (body) => {
+        const { code, language } = body as { code: string; language: 'cpp' }
+        return result({ strategy: { type: 'custom', language, code } })
+      },
+    })
+    runner.run.mockImplementation(async (_code: string, bars: OHLCVBar[]): Promise<RunResult> => ({
+      ok: true,
+      timestamps: bars.map((bar) => bar.timestamp),
+      positions: [1, 1, 0],
+      output: '',
+    }))
+    renderPage('/backtest?symbol=SPY')
+
+    await userEvent.selectOptions(strategyMenu(), 'custom')
+    await editor()
+    await userEvent.click(screen.getByRole('button', { name: 'C++' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Run' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'SPY: Custom C++ strategy' }),
+    ).toBeInTheDocument()
+    expect(runner.asked.at(-1)).toBe('cpp')
+    expect(runner.run).toHaveBeenCalledWith(starterCode('cpp'), BARS, expect.any(Object))
+    const posted = calls.find((call) => call.path === '/api/v1/stocks/SPY/backtest/custom')
+    expect(posted?.body).toMatchObject({
+      code: starterCode('cpp'),
+      language: 'cpp',
+      positions: [1, 1, 0],
+    })
+  })
+
+  it('reopens a saved C++ run in C++', async () => {
+    const code =
+      '#include <pyqxel.h>\nvoid strategy(const pyqxel::Bars& b, std::span<double> p) {}\n'
+    serve({
+      ...NO_SAVED,
+      'GET /api/v1/backtests/cpp-run': () =>
+        result({ id: 'cpp-run', strategy: { type: 'custom', language: 'cpp', code } }),
+    })
+    renderPage('/backtest?id=cpp-run')
+
+    expect(
+      await screen.findByRole('heading', { name: 'SPY: Custom C++ strategy' }),
+    ).toBeInTheDocument()
+    const view = await editor()
+    expect(view.state.doc.toString()).toBe(code)
+    expect(document.querySelector('[data-language="cpp"]')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'C++' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('names the runtime that could not start', async () => {
+    serve({
+      ...NO_SAVED,
+      'GET /api/v1/stocks/SPY/history': () => ({
+        symbol: 'SPY',
+        period: '10y',
+        interval: '1d',
+        bars: BARS,
+        coverage: 'full',
+      }),
+    })
+    runner.run.mockResolvedValue({
+      ok: false,
+      error: { kind: 'load', message: 'Failed to fetch', line: null, traceback: '' },
+      output: '',
+    } satisfies RunResult)
+    renderPage('/backtest?symbol=SPY')
+
+    await userEvent.selectOptions(strategyMenu(), 'custom')
+    await editor()
+    await userEvent.click(screen.getByRole('button', { name: 'C++' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Run' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The C++ compiler could not start')
   })
 })
