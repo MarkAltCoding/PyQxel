@@ -216,3 +216,48 @@ class SearchResponse(BaseModel):
 
     query: str
     items: list[SearchMatch]
+
+
+PeerGroupKind = Literal["industry", "sector", "universe"]
+"""Which stocks a stock is compared with: those in its industry, in its sector when the
+industry is too small, or the whole screened universe when the sector is too."""
+
+
+class PeerMetric(BaseModel):
+    """Where one of a stock's screening metrics falls among its peers'."""
+
+    field: ScreenField
+    value: float | None = Field(description="The stock's own value; null when not computed.")
+    peer_median: float | None = Field(
+        default=None, description="Median among peers with the metric; null when too few have it."
+    )
+    percentile: float | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Percent of peers with a lower value, counting ties as half: a higher "
+        "value ranks higher, whether or not higher is better. Null when the stock lacks the "
+        "metric or too few peers have it.",
+    )
+    peers_with_data: int = Field(ge=0, description="Peers the percentile is computed among.")
+
+
+class PeerComparison(BaseModel):
+    """A stock's screening metrics ranked among its peers in the screened universe.
+
+    A P/E is compared only among profitable peers, and a stock with a loss has no P/E
+    percentile.
+    """
+
+    group: PeerGroupKind
+    group_name: str = Field(description="The industry or sector, or ``screened universe``.")
+    peers: int = Field(ge=0, description="Stocks in the group besides this one.")
+    market_cap_rank: int = Field(ge=1, description="Rank by market cap in the whole universe.")
+    universe_size: int = Field(ge=1, description="Stocks in the screened universe.")
+    prices_as_of: date | None = Field(
+        default=None, description="Date of the closes the metrics were computed from."
+    )
+    fundamentals_period_end: date | None = Field(
+        default=None, description="End of the latest period the stock's ratios use."
+    )
+    metrics: list[PeerMetric]

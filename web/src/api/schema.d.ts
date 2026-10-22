@@ -554,8 +554,10 @@ export interface paths {
      * @description Have Claude write an investment thesis or risk summary for ``symbol``.
      *
      *     The report is grounded in the ticker snapshot, return, volatility and drawdown
-     *     statistics computed from daily adjusted closes over ``period``, factor exposures, the
-     *     company's financial statement figures and valuation multiples, and, unless
+     *     statistics computed from daily adjusted closes over ``period``, factor exposures, a
+     *     GARCH(1,1) volatility forecast fit to five years of daily returns, the stock's
+     *     screening metrics ranked among its industry or sector peers, the company's financial
+     *     statement figures and valuation multiples, and, unless
      *     ``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K
      *     and any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of
      *     it cannot be fetched the report is written without it and ``context.notice`` says so.
@@ -935,6 +937,8 @@ export interface components {
        * @description Explains which part of the window has no data, if any.
        */
       notice?: string | null
+      /** @description The stock's screening metrics ranked among its industry or sector in the screened universe; null when the stock is not in it. */
+      peers?: components['schemas']['PeerComparison'] | null
       /**
        * Period
        * @enum {string}
@@ -942,6 +946,8 @@ export interface components {
       period: '6mo' | '1y' | '2y' | '5y' | '10y' | 'max'
       prices: components['schemas']['PriceSummary']
       ticker: components['schemas']['TickerInfo']
+      /** @description A GARCH(1,1) fit to the last five years of daily returns, whatever the analysis period, and its volatility forecast; null when it could not be fit. */
+      volatility_forecast?: components['schemas']['GarchContext'] | null
     }
     /**
      * AnalysisList
@@ -2111,6 +2117,76 @@ export interface components {
       valuation?: components['schemas']['Valuation'] | null
     }
     /**
+     * GarchContext
+     * @description A daily GARCH(1,1) fit, summarized for an AI-written analysis.
+     *
+     *     Volatilities are annualized decimals (0.25 = 25%). The in-sample series is left out;
+     *     ``current_percentile`` places today's volatility within it instead.
+     */
+    GarchContext: {
+      /**
+       * Current Percentile
+       * @description Percent of the fitted days whose conditional volatility was below today's.
+       */
+      current_percentile: number
+      /**
+       * Current Volatility
+       * @description Conditional volatility at the last close.
+       */
+      current_volatility: number
+      /**
+       * Distribution
+       * @enum {string}
+       */
+      distribution: 'norm' | 'std'
+      /**
+       * End
+       * Format: date
+       * @description Last close of the returns the model was fit to.
+       */
+      end: string
+      /** Forecast */
+      forecast: components['schemas']['GarchHorizon'][]
+      /**
+       * Half Life Days
+       * @description Trading days for a volatility shock to decay by half.
+       */
+      half_life_days?: number | null
+      /**
+       * Long Run Volatility
+       * @description Level forecasts revert to; null when persistence >= 1.
+       */
+      long_run_volatility?: number | null
+      /**
+       * Observations
+       * @description Daily returns the model was fit to.
+       */
+      observations: number
+      /** Parameters */
+      parameters: components['schemas']['GarchParameter'][]
+      /**
+       * Persistence
+       * @description ``alpha1 + beta1``; shocks decay slower near 1.
+       */
+      persistence: number
+      /**
+       * Realized Volatility
+       * @description Sample volatility of the same returns.
+       */
+      realized_volatility: number
+      /**
+       * Start
+       * Format: date
+       * @description First close of the returns the model was fit to.
+       */
+      start: string
+      /**
+       * Warnings
+       * @description Reasons the estimates may be unreliable.
+       */
+      warnings?: string[]
+    }
+    /**
      * GarchFit
      * @description A constant-mean GARCH(1,1) fit to log returns.
      *
@@ -2180,6 +2256,19 @@ export interface components {
        * @description Reasons the estimates may be unreliable; empty for a well-behaved fit.
        */
       warnings?: string[]
+    }
+    /**
+     * GarchHorizon
+     * @description GARCH's forecast of the average volatility over the next ``days`` trading days.
+     */
+    GarchHorizon: {
+      /** Days */
+      days: number
+      /**
+       * Volatility
+       * @description Annualized; the square root of the mean forecast variance over the days.
+       */
+      volatility: number
     }
     /**
      * GarchParameter
@@ -2544,6 +2633,106 @@ export interface components {
        * @description Under the t copula, the limiting chance that one asset has an extreme day given the other does, in either tail. Zero under the Gaussian copula.
        */
       tail_dependence: number
+    }
+    /**
+     * PeerComparison
+     * @description A stock's screening metrics ranked among its peers in the screened universe.
+     *
+     *     A P/E is compared only among profitable peers, and a stock with a loss has no P/E
+     *     percentile.
+     */
+    PeerComparison: {
+      /**
+       * Fundamentals Period End
+       * @description End of the latest period the stock's ratios use.
+       */
+      fundamentals_period_end?: string | null
+      /**
+       * Group
+       * @enum {string}
+       */
+      group: 'industry' | 'sector' | 'universe'
+      /**
+       * Group Name
+       * @description The industry or sector, or ``screened universe``.
+       */
+      group_name: string
+      /**
+       * Market Cap Rank
+       * @description Rank by market cap in the whole universe.
+       */
+      market_cap_rank: number
+      /** Metrics */
+      metrics: components['schemas']['PeerMetric'][]
+      /**
+       * Peers
+       * @description Stocks in the group besides this one.
+       */
+      peers: number
+      /**
+       * Prices As Of
+       * @description Date of the closes the metrics were computed from.
+       */
+      prices_as_of?: string | null
+      /**
+       * Universe Size
+       * @description Stocks in the screened universe.
+       */
+      universe_size: number
+    }
+    /**
+     * PeerMetric
+     * @description Where one of a stock's screening metrics falls among its peers'.
+     */
+    PeerMetric: {
+      /**
+       * Field
+       * @enum {string}
+       */
+      field:
+        | 'price'
+        | 'market_cap'
+        | 'avg_dollar_volume'
+        | 'pe_ratio'
+        | 'price_to_sales'
+        | 'ev_to_ebitda'
+        | 'fcf_yield'
+        | 'gross_margin'
+        | 'operating_margin'
+        | 'net_margin'
+        | 'return_on_equity'
+        | 'revenue_growth'
+        | 'earnings_growth'
+        | 'return_1m'
+        | 'return_6m'
+        | 'momentum_12_1'
+        | 'volatility'
+        | 'max_drawdown'
+        | 'beta_market'
+        | 'beta_size'
+        | 'beta_value'
+        | 'beta_momentum'
+        | 'factor_r_squared'
+      /**
+       * Peer Median
+       * @description Median among peers with the metric; null when too few have it.
+       */
+      peer_median?: number | null
+      /**
+       * Peers With Data
+       * @description Peers the percentile is computed among.
+       */
+      peers_with_data: number
+      /**
+       * Percentile
+       * @description Percent of peers with a lower value, counting ties as half: a higher value ranks higher, whether or not higher is better. Null when the stock lacks the metric or too few peers have it.
+       */
+      percentile?: number | null
+      /**
+       * Value
+       * @description The stock's own value; null when not computed.
+       */
+      value: number | null
     }
     /**
      * Percentile

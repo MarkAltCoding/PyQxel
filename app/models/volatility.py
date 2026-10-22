@@ -1,6 +1,6 @@
 """Schemas describing volatility model estimates."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
@@ -120,4 +120,46 @@ class VolatilityEstimate(BaseModel):
     )
     notice: str | None = Field(
         default=None, description="Explains which part of the window has no data, if any."
+    )
+
+
+class GarchHorizon(BaseModel):
+    """GARCH's forecast of the average volatility over the next ``days`` trading days."""
+
+    days: int = Field(ge=1)
+    volatility: float = Field(
+        ge=0,
+        description="Annualized; the square root of the mean forecast variance over the days.",
+    )
+
+
+class GarchContext(BaseModel):
+    """A daily GARCH(1,1) fit, summarized for an AI-written analysis.
+
+    Volatilities are annualized decimals (0.25 = 25%). The in-sample series is left out;
+    ``current_percentile`` places today's volatility within it instead.
+    """
+
+    distribution: GarchDistribution
+    start: date = Field(description="First close of the returns the model was fit to.")
+    end: date = Field(description="Last close of the returns the model was fit to.")
+    observations: int = Field(ge=1, description="Daily returns the model was fit to.")
+    current_volatility: float = Field(ge=0, description="Conditional volatility at the last close.")
+    current_percentile: float = Field(
+        ge=0,
+        le=100,
+        description="Percent of the fitted days whose conditional volatility was below today's.",
+    )
+    long_run_volatility: float | None = Field(
+        default=None, ge=0, description="Level forecasts revert to; null when persistence >= 1."
+    )
+    realized_volatility: float = Field(ge=0, description="Sample volatility of the same returns.")
+    persistence: float = Field(description="``alpha1 + beta1``; shocks decay slower near 1.")
+    half_life_days: float | None = Field(
+        default=None, description="Trading days for a volatility shock to decay by half."
+    )
+    parameters: list[GarchParameter]
+    forecast: list[GarchHorizon]
+    warnings: list[str] = Field(
+        default_factory=list, description="Reasons the estimates may be unreliable."
     )

@@ -11,8 +11,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from app.models.volatility import GarchFit, VolatilityForecastStep, VolatilityPoint
 from app.stats import garch, r_bridge
-from app.stats.garch import ModelFitError, fit_garch
+from app.stats.garch import ModelFitError, fit_garch, summarize_garch
 from app.stats.r_bridge import RError, RUnavailableError, RValue
 from app.stats.volatility import MAX_HORIZON, InsufficientDataError, log_returns
 
@@ -248,3 +249,49 @@ async def test_fit_with_r() -> None:
     assert len(fit.forecast) == 5
     # True long-run variance is 0.05 / (1 - 0.95) = 1 (%^2 per day).
     assert fit.long_run_volatility == pytest.approx(math.sqrt(252) / 100.0, rel=0.3)
+
+
+@pytest.mark.asyncio
+async def test_summary_places_today_and_averages_the_forecast(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An analysis gets today's percentile and horizon averages, not the in-sample series."""
+    count = garch.RECOMMENDED_OBSERVATIONS + 1
+    output = _r_output(count - 1, horizon=63)
+    output["forecast_sigma"] = [2.0 if step == 1 else 1.0 for step in range(1, 64)]
+    _serve_r(monkeypatch, output)
+    fit = await fit_garch(_closes(count), periods_per_year=252, horizon=63)
+
+    summary = summarize_garch(fit)
+
+    scale = math.sqrt(252) / 100  # R works in daily percent.
+    # Today's 2% daily volatility is above every other fitted day's 1%.
+    assert summary.current_percentile == pytest.approx(100 * (count - 1.5) / (count - 1))
+    assert summary.current_volatility == pytest.approx(2.0 * scale)
+    assert [step.days for step in summary.forecast] == [1, 5, 21, 63]
+    assert summary.forecast[0].volatility == pytest.approx(2.0 * scale)
+    # Five days: variances 4, 1, 1, 1, 1 average 8 / 5.
+    assert summary.forecast[1].volatility == pytest.approx(math.sqrt(8 / 5) * scale)
+    assert summary.start == _closes(count).index[1].date()
+    assert summary.end == _closes(count).index[-1].date()
+    assert summary.half_life_days == fit.half_life
+
+
+def test_summary_leaves_out_horizons_beyond_the_forecast() -> None:
+    fit = GarchFit(
+        distribution="std",
+        observations=2,
+        parameters=[],
+        persistence=0.9,
+        current_volatility=0.2,
+        realized_volatility=0.2,
+        conditional_volatility=[
+            VolatilityPoint(timestamp=pd.Timestamp("2025-01-06").to_pydatetime(), volatility=0.2)
+        ],
+        forecast=[VolatilityForecastStep(step=step, volatility=0.2) for step in range(1, 6)],
+        log_likelihood=0.0,
+        aic=0.0,
+        bic=0.0,
+    )
+
+    assert [step.days for step in summarize_garch(fit).forecast] == [1, 5]

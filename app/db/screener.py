@@ -1,11 +1,12 @@
 """Storage of the screened universe, its fundamentals and refresh runs, and screening."""
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import case, delete, func, or_, select
+from sqlalchemy import and_, case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -20,6 +21,7 @@ from app.models.screener import (
     BROAD_MARKET_COUNT,
     LARGE_CAP_COUNT,
     LIQUID_DOLLAR_VOLUME,
+    PeerGroupKind,
     RankedStock,
     ScreenedStock,
     ScreenField,
@@ -31,6 +33,9 @@ from app.models.screener import (
 
 RUNNING, SUCCEEDED, FAILED = "running", "succeeded", "failed"
 """States of a refresh run."""
+
+MIN_PEERS: int = 10
+"""Fewest other stocks an industry or sector needs to serve as a stock's peer group."""
 
 
 def _column(field: ScreenField) -> InstrumentedAttribute[Any]:
@@ -265,3 +270,58 @@ async def search_stocks(session: AsyncSession, query: str, limit: int) -> list[S
         .limit(limit)
     )
     return [SearchMatch.model_validate(record, from_attributes=True) for record in records]
+
+
+@dataclass(frozen=True)
+class PeerGroup:
+    """A stock in the screened universe and the stocks it is compared with."""
+
+    stock: ScreenedStock
+    kind: PeerGroupKind
+    name: str
+    peers: list[ScreenedStock]
+    universe_size: int
+    prices_as_of: date | None
+
+
+async def peer_group(session: AsyncSession, symbol: str) -> PeerGroup | None:
+    """``symbol`` and its peers: its industry, else its sector, else the whole universe.
+
+    The narrowest group with at least :data:`MIN_PEERS` other stocks is used. Returns
+    ``None`` when ``symbol`` is not in the screened universe.
+    """
+    record = await session.get(ScreenerStockRecord, symbol)
+    if record is None:
+        return None
+    stock = ScreenedStock.model_validate(record, from_attributes=True)
+    universe_size = await session.scalar(select(func.count()).select_from(ScreenerStockRecord))
+    others = ScreenerStockRecord.symbol != symbol
+
+    kind: PeerGroupKind = "universe"
+    name = "screened universe"
+    condition = others
+    groups: tuple[tuple[PeerGroupKind, InstrumentedAttribute[Any], str | None], ...] = (
+        ("industry", ScreenerStockRecord.industry, stock.industry),
+        ("sector", ScreenerStockRecord.sector, stock.sector),
+    )
+    for group, column, value in groups:
+        if value is None:
+            continue
+        in_group = and_(others, column == value)
+        members = await session.scalar(
+            select(func.count()).select_from(ScreenerStockRecord).where(in_group)
+        )
+        if (members or 0) >= MIN_PEERS:
+            kind, name, condition = group, value, in_group
+            break
+
+    records = await session.scalars(select(ScreenerStockRecord).where(condition))
+    succeeded = await _latest_run(session, SUCCEEDED)
+    return PeerGroup(
+        stock=stock,
+        kind=kind,
+        name=name,
+        peers=[ScreenedStock.model_validate(peer, from_attributes=True) for peer in records],
+        universe_size=universe_size or 1,
+        prices_as_of=None if succeeded is None else succeeded.prices_as_of,
+    )

@@ -11,8 +11,10 @@ import math
 import pandas as pd
 
 from app.models.volatility import (
+    GarchContext,
     GarchDistribution,
     GarchFit,
+    GarchHorizon,
     GarchParameter,
     VolatilityForecastStep,
     VolatilityPoint,
@@ -39,6 +41,9 @@ NEAR_INTEGRATED_PERSISTENCE: float = 0.995
 
 MIN_ARCH_EFFECT: float = 0.01
 """``alpha1`` below which the fit found no volatility clustering."""
+
+CONTEXT_HORIZONS: tuple[int, ...] = (1, 5, 21, 63)
+"""Trading days ahead summarized for an analysis: a day, a week, a month and a quarter."""
 
 SHORT_SAMPLE_ADVICE: str = (
     "Request a longer period or a shorter interval, or use the EWMA model, which "
@@ -192,3 +197,38 @@ async def fit_garch(
         message = output["message"][0] or "unknown error"
         raise ModelFitError(f"GARCH fit failed: {message}")
     return _build_fit(output, returns, periods_per_year, distribution)
+
+
+def summarize_garch(fit: GarchFit) -> GarchContext:
+    """Summarize a daily fit for an analysis, without its in-sample series.
+
+    Each horizon's volatility is the square root of the mean forecast variance over that
+    many days, which is the volatility of the return over the whole horizon. Horizons
+    beyond the fit's forecast are left out.
+    """
+    if not fit.conditional_volatility:
+        raise ValueError("A GARCH fit has at least one conditional volatility.")
+    current = fit.current_volatility
+    history = [point.volatility for point in fit.conditional_volatility]
+    below = sum(value < current for value in history)
+    ties = sum(value == current for value in history)
+    variances = [step.volatility**2 for step in fit.forecast]
+    return GarchContext(
+        distribution=fit.distribution,
+        start=fit.conditional_volatility[0].timestamp.date(),
+        end=fit.conditional_volatility[-1].timestamp.date(),
+        observations=fit.observations,
+        current_volatility=current,
+        current_percentile=100 * (below + ties / 2) / len(history),
+        long_run_volatility=fit.long_run_volatility,
+        realized_volatility=fit.realized_volatility,
+        persistence=fit.persistence,
+        half_life_days=fit.half_life,
+        parameters=fit.parameters,
+        forecast=[
+            GarchHorizon(days=days, volatility=math.sqrt(sum(variances[:days]) / days))
+            for days in CONTEXT_HORIZONS
+            if days <= len(variances)
+        ],
+        warnings=fit.warnings,
+    )

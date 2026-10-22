@@ -1,7 +1,8 @@
 """AI research routes: Claude-written investment theses and risk summaries.
 
-Reports are grounded in price statistics, factor exposures and, where available, financial
-statements and filings from SEC EDGAR. Each report
+Reports are grounded in price statistics, factor exposures, a GARCH volatility forecast,
+peer percentiles from the screener and, where available, financial statements and filings
+from SEC EDGAR. Each report
 can be fetched whole, or streamed as Server-Sent Events while Claude writes it. Reports
 are stored, and one for the same options is reused for a while instead of being paid for
 again. Stored reports can be listed and read back under ``/analyses``.
@@ -60,6 +61,7 @@ from app.data.sec_edgar import (
     fetch_latest_filings,
 )
 from app.db.analyses import get_analysis, list_analyses
+from app.db.screener import PeerGroup, peer_group
 from app.core.security import CredentialsUnavailableError
 from app.db.session import get_session, get_sessionmaker
 from app.db.users import User, ai_usage
@@ -72,14 +74,20 @@ from app.models.research import (
     AnalysisRequest,
     AnalysisResponse,
     AnalysisStreamError,
+    AnalysisPeriod,
     Filing,
     InvestmentThesis,
     RiskSummary,
 )
+from app.models.screener import PeerComparison
 from app.models.stock import SYMBOL_PATTERN, TickerInfo
 from app.models.factors import FactorContext, FactorModel
+from app.models.volatility import GarchContext
 from app.stats.factors import fit_factor_model
+from app.stats.garch import CONTEXT_HORIZONS, ModelFitError, fit_garch, summarize_garch
 from app.stats.indicators import summarize_prices
+from app.stats.peers import compare_to_peers
+from app.stats.r_bridge import RUnavailableError
 from app.stats.volatility import InsufficientDataError
 
 logger = logging.getLogger(__name__)
@@ -89,6 +97,10 @@ router = APIRouter()
 
 ANALYSIS_FACTOR_MODEL: FactorModel = "carhart4"
 """Factor model whose exposures are given to Claude: market, size, value and momentum."""
+
+GARCH_PERIOD: AnalysisPeriod = "5y"
+"""Window the volatility forecast is fit to, whatever the analysis period: GARCH needs
+about two years of daily returns and is more precise with more."""
 
 results_router = APIRouter()
 """Routes under ``/analyses`` that read stored analyses."""
@@ -147,6 +159,77 @@ def _factor_context(
         )
     end = pd.Timestamp(result.index[-1]).date()
     return FactorContext(model=ANALYSIS_FACTOR_MODEL, factor_data_end=end, fit=fit), None
+
+
+async def _garch_forecast(symbol: str) -> GarchContext:
+    """Fit GARCH(1,1) to ``symbol``'s daily returns over :data:`GARCH_PERIOD`."""
+    frame = await fetch_price_history(symbol, period=GARCH_PERIOD, interval="1d")
+    fit = await fit_garch(frame["Close"], PERIODS_PER_YEAR["1d"], horizon=max(CONTEXT_HORIZONS))
+    return summarize_garch(fit)
+
+
+def _garch_context(
+    result: GarchContext | BaseException,
+) -> tuple[GarchContext | None, str | None]:
+    """The volatility forecast, or why there is none.
+
+    The forecast adds context but is not essential, so a failure becomes a notice rather
+    than an error.
+    """
+    left_out = "The GARCH volatility forecast was left out:"
+    if isinstance(result, RUnavailableError):
+        return None, f"{left_out} R is not available on this server."
+    if isinstance(result, InsufficientDataError):
+        return (
+            None,
+            f"{left_out} it needs about two years of daily returns, which this stock lacks.",
+        )
+    if isinstance(result, ModelFitError):
+        return None, f"{left_out} the model could not be fit to the stock's returns."
+    if isinstance(result, DataFetchError):
+        return None, f"{left_out} the five-year price history could not be fetched."
+    if isinstance(result, BaseException):
+        raise result
+    return result, None
+
+
+async def _peer_group(symbol: str) -> PeerGroup | None:
+    """``symbol`` and its peers from the screened universe."""
+    async with get_sessionmaker()() as session:
+        return await peer_group(session, symbol)
+
+
+def _peer_context(
+    symbol: str, result: PeerGroup | None | BaseException
+) -> tuple[PeerComparison | None, str | None]:
+    """Rank the stock's screening metrics among its peers, or say why they are missing.
+
+    Peer percentiles add context but are not essential, so a failure becomes a notice
+    rather than an error.
+    """
+    if isinstance(result, (SQLAlchemyError, OSError)):
+        logger.error("Could not read the peers of %s: %s", symbol, result)
+        return None, "Peer percentiles were left out: the screener database is unavailable."
+    if isinstance(result, BaseException):
+        raise result
+    if result is None:
+        return None, (
+            f"Peer percentiles were left out: {symbol} is not in the screened universe of "
+            "US-listed stocks."
+        )
+    return (
+        PeerComparison(
+            group=result.kind,
+            group_name=result.name,
+            peers=len(result.peers),
+            market_cap_rank=result.stock.market_cap_rank,
+            universe_size=result.universe_size,
+            prices_as_of=result.prices_as_of,
+            fundamentals_period_end=result.stock.fundamentals_period_end,
+            metrics=compare_to_peers(result.stock, result.peers),
+        ),
+        None,
+    )
 
 
 async def _fundamentals(
@@ -270,8 +353,8 @@ async def prepare_analysis(
     Runs as a dependency, so a streamed analysis fails with an HTTP status before its
     stream opens: 403 without an Anthropic key, 429 beyond the user's AI limits, 404 for
     unknown symbols, 422 when the window has too few bars, and 502 when the price
-    provider fails. A missing snapshot, filings, factor exposures or fundamentals only
-    adds a notice.
+    provider fails. A missing snapshot, filings, factor exposures, fundamentals,
+    volatility forecast or peer percentiles only adds a notice.
 
     When the user has a recent report for the same request, nothing is fetched or
     billed and the report is returned with the context it was written from.
@@ -289,19 +372,22 @@ async def prepare_analysis(
     api_key = _anthropic_key(user)
     await _check_ai_limits(user)
 
+    # Two groups, run together, since asyncio.gather is typed for at most six awaitables.
     (
-        info_result,
-        history_result,
-        filings_result,
-        factors_result,
-        financials_result,
+        (info_result, history_result, filings_result, factors_result, financials_result),
+        (garch_result, peers_result),
     ) = await asyncio.gather(
-        fetch_ticker_info(symbol),
-        fetch_price_history(symbol, period=request.period, interval="1d"),
-        fetch_latest_filings(symbol) if request.include_filings else _no_filings(),
-        fetch_factors(ANALYSIS_FACTOR_MODEL),
-        fetch_financials_filled(symbol),
-        return_exceptions=True,
+        asyncio.gather(
+            fetch_ticker_info(symbol),
+            fetch_price_history(symbol, period=request.period, interval="1d"),
+            fetch_latest_filings(symbol) if request.include_filings else _no_filings(),
+            fetch_factors(ANALYSIS_FACTOR_MODEL),
+            fetch_financials_filled(symbol),
+            return_exceptions=True,
+        ),
+        asyncio.gather(
+            _garch_forecast(symbol), _peer_group(symbol.upper()), return_exceptions=True
+        ),
     )
     if isinstance(history_result, DataFetchError):
         raise upstream_error(history_result) from history_result
@@ -344,6 +430,10 @@ async def prepare_analysis(
     fundamentals, fundamentals_notices = await _fundamentals(symbol, financials_result, market_info)
     notices.extend(fundamentals_notices)
 
+    volatility_forecast, garch_notice = _garch_context(garch_result)
+    peers, peer_notice = _peer_context(symbol, peers_result)
+    notices.extend(notice for notice in (garch_notice, peer_notice) if notice)
+
     context = AnalysisContext(
         ticker=info_result,
         period=request.period,
@@ -352,6 +442,8 @@ async def prepare_analysis(
         filings=[filing.reference() for filing in filings],
         factors=factors,
         fundamentals=fundamentals,
+        volatility_forecast=volatility_forecast,
+        peers=peers,
         notice=" ".join(notices) or None,
     )
     return PreparedAnalysis(
@@ -376,8 +468,10 @@ async def create_analysis(prepared: Prepared) -> AnalysisResponse:
     """Have Claude write an investment thesis or risk summary for ``symbol``.
 
     The report is grounded in the ticker snapshot, return, volatility and drawdown
-    statistics computed from daily adjusted closes over ``period``, factor exposures, the
-    company's financial statement figures and valuation multiples, and, unless
+    statistics computed from daily adjusted closes over ``period``, factor exposures, a
+    GARCH(1,1) volatility forecast fit to five years of daily returns, the stock's
+    screening metrics ranked among its industry or sector peers, the company's financial
+    statement figures and valuation multiples, and, unless
     ``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K
     and any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of
     it cannot be fetched the report is written without it and ``context.notice`` says so.

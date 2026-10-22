@@ -12,17 +12,19 @@ from pydantic import BaseModel, Field
 
 from app.models.factors import FactorContext
 from app.models.fundamentals import Fundamentals
+from app.models.screener import PeerComparison
 from app.models.stock import HistoryCoverage, TickerInfo
-from app.models.volatility import VolatilityPeriod
+from app.models.volatility import GarchContext, VolatilityPeriod
 
 AnalysisKind = Literal["thesis", "risk"]
 """Report types: an investment thesis, or a risk summary."""
 
-ANALYSIS_CONTEXT_VERSION: int = 4
+ANALYSIS_CONTEXT_VERSION: int = 5
 """Version of the data an analysis is written from. Bump it when the context gains data
 that changes reports, so stored reports written without it are not reused. Version 2
 added factor exposures; version 3 added fundamentals and valuation; version 4 added
-financials and ticker info from Alpha Vantage where other sources leave gaps."""
+financials and ticker info from Alpha Vantage where other sources leave gaps; version 5
+added the GARCH volatility forecast and peer percentiles from the screener."""
 
 AnalysisPeriod = VolatilityPeriod
 """Lookback windows an analysis may cover; ``6mo`` or more gives a usable sample."""
@@ -145,6 +147,16 @@ class AnalysisContext(BaseModel):
         default=None,
         description="Financial statement figures from SEC filings and the valuation built on "
         "them; null when they could not be fetched.",
+    )
+    volatility_forecast: GarchContext | None = Field(
+        default=None,
+        description="A GARCH(1,1) fit to the last five years of daily returns, whatever the "
+        "analysis period, and its volatility forecast; null when it could not be fit.",
+    )
+    peers: PeerComparison | None = Field(
+        default=None,
+        description="The stock's screening metrics ranked among its industry or sector in the "
+        "screened universe; null when the stock is not in it.",
     )
     notice: str | None = Field(
         default=None, description="Explains which part of the window has no data, if any."

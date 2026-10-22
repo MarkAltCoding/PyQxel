@@ -32,6 +32,7 @@ from app.core.config import get_settings
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
 from app.data.fundamentals import FinancialsNotFoundError
 from app.data.sec_edgar import CompanyNotFoundError, EdgarNotConfiguredError, FilingFetchError
+from app.db.screener import PeerGroup
 from app.main import __version__, app
 from app.models.research import (
     AnalysisContext,
@@ -43,8 +44,15 @@ from app.models.research import (
     RiskSummary,
 )
 from app.models.fundamentals import Financials
+from app.models.screener import ScreenedStock
 from app.models.stock import TickerInfo
-from app.models.volatility import EwmaFit, GarchFit, GarchParameter, VolatilityForecastStep
+from app.models.volatility import (
+    EwmaFit,
+    GarchFit,
+    GarchParameter,
+    VolatilityForecastStep,
+    VolatilityPoint,
+)
 from app.models.volatility import GarchDistribution
 from app.stats.garch import ModelFitError
 from app.stats.r_bridge import RUnavailableError
@@ -493,6 +501,52 @@ def test_volatility_ewma_maps_short_history_to_422(monkeypatch: pytest.MonkeyPat
 
 AnalysisCall = tuple[AnalysisContext, str, list[Filing]]
 
+
+def _analysis_garch_fit() -> GarchFit:
+    """A daily fit over four days with a quarter's forecast, as the analysis requests."""
+    days = pd.bdate_range("2025-01-06", periods=4)
+    return _garch_fit().model_copy(
+        update={
+            "conditional_volatility": [
+                VolatilityPoint(timestamp=day.to_pydatetime(), volatility=volatility)
+                for day, volatility in zip(days, [0.2, 0.4, 0.25, 0.3])
+            ],
+            "forecast": [
+                VolatilityForecastStep(step=step, volatility=0.3) for step in range(1, 64)
+            ],
+        }
+    )
+
+
+def _screened(symbol: str, rank: int, **metrics: Any) -> ScreenedStock:
+    """A stock in the screened universe with the given metrics."""
+    fields: dict[str, Any] = {
+        "symbol": symbol,
+        "name": f"{symbol} Inc.",
+        "exchange": "NASDAQ",
+        "cik": rank,
+        "market_cap_source": "provider",
+        "market_cap_rank": rank,
+        "price": 100.0,
+        "market_cap": 1e12 / rank,
+        "avg_dollar_volume": 1e8,
+        "industry": "Consumer Electronics",
+    }
+    return ScreenedStock(**(fields | metrics))
+
+
+ANALYZABLE = TickerInfo(symbol="AAPL", market_cap=4e12, source="t")
+"""A snapshot complete enough that a full analysis carries no notice."""
+
+PEER_GROUP = PeerGroup(
+    stock=_screened("AAPL", 1, pe_ratio=30.0),
+    kind="industry",
+    name="Consumer Electronics",
+    peers=[_screened(f"P{i}", i + 2, pe_ratio=10.0 + 4 * i) for i in range(10)],
+    universe_size=3832,
+    prices_as_of=date(2026, 10, 21),
+)
+
 billed_keys: list[str | None] = []
 """The Anthropic key each faked analysis was written with."""
 
@@ -505,12 +559,16 @@ def _serve_analysis(
     filings: list[Filing] | Exception | None = None,
     factors: pd.DataFrame | Exception | None = None,
     financials: Financials | Exception | None = None,
+    garch: GarchFit | Exception | None = None,
+    peers: PeerGroup | Exception | None = PEER_GROUP,
 ) -> list[AnalysisCall]:
     """Fake the fetchers and the research agent; return the agent's recorded calls.
 
     The EDGAR fetch returns ``filings``, or no filings when omitted. The factor fetch
     returns ``factors``, or by default factors on every date of ``frame``. The financials
-    fetch returns ``financials``, or the sample financials when omitted.
+    fetch returns ``financials``, or the sample financials when omitted. The GARCH fit
+    returns ``garch``, or a small daily fit when omitted, and the screener's peer lookup
+    returns ``peers``.
     """
     calls: list[AnalysisCall] = []
 
@@ -557,7 +615,21 @@ def _serve_analysis(
     monkeypatch.setattr(research, "fetch_price_history", fake_history)
     monkeypatch.setattr(research, "fetch_latest_filings", fake_filings)
     monkeypatch.setattr(research, "fetch_factors", fake_factors)
+
+    async def fake_garch(closes: pd.Series, periods_per_year: int, horizon: int) -> GarchFit:
+        assert (periods_per_year, horizon) == (252, 63)
+        if isinstance(garch, Exception):
+            raise garch
+        return garch or _analysis_garch_fit()
+
+    async def fake_peers(session: object, symbol: str) -> PeerGroup | None:
+        if isinstance(peers, Exception):
+            raise peers
+        return peers
+
     monkeypatch.setattr(research, "fetch_financials_filled", fake_financials)
+    monkeypatch.setattr(research, "fit_garch", fake_garch)
+    monkeypatch.setattr(research, "peer_group", fake_peers)
     monkeypatch.setattr(research, "write_analysis", fake_write)
     return calls
 
@@ -1772,14 +1844,14 @@ def test_replayed_refusal_without_fallback_is_an_error_event(
 
 
 def _count_history_fetches(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Wrap the research route's (already faked) price fetch to record its calls."""
+    """Wrap the research route's (already faked) price fetch to record each call's period."""
     calls: list[str] = []
     fetch: Callable[[str, str, str], Awaitable[pd.DataFrame]] = getattr(
         research, "fetch_price_history"
     )
 
     async def counting(symbol: str, period: str, interval: str) -> pd.DataFrame:
-        calls.append(symbol)
+        calls.append(period)
         return await fetch(symbol, period, interval)
 
     monkeypatch.setattr(research, "fetch_price_history", counting)
@@ -1800,7 +1872,8 @@ def test_repeated_analysis_is_served_from_the_cache(monkeypatch: pytest.MonkeyPa
     second = client.post("/api/v1/stocks/aapl/analysis", json={"period": "1y"}).json()
 
     assert len(calls) == 1
-    assert len(fetches) == 1
+    # The window and the GARCH forecast's five years, fetched for the first report only.
+    assert sorted(fetches) == ["1y", "5y"]
     assert first["cached"] is False
     assert first["id"] is not None
     assert second["cached"] is True
@@ -2024,4 +2097,99 @@ def test_analysis_without_factor_exposures_degrades_with_notice(
     assert response.status_code == 200
     context, _, _ = calls[0]
     assert context.factors is None
+    assert context.notice is not None and notice in context.notice
+
+
+def test_analysis_context_carries_garch_forecast(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A five-year GARCH fit is summarized for the model, without its in-sample series."""
+    calls = _serve_analysis(monkeypatch, ANALYZABLE, _recent_frame(), THESIS)
+    periods = _count_history_fetches(monkeypatch)
+
+    response = client.post(
+        "/api/v1/stocks/AAPL/analysis", json={"period": "1y", "include_filings": False}
+    )
+
+    assert response.status_code == 200
+    assert sorted(periods) == ["1y", "5y"]
+    forecast = response.json()["context"]["volatility_forecast"]
+    assert forecast["current_volatility"] == 0.3
+    assert forecast["current_percentile"] == 62.5
+    assert [step["days"] for step in forecast["forecast"]] == [1, 5, 21, 63]
+    assert "conditional_volatility" not in forecast
+    context, _, _ = calls[0]
+    assert context.volatility_forecast is not None
+    assert context.notice is None
+
+
+def test_analysis_context_carries_peer_percentiles(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The stock's screening metrics are ranked among its peers for the model."""
+    calls = _serve_analysis(monkeypatch, ANALYZABLE, _recent_frame(), THESIS)
+
+    response = client.post("/api/v1/stocks/aapl/analysis", json={"include_filings": False})
+
+    assert response.status_code == 200
+    peers = response.json()["context"]["peers"]
+    assert (peers["group"], peers["group_name"], peers["peers"]) == (
+        "industry",
+        "Consumer Electronics",
+        10,
+    )
+    pe = next(metric for metric in peers["metrics"] if metric["field"] == "pe_ratio")
+    # Peers' P/Es run 10 to 46 in steps of 4: five are below 30 and one equals it.
+    assert pe == {
+        "field": "pe_ratio",
+        "value": 30.0,
+        "peer_median": 28.0,
+        "percentile": 55.0,
+        "peers_with_data": 10,
+    }
+    context, _, _ = calls[0]
+    assert context.peers is not None and context.notice is None
+
+
+@pytest.mark.parametrize(
+    ("garch", "notice"),
+    [
+        (RUnavailableError("no R"), "R is not available"),
+        (InsufficientDataError("short"), "needs about two years of daily returns"),
+        (ModelFitError("no convergence"), "could not be fit"),
+        (DataFetchError("down"), "five-year price history could not be fetched"),
+    ],
+)
+def test_analysis_without_garch_forecast_degrades_with_notice(
+    monkeypatch: pytest.MonkeyPatch, garch: Exception, notice: str
+) -> None:
+    """A GARCH fit that fails leaves the forecast out and says why."""
+    calls = _serve_analysis(
+        monkeypatch, TickerInfo(symbol="AAPL", source="t"), _recent_frame(), THESIS, garch=garch
+    )
+
+    response = client.post("/api/v1/stocks/AAPL/analysis")
+
+    assert response.status_code == 200
+    context, _, _ = calls[0]
+    assert context.volatility_forecast is None
+    assert context.notice is not None and notice in context.notice
+
+
+@pytest.mark.parametrize(
+    ("peers", "notice"),
+    [
+        (None, "AAPL is not in the screened universe"),
+        (OperationalError("SELECT", {}, Exception("down")), "screener database is unavailable"),
+    ],
+)
+def test_analysis_without_peers_degrades_with_notice(
+    monkeypatch: pytest.MonkeyPatch, peers: Exception | None, notice: str
+) -> None:
+    """A stock outside the screened universe, or an unreadable universe, has no peers."""
+    calls = _serve_analysis(
+        monkeypatch, TickerInfo(symbol="AAPL", source="t"), _recent_frame(), THESIS, peers=peers
+    )
+
+    response = client.post("/api/v1/stocks/AAPL/analysis")
+
+    assert response.status_code == 200
+    context, _, _ = calls[0]
+    assert context.peers is None
     assert context.notice is not None and notice in context.notice

@@ -161,6 +161,17 @@
             "description": "Explains which part of the window has no data, if any.",
             "title": "Notice"
           },
+          "peers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PeerComparison"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stock's screening metrics ranked among its industry or sector in the screened universe; null when the stock is not in it."
+          },
           "period": {
             "enum": [
               "6mo",
@@ -178,6 +189,17 @@
           },
           "ticker": {
             "$ref": "#/components/schemas/TickerInfo"
+          },
+          "volatility_forecast": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GarchContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A GARCH(1,1) fit to the last five years of daily returns, whatever the analysis period, and its volatility forecast; null when it could not be fit."
           }
         },
         "required": [
@@ -2421,6 +2443,122 @@
         "title": "FundamentalsResponse",
         "type": "object"
       },
+      "GarchContext": {
+        "description": "A daily GARCH(1,1) fit, summarized for an AI-written analysis.\n\nVolatilities are annualized decimals (0.25 = 25%). The in-sample series is left out;\n``current_percentile`` places today's volatility within it instead.",
+        "properties": {
+          "current_percentile": {
+            "description": "Percent of the fitted days whose conditional volatility was below today's.",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Current Percentile",
+            "type": "number"
+          },
+          "current_volatility": {
+            "description": "Conditional volatility at the last close.",
+            "minimum": 0.0,
+            "title": "Current Volatility",
+            "type": "number"
+          },
+          "distribution": {
+            "enum": [
+              "norm",
+              "std"
+            ],
+            "title": "Distribution",
+            "type": "string"
+          },
+          "end": {
+            "description": "Last close of the returns the model was fit to.",
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "forecast": {
+            "items": {
+              "$ref": "#/components/schemas/GarchHorizon"
+            },
+            "title": "Forecast",
+            "type": "array"
+          },
+          "half_life_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Trading days for a volatility shock to decay by half.",
+            "title": "Half Life Days"
+          },
+          "long_run_volatility": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Level forecasts revert to; null when persistence >= 1.",
+            "title": "Long Run Volatility"
+          },
+          "observations": {
+            "description": "Daily returns the model was fit to.",
+            "minimum": 1.0,
+            "title": "Observations",
+            "type": "integer"
+          },
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/GarchParameter"
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "persistence": {
+            "description": "``alpha1 + beta1``; shocks decay slower near 1.",
+            "title": "Persistence",
+            "type": "number"
+          },
+          "realized_volatility": {
+            "description": "Sample volatility of the same returns.",
+            "minimum": 0.0,
+            "title": "Realized Volatility",
+            "type": "number"
+          },
+          "start": {
+            "description": "First close of the returns the model was fit to.",
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "warnings": {
+            "description": "Reasons the estimates may be unreliable.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "distribution",
+          "start",
+          "end",
+          "observations",
+          "current_volatility",
+          "current_percentile",
+          "realized_volatility",
+          "persistence",
+          "parameters",
+          "forecast"
+        ],
+        "title": "GarchContext",
+        "type": "object"
+      },
       "GarchFit": {
         "description": "A constant-mean GARCH(1,1) fit to log returns.\n\nVolatilities are annualized decimals (0.25 = 25%).",
         "properties": {
@@ -2544,6 +2682,28 @@
           "bic"
         ],
         "title": "GarchFit",
+        "type": "object"
+      },
+      "GarchHorizon": {
+        "description": "GARCH's forecast of the average volatility over the next ``days`` trading days.",
+        "properties": {
+          "days": {
+            "minimum": 1.0,
+            "title": "Days",
+            "type": "integer"
+          },
+          "volatility": {
+            "description": "Annualized; the square root of the mean forecast variance over the days.",
+            "minimum": 0.0,
+            "title": "Volatility",
+            "type": "number"
+          }
+        },
+        "required": [
+          "days",
+          "volatility"
+        ],
+        "title": "GarchHorizon",
         "type": "object"
       },
       "GarchParameter": {
@@ -3203,6 +3363,171 @@
           "empirical_upper_tail"
         ],
         "title": "PairDependence",
+        "type": "object"
+      },
+      "PeerComparison": {
+        "description": "A stock's screening metrics ranked among its peers in the screened universe.\n\nA P/E is compared only among profitable peers, and a stock with a loss has no P/E\npercentile.",
+        "properties": {
+          "fundamentals_period_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "End of the latest period the stock's ratios use.",
+            "title": "Fundamentals Period End"
+          },
+          "group": {
+            "enum": [
+              "industry",
+              "sector",
+              "universe"
+            ],
+            "title": "Group",
+            "type": "string"
+          },
+          "group_name": {
+            "description": "The industry or sector, or ``screened universe``.",
+            "title": "Group Name",
+            "type": "string"
+          },
+          "market_cap_rank": {
+            "description": "Rank by market cap in the whole universe.",
+            "minimum": 1.0,
+            "title": "Market Cap Rank",
+            "type": "integer"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/PeerMetric"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "peers": {
+            "description": "Stocks in the group besides this one.",
+            "minimum": 0.0,
+            "title": "Peers",
+            "type": "integer"
+          },
+          "prices_as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Date of the closes the metrics were computed from.",
+            "title": "Prices As Of"
+          },
+          "universe_size": {
+            "description": "Stocks in the screened universe.",
+            "minimum": 1.0,
+            "title": "Universe Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "group",
+          "group_name",
+          "peers",
+          "market_cap_rank",
+          "universe_size",
+          "metrics"
+        ],
+        "title": "PeerComparison",
+        "type": "object"
+      },
+      "PeerMetric": {
+        "description": "Where one of a stock's screening metrics falls among its peers'.",
+        "properties": {
+          "field": {
+            "enum": [
+              "price",
+              "market_cap",
+              "avg_dollar_volume",
+              "pe_ratio",
+              "price_to_sales",
+              "ev_to_ebitda",
+              "fcf_yield",
+              "gross_margin",
+              "operating_margin",
+              "net_margin",
+              "return_on_equity",
+              "revenue_growth",
+              "earnings_growth",
+              "return_1m",
+              "return_6m",
+              "momentum_12_1",
+              "volatility",
+              "max_drawdown",
+              "beta_market",
+              "beta_size",
+              "beta_value",
+              "beta_momentum",
+              "factor_r_squared"
+            ],
+            "title": "Field",
+            "type": "string"
+          },
+          "peer_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Median among peers with the metric; null when too few have it.",
+            "title": "Peer Median"
+          },
+          "peers_with_data": {
+            "description": "Peers the percentile is computed among.",
+            "minimum": 0.0,
+            "title": "Peers With Data",
+            "type": "integer"
+          },
+          "percentile": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Percent of peers with a lower value, counting ties as half: a higher value ranks higher, whether or not higher is better. Null when the stock lacks the metric or too few peers have it.",
+            "title": "Percentile"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stock's own value; null when not computed.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "field",
+          "value",
+          "peers_with_data"
+        ],
+        "title": "PeerMetric",
         "type": "object"
       },
       "Percentile": {
@@ -7095,7 +7420,7 @@
     },
     "/api/v1/stocks/{symbol}/analysis": {
       "post": {
-        "description": "Have Claude write an investment thesis or risk summary for ``symbol``.\n\nThe report is grounded in the ticker snapshot, return, volatility and drawdown\nstatistics computed from daily adjusted closes over ``period``, factor exposures, the\ncompany's financial statement figures and valuation multiples, and, unless\n``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K\nand any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of\nit cannot be fetched the report is written without it and ``context.notice`` says so.\n\nThe report is written with, and billed to, your own Anthropic key (``PUT\n/api/v1/me/credentials``), within the hourly and daily limits you set (``PUT\n/api/v1/me/limits``). Every report is stored under your account. Your report for the\nsame options, model and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by\ndefault) is returned again with ``cached`` set and no charge, unless ``refresh`` is\ntrue. Identical requests that arrive together are written once.\n\nReturns 403 without a valid Anthropic key, 404 for unknown symbols, 422 when the\nwindow has too few bars or the model declines, 429 beyond your AI limits, 502 when a\nprovider fails, and 503 when Anthropic rate limits your account.",
+        "description": "Have Claude write an investment thesis or risk summary for ``symbol``.\n\nThe report is grounded in the ticker snapshot, return, volatility and drawdown\nstatistics computed from daily adjusted closes over ``period``, factor exposures, a\nGARCH(1,1) volatility forecast fit to five years of daily returns, the stock's\nscreening metrics ranked among its industry or sector peers, the company's financial\nstatement figures and valuation multiples, and, unless\n``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K\nand any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of\nit cannot be fetched the report is written without it and ``context.notice`` says so.\n\nThe report is written with, and billed to, your own Anthropic key (``PUT\n/api/v1/me/credentials``), within the hourly and daily limits you set (``PUT\n/api/v1/me/limits``). Every report is stored under your account. Your report for the\nsame options, model and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by\ndefault) is returned again with ``cached`` set and no charge, unless ``refresh`` is\ntrue. Identical requests that arrive together are written once.\n\nReturns 403 without a valid Anthropic key, 404 for unknown symbols, 422 when the\nwindow has too few bars or the model declines, 429 beyond your AI limits, 502 when a\nprovider fails, and 503 when Anthropic rate limits your account.",
         "operationId": "create_analysis_api_v1_stocks__symbol__analysis_post",
         "parameters": [
           {
