@@ -7,13 +7,15 @@ a day missing from either series is left out rather than filled.
 The fit is ordinary least squares. Daily returns are mildly autocorrelated and their
 volatility clusters, so standard errors are Newey-West (heteroskedasticity- and
 autocorrelation-consistent) with the usual ``4 (n / 100) ^ (2 / 9)`` lag rule.
+
+statsmodels is imported at the fit rather than with this module, keeping its several
+hundred modules off the app's cold start; see :mod:`app.ai.agent`.
 """
 
 import math
 
 import numpy as np
 import pandas as pd
-import statsmodels.api as sm
 
 from app.models.factors import (
     MODEL_FACTORS,
@@ -137,6 +139,8 @@ def fit_factor_returns(returns: pd.Series, factors: pd.DataFrame, model: FactorM
         raise InsufficientDataError(
             "Returns never change over the window; there is nothing to fit."
         )
+
+    import statsmodels.api as sm
 
     regressors = data.loc[:, names]
     lags = hac_lags(observations)

@@ -13,6 +13,9 @@ distribution, so the copula is estimated without assuming any marginal distribut
   joint extremes: assets that crash together.
 
 The two are compared by AIC, which charges the t copula one extra parameter.
+
+SciPy is imported in the functions that use it, keeping its several hundred modules off
+the app's cold start; see :mod:`app.ai.agent`.
 """
 
 import math
@@ -22,7 +25,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import numpy as np
 import pandas as pd
-from scipy import optimize, special, stats
 
 MIN_DEGREES_OF_FREEDOM: float = 2.05
 """Lower bound of the t copula's degrees of freedom; below 2 variances do not exist."""
@@ -99,6 +101,8 @@ def pseudo_observations(returns: pd.DataFrame) -> np.ndarray:
 
 def kendall_tau_matrix(returns: pd.DataFrame) -> np.ndarray:
     """Return the matrix of pairwise Kendall rank correlations (tau-b)."""
+    from scipy import stats
+
     values = returns.to_numpy(dtype=float)
     dimension = values.shape[1]
     tau = np.eye(dimension)
@@ -136,6 +140,8 @@ def _quadratic_forms(points: np.ndarray, inverse: np.ndarray) -> np.ndarray:
 
 def gaussian_log_likelihood(uniforms: np.ndarray, correlation: np.ndarray) -> float:
     """Log-likelihood of the Gaussian copula with ``correlation`` at ``uniforms``."""
+    from scipy import stats
+
     scores = stats.norm.ppf(uniforms)
     _, log_det = np.linalg.slogdet(correlation)
     inverse = np.linalg.inv(correlation)
@@ -145,6 +151,8 @@ def gaussian_log_likelihood(uniforms: np.ndarray, correlation: np.ndarray) -> fl
 
 def t_log_likelihood(uniforms: np.ndarray, correlation: np.ndarray, df: float) -> float:
     """Log-likelihood of the Student t copula with ``correlation`` and ``df`` at ``uniforms``."""
+    from scipy import special, stats
+
     observations, dimension = uniforms.shape
     points = stats.t.ppf(uniforms, df)
     _, log_det = np.linalg.slogdet(correlation)
@@ -164,6 +172,8 @@ def t_log_likelihood(uniforms: np.ndarray, correlation: np.ndarray, df: float) -
 
 def fit_degrees_of_freedom(uniforms: np.ndarray, correlation: np.ndarray) -> float:
     """Return the degrees of freedom maximizing the t copula likelihood for ``correlation``."""
+    from scipy import optimize
+
     result = optimize.minimize_scalar(
         lambda log_df: -t_log_likelihood(uniforms, correlation, math.exp(log_df)),
         bounds=(math.log(MIN_DEGREES_OF_FREEDOM), math.log(MAX_DEGREES_OF_FREEDOM)),
@@ -175,6 +185,8 @@ def fit_degrees_of_freedom(uniforms: np.ndarray, correlation: np.ndarray) -> flo
 
 def t_tail_dependence(correlation: np.ndarray, df: float) -> np.ndarray:
     """Tail dependence of the t copula: the chance one asset is extreme given another is."""
+    from scipy import stats
+
     rho = np.clip(correlation, -1.0, 1.0)
     with np.errstate(divide="ignore"):
         distance = np.sqrt((df + 1) * (1 - rho) / (1 + rho))
@@ -210,6 +222,8 @@ def fit_copulas(returns: pd.DataFrame) -> CopulaFit:
         Both copulas' parameters and log-likelihoods, Kendall's tau, and empirical tail
         co-movement, with matrices in column order.
     """
+    from scipy import stats
+
     uniforms = pseudo_observations(returns)
     tau = kendall_tau_matrix(returns)
 

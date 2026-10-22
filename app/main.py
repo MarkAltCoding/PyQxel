@@ -1,5 +1,8 @@
 """FastAPI application entry point for PyQxel."""
 
+import asyncio
+import importlib
+import logging
 import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -23,13 +26,46 @@ from app.web import CompressApiResponses, mount_web
 
 __all__ = ["__version__", "app", "create_app"]
 
+logger = logging.getLogger(__name__)
+
+DEFERRED_IMPORTS: tuple[str, ...] = (
+    "anthropic",
+    "statsmodels.api",
+    "scipy.optimize",
+    "scipy.special",
+    "scipy.stats",
+)
+"""Packages the app imports where they are used rather than at startup.
+
+Together they are about 2,400 modules, and Cloud Run reads an image's files from the
+network the first time they are opened: importing them with the app took over 50
+seconds of every cold start, close enough to the startup probe's two minutes that
+instances failed to start and visitors were answered 503.
+"""
+
+
+def _import_deferred() -> None:
+    """Import :data:`DEFERRED_IMPORTS`, so their first request does not wait for them."""
+    for name in DEFERRED_IMPORTS:
+        try:
+            importlib.import_module(name)
+        except Exception:
+            # The request that needs the package imports it again and reports the error.
+            logger.exception("Could not import %s in the background.", name)
+
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-    """Start R and create database tables before serving; close shared clients after."""
+    """Start R and migrate the database before serving; close shared clients after.
+
+    The packages in :data:`DEFERRED_IMPORTS` are imported in the background once the
+    app is serving rather than holding up the start.
+    """
     start_r()
     await init_db()
+    warm_up = asyncio.create_task(asyncio.to_thread(_import_deferred))
     yield
+    await warm_up
     await close_cache()
     await close_database()
 

@@ -142,7 +142,7 @@ Neither needs an API key, and neither reveals error details.
 
 ### Google Cloud Run
 
-`deploy/cloud-run.sh` deploys the image with R to [Cloud Run](https://cloud.google.com/run), which scales to zero and bills only while requests run, so a personal deployment fits in the free tiers: Cloud Run's monthly allowance covers about 50 hours of request time, [Neon](https://neon.com)'s free Postgres holds the database, and [Upstash](https://upstash.com)'s free Redis is optional. The first request after a quiet spell waits 10 to 20 seconds while an instance starts. Secrets live in Google Secret Manager, never in the repository or the image.
+`deploy/cloud-run.sh` deploys the image with R to [Cloud Run](https://cloud.google.com/run), which scales to zero and bills only while requests run, so a personal deployment fits in the free tiers: Cloud Run's monthly allowance covers about 50 hours of request time, [Neon](https://neon.com)'s free Postgres holds the database, and [Upstash](https://upstash.com)'s free Redis is optional. The first request after a quiet spell waits 20 to 30 seconds while an instance starts. Secrets live in Google Secret Manager, never in the repository or the image.
 
 One-time setup:
 1. Create a [Google Cloud project](https://console.cloud.google.com/projectcreate) and link a billing account (required even within the free tier), then [set a budget alert](https://console.cloud.google.com/billing/budgets) of a dollar or two. Install the [gcloud CLI](https://cloud.google.com/sdk/docs/install) and run `gcloud auth login`.

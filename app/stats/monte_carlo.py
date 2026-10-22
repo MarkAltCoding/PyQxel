@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from scipy import stats
+
 
 from app.models.simulation import (
     MAX_DRAWS,
@@ -85,6 +85,8 @@ class _Marginal:
 
     def quantiles(self, uniforms: np.ndarray) -> np.ndarray:
         """Map uniforms in (0, 1) to daily returns."""
+        from scipy import stats
+
         draws: np.ndarray
         if self.t_params is not None:
             df, loc, scale = self.t_params
@@ -114,6 +116,8 @@ def _empirical_quantiles(sorted_returns: np.ndarray, uniforms: np.ndarray) -> np
 
 def _fit_marginal(returns: np.ndarray, model: MarginalModel) -> _Marginal:
     """Prepare one asset's quantile function, fitting a Student t when asked."""
+    from scipy import stats
+
     if model == "empirical":
         return _Marginal(sorted_returns=np.sort(returns), t_params=None)
     df, loc, scale = stats.t.fit(returns)
@@ -131,6 +135,8 @@ def _draw_uniforms(
     history: np.ndarray,
 ) -> np.ndarray:
     """Draw ``count`` days of uniforms, one column per asset, with the chosen dependence."""
+    from scipy import stats
+
     dimension = history.shape[1]
     if dimension == 1:
         return rng.uniform(size=(count, 1))

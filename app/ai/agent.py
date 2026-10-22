@@ -5,17 +5,19 @@ sections it is given, and returns a report through structured outputs, so the re
 always validates against :class:`~app.models.research.InvestmentThesis` or
 :class:`~app.models.research.RiskSummary`. :func:`stream_analysis` writes the same
 report while yielding Claude's reasoning summary and report text as they arrive.
+
+The Anthropic SDK is imported when first used rather than with this module: it is
+about 1,800 modules, and reading them from a cold Cloud Run image took over 20 seconds
+of every cold start. :func:`app.main.lifespan` imports it in the background once the
+app is serving.
 """
 
 import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-import anthropic
-from anthropic import AsyncAnthropic, transform_schema
-from anthropic.types.beta import BetaMessage, BetaOutputConfigParam
-from anthropic.types.beta import BetaTextBlockParam
 from pydantic import SecretStr, ValidationError
 
 from app.ai.prompts import SYSTEM_PROMPT, TASKS, render_filings
@@ -29,6 +31,11 @@ from app.models.research import (
     ModelFallback,
     RiskSummary,
 )
+
+if TYPE_CHECKING:
+    import anthropic
+    from anthropic import AsyncAnthropic
+    from anthropic.types.beta import BetaMessage, BetaOutputConfigParam, BetaTextBlockParam
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +88,8 @@ def anthropic_client(api_key: SecretStr) -> AsyncAnthropic:
     the environment or a saved login, and bill the server's owner. The SDK retries
     connection errors, 429s and 5xx responses with backoff. Close the client when done.
     """
+    from anthropic import AsyncAnthropic
+
     secret = api_key.get_secret_value()
     if not secret:
         raise AINotConfiguredError("An Anthropic API key is required.")
@@ -120,6 +129,8 @@ def _user_content(
 @contextmanager
 def _translated_errors() -> Iterator[None]:
     """Re-raise Anthropic SDK and schema errors as :class:`AnalysisError` subclasses."""
+    import anthropic
+
     try:
         yield
     except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
@@ -155,6 +166,8 @@ def _check_stop_reason(response: BetaMessage) -> None:
 
 def _output_config(schema: type[InvestmentThesis | RiskSummary]) -> BetaOutputConfigParam:
     """Return the effort setting and the JSON schema that constrains the report."""
+    from anthropic import transform_schema
+
     return {
         "effort": get_settings().anthropic_effort,
         "format": {"type": "json_schema", "schema": transform_schema(schema)},
