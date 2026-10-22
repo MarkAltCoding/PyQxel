@@ -53,8 +53,8 @@ jobs:
 
       - run: npm ci
 
-      # Pyodide's wheels and the build's Brotli copies, so a build downloads and compresses
-      # only what changed; restored after npm ci, which empties node_modules.
+      # The build's Brotli copies, so a build compresses only what changed; restored after
+      # npm ci, which empties node_modules.
       - uses: actions/cache@v6
         with:
           path: web/node_modules/.cache
@@ -80,8 +80,11 @@ jobs:
       - name: Tests
         run: npm test
 
+      # Offline, as in the Docker build: Pyodide's wheels must be committed in web/vendor.
       - name: Build
         run: npm run build
+        env:
+          PYODIDE_OFFLINE: "1"
 
   docker:
     name: Docker image, Postgres, Redis and R

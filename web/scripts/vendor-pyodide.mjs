@@ -3,9 +3,14 @@
 // and nothing loads from a CDN at runtime: an App Store build must bundle every file it
 // runs, and strategies keep working offline.
 //
-// The runtime comes from the pinned `pyodide` npm package. The wheels are downloaded
-// once per Pyodide version from its release (PYODIDE_PACKAGES_URL overrides where),
-// checked against the sha256 in pyodide-lock.json, and cached in node_modules/.cache.
+// The runtime comes from the pinned `pyodide` npm package. The wheels are committed in
+// vendor/pyodide/<version>/, so builds, Cloud Build's included, need no CDN. A wheel the
+// folder lacks, as after upgrading Pyodide, is downloaded from Pyodide's release
+// (PYODIDE_PACKAGES_URL overrides where) into that folder, to be committed. Every wheel
+// is checked against the sha256 in pyodide-lock.json.
+//
+// With PYODIDE_OFFLINE=1, as in the Docker build and CI, a missing wheel fails the build
+// instead of being downloaded.
 
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -32,7 +37,8 @@ const { version } = JSON.parse(await readFile(join(runtime, 'package.json'), 'ut
 const lock = JSON.parse(await readFile(join(runtime, 'pyodide-lock.json'), 'utf8'))
 const source =
   process.env.PYODIDE_PACKAGES_URL ?? `https://cdn.jsdelivr.net/pyodide/v${version}/full/`
-const cache = join(web, 'node_modules', '.cache', 'pyodide', version)
+const vendored = join(web, 'vendor', 'pyodide', version)
+const offline = process.env.PYODIDE_OFFLINE === '1'
 
 /** `names` and everything they depend on, from the lock file. */
 function withDependencies(names) {
@@ -50,12 +56,20 @@ function withDependencies(names) {
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
 
-/** The wheel's bytes, from the cache or else downloaded, checked against the lock file. */
+/** The wheel's bytes, committed or else downloaded, checked against the lock file. */
 async function wheel(entry) {
-  const cached = join(cache, entry.file_name)
-  if (existsSync(cached)) {
-    const bytes = await readFile(cached)
+  const committed = join(vendored, entry.file_name)
+  if (existsSync(committed)) {
+    const bytes = await readFile(committed)
     if (sha256(bytes) === entry.sha256) return bytes
+    if (offline) {
+      throw new Error(`${committed} does not match the sha256 in pyodide-lock.json.`)
+    }
+  } else if (offline) {
+    throw new Error(
+      `${entry.file_name} is not in web/vendor/pyodide/${version}/. Run \`npm run pyodide\` ` +
+        'in web/ to download it there, and commit it.',
+    )
   }
   const response = await fetch(new URL(entry.file_name, source))
   if (!response.ok) {
@@ -67,8 +81,9 @@ async function wheel(entry) {
   if (sha256(bytes) !== entry.sha256) {
     throw new Error(`${entry.file_name} does not match the sha256 in pyodide-lock.json.`)
   }
-  await mkdir(cache, { recursive: true })
-  await writeFile(cached, bytes)
+  await mkdir(vendored, { recursive: true })
+  await writeFile(committed, bytes)
+  console.log(`Downloaded ${entry.file_name} into vendor/pyodide/${version}/; commit it.`)
   return bytes
 }
 

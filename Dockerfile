@@ -25,6 +25,8 @@ WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
+# Pyodide's wheels are committed in web/vendor, so the build fetches nothing from a CDN.
+ENV PYODIDE_OFFLINE=1
 RUN npm run build
 
 # ── Python dependencies without rpy2 ──
