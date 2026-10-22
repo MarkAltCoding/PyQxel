@@ -265,6 +265,62 @@ describe('custom strategies on the Backtest page', () => {
     expect(screen.getByRole('button', { name: 'Backtest QQQ' })).toBeInTheDocument()
   })
 
+  describe('opening a saved custom run beside a draft', () => {
+    const saved = 'def strategy(bars):\n    return bars["Close"] * 0 + 0.25\n'
+    const draft = 'def strategy(bars):\n    return bars["Close"] * 0 + 1\n'
+    const serveSaved = () =>
+      serve({
+        ...NO_SAVED,
+        'GET /api/v1/backtests/saved-run': () =>
+          result({
+            id: 'saved-run',
+            symbol: 'QQQ',
+            strategy: { type: 'custom', language: 'python', code: saved },
+          }),
+      })
+    const stored = () => window.localStorage.getItem('pyqxel.strategyDraft.python')
+
+    it('shows the saved code without touching the draft, even when it is edited', async () => {
+      window.localStorage.setItem('pyqxel.strategyDraft.python', draft)
+      serveSaved()
+      renderPage('/backtest?id=saved-run')
+
+      const view = await editor()
+      await waitFor(() => expect(view.state.doc.toString()).toBe(saved))
+      expect(await screen.findByText(/This is the code of the QQQ backtest/)).toBeInTheDocument()
+      view.dispatch({ changes: { from: 0, insert: '# tweak\n' } })
+
+      expect(stored()).toBe(draft)
+      await userEvent.click(screen.getByRole('button', { name: 'Back to my draft' }))
+      await waitFor(() => expect(view.state.doc.toString()).toBe(draft))
+      expect(screen.queryByText(/This is the code of/)).not.toBeInTheDocument()
+      expect(stored()).toBe(draft)
+    })
+
+    it('makes the saved code the draft only when asked', async () => {
+      window.localStorage.setItem('pyqxel.strategyDraft.python', draft)
+      serveSaved()
+      renderPage('/backtest?id=saved-run')
+
+      const view = await editor()
+      await userEvent.click(await screen.findByRole('button', { name: 'Use this as my draft' }))
+
+      expect(stored()).toBe(saved)
+      view.dispatch({ changes: { from: 0, insert: '# mine now\n' } })
+      expect(stored()).toBe(`# mine now\n${saved}`)
+    })
+
+    it('says nothing when the saved code is the draft', async () => {
+      window.localStorage.setItem('pyqxel.strategyDraft.python', saved)
+      serveSaved()
+      renderPage('/backtest?id=saved-run')
+
+      const view = await editor()
+      await waitFor(() => expect(view.state.doc.toString()).toBe(saved))
+      expect(screen.queryByText(/This is the code of/)).not.toBeInTheDocument()
+    })
+  })
+
   it('labels custom results and saved rows as custom, never as buy and hold', async () => {
     serve({
       'GET /api/v1/backtests': () => ({

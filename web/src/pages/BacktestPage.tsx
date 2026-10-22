@@ -140,6 +140,12 @@ const LANGUAGE_OPTIONS: { value: EditorLanguage; label: string }[] = [
   { value: 'cpp', label: 'C++' },
 ]
 
+/** A stored backtest whose code the editor shows in place of the draft. */
+interface Viewing {
+  symbol: string
+  savedAt: string | null
+}
+
 /** Where the code being written is kept between visits. */
 const draftKey = (language: EditorLanguage) => `pyqxel.strategyDraft.${language}`
 
@@ -301,17 +307,33 @@ export function BacktestPage() {
   const set = <K extends keyof Form>(key: K, value: Form[K]) =>
     setForm((current) => ({ ...current, [key]: value }))
   const custom = form.type === 'custom'
+  /** The stored backtest whose code is in the editor instead of the draft, if any. Its
+   * code and edits to it are never saved over the draft unless the user asks. */
+  const [viewing, setViewing] = useState<Viewing | null>(null)
+  const draftOf = (language: EditorLanguage) =>
+    readStored(draftKey(language)) ?? starterCode(language)
   const setCode = (code: string) => {
     set('code', code)
-    writeStored(draftKey(form.language), code)
+    if (viewing === null) writeStored(draftKey(form.language), code)
+  }
+  /** Puts the language's draft back in the editor, leaving the stored backtest's code. */
+  const backToDraft = () => {
+    setForm((current) => ({ ...current, code: draftOf(current.language) }))
+    setViewing(null)
+  }
+  /** Makes the code in the editor the draft, replacing the draft there was. */
+  const keepAsDraft = () => {
+    writeStored(draftKey(form.language), form.code)
+    setViewing(null)
   }
   /** Switches the custom strategy's language, to that language's own draft or starter. */
   const chooseLanguage = (language: EditorLanguage) => {
     if (language === form.language) return
+    setViewing(null)
     setForm((current) => ({
       ...current,
       language,
-      code: readStored(draftKey(language)) ?? starterCode(language),
+      code: draftOf(language),
     }))
     // Its runtime starts downloading while the code is read and written.
     runnerFor(language).warm()
@@ -375,6 +397,9 @@ export function BacktestPage() {
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['backtests'] })
       if (result.id) {
+        // A rerun of a stored backtest's code is what the editor now shows.
+        if (viewing !== null)
+          setViewing({ symbol: result.symbol, savedAt: result.saved_at ?? null })
         setLoadedId(result.id)
         queryClient.setQueryData(['backtest', result.id], result)
         setParams({ id: result.id })
@@ -390,17 +415,24 @@ export function BacktestPage() {
   })
 
   // Opening a stored custom backtest puts its code and settings back in the form, so it
-  // can be rerun as it was or edited. This adjusts state while rendering, once per opened
-  // backtest, as React recommends for state that follows other data.
+  // can be rerun as it was or edited, without touching the draft. This adjusts state while
+  // rendering, once per opened backtest, as React recommends for state that follows
+  // other data.
   const openedResult = opened.data
   if (openedResult?.id && openedResult.id !== loadedId) {
     setLoadedId(openedResult.id)
     const { strategy } = openedResult
     if (strategy.type === 'custom') {
+      const language = strategy.language ?? 'python'
+      setViewing(
+        strategy.code === draftOf(language)
+          ? null
+          : { symbol: openedResult.symbol, savedAt: openedResult.saved_at ?? null },
+      )
       setForm((current) => ({
         ...current,
         type: 'custom',
-        language: strategy.language ?? 'python',
+        language,
         code: strategy.code,
         symbol: openedResult.symbol,
         period: openedResult.period,
@@ -799,6 +831,25 @@ export function BacktestPage() {
                 )}
               </div>
             </div>
+            {viewing && (
+              <Notice>
+                <div className="filter-row" style={{ justifyContent: 'space-between' }}>
+                  <span>
+                    This is the code of the {viewing.symbol} backtest
+                    {viewing.savedAt ? ` saved ${dateTime(viewing.savedAt)}` : ''}. Your draft is
+                    kept: editing here does not change it.
+                  </span>
+                  <span className="filter-row">
+                    <button type="button" className="button ghost small" onClick={backToDraft}>
+                      Back to my draft
+                    </button>
+                    <button type="button" className="button ghost small" onClick={keepAsDraft}>
+                      Use this as my draft
+                    </button>
+                  </span>
+                </div>
+              </Notice>
+            )}
             <Suspense fallback={<div className="empty">Loading the editor…</div>}>
               <StrategyEditor
                 language={form.language}
