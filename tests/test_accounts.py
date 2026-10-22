@@ -23,7 +23,15 @@ from app.core.credentials import current_provider_keys
 from app.data.fetcher import DataFetchError
 from app.data.sec_edgar import FilingFetchError
 from app.db.session import get_sessionmaker
-from app.db.tables import UserRecord
+from app.db.tables import (
+    AnalysisRecord,
+    ApiKeyRecord,
+    BacktestRecord,
+    HoldingRecord,
+    IdentityRecord,
+    SimulationRecord,
+    UserRecord,
+)
 from app.db.users import User, create_api_key
 from app.jobs import users as users_cli
 from app.main import app
@@ -460,4 +468,123 @@ def test_command_line_refuses_a_taken_email(monkeypatch: pytest.MonkeyPatch, use
     monkeypatch.setattr("sys.argv", ["users", "create", user.email])
 
     with pytest.raises(SystemExit, match="already uses"):
+        users_cli.main()
+
+
+USER_TABLES: list[Any] = [
+    ApiKeyRecord,
+    IdentityRecord,
+    HoldingRecord,
+    BacktestRecord,
+    AnalysisRecord,
+    SimulationRecord,
+]
+"""Every table holding rows that belong to an account."""
+
+
+def _give_data(user: User) -> None:
+    """Give ``user`` a sign-in identity and a holding, beside the rows tests make."""
+
+    async def add() -> None:
+        async with get_sessionmaker()() as session:
+            session.add(
+                IdentityRecord(
+                    id=f"identity-{user.id}",
+                    user_id=user.id,
+                    provider="github",
+                    subject=user.id,
+                    email=user.email,
+                    created_at=pd.Timestamp.now(tz="UTC").to_pydatetime(),
+                )
+            )
+            session.add(HoldingRecord(user_id=user.id, symbol="SPY", shares=10.0, position=0))
+            await session.commit()
+
+    asyncio.run(add())
+
+
+def _rows_of(user: User) -> dict[str, int]:
+    """How many rows each account table holds for ``user``, and whether the account exists."""
+
+    async def count() -> dict[str, int]:
+        async with get_sessionmaker()() as session:
+            counts = {
+                table.__tablename__: len(
+                    (await session.scalars(select(table).where(table.user_id == user.id))).all()
+                )
+                for table in USER_TABLES
+            }
+            counts["users"] = 0 if await session.get(UserRecord, user.id) is None else 1
+            return counts
+
+    return asyncio.run(count())
+
+
+def test_deleting_an_account_removes_everything_it_holds(
+    monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str], bob: tuple[User, str]
+) -> None:
+    """``DELETE /me`` removes the account and all its rows; other accounts are untouched."""
+    _flat_history(monkeypatch)
+    alice_user, alice_key = alice
+    bob_user, bob_key = bob
+    body = {"strategy": {"type": "buy_and_hold"}, "period": "2y", "attribution": None}
+    for key in (alice_key, bob_key):
+        saved = client.post("/api/v1/stocks/SPY/backtest", headers=_headers(key), json=body)
+        assert saved.status_code == 200
+    _give_data(alice_user)
+    _give_data(bob_user)
+    second_key = _key_for(alice_user, "laptop")
+    assert _rows_of(alice_user)["backtests"] == 1
+
+    response = client.delete("/api/v1/me", headers=_headers(alice_key))
+
+    assert response.status_code == 204
+    assert set(_rows_of(alice_user).values()) == {0}
+    for key in (alice_key, second_key):
+        assert client.get("/api/v1/me", headers=_headers(key)).status_code == 401
+    assert client.get("/api/v1/me", headers=_headers(bob_key)).status_code == 200
+    assert _rows_of(bob_user) | {"api_keys": 1} == {
+        "api_keys": 1,
+        "identities": 1,
+        "holdings": 1,
+        "backtests": 1,
+        "analyses": 0,
+        "simulations": 0,
+        "users": 1,
+    }
+
+
+def test_deleting_an_account_needs_its_key() -> None:
+    assert client.delete("/api/v1/me").status_code == 401
+
+
+def test_command_line_deletes_an_account(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], alice: tuple[User, str]
+) -> None:
+    """``delete`` asks before deleting, and ``--yes`` skips asking."""
+    user, key = alice
+    _give_data(user)
+
+    async def keep_open() -> None:
+        """Leave the test's in-memory database open."""
+
+    monkeypatch.setattr(users_cli, "close_database", keep_open)
+    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+    monkeypatch.setattr("sys.argv", ["users", "delete", user.email])
+    with pytest.raises(SystemExit, match="Nothing was deleted"):
+        users_cli.main()
+    assert _rows_of(user)["users"] == 1
+
+    monkeypatch.setattr("sys.argv", ["users", "delete", user.email, "--yes"])
+    users_cli.main()
+
+    assert f"Deleted account {user.email}" in capsys.readouterr().out
+    assert set(_rows_of(user).values()) == {0}
+    assert client.get("/api/v1/me", headers=_headers(key)).status_code == 401
+
+
+def test_command_line_delete_refuses_an_unknown_email(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("sys.argv", ["users", "delete", "nobody@example.com", "--yes"])
+
+    with pytest.raises(SystemExit, match="No account uses"):
         users_cli.main()

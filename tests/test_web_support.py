@@ -16,6 +16,7 @@ from app.jobs.openapi import SCHEMA_PATH, openapi_schema, render
 from app.main import app
 from app import web
 from app.web import (
+    PAGE_CONTENT_SECURITY_POLICY,
     WORKER_CONTENT_SECURITY_POLICY,
     CompressApiResponses,
     accepts_brotli,
@@ -257,7 +258,27 @@ def test_scripts_carry_the_worker_content_security_policy(web_client: TestClient
     assert "'wasm-unsafe-eval'" in WORKER_CONTENT_SECURITY_POLICY
     assert "'unsafe-eval'" not in WORKER_CONTENT_SECURITY_POLICY.replace("'wasm-unsafe-eval'", "")
     assert "content-security-policy" not in style.headers
-    assert "content-security-policy" not in web_client.get("/").headers
+
+
+@pytest.mark.parametrize("path", ["/", "/stocks/AAPL", "/settings"])
+def test_pages_carry_the_page_security_headers(web_client: TestClient, path: str) -> None:
+    """The app's pages, which hold the API key in storage, run only the app's own scripts
+    and talk only to this origin."""
+    response = web_client.get(path)
+
+    policy = response.headers["content-security-policy"]
+    assert policy == PAGE_CONTENT_SECURITY_POLICY
+    directives = dict(part.split(" ", 1) for part in policy.split("; "))
+    assert directives["script-src"] == "'self'"
+    assert directives["connect-src"] == "'self'"
+    assert directives["frame-ancestors"] == "'none'"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["referrer-policy"] == "same-origin"
+
+
+def test_api_and_assets_do_not_carry_the_page_policy(web_client: TestClient) -> None:
+    assert "content-security-policy" not in web_client.get("/api/v1/ping").headers
+    assert "content-security-policy" not in web_client.get("/assets/app-1a2b.css").headers
 
 
 def test_api_routes_win_and_unknown_api_paths_are_404(web_client: TestClient) -> None:

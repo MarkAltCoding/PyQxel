@@ -8,6 +8,7 @@ marked as a sign-in key so that signing out revokes it.
 import base64
 import logging
 import secrets
+from datetime import timedelta
 from typing import Annotated
 from urllib.parse import urlencode
 
@@ -167,7 +168,11 @@ async def finish_sign_in(
     try:
         user = await user_for_identity(session, provider, identity.subject, identity.email)
         issued = await create_api_key(
-            session, user.id, f"{oauth.label} sign-in", signed_in_with=provider
+            session,
+            user.id,
+            f"{oauth.label} sign-in",
+            signed_in_with=provider,
+            expires_after=timedelta(days=get_settings().sign_in_key_days),
         )
     except SQLAlchemyError as exc:
         await session.rollback()

@@ -1,4 +1,5 @@
-"""The authenticated user's account: provider keys, AI limits, and PyQxel API keys.
+"""The authenticated user's account: provider keys, AI limits, PyQxel API keys, and
+deleting the account.
 
 Each account pays for its own usage. AI analyses run on the Anthropic key stored here,
 market data on the Financial Modeling Prep key, and data the other sources leave out on
@@ -22,6 +23,7 @@ from app.db.users import (
     User,
     ai_usage,
     create_api_key,
+    delete_user,
     list_api_keys,
     revoke_api_key,
     update_credentials,
@@ -161,4 +163,25 @@ async def remove_api_key(key_id: UUID, user: CurrentUser, session: Session) -> R
         raise _database_error(exc) from exc
     if not revoked:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such API key.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Delete your account",
+)
+async def delete_account(user: CurrentUser, session: Session) -> Response:
+    """Delete your account and everything it holds, at once and for good.
+
+    Your provider keys, PyQxel API keys, sign-in links to GitHub and Google, holdings,
+    and stored backtests, analyses and simulations are deleted, and every API key stops
+    working. Signing in again afterwards starts a new, empty account.
+    """
+    try:
+        await delete_user(session, user.id)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    logger.info("Deleted account %s at its owner's request.", user.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

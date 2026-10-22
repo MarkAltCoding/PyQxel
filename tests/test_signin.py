@@ -15,13 +15,15 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
-from sqlalchemy import func, select
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import func, select, update
 
 from app.api.v1.endpoints import signin
 from app.core.config import Settings
 from app.db.session import get_sessionmaker
-from app.db.tables import IdentityRecord, UserRecord
-from app.db.users import authenticate, create_api_key, user_for_identity
+from app.db.tables import ApiKeyRecord, IdentityRecord, UserRecord
+from app.db.users import authenticate, create_api_key, revoke_signed_in_key, user_for_identity
 from app.main import app
 
 GITHUB_USER = {"id": 4242, "login": "octo"}
@@ -327,3 +329,79 @@ def test_signing_out_revokes_sign_in_keys_but_not_keys_for_scripts(
     assert asyncio.run(_email_for(signed_in)) is None
     assert asyncio.run(_email_for(script)) == "tester@example.com"
     assert client.post("/api/v1/auth/signout").status_code == 204
+
+
+async def _expire(key_name: str) -> None:
+    """Move the expiry of the keys named ``key_name`` into the past."""
+    async with get_sessionmaker()() as session:
+        await session.execute(
+            update(ApiKeyRecord)
+            .where(ApiKeyRecord.name == key_name)
+            .values(expires_at=datetime.now(timezone.utc) - timedelta(seconds=1))
+        )
+        await session.commit()
+
+
+@pytest.mark.usefixtures("real_auth")
+def test_sign_in_keys_expire(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A sign-in key works for SIGN_IN_KEY_DAYS, then is refused like a revoked one."""
+    _providers(monkeypatch)
+    before = datetime.now(timezone.utc)
+
+    key = _sign_in(client, "github")["key"]
+
+    async def expiry() -> datetime | None:
+        async with get_sessionmaker()() as session:
+            record: ApiKeyRecord | None = await session.scalar(select(ApiKeyRecord))
+            assert record is not None
+            return record.expires_at
+
+    expires_at = asyncio.run(expiry())
+    assert expires_at is not None
+    lifetime = expires_at.replace(tzinfo=timezone.utc) - before
+    assert timedelta(days=30) <= lifetime < timedelta(days=30, minutes=1)
+    assert asyncio.run(_email_for(key)) == "octo@example.com"
+
+    asyncio.run(_expire("GitHub sign-in"))
+
+    assert asyncio.run(_email_for(key)) is None
+    assert client.get("/api/v1/me", headers={"Authorization": f"Bearer {key}"}).status_code == 401
+
+
+def test_keys_for_scripts_do_not_expire(user: Any) -> None:
+    async def issue() -> str:
+        async with get_sessionmaker()() as session:
+            issued = await create_api_key(session, user.id, "my script")
+            assert issued.expires_at is None
+            return issued.key
+
+    assert asyncio.run(_email_for(asyncio.run(issue()))) == "tester@example.com"
+
+
+def test_signing_in_clears_away_spent_sign_in_keys(user: Any) -> None:
+    """Revoked and expired sign-in keys are deleted at the next sign-in; working sign-in
+    keys and every key made for scripts are kept."""
+    month = timedelta(days=30)
+
+    async def issue(name: str, signed_in_with: str | None = None) -> str:
+        async with get_sessionmaker()() as session:
+            expires = month if signed_in_with else None
+            return (await create_api_key(session, user.id, name, signed_in_with, expires)).key
+
+    async def revoke(key: str) -> None:
+        async with get_sessionmaker()() as session:
+            assert await revoke_signed_in_key(session, key)
+
+    async def names() -> set[str]:
+        async with get_sessionmaker()() as session:
+            return set(await session.scalars(select(ApiKeyRecord.name)))
+
+    asyncio.run(revoke(asyncio.run(issue("signed out", "github"))))
+    asyncio.run(issue("expired", "google"))
+    asyncio.run(_expire("expired"))
+    asyncio.run(issue("still signed in", "github"))
+    asyncio.run(issue("my script"))
+
+    asyncio.run(issue("new sign-in", "github"))
+
+    assert asyncio.run(names()) == {"still signed in", "my script", "new sign-in"}

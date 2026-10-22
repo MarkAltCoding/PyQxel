@@ -75,6 +75,13 @@ class Settings(BaseSettings):
         "public feed for the screener refresh when SCREENER_FMP_API_KEY is unset. These "
         "sources are unlicensed: keep it off once anyone else uses the deployment.",
     )
+    sign_in_key_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        description="Days an API key issued by signing in on the website stays valid; keys "
+        "created for scripts do not expire.",
+    )
     rate_limit_per_minute: int = Field(
         default=120,
         ge=1,

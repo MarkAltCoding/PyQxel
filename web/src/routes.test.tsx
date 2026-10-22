@@ -166,3 +166,43 @@ describe('sign-in', () => {
     expect(screen.getByText(/never sells data/)).toBeInTheDocument()
   })
 })
+
+describe('deleting the account', () => {
+  const ACCOUNT = {
+    id: '6f9619ff-8b86-d011-b42d-00c04fc964ff',
+    email: 'me@example.com',
+    created_at: '2026-10-01T00:00:00Z',
+    anthropic: { configured: false, hint: null },
+    fmp: { configured: false, hint: null },
+    alpha_vantage: { configured: false, hint: null },
+    limits: { ai_requests_per_hour: null, ai_requests_per_day: null },
+    usage: { last_hour: 0, last_day: 0 },
+    rate_limit_per_minute: 120,
+  }
+
+  it('asks for the email, deletes, and signs out', async () => {
+    window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
+    const calls = serve({
+      '/api/v1/me': (init) =>
+        init?.method === 'DELETE' ? new Response(null, { status: 204 }) : json(ACCOUNT),
+      '/api/v1/auth/signout': () => new Response(null, { status: 204 }),
+      '/api/v1/auth/providers': () => json([]),
+    })
+    const router = renderAt('/settings')
+
+    const button = await screen.findByRole('button', { name: 'Delete account' })
+    expect(button).toBeDisabled()
+    await userEvent.type(screen.getByLabelText(/Type me@example.com to confirm/), 'ME@example.com')
+    expect(button).toBeEnabled()
+    await userEvent.click(button)
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/signin'))
+    const deletion = calls.find((call) => call.method === 'DELETE')
+    expect(deletion).toEqual({
+      path: '/api/v1/me',
+      method: 'DELETE',
+      authorization: 'Bearer pq_mine',
+    })
+    expect(window.localStorage.getItem('pyqxel.apiKey')).toBeNull()
+  })
+})

@@ -38,9 +38,9 @@ export function PrivacyPage() {
             token the provider issues, which it uses once and discards.
           </p>
           <p>
-            Signing in gives your browser a PyQxel API key, and PyQxel stores only a one-way hash of
-            it. A cookie holds the sign-in in progress for up to ten minutes and is then deleted;
-            PyQxel sets no other cookies.
+            Signing in gives your browser a PyQxel API key that works for 30 days, and PyQxel stores
+            only a one-way hash of it. A cookie holds the sign-in in progress for up to ten minutes
+            and is then deleted; PyQxel sets no other cookies.
           </p>
         </Section>
 
@@ -93,9 +93,11 @@ export function PrivacyPage() {
 
         <Section title="Deleting your data">
           <p>
-            To delete your account and everything it holds, contact me through{' '}
-            <a href={CONTACT}>GitHub</a>. Removing PyQxel’s access in your GitHub or Google settings
-            stops it signing you in, but does not by itself delete your account.
+            To delete your account and everything it holds, use Delete account in Settings. It takes
+            effect at once and cannot be undone. If you can no longer sign in, contact me through{' '}
+            <a href={CONTACT}>GitHub</a> and I will delete it for you. Removing PyQxel’s access in
+            your GitHub or Google settings stops it signing you in, but does not by itself delete
+            your account.
           </p>
         </Section>
 

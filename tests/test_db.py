@@ -16,7 +16,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import Connection, inspect
+from sqlalchemy import Connection, inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import session as db_session
@@ -29,7 +29,7 @@ from app.db.session import (
     get_sessionmaker,
     init_db,
 )
-from app.db.tables import BacktestRecord, Base
+from app.db.tables import ApiKeyRecord, BacktestRecord, Base, as_utc
 from app.models.backtest import (
     BacktestResponse,
     BuyAndHold,
@@ -264,3 +264,42 @@ async def test_migrations_downgrade_and_upgrade_cleanly() -> None:
     assert await init_db() is True
     async with get_engine().connect() as connection:
         assert await connection.run_sync(_schema_drift) == []
+
+
+async def test_sign_in_keys_get_an_expiry_when_migrated() -> None:
+    """Revision 0012 gives working sign-in keys a month from the upgrade, deletes revoked
+    sign-in keys, and leaves keys for scripts without an expiry."""
+    now = datetime.now(timezone.utc)
+    async with get_engine().begin() as connection:
+        await connection.run_sync(lambda sync: command.downgrade(_alembic_config(sync), "0011"))
+        await connection.execute(
+            text("INSERT INTO users (id, email, created_at) VALUES ('u1', 'a@example.com', :now)"),
+            {"now": now},
+        )
+        for key_id, signed_in_with, revoked_at in (
+            ("active", "github", None),
+            ("signed-out", "google", now),
+            ("script", None, None),
+        ):
+            await connection.execute(
+                text(
+                    "INSERT INTO api_keys (id, user_id, name, prefix, key_hash, created_at, "
+                    "revoked_at, signed_in_with) VALUES (:id, 'u1', :id, 'pq_', :id, :now, "
+                    ":revoked_at, :signed_in_with)"
+                ),
+                {
+                    "id": key_id,
+                    "now": now,
+                    "revoked_at": revoked_at,
+                    "signed_in_with": signed_in_with,
+                },
+            )
+
+    assert await init_db() is True
+    async with get_sessionmaker()() as session:
+        keys = {record.id: record for record in await session.scalars(select(ApiKeyRecord))}
+    assert set(keys) == {"active", "script"}
+    assert keys["script"].expires_at is None
+    expires_at = keys["active"].expires_at
+    assert expires_at is not None
+    assert timedelta(days=30) <= as_utc(expires_at) - now < timedelta(days=30, minutes=1)

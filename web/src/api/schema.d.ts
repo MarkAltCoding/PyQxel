@@ -156,7 +156,15 @@ export interface paths {
     get: operations['read_account_api_v1_me_get']
     put?: never
     post?: never
-    delete?: never
+    /**
+     * Delete your account
+     * @description Delete your account and everything it holds, at once and for good.
+     *
+     *     Your provider keys, PyQxel API keys, sign-in links to GitHub and Google, holdings,
+     *     and stored backtests, analyses and simulations are deleted, and every API key stops
+     *     working. Signing in again afterwards starts a new, empty account.
+     */
+    delete: operations['delete_account_api_v1_me_delete']
     options?: never
     head?: never
     patch?: never
@@ -1113,6 +1121,11 @@ export interface components {
        * Format: date-time
        */
       created_at: string
+      /**
+       * Expires At
+       * @description When the key stops working: set for keys issued by signing in, null for keys created for scripts.
+       */
+      expires_at?: string | null
       /**
        * Id
        * Format: uuid
@@ -2566,6 +2579,11 @@ export interface components {
        * Format: date-time
        */
       created_at: string
+      /**
+       * Expires At
+       * @description When the key stops working: set for keys issued by signing in, null for keys created for scripts.
+       */
+      expires_at?: string | null
       /**
        * Id
        * Format: uuid
@@ -4389,6 +4407,24 @@ export interface operations {
         content: {
           'application/json': components['schemas']['Account']
         }
+      }
+    }
+  }
+  delete_account_api_v1_me_delete: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
       }
     }
   }

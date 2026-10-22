@@ -483,6 +483,19 @@
             "title": "Created At",
             "type": "string"
           },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the key stops working: set for keys issued by signing in, null for keys created for scripts.",
+            "title": "Expires At"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -3190,6 +3203,19 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the key stops working: set for keys issued by signing in, null for keys created for scripts.",
+            "title": "Expires At"
           },
           "id": {
             "format": "uuid",
@@ -6687,6 +6713,19 @@
       }
     },
     "/api/v1/me": {
+      "delete": {
+        "description": "Delete your account and everything it holds, at once and for good.\n\nYour provider keys, PyQxel API keys, sign-in links to GitHub and Google, holdings,\nand stored backtests, analyses and simulations are deleted, and every API key stops\nworking. Signing in again afterwards starts a new, empty account.",
+        "operationId": "delete_account_api_v1_me_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Delete your account",
+        "tags": [
+          "account"
+        ]
+      },
       "get": {
         "description": "Return the account: which provider keys are stored, AI limits and recent usage.",
         "operationId": "read_account_api_v1_me_get",

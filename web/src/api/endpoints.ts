@@ -39,6 +39,7 @@ export const updateCredentials = (body: CredentialsUpdate) =>
   api<Account>(`${V1}/me/credentials`, { method: 'PUT', body })
 export const updateLimits = (body: AiLimits) =>
   api<Account>(`${V1}/me/limits`, { method: 'PUT', body })
+export const deleteAccount = () => api<void>(`${V1}/me`, { method: 'DELETE' })
 
 export const search = (q: string, signal?: AbortSignal) =>
   api<SearchResponse>(`${V1}/search`, { query: { q, limit: 8 }, signal })

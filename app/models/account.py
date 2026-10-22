@@ -82,6 +82,11 @@ class ApiKeyInfo(BaseModel):
     created_at: datetime
     last_used_at: datetime | None = None
     revoked_at: datetime | None = None
+    expires_at: datetime | None = Field(
+        default=None,
+        description="When the key stops working: set for keys issued by signing in, null "
+        "for keys created for scripts.",
+    )
 
 
 class NewApiKey(ApiKeyInfo):

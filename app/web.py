@@ -39,6 +39,39 @@ through Pyodide's ``js`` module, nor import code from elsewhere. Browsers ignore
 header on the scripts a page loads, so the rest of the app is unaffected.
 """
 
+PAGE_CONTENT_SECURITY_POLICY = "; ".join(
+    [
+        "default-src 'self'",
+        "script-src 'self'",
+        # Charts and React set style attributes; no script runs from a style.
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "worker-src 'self'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ]
+)
+"""The policy the app's pages run under.
+
+The browser keeps the PyQxel API key in local storage, where any script on the page
+could read it, so only the app's own scripts may run: no inline or injected script, no
+``eval``, and nothing loaded from another origin. Requests, including the quote
+WebSocket, go only to this origin, so a script that did get in could not send the key
+elsewhere by ``fetch``; and no other site may frame the app. The workers that compile
+and run custom strategies get :data:`WORKER_CONTENT_SECURITY_POLICY` instead.
+"""
+
+PAGE_HEADERS: dict[str, str] = {
+    "Content-Security-Policy": PAGE_CONTENT_SECURITY_POLICY,
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+}
+"""Headers sent with every HTML page of the app."""
+
 STREAM_ABOVE_BYTES = 30 * 1024 * 1024
 """Files larger than this are sent in chunks without a stated length: Cloud Run refuses
 HTTP/1 responses over 32 MiB that state their length."""
@@ -162,7 +195,10 @@ def mount_web(application: FastAPI, dist: Path) -> bool:
             file = index
         # Revalidated on every use: index.html so a deploy's new asset names are picked up
         # at once, and the vendored Pyodide and Clang, whose names stay the same.
-        return file_response(file, request.headers, request.method, {"Cache-Control": REVALIDATE})
+        headers = {"Cache-Control": REVALIDATE}
+        if file.suffix == ".html":
+            headers |= PAGE_HEADERS
+        return file_response(file, request.headers, request.method, headers)
 
     return True
 

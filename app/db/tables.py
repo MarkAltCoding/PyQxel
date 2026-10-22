@@ -69,6 +69,8 @@ class ApiKeyRecord(Base):
     signed_in_with: Mapped[str | None] = mapped_column(String(16), nullable=True)
     """The provider a sign-in issued the key through, such as ``github``; null for keys
     created for scripts, which signing out leaves alone."""
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    """When a key issued by signing in stops working; null for keys created for scripts."""
 
 
 class IdentityRecord(Base):

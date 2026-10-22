@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getAccount, updateCredentials, updateLimits } from '../api/endpoints'
+import { deleteAccount, getAccount, updateCredentials, updateLimits } from '../api/endpoints'
 import type { Account, CredentialsUpdate } from '../api/types'
+import { useAuth } from '../auth/useAuth'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { Stat } from '../components/Stat'
 import { shortDate } from '../lib/format'
@@ -77,6 +78,7 @@ export function SettingsPage() {
             ))}
           </section>
           <LimitsForm account={account.data} onSaved={onSaved} />
+          <DeleteAccount email={account.data.email} />
         </>
       )}
     </div>
@@ -197,6 +199,46 @@ function LimitsForm({ account, onSaved }: { account: Account; onSaved: (a: Accou
       </div>
       {save.isSuccess && <Notice>Limits saved.</Notice>}
       {save.error !== null && <ErrorNotice error={save.error} />}
+    </form>
+  )
+}
+
+function DeleteAccount({ email }: { email: string }) {
+  const { signOut } = useAuth()
+  const [typed, setTyped] = useState('')
+  const remove = useMutation({ mutationFn: deleteAccount, onSuccess: signOut })
+  const confirmed = typed.trim().toLowerCase() === email.toLowerCase()
+  return (
+    <form
+      className="card stack"
+      style={{ gap: 14 }}
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (confirmed) remove.mutate()
+      }}
+    >
+      <div>
+        <h2>Delete account</h2>
+        <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
+          Deletes your account at once and for good: your provider keys, API keys, holdings,
+          backtests, simulations and AI reports. Signing in again starts a new, empty account.
+        </p>
+      </div>
+      <div className="filter-row">
+        <label className="field" style={{ width: 320 }}>
+          <span>Type {email} to confirm</span>
+          <input
+            type="email"
+            autoComplete="off"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+          />
+        </label>
+        <button type="submit" className="button danger" disabled={!confirmed || remove.isPending}>
+          Delete account
+        </button>
+      </div>
+      {remove.error !== null && <ErrorNotice error={remove.error} />}
     </form>
   )
 }

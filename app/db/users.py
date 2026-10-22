@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from pydantic import SecretStr
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.credentials import ProviderKeys
@@ -21,6 +21,7 @@ from app.db.tables import (
     AnalysisRecord,
     ApiKeyRecord,
     BacktestRecord,
+    HoldingRecord,
     IdentityRecord,
     SimulationRecord,
     UserRecord,
@@ -95,7 +96,13 @@ def _key_info(record: ApiKeyRecord) -> ApiKeyInfo:
         created_at=as_utc(record.created_at),
         last_used_at=None if record.last_used_at is None else as_utc(record.last_used_at),
         revoked_at=None if record.revoked_at is None else as_utc(record.revoked_at),
+        expires_at=None if record.expires_at is None else as_utc(record.expires_at),
     )
+
+
+def _expired(record: ApiKeyRecord, now: datetime) -> bool:
+    """Whether ``record`` has passed its expiry, if it has one."""
+    return record.expires_at is not None and as_utc(record.expires_at) <= now
 
 
 async def create_user(session: AsyncSession, email: str) -> User:
@@ -128,13 +135,28 @@ async def get_user(session: AsyncSession, user_id: str) -> User | None:
 
 
 async def create_api_key(
-    session: AsyncSession, user_id: str, name: str, signed_in_with: str | None = None
+    session: AsyncSession,
+    user_id: str,
+    name: str,
+    signed_in_with: str | None = None,
+    expires_after: timedelta | None = None,
 ) -> NewApiKey:
     """Issue an API key for the account; the key is returned this once and stored hashed.
 
     ``signed_in_with`` names the provider of a sign-in the key is issued for, which marks
-    it as one that signing out revokes.
+    it as one that signing out revokes; the account's earlier sign-in keys that have
+    been revoked or have expired are deleted then, so signing in often does not pile
+    them up. ``expires_after`` limits how long the key works.
     """
+    now = datetime.now(timezone.utc)
+    if signed_in_with is not None:
+        await session.execute(
+            delete(ApiKeyRecord).where(
+                ApiKeyRecord.user_id == user_id,
+                ApiKeyRecord.signed_in_with.is_not(None),
+                or_(ApiKeyRecord.revoked_at.is_not(None), ApiKeyRecord.expires_at <= now),
+            )
+        )
     key = generate_api_key()
     record = ApiKeyRecord(
         id=str(uuid4()),
@@ -142,8 +164,9 @@ async def create_api_key(
         name=name,
         prefix=key[:API_KEY_DISPLAY_LENGTH],
         key_hash=hash_api_key(key),
-        created_at=datetime.now(timezone.utc),
+        created_at=now,
         signed_in_with=signed_in_with,
+        expires_at=None if expires_after is None else now + expires_after,
     )
     session.add(record)
     await session.commit()
@@ -201,15 +224,15 @@ async def revoke_signed_in_key(session: AsyncSession, key: str) -> bool:
 
 
 async def authenticate(session: AsyncSession, key: str) -> User | None:
-    """The account an API key belongs to, or ``None`` for unknown and revoked keys."""
+    """The account an API key belongs to, or ``None`` for unknown, revoked and expired keys."""
     record = await session.scalar(
         select(ApiKeyRecord).where(
             ApiKeyRecord.key_hash == hash_api_key(key), ApiKeyRecord.revoked_at.is_(None)
         )
     )
-    if record is None:
-        return None
     now = datetime.now(timezone.utc)
+    if record is None or _expired(record, now):
+        return None
     if record.last_used_at is None or now - as_utc(record.last_used_at) > LAST_USED_RESOLUTION:
         record.last_used_at = now
         await session.commit()
@@ -306,3 +329,27 @@ async def claim_unowned(session: AsyncSession, user_id: str) -> dict[str, int]:
         claimed[table.__tablename__] = int(result.rowcount)  # type: ignore[attr-defined]
     await session.commit()
     return claimed
+
+
+async def delete_user(session: AsyncSession, user_id: str) -> bool:
+    """Delete the account and everything it holds; return whether it existed.
+
+    Its API keys, sign-in identities, holdings and stored backtests, analyses and
+    simulations go with it. Rows are deleted explicitly rather than left to the foreign
+    keys' cascades, which SQLite does not enforce by default.
+    """
+    record = await session.get(UserRecord, user_id)
+    if record is None:
+        return False
+    for table in (
+        ApiKeyRecord,
+        IdentityRecord,
+        HoldingRecord,
+        BacktestRecord,
+        AnalysisRecord,
+        SimulationRecord,
+    ):
+        await session.execute(delete(table).where(table.user_id == user_id))
+    await session.delete(record)
+    await session.commit()
+    return True
