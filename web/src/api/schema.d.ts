@@ -226,12 +226,13 @@ export interface paths {
     get?: never
     /**
      * Store your provider keys
-     * @description Store, replace or remove your Anthropic, Financial Modeling Prep and Alpha Vantage keys.
+     * @description Store, replace or remove your Anthropic, Financial Modeling Prep, Alpha Vantage and
+     *     Finnhub keys.
      *
      *     Omitted fields are left as they are and ``null`` removes a key. Keys are encrypted at
      *     rest, never returned, and used only for your own requests: analyses are billed to
-     *     your Anthropic account, market data to your FMP plan, and the gaps Alpha Vantage
-     *     fills to your Alpha Vantage plan.
+     *     your Anthropic account, market data to your FMP plan, the gaps Alpha Vantage
+     *     fills to your Alpha Vantage plan, and company news to your Finnhub plan.
      *
      *     Returns 503 when the server has no ``CREDENTIALS_ENCRYPTION_KEY``.
      */
@@ -512,12 +513,15 @@ export interface paths {
     }
     /**
      * Search stocks
-     * @description Find US-listed common stocks by symbol prefix or part of the company name.
+     * @description Find US listings by symbol prefix or part of the company name.
      *
-     *     Searches the screened universe, which the screener refresh job builds, so it reads
-     *     the database only and needs no data provider. Stocks outside the universe, such as
-     *     ETFs and foreign listings, are not found here but work on every ``/stocks/{symbol}``
-     *     route.
+     *     Searches the screened universe of US common stocks, which the screener refresh job
+     *     builds, first. With a Finnhub key, Finnhub's search of US listings fills the rest of
+     *     the ``limit``, finding ETFs, ADRs and stocks outside the universe (``source`` is
+     *     ``finnhub``, with their ``kind`` and no market cap). Every listing works on the
+     *     ``/stocks/{symbol}`` routes whether it is found here or not.
+     *
+     *     Returns 503 when the database is unavailable and Finnhub finds nothing.
      */
     get: operations['search_api_v1_search_get']
     put?: never
@@ -565,7 +569,10 @@ export interface paths {
      *     statistics computed from daily adjusted closes over ``period``, factor exposures, a
      *     GARCH(1,1) volatility forecast fit to five years of daily returns, the stock's
      *     screening metrics ranked among its industry or sector peers, the company's financial
-     *     statement figures and valuation multiples, and, unless
+     *     statement figures and valuation multiples, the headlines and summaries of the last
+     *     two weeks of news, analysts' ratings, earnings surprises, the next earnings date,
+     *     insiders' trades and sentiment, key metrics and peers from Finnhub (with a Finnhub key
+     *     stored), and, unless
      *     ``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K
      *     and any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of
      *     it cannot be fetched the report is written without it and ``context.notice`` says so.
@@ -794,6 +801,98 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/stocks/{symbol}/metrics': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Key metrics and peers
+     * @description Return ``symbol``'s key metrics and peers, from Finnhub's basic financials.
+     *
+     *     The metrics cover the 52-week range and returns, beta and trading volume; valuation
+     *     multiples, including a forward P/E on analysts' estimates; the dividend yield, payout
+     *     and growth; margins and returns on capital; growth; and liquidity and leverage, as
+     *     Finnhub computes them from its own data, so they can differ slightly from the
+     *     fundamentals built from SEC filings. Ratios are decimals and totals are in units.
+     *     ``peers`` lists companies Finnhub places in the same industry.
+     *
+     *     Fetched on your own Finnhub key (``PUT /api/v1/me/credentials``), whose free plan
+     *     covers US listings, and reused for six hours. Returns 403 without a valid Finnhub key,
+     *     402 when your plan does not cover the company, 404 when Finnhub has no metrics for it,
+     *     and 502 when Finnhub fails.
+     */
+    get: operations['get_metrics_api_v1_stocks__symbol__metrics_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/stocks/{symbol}/news': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Recent company news
+     * @description Return the last two weeks of news about ``symbol`` from Finnhub, newest first.
+     *
+     *     ``overview`` counts every article in the window by day and by publisher, while
+     *     ``articles`` holds the newest ``limit`` of them. Copies of a syndicated story under
+     *     the same headline count once. News is fetched on your own Finnhub key (``PUT
+     *     /api/v1/me/credentials``), whose free plan covers North American companies, and
+     *     reused for ten minutes. When Finnhub cannot be reached, the last news fetched in the
+     *     past day is returned with a ``notice``.
+     *
+     *     Returns 403 without a valid Finnhub key, 402 when your plan does not cover the
+     *     company, 503 when Finnhub rate limits your key, and 502 when Finnhub fails.
+     */
+    get: operations['get_news_api_v1_stocks__symbol__news_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/stocks/{symbol}/signals': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Analyst ratings, earnings and insider trades
+     * @description Return what analysts, earnings and insiders say about ``symbol``, from Finnhub.
+     *
+     *     ``recommendations`` counts analysts' ratings by month, ``earnings`` compares the last
+     *     quarters' reported EPS with the estimate, ``next_earnings`` gives the next report
+     *     within three months, ``insiders`` totals the last 90 days of open-market purchases
+     *     and sales filed on Form 4, the newest of which are listed in ``insider_trades``, and
+     *     ``insider_sentiment`` gives Finnhub's monthly share purchase ratio for the last year.
+     *
+     *     Fetched on your own Finnhub key (``PUT /api/v1/me/credentials``), whose free plan
+     *     covers US companies, and reused for six hours. A part Finnhub cannot supply is left
+     *     empty and named in ``notice``. Returns 403 without a valid Finnhub key.
+     */
+    get: operations['get_signals_api_v1_stocks__symbol__signals_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/stocks/{symbol}/volatility': {
     parameters: {
       query?: never
@@ -883,6 +982,7 @@ export interface components {
       created_at: string
       /** Email */
       email: string
+      finnhub: components['schemas']['ProviderCredential']
       fmp: components['schemas']['ProviderCredential']
       /**
        * Id
@@ -891,10 +991,20 @@ export interface components {
       id: string
       limits: components['schemas']['AiLimits']
       /**
+       * Market Data Fallback
+       * @description Whether the server falls back to yfinance when no licensed provider answers, as in development.
+       */
+      market_data_fallback: boolean
+      /**
        * Rate Limit Per Minute
        * @description Requests allowed per minute, server-wide.
        */
       rate_limit_per_minute: number
+      /**
+       * Sec Filings
+       * @description Whether the server reads financial statements and filings from SEC EDGAR, which needs no account key.
+       */
+      sec_filings: boolean
       usage: components['schemas']['AiUsage']
     }
     /**
@@ -940,6 +1050,10 @@ export interface components {
       filings?: components['schemas']['FilingReference'][]
       /** @description Financial statement figures from SEC filings and the valuation built on them; null when they could not be fetched. */
       fundamentals?: components['schemas']['Fundamentals'] | null
+      /** @description Finnhub's key metrics (52-week range, beta, valuation including a forward P/E, dividends, margins, growth, leverage) and its list of peers; null when unavailable. */
+      metrics?: components['schemas']['CompanyMetrics'] | null
+      /** @description Headlines and summaries of the last two weeks of company news from Finnhub; null when it could not be fetched. */
+      news?: components['schemas']['NewsContext'] | null
       /**
        * Notice
        * @description Explains which part of the window has no data, if any.
@@ -953,6 +1067,8 @@ export interface components {
        */
       period: '6mo' | '1y' | '2y' | '5y' | '10y' | 'max'
       prices: components['schemas']['PriceSummary']
+      /** @description Analysts' rating counts, recent earnings surprises, the next earnings date and insiders' open-market trades and sentiment, from Finnhub; null without a Finnhub key. */
+      signals?: components['schemas']['SignalsContext'] | null
       ticker: components['schemas']['TickerInfo']
       /** @description A GARCH(1,1) fit to the last five years of daily returns, whatever the analysis period, and its volatility forecast; null when it could not be fit. */
       volatility_forecast?: components['schemas']['GarchContext'] | null
@@ -1020,7 +1136,7 @@ export interface components {
       context: components['schemas']['AnalysisContext']
       /**
        * Disclaimer
-       * @default Generated by an AI model from historical price data and, where listed, financial statement data and excerpts of SEC filings. Not investment advice.
+       * @default Generated by an AI model from historical price data and, where listed, financial statement data, excerpts of SEC filings and news headlines. Not investment advice.
        */
       disclaimer?: string
       /**
@@ -1459,6 +1575,20 @@ export interface components {
       t_stat: number | null
     }
     /**
+     * CompanyMetrics
+     * @description A company's key metrics and the companies Finnhub lists as its peers.
+     */
+    CompanyMetrics: {
+      metrics: components['schemas']['KeyMetrics']
+      /**
+       * Peers
+       * @description Symbols of companies in the same industry, as Finnhub lists them; empty when it has none.
+       */
+      peers: string[]
+      /** Symbol */
+      symbol: string
+    }
+    /**
      * CopulaFitResponse
      * @description Gaussian and Student t copulas fitted to several assets' daily returns, and compared.
      */
@@ -1549,6 +1679,11 @@ export interface components {
        * @description Anthropic API key, used for this account's analyses.
        */
       anthropic_api_key?: string | null
+      /**
+       * Finnhub Api Key
+       * @description Finnhub key, used for company news.
+       */
+      finnhub_api_key?: string | null
       /**
        * Fmp Api Key
        * @description Financial Modeling Prep key, used for its market data.
@@ -1728,6 +1863,60 @@ export interface components {
        * @enum {string}
        */
       type: 'dual_momentum'
+    }
+    /**
+     * EarningsDate
+     * @description A company's next scheduled earnings report.
+     */
+    EarningsDate: {
+      /**
+       * Date
+       * Format: date
+       */
+      date: string
+      /** Eps Estimate */
+      eps_estimate?: number | null
+      /**
+       * Hour
+       * @description ``bmo`` before the market opens, ``amc`` after it closes, ``dmh`` during market hours; null when not announced.
+       */
+      hour?: string | null
+      /** Quarter */
+      quarter?: number | null
+      /** Revenue Estimate */
+      revenue_estimate?: number | null
+      /** Year */
+      year?: number | null
+    }
+    /**
+     * EarningsSurprise
+     * @description Reported earnings per share for one quarter against the analysts' estimate.
+     */
+    EarningsSurprise: {
+      /** Actual */
+      actual?: number | null
+      /** Estimate */
+      estimate?: number | null
+      /**
+       * Period
+       * Format: date
+       * @description The quarter's end.
+       */
+      period: string
+      /** Quarter */
+      quarter?: number | null
+      /**
+       * Surprise
+       * @description Actual less estimate, per share.
+       */
+      surprise?: number | null
+      /**
+       * Surprise Percent
+       * @description The surprise as a decimal of the estimate (0.05 = 5%).
+       */
+      surprise_percent?: number | null
+      /** Year */
+      year?: number | null
     }
     /**
      * EquityPoint
@@ -2418,6 +2607,107 @@ export interface components {
       holdings?: components['schemas']['HoldingShares'][]
     }
     /**
+     * InsiderSentimentMonth
+     * @description Finnhub's monthly insider sentiment for a company.
+     */
+    InsiderSentimentMonth: {
+      /**
+       * Month
+       * Format: date
+       * @description The month, as its first day.
+       */
+      month: string
+      /**
+       * Mspr
+       * @description Monthly share purchase ratio: 100 when insiders only bought, -100 when they only sold.
+       */
+      mspr: number
+      /**
+       * Net Shares
+       * @description Shares insiders bought less shares they sold.
+       */
+      net_shares: number
+    }
+    /**
+     * InsiderSummary
+     * @description Insiders' open-market trades over a window. Grants, option exercises and tax
+     *     withholding are left out, since they say nothing about insiders' views.
+     */
+    InsiderSummary: {
+      /**
+       * End
+       * Format: date
+       */
+      end: string
+      /** Insiders Buying */
+      insiders_buying: number
+      /** Insiders Selling */
+      insiders_selling: number
+      /**
+       * Net Value
+       * @description Value bought less value sold.
+       */
+      net_value: number
+      /** Purchases */
+      purchases: number
+      /** Sales */
+      sales: number
+      /** Shares Bought */
+      shares_bought: number
+      /** Shares Sold */
+      shares_sold: number
+      /**
+       * Start
+       * Format: date
+       */
+      start: string
+      /**
+       * Value Bought
+       * @description Value of purchases with a price.
+       */
+      value_bought: number
+      /**
+       * Value Sold
+       * @description Value of sales with a price.
+       */
+      value_sold: number
+    }
+    /**
+     * InsiderTrade
+     * @description An open-market purchase or sale by a company insider, as filed on SEC Form 4.
+     */
+    InsiderTrade: {
+      /**
+       * Code
+       * @description ``P`` for a purchase, ``S`` for a sale.
+       */
+      code: string
+      /** Filing Date */
+      filing_date?: string | null
+      /** Name */
+      name: string
+      /**
+       * Price
+       * @description Price per share.
+       */
+      price?: number | null
+      /**
+       * Shares
+       * @description Shares bought (positive) or sold (negative).
+       */
+      shares: number
+      /**
+       * Transaction Date
+       * Format: date
+       */
+      transaction_date: string
+      /**
+       * Value
+       * @description Shares times price, signed.
+       */
+      value?: number | null
+    }
+    /**
      * InvestmentThesis
      * @description A data-grounded investment thesis.
      */
@@ -2462,6 +2752,132 @@ export interface components {
        * @description Observable developments that would invalidate the thesis.
        */
       what_would_change_the_view: string[]
+    }
+    /**
+     * KeyMetrics
+     * @description Trading, valuation, dividend, profitability, growth and balance sheet metrics, as
+     *     Finnhub computes them. Any may be null when Finnhub has no figure.
+     */
+    KeyMetrics: {
+      /**
+       * Average Volume 10 Day
+       * @description Shares a day.
+       */
+      average_volume_10_day?: number | null
+      /**
+       * Average Volume 3 Month
+       * @description Shares a day.
+       */
+      average_volume_3_month?: number | null
+      /** Beta */
+      beta?: number | null
+      /** Book Value Per Share */
+      book_value_per_share?: number | null
+      /** Current Ratio */
+      current_ratio?: number | null
+      /**
+       * Debt To Equity
+       * @description Total debt over equity.
+       */
+      debt_to_equity?: number | null
+      /**
+       * Dividend Growth 5Y
+       * @description Annual rate, decimal.
+       */
+      dividend_growth_5y?: number | null
+      /** Dividend Per Share Ttm */
+      dividend_per_share_ttm?: number | null
+      /**
+       * Dividend Yield
+       * @description Indicated annual dividend over the price, decimal.
+       */
+      dividend_yield?: number | null
+      /** Enterprise Value */
+      enterprise_value?: number | null
+      /**
+       * Eps Growth 5Y
+       * @description Annual rate, decimal.
+       */
+      eps_growth_5y?: number | null
+      /** Eps Growth Ttm */
+      eps_growth_ttm?: number | null
+      /** Eps Ttm */
+      eps_ttm?: number | null
+      /** Ev Ebitda Ttm */
+      ev_ebitda_ttm?: number | null
+      /** Ev Revenue Ttm */
+      ev_revenue_ttm?: number | null
+      /**
+       * Forward Pe
+       * @description Price over analysts' estimate of next year's EPS.
+       */
+      forward_pe?: number | null
+      /** Gross Margin Ttm */
+      gross_margin_ttm?: number | null
+      /** Interest Coverage Ttm */
+      interest_coverage_ttm?: number | null
+      /**
+       * Market Cap
+       * @description In the listing's currency.
+       */
+      market_cap?: number | null
+      /** Net Margin Ttm */
+      net_margin_ttm?: number | null
+      /** Operating Margin Ttm */
+      operating_margin_ttm?: number | null
+      /** Payout Ratio Ttm */
+      payout_ratio_ttm?: number | null
+      /** Pb */
+      pb?: number | null
+      /** Pe Ttm */
+      pe_ttm?: number | null
+      /** Peg Ttm */
+      peg_ttm?: number | null
+      /** Price To Fcf Ttm */
+      price_to_fcf_ttm?: number | null
+      /** Ps Ttm */
+      ps_ttm?: number | null
+      /** Quick Ratio */
+      quick_ratio?: number | null
+      /**
+       * Relative To Sp500 52 Week
+       * @description 52-week price return less the S&P 500's, decimal.
+       */
+      relative_to_sp500_52_week?: number | null
+      /**
+       * Return 52 Week
+       * @description Price return, decimal.
+       */
+      return_52_week?: number | null
+      /**
+       * Return Ytd
+       * @description Price return, decimal.
+       */
+      return_ytd?: number | null
+      /**
+       * Revenue Growth 5Y
+       * @description Annual rate, decimal.
+       */
+      revenue_growth_5y?: number | null
+      /**
+       * Revenue Growth Ttm
+       * @description TTM revenue over the TTM a year earlier, less one.
+       */
+      revenue_growth_ttm?: number | null
+      /** Roa Ttm */
+      roa_ttm?: number | null
+      /** Roe Ttm */
+      roe_ttm?: number | null
+      /** Roi Ttm */
+      roi_ttm?: number | null
+      /** Week 52 High */
+      week_52_high?: number | null
+      /** Week 52 High Date */
+      week_52_high_date?: string | null
+      /** Week 52 Low */
+      week_52_low?: number | null
+      /** Week 52 Low Date */
+      week_52_low_date?: string | null
     }
     /**
      * Macd
@@ -2529,6 +2945,43 @@ export interface components {
        * @description Annualized historical volatility.
        */
       volatility: number
+    }
+    /**
+     * MarketSignals
+     * @description Analyst ratings, earnings results and dates, and insider trading for a company.
+     */
+    MarketSignals: {
+      /**
+       * Earnings
+       * @description Recent quarters' reported against estimated EPS, newest first.
+       */
+      earnings: components['schemas']['EarningsSurprise'][]
+      /**
+       * Insider Sentiment
+       * @description Monthly insider sentiment for a year, newest first.
+       */
+      insider_sentiment?: components['schemas']['InsiderSentimentMonth'][]
+      /**
+       * Insider Trades
+       * @description The newest open-market insider trades, newest first.
+       */
+      insider_trades: components['schemas']['InsiderTrade'][]
+      /** @description Insiders' open-market trades; null when unavailable. */
+      insiders?: components['schemas']['InsiderSummary'] | null
+      /** @description The next scheduled earnings report within three months, if announced. */
+      next_earnings?: components['schemas']['EarningsDate'] | null
+      /**
+       * Notice
+       * @description Says which parts Finnhub could not supply, if any.
+       */
+      notice?: string | null
+      /**
+       * Recommendations
+       * @description Monthly analyst rating counts, newest first; empty without coverage.
+       */
+      recommendations: components['schemas']['RecommendationMonth'][]
+      /** Symbol */
+      symbol: string
     }
     /**
      * MeanReversion
@@ -2602,6 +3055,179 @@ export interface components {
       prefix: string
       /** Revoked At */
       revoked_at?: string | null
+    }
+    /**
+     * NewsArticle
+     * @description One news article about a company.
+     */
+    NewsArticle: {
+      /**
+       * Category
+       * @description Finnhub's category, if any.
+       */
+      category?: string | null
+      /** Headline */
+      headline: string
+      /**
+       * Published At
+       * Format: date-time
+       * @description When the article was published, in UTC.
+       */
+      published_at: string
+      /**
+       * Source
+       * @description Publisher or aggregator, e.g. Reuters.
+       */
+      source: string
+      /**
+       * Summary
+       * @description The publisher's summary, shortened; null when it has none, or only repeats the headline.
+       */
+      summary?: string | null
+      /** Url */
+      url: string
+    }
+    /**
+     * NewsContext
+     * @description The news an analysis is written from.
+     */
+    NewsContext: {
+      /**
+       * Articles
+       * @description The newest articles, newest first; empty when Finnhub has none.
+       */
+      articles: components['schemas']['NewsHeadline'][]
+      /**
+       * End
+       * Format: date
+       */
+      end: string
+      /** Last Week Articles */
+      last_week_articles: number
+      /**
+       * Start
+       * Format: date
+       */
+      start: string
+      /**
+       * Total Articles
+       * @description Articles in the window, given or not.
+       */
+      total_articles: number
+    }
+    /**
+     * NewsDay
+     * @description Articles published on one day of the window.
+     */
+    NewsDay: {
+      /** Articles */
+      articles: number
+      /**
+       * Day
+       * Format: date
+       */
+      day: string
+    }
+    /**
+     * NewsHeadline
+     * @description An article as given to Claude: no link, and a shorter summary.
+     */
+    NewsHeadline: {
+      /** Headline */
+      headline: string
+      /**
+       * Published At
+       * Format: date-time
+       */
+      published_at: string
+      /** Source */
+      source: string
+      /** Summary */
+      summary?: string | null
+    }
+    /**
+     * NewsOverview
+     * @description How much news a company drew over the window, and from whom.
+     */
+    NewsOverview: {
+      /** @description The day with most articles; null without any. */
+      busiest_day?: components['schemas']['NewsDay'] | null
+      /**
+       * Daily
+       * @description Every day of the window, oldest first.
+       */
+      daily: components['schemas']['NewsDay'][]
+      /**
+       * Daily Average
+       * @description Articles per day over the window.
+       */
+      daily_average: number
+      /**
+       * Last Day Articles
+       * @description Articles in the last 24 hours.
+       */
+      last_day_articles: number
+      /**
+       * Last Week Articles
+       * @description Articles in the last seven days.
+       */
+      last_week_articles: number
+      /**
+       * Latest At
+       * @description The newest article's time.
+       */
+      latest_at?: string | null
+      /**
+       * Sources
+       * @description Publishers with most articles, most first.
+       */
+      sources: components['schemas']['NewsSource'][]
+      /** Total Articles */
+      total_articles: number
+    }
+    /**
+     * NewsResponse
+     * @description A company's recent news and its overview.
+     */
+    NewsResponse: {
+      /**
+       * Articles
+       * @description The newest articles, newest first.
+       */
+      articles: components['schemas']['NewsArticle'][]
+      /**
+       * End
+       * Format: date
+       */
+      end: string
+      /**
+       * Fetched At
+       * Format: date-time
+       */
+      fetched_at: string
+      /**
+       * Notice
+       * @description Says when the news is older than requested, if it is.
+       */
+      notice?: string | null
+      overview: components['schemas']['NewsOverview']
+      /**
+       * Start
+       * Format: date
+       */
+      start: string
+      /** Symbol */
+      symbol: string
+    }
+    /**
+     * NewsSource
+     * @description A publisher and how many of the window's articles it wrote.
+     */
+    NewsSource: {
+      /** Articles */
+      articles: number
+      /** Source */
+      source: string
     }
     /**
      * OHLCVBar
@@ -3257,6 +3883,28 @@ export interface components {
       version: string
     }
     /**
+     * RecommendationMonth
+     * @description How many analysts rated the stock each way in one month.
+     */
+    RecommendationMonth: {
+      /** Buy */
+      buy: number
+      /** Hold */
+      hold: number
+      /**
+       * Period
+       * Format: date
+       * @description The month, as its first day.
+       */
+      period: string
+      /** Sell */
+      sell: number
+      /** Strong Buy */
+      strong_buy: number
+      /** Strong Sell */
+      strong_sell: number
+    }
+    /**
      * RiskFactor
      * @description One risk and the evidence for it.
      */
@@ -3517,20 +4165,32 @@ export interface components {
     }
     /**
      * SearchMatch
-     * @description A stock in the screened universe whose symbol or name matches a search.
+     * @description A listing whose symbol or name matches a search: a stock in the screened universe,
+     *     or one Finnhub found.
      */
     SearchMatch: {
       /** Exchange */
-      exchange: string
+      exchange?: string | null
+      /**
+       * Kind
+       * @description Finnhub's type for its matches, e.g. Common Stock or ETP.
+       */
+      kind?: string | null
       /**
        * Market Cap
        * @description In US dollars.
        */
-      market_cap: number
+      market_cap?: number | null
       /** Name */
       name: string
       /** Sector */
-      sector: string | null
+      sector?: string | null
+      /**
+       * Source
+       * @default universe
+       * @enum {string}
+       */
+      source?: 'universe' | 'finnhub'
       /** Symbol */
       symbol: string
     }
@@ -3556,6 +4216,26 @@ export interface components {
        * @enum {string}
        */
       name: 'github' | 'google'
+    }
+    /**
+     * SignalsContext
+     * @description Analyst ratings, earnings and insider trading as given to Claude.
+     */
+    SignalsContext: {
+      /** Earnings */
+      earnings: components['schemas']['EarningsSurprise'][]
+      /**
+       * Insider Sentiment
+       * @description The last few months' insider sentiment.
+       */
+      insider_sentiment?: components['schemas']['InsiderSentimentMonth'][]
+      insiders?: components['schemas']['InsiderSummary'] | null
+      next_earnings?: components['schemas']['EarningsDate'] | null
+      /**
+       * Recommendations
+       * @description The last few months of analyst rating counts, newest first.
+       */
+      recommendations: components['schemas']['RecommendationMonth'][]
     }
     /**
      * SimulationList
@@ -3894,7 +4574,7 @@ export interface components {
       exchange?: string | null
       /**
        * Filled Fields
-       * @description Fields ``source`` left empty that Alpha Vantage filled in.
+       * @description Fields ``source`` left empty that Finnhub or Alpha Vantage filled in.
        */
       filled_fields?: string[]
       /** Industry */
@@ -5190,6 +5870,105 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['PriceHistory']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  get_metrics_api_v1_stocks__symbol__metrics_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Ticker symbol, e.g. AAPL, BRK-B or ^GSPC. */
+        symbol: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CompanyMetrics']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  get_news_api_v1_stocks__symbol__news_get: {
+    parameters: {
+      query?: {
+        /** @description Articles to return. */
+        limit?: number
+      }
+      header?: never
+      path: {
+        /** @description Ticker symbol, e.g. AAPL, BRK-B or ^GSPC. */
+        symbol: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['NewsResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  get_signals_api_v1_stocks__symbol__signals_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Ticker symbol, e.g. AAPL, BRK-B or ^GSPC. */
+        symbol: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['MarketSignals']
         }
       }
       /** @description Validation Error */

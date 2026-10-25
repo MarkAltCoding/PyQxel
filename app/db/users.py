@@ -50,6 +50,8 @@ class User:
     fmp_key_hint: str | None
     alpha_vantage_api_key: str | None
     alpha_vantage_key_hint: str | None
+    finnhub_api_key: str | None
+    finnhub_key_hint: str | None
     limits: AiLimits
 
     def anthropic_key(self) -> SecretStr | None:
@@ -65,9 +67,17 @@ class User:
         encrypted = self.alpha_vantage_api_key
         return None if encrypted is None else decrypt_secret(encrypted)
 
+    def finnhub_key(self) -> SecretStr | None:
+        """The account's Finnhub key, decrypted, or ``None``."""
+        return None if self.finnhub_api_key is None else decrypt_secret(self.finnhub_api_key)
+
     def provider_keys(self) -> ProviderKeys:
-        """The account's market data keys, decrypted, for serving its requests."""
-        return ProviderKeys(fmp=self.fmp_key(), alpha_vantage=self.alpha_vantage_key())
+        """The account's market data and news keys, decrypted, for serving its requests."""
+        return ProviderKeys(
+            fmp=self.fmp_key(),
+            alpha_vantage=self.alpha_vantage_key(),
+            finnhub=self.finnhub_key(),
+        )
 
 
 def _user(record: UserRecord) -> User:
@@ -81,6 +91,8 @@ def _user(record: UserRecord) -> User:
         fmp_key_hint=record.fmp_key_hint,
         alpha_vantage_api_key=record.alpha_vantage_api_key,
         alpha_vantage_key_hint=record.alpha_vantage_key_hint,
+        finnhub_api_key=record.finnhub_api_key,
+        finnhub_key_hint=record.finnhub_key_hint,
         limits=AiLimits(
             ai_requests_per_hour=record.ai_requests_per_hour,
             ai_requests_per_day=record.ai_requests_per_day,
@@ -288,6 +300,12 @@ async def update_credentials(
         record.alpha_vantage_key_hint = (
             None if secret is None else key_hint(secret.get_secret_value())
         )
+    if "finnhub_api_key" in changes.model_fields_set:
+        secret = changes.finnhub_api_key
+        record.finnhub_api_key = (
+            None if secret is None else encrypt_secret(secret.get_secret_value())
+        )
+        record.finnhub_key_hint = None if secret is None else key_hint(secret.get_secret_value())
     await session.commit()
     return _user(record)
 

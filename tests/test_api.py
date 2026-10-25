@@ -6,7 +6,7 @@ Market data fetchers are replaced with fakes so no test touches the network.
 import json
 import math
 from collections.abc import AsyncIterator, Awaitable, Callable
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import httpx2
@@ -29,8 +29,9 @@ from app.ai.agent import (
 )
 from app.api.v1.endpoints import backtest, research, stocks
 from app.core.config import get_settings
-from app.data.fetcher import DataFetchError, SymbolNotFoundError
+from app.data.fetcher import DataFetchError, ProviderNotConfiguredError, SymbolNotFoundError
 from app.data.fundamentals import FinancialsNotFoundError
+from app.data.news import NewsFetchError, NewsNotConfiguredError, NewsPlanError, NewsRateLimitError
 from app.data.sec_edgar import CompanyNotFoundError, EdgarNotConfiguredError, FilingFetchError
 from app.db.screener import PeerGroup
 from app.main import __version__, app
@@ -44,6 +45,9 @@ from app.models.research import (
     RiskSummary,
 )
 from app.models.fundamentals import Financials
+from app.models.metrics import CompanyMetrics, KeyMetrics
+from app.models.news import CompanyNews, NewsArticle
+from app.models.signals import EarningsSurprise, InsiderTrade, MarketSignals, RecommendationMonth
 from app.models.screener import ScreenedStock
 from app.models.stock import TickerInfo
 from app.models.volatility import (
@@ -561,14 +565,17 @@ def _serve_analysis(
     financials: Financials | Exception | None = None,
     garch: GarchFit | Exception | None = None,
     peers: PeerGroup | Exception | None = PEER_GROUP,
+    news: CompanyNews | Exception | None = None,
+    signals: MarketSignals | Exception | None = None,
 ) -> list[AnalysisCall]:
     """Fake the fetchers and the research agent; return the agent's recorded calls.
 
     The EDGAR fetch returns ``filings``, or no filings when omitted. The factor fetch
     returns ``factors``, or by default factors on every date of ``frame``. The financials
     fetch returns ``financials``, or the sample financials when omitted. The GARCH fit
-    returns ``garch``, or a small daily fit when omitted, and the screener's peer lookup
-    returns ``peers``.
+    returns ``garch``, or a small daily fit when omitted, the screener's peer lookup
+    returns ``peers``, the news fetch ``news``, or two recent articles when omitted, and
+    the signals fetch ``signals``, or a month of ratings and a purchase when omitted.
     """
     calls: list[AnalysisCall] = []
 
@@ -627,11 +634,82 @@ def _serve_analysis(
             raise peers
         return peers
 
+    async def fake_news(symbol: str) -> CompanyNews:
+        if isinstance(news, Exception):
+            raise news
+        return news or _recent_news(symbol)
+
     monkeypatch.setattr(research, "fetch_financials_filled", fake_financials)
+
+    async def fake_signals(symbol: str, today: date) -> MarketSignals:
+        if isinstance(signals, Exception):
+            raise signals
+        return signals or _signals(symbol, today)
+
+    monkeypatch.setattr(research, "fetch_company_news", fake_news)
+    monkeypatch.setattr(research, "fetch_signals", fake_signals)
     monkeypatch.setattr(research, "fit_garch", fake_garch)
     monkeypatch.setattr(research, "peer_group", fake_peers)
     monkeypatch.setattr(research, "write_analysis", fake_write)
     return calls
+
+
+def _recent_news(symbol: str, stale: bool = False) -> CompanyNews:
+    """Two articles about ``symbol`` from the last two days."""
+    now = datetime.now(timezone.utc)
+    return CompanyNews(
+        symbol=symbol.upper(),
+        start=now.date() - timedelta(days=13),
+        end=now.date(),
+        articles=[
+            NewsArticle(
+                published_at=now - timedelta(hours=hours),
+                headline=headline,
+                summary=summary,
+                source=source,
+                url=f"https://news.example.com/{hours}",
+            )
+            for hours, headline, summary, source in (
+                (2, "Apple unveils new chips", "The company showed new processors.", "Reuters"),
+                (30, "Apple shares slip", None, "Yahoo"),
+            )
+        ],
+        fetched_at=now - timedelta(minutes=1),
+        stale=stale,
+    )
+
+
+def _signals(symbol: str, today: date, notice: str | None = None) -> MarketSignals:
+    """A month of analyst ratings, a beaten quarter, and one insider purchase."""
+    return MarketSignals(
+        symbol=symbol.upper(),
+        recommendations=[
+            RecommendationMonth(
+                period=today.replace(day=1), strong_buy=10, buy=20, hold=5, sell=1, strong_sell=0
+            )
+        ],
+        earnings=[
+            EarningsSurprise(
+                period=today - timedelta(days=60),
+                actual=1.1,
+                estimate=1.0,
+                surprise=0.1,
+                surprise_percent=0.1,
+            )
+        ],
+        insider_trades=[
+            InsiderTrade(
+                name="Jane Doe",
+                transaction_date=today - timedelta(days=5),
+                code="P",
+                shares=1000,
+                price=150.0,
+                value=150_000.0,
+            )
+        ],
+        insider_window=(today - timedelta(days=90), today),
+        notice=notice,
+    )
 
 
 def _factor_table(dates: pd.DatetimeIndex) -> pd.DataFrame:
@@ -2145,6 +2223,134 @@ def test_analysis_context_carries_peer_percentiles(monkeypatch: pytest.MonkeyPat
     }
     context, _, _ = calls[0]
     assert context.peers is not None and context.notice is None
+
+
+def test_analysis_context_carries_recent_news(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Headlines and summaries are given to the model, without links."""
+    calls = _serve_analysis(monkeypatch, ANALYZABLE, _recent_frame(), THESIS)
+
+    response = client.post("/api/v1/stocks/aapl/analysis", json={"include_filings": False})
+
+    assert response.status_code == 200
+    news = response.json()["context"]["news"]
+    assert (news["total_articles"], news["last_week_articles"]) == (2, 2)
+    assert [article["headline"] for article in news["articles"]] == [
+        "Apple unveils new chips",
+        "Apple shares slip",
+    ]
+    assert news["articles"][0]["source"] == "Reuters"
+    assert "url" not in news["articles"][0]
+    context, _, _ = calls[0]
+    assert context.news is not None and context.notice is None
+
+
+@pytest.mark.parametrize(
+    ("news", "notice"),
+    [
+        (NewsNotConfiguredError("no key"), "no usable Finnhub key"),
+        (NewsPlanError("plan"), "Finnhub plan does not cover AAPL"),
+        (NewsRateLimitError("limited"), "Finnhub rate limited"),
+        (NewsFetchError("down"), "Finnhub could not be reached"),
+    ],
+)
+def test_analysis_without_news_degrades_with_notice(
+    monkeypatch: pytest.MonkeyPatch, news: Exception, notice: str
+) -> None:
+    """A report is still written without news, and the context says why it is missing."""
+    calls = _serve_analysis(monkeypatch, ANALYZABLE, _recent_frame(), THESIS, news=news)
+
+    response = client.post("/api/v1/stocks/AAPL/analysis", json={"include_filings": False})
+
+    assert response.status_code == 200
+    assert response.json()["context"]["news"] is None
+    context, _, _ = calls[0]
+    assert context.notice is not None and notice in context.notice
+
+
+def test_analysis_notes_stale_news(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Kept news served while Finnhub is down is used, with a notice of its age."""
+    calls = _serve_analysis(
+        monkeypatch, ANALYZABLE, _recent_frame(), THESIS, news=_recent_news("AAPL", stale=True)
+    )
+
+    response = client.post("/api/v1/stocks/AAPL/analysis", json={"include_filings": False})
+
+    assert response.status_code == 200
+    context, _, _ = calls[0]
+    assert context.news is not None
+    assert context.notice is not None and "the news is as of" in context.notice
+
+
+def test_analysis_context_carries_signals(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ratings, earnings and insiders' totals are given to the model, not each trade."""
+    calls = _serve_analysis(monkeypatch, ANALYZABLE, _recent_frame(), THESIS)
+
+    response = client.post("/api/v1/stocks/aapl/analysis", json={"include_filings": False})
+
+    assert response.status_code == 200
+    signals = response.json()["context"]["signals"]
+    assert signals["recommendations"][0]["buy"] == 20
+    assert signals["earnings"][0]["surprise_percent"] == 0.1
+    assert signals["insiders"]["purchases"] == 1
+    assert signals["insiders"]["net_value"] == 150_000.0
+    assert "insider_trades" not in signals
+    context, _, _ = calls[0]
+    assert context.notice is None
+
+
+def test_analysis_context_carries_finnhub_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Finnhub's key metrics and peers are given to the model."""
+    calls = _serve_analysis(monkeypatch, ANALYZABLE, _recent_frame(), THESIS)
+
+    async def fake_metrics(symbol: str) -> CompanyMetrics:
+        return CompanyMetrics(
+            symbol=symbol.upper(), metrics=KeyMetrics(forward_pe=25.0), peers=["MSFT"]
+        )
+
+    monkeypatch.setattr(research, "fetch_company_metrics", fake_metrics)
+
+    response = client.post("/api/v1/stocks/aapl/analysis", json={"include_filings": False})
+
+    metrics = response.json()["context"]["metrics"]
+    assert metrics["metrics"]["forward_pe"] == 25.0 and metrics["peers"] == ["MSFT"]
+    context, _, _ = calls[0]
+    assert context.notice is None
+
+
+def test_analysis_without_finnhub_key_notes_missing_signals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without a Finnhub key the report is written without signals, and says so."""
+    calls = _serve_analysis(
+        monkeypatch,
+        ANALYZABLE,
+        _recent_frame(),
+        THESIS,
+        signals=ProviderNotConfiguredError("no key"),
+    )
+
+    response = client.post("/api/v1/stocks/AAPL/analysis", json={"include_filings": False})
+
+    assert response.status_code == 200
+    assert response.json()["context"]["signals"] is None
+    context, _, _ = calls[0]
+    assert context.notice is not None and "no usable Finnhub key" in context.notice
+
+
+def test_analysis_passes_on_missing_signal_parts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Parts Finnhub could not supply are named in the context's notice."""
+    calls = _serve_analysis(
+        monkeypatch,
+        ANALYZABLE,
+        _recent_frame(),
+        THESIS,
+        signals=_signals("AAPL", date.today(), "Left out: the earnings calendar."),
+    )
+
+    client.post("/api/v1/stocks/AAPL/analysis", json={"include_filings": False})
+
+    context, _, _ = calls[0]
+    assert context.notice is not None and "the earnings calendar" in context.notice
 
 
 @pytest.mark.parametrize(

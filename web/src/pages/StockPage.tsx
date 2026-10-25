@@ -10,6 +10,9 @@ import { PriceChart, PriceTable } from '../charts/PriceChart'
 import { useChartTheme } from '../charts/theme'
 import { VolatilityChart, VolatilityTable } from '../charts/VolatilityChart'
 import { AnalysisPanel } from '../components/AnalysisPanel'
+import { MetricsCard } from '../components/MetricsCard'
+import { NewsCard } from '../components/NewsCard'
+import { SignalsCard } from '../components/SignalsCard'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { Segmented } from '../components/Segmented'
 import { Stat } from '../components/Stat'
@@ -198,6 +201,12 @@ export function StockPage() {
           }
         />
       </div>
+
+      <NewsCard key={`news-${symbol}`} symbol={symbol} />
+
+      <SignalsCard symbol={symbol} currency={currency} />
+
+      <MetricsCard symbol={symbol} currency={currency} />
 
       <AnalysisPanel key={symbol} symbol={symbol} />
     </div>

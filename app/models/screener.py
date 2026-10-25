@@ -202,13 +202,18 @@ class UniverseStatus(BaseModel):
 
 
 class SearchMatch(BaseModel):
-    """A stock in the screened universe whose symbol or name matches a search."""
+    """A listing whose symbol or name matches a search: a stock in the screened universe,
+    or one Finnhub found."""
 
     symbol: str
     name: str
-    exchange: str
-    sector: str | None
-    market_cap: float = Field(description="In US dollars.")
+    exchange: str | None = None
+    sector: str | None = None
+    market_cap: float | None = Field(default=None, description="In US dollars.")
+    kind: str | None = Field(
+        default=None, description="Finnhub's type for its matches, e.g. Common Stock or ETP."
+    )
+    source: Literal["universe", "finnhub"] = "universe"
 
 
 class SearchResponse(BaseModel):

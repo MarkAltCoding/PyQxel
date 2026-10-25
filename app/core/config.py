@@ -25,6 +25,8 @@ class Settings(BaseSettings):
         extra="ignore",
         # Secrets pasted into a secret manager often end with a newline.
         str_strip_whitespace=True,
+        # A blank line in .env, as copied from .env.example, means unset, not an empty key.
+        env_ignore_empty=True,
     )
 
     app_name: str = "PyQxel"
@@ -49,6 +51,11 @@ class Settings(BaseSettings):
         default=None,
         description="The server owner's Alpha Vantage key. Like ``anthropic_api_key``, never "
         "used to serve requests.",
+    )
+    finnhub_api_key: SecretStr | None = Field(
+        default=None,
+        description="The server owner's Finnhub key. Like ``anthropic_api_key``, never used to "
+        "serve requests.",
     )
     credentials_encryption_key: SecretStr | None = Field(
         default=None,

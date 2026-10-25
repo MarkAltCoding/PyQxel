@@ -2,7 +2,8 @@
 
 Reports are grounded in price statistics, factor exposures, a GARCH volatility forecast,
 peer percentiles from the screener and, where available, financial statements and filings
-from SEC EDGAR. Each report
+from SEC EDGAR, and recent company news, analyst ratings, earnings, insider trading, key
+metrics and peers from Finnhub. Each report
 can be fetched whole, or streamed as Server-Sent Events while Claude writes it. Reports
 are stored, and one for the same options is reused for a while instead of being paid for
 again. Stored reports can be listed and read back under ``/analyses``.
@@ -48,8 +49,18 @@ from app.api.v1.endpoints.stocks import (
 )
 from app.data.factors import fetch_factors
 from app.data.alpha_vantage import fetch_financials_filled
+from app.data.news import (
+    NewsFetchError,
+    NewsNotConfiguredError,
+    NewsPlanError,
+    NewsRateLimitError,
+    fetch_company_news,
+)
+from app.data.finnhub import fetch_company_metrics, fetch_signals
 from app.data.fetcher import (
     DataFetchError,
+    ProviderNotConfiguredError,
+    ProviderPlanError,
     SymbolNotFoundError,
     fetch_price_history,
     fetch_ticker_info,
@@ -66,6 +77,9 @@ from app.core.security import CredentialsUnavailableError
 from app.db.session import get_session, get_sessionmaker
 from app.db.users import User, ai_usage
 from app.models.fundamentals import Financials, Fundamentals
+from app.models.metrics import CompanyMetrics
+from app.models.news import CompanyNews, NewsContext
+from app.models.signals import MarketSignals, SignalsContext
 from app.models.research import (
     AnalysisContext,
     AnalysisDelta,
@@ -86,6 +100,8 @@ from app.models.volatility import GarchContext
 from app.stats.factors import fit_factor_model
 from app.stats.garch import CONTEXT_HORIZONS, ModelFitError, fit_garch, summarize_garch
 from app.stats.indicators import summarize_prices
+from app.stats.news import news_context
+from app.stats.signals import signals_context, summarize_signals
 from app.stats.peers import compare_to_peers
 from app.stats.r_bridge import RUnavailableError
 from app.stats.volatility import InsufficientDataError
@@ -232,6 +248,73 @@ def _peer_context(
     )
 
 
+def _news_context(
+    symbol: str, result: CompanyNews | BaseException
+) -> tuple[NewsContext | None, str | None]:
+    """The recent news, or why there is none.
+
+    News adds context but is not essential, so a failure becomes a notice rather than an
+    error.
+    """
+    left_out = "Company news was left out:"
+    if isinstance(result, NewsNotConfiguredError):
+        return None, f"{left_out} no usable Finnhub key is stored for this account."
+    if isinstance(result, NewsPlanError):
+        return None, f"{left_out} the account's Finnhub plan does not cover {symbol}."
+    if isinstance(result, NewsRateLimitError):
+        return None, f"{left_out} Finnhub rate limited the account's key."
+    if isinstance(result, NewsFetchError):
+        return None, f"{left_out} Finnhub could not be reached."
+    if isinstance(result, BaseException):
+        raise result
+    notice = None
+    if result.stale:
+        notice = (
+            f"Finnhub could not be reached, so the news is as of "
+            f"{result.fetched_at:%Y-%m-%d %H:%M} UTC."
+        )
+    return news_context(result, datetime.now(timezone.utc)), notice
+
+
+def _signals_context(
+    result: MarketSignals | BaseException,
+) -> tuple[SignalsContext | None, str | None]:
+    """Analyst ratings, earnings and insider trades, or why they are missing.
+
+    They add context but are not essential, so a failure becomes a notice rather than an
+    error.
+    """
+    left_out = "Analyst ratings, earnings results and dates, and insider trades were left out:"
+    if isinstance(result, ProviderNotConfiguredError):
+        return None, f"{left_out} no usable Finnhub key is stored for this account."
+    if isinstance(result, BaseException):
+        raise result
+    notice = None if result.notice is None else f"From Finnhub: {result.notice}"
+    return signals_context(summarize_signals(result)), notice
+
+
+def _metrics_context(
+    symbol: str, result: CompanyMetrics | BaseException
+) -> tuple[CompanyMetrics | None, str | None]:
+    """Finnhub's key metrics and peers, or why they are missing.
+
+    They add context but are not essential, so a failure becomes a notice rather than an
+    error. Without a Finnhub key, the signals' notice already says so.
+    """
+    left_out = "Finnhub's key metrics and peers were left out:"
+    if isinstance(result, ProviderNotConfiguredError):
+        return None, None
+    if isinstance(result, ProviderPlanError):
+        return None, f"{left_out} the account's Finnhub plan does not cover {symbol}."
+    if isinstance(result, SymbolNotFoundError):
+        return None, f"{left_out} Finnhub has none for {symbol}."
+    if isinstance(result, DataFetchError):
+        return None, f"{left_out} Finnhub could not supply them."
+    if isinstance(result, BaseException):
+        raise result
+    return result, None
+
+
 async def _fundamentals(
     symbol: str, result: Financials | BaseException, info: TickerInfo | None
 ) -> tuple[Fundamentals | None, list[str]]:
@@ -354,7 +437,7 @@ async def prepare_analysis(
     stream opens: 403 without an Anthropic key, 429 beyond the user's AI limits, 404 for
     unknown symbols, 422 when the window has too few bars, and 502 when the price
     provider fails. A missing snapshot, filings, factor exposures, fundamentals,
-    volatility forecast or peer percentiles only adds a notice.
+    volatility forecast, peer percentiles, news or signals only adds a notice.
 
     When the user has a recent report for the same request, nothing is fetched or
     billed and the report is returned with the context it was written from.
@@ -375,7 +458,7 @@ async def prepare_analysis(
     # Two groups, run together, since asyncio.gather is typed for at most six awaitables.
     (
         (info_result, history_result, filings_result, factors_result, financials_result),
-        (garch_result, peers_result),
+        (garch_result, peers_result, news_result, signals_result, metrics_result),
     ) = await asyncio.gather(
         asyncio.gather(
             fetch_ticker_info(symbol),
@@ -386,7 +469,12 @@ async def prepare_analysis(
             return_exceptions=True,
         ),
         asyncio.gather(
-            _garch_forecast(symbol), _peer_group(symbol.upper()), return_exceptions=True
+            _garch_forecast(symbol),
+            _peer_group(symbol.upper()),
+            fetch_company_news(symbol),
+            fetch_signals(symbol, datetime.now(timezone.utc).date()),
+            fetch_company_metrics(symbol),
+            return_exceptions=True,
         ),
     )
     if isinstance(history_result, DataFetchError):
@@ -432,7 +520,14 @@ async def prepare_analysis(
 
     volatility_forecast, garch_notice = _garch_context(garch_result)
     peers, peer_notice = _peer_context(symbol, peers_result)
-    notices.extend(notice for notice in (garch_notice, peer_notice) if notice)
+    news, news_notice = _news_context(symbol, news_result)
+    signals, signals_notice = _signals_context(signals_result)
+    metrics, metrics_notice = _metrics_context(symbol, metrics_result)
+    notices.extend(
+        notice
+        for notice in (garch_notice, peer_notice, news_notice, signals_notice, metrics_notice)
+        if notice
+    )
 
     context = AnalysisContext(
         ticker=info_result,
@@ -444,6 +539,9 @@ async def prepare_analysis(
         fundamentals=fundamentals,
         volatility_forecast=volatility_forecast,
         peers=peers,
+        news=news,
+        signals=signals,
+        metrics=metrics,
         notice=" ".join(notices) or None,
     )
     return PreparedAnalysis(
@@ -471,7 +569,10 @@ async def create_analysis(prepared: Prepared) -> AnalysisResponse:
     statistics computed from daily adjusted closes over ``period``, factor exposures, a
     GARCH(1,1) volatility forecast fit to five years of daily returns, the stock's
     screening metrics ranked among its industry or sector peers, the company's financial
-    statement figures and valuation multiples, and, unless
+    statement figures and valuation multiples, the headlines and summaries of the last
+    two weeks of news, analysts' ratings, earnings surprises, the next earnings date,
+    insiders' trades and sentiment, key metrics and peers from Finnhub (with a Finnhub key
+    stored), and, unless
     ``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K
     and any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of
     it cannot be fetched the report is written without it and ``context.notice`` says so.

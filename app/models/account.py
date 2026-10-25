@@ -43,9 +43,18 @@ class Account(BaseModel):
     anthropic: ProviderCredential
     fmp: ProviderCredential
     alpha_vantage: ProviderCredential
+    finnhub: ProviderCredential
     limits: AiLimits
     usage: AiUsage
     rate_limit_per_minute: int = Field(description="Requests allowed per minute, server-wide.")
+    market_data_fallback: bool = Field(
+        description="Whether the server falls back to yfinance when no licensed provider "
+        "answers, as in development."
+    )
+    sec_filings: bool = Field(
+        description="Whether the server reads financial statements and filings from SEC "
+        "EDGAR, which needs no account key."
+    )
 
 
 class CredentialsUpdate(BaseModel):
@@ -64,6 +73,9 @@ class CredentialsUpdate(BaseModel):
         default=None,
         description="Alpha Vantage key, used for market data and financial statements the "
         "other sources leave out.",
+    )
+    finnhub_api_key: ProviderKey | None = Field(
+        default=None, description="Finnhub key, used for company news."
     )
 
 

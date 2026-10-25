@@ -7,32 +7,111 @@ import { ErrorNotice, Notice } from '../components/Notice'
 import { Stat } from '../components/Stat'
 import { shortDate } from '../lib/format'
 
-type Provider = 'anthropic_api_key' | 'fmp_api_key' | 'alpha_vantage_api_key'
+type Provider = 'anthropic_api_key' | 'fmp_api_key' | 'alpha_vantage_api_key' | 'finnhub_api_key'
+type ProviderAccount = 'anthropic' | 'fmp' | 'alpha_vantage' | 'finnhub'
 
-const PROVIDERS: {
+interface ProviderInfo {
   field: Provider
   name: string
-  account: 'anthropic' | 'fmp' | 'alpha_vantage'
+  account: ProviderAccount
   about: string
-}[] = [
+  /** Where to sign up for a key. */
+  signUp: string
+  /** What the free plan gives. */
+  free: string
+  /** What is lost without this key, given the account's other keys; null when nothing is. */
+  without: (account: Account) => string | null
+}
+
+const has = (account: Account, provider: ProviderAccount) => account[provider].configured
+
+const PROVIDERS: ProviderInfo[] = [
   {
     field: 'anthropic_api_key',
     name: 'Anthropic',
     account: 'anthropic',
     about: 'Writes AI research reports. Each report is billed to this key.',
+    signUp: 'https://console.anthropic.com/settings/keys',
+    free: 'Pay as you go; a report costs a few cents to a few tens of cents.',
+    without: () => 'No AI research reports. Everything else works.',
   },
   {
     field: 'fmp_api_key',
     name: 'Financial Modeling Prep',
     account: 'fmp',
     about: 'Licensed market data: prices, quotes and company profiles, on your FMP plan.',
+    signUp: 'https://site.financialmodelingprep.com/developer/docs',
+    free: 'The free plan allows 250 requests a day, and serves prices for a sample of large US stocks only.',
+    without: (account) => {
+      if (has(account, 'alpha_vantage')) {
+        return 'Price history comes from Alpha Vantage alone: on its free plan, the latest 100 daily bars, not adjusted for splits or dividends, and 25 requests a day. Longer charts, five-year volatility models and long backtests lack history.'
+      }
+      if (account.market_data_fallback) {
+        return "Price history comes from this server's development fallback (yfinance), which is unlicensed and can break without notice."
+      }
+      return `With neither this nor an Alpha Vantage key there is no price history: charts, volatility, factor exposures, backtests, portfolio tools and AI reports don't work.${has(account, 'finnhub') ? ' Finnhub still gives live quotes and company profiles.' : ''}`
+    },
   },
   {
     field: 'alpha_vantage_api_key',
     name: 'Alpha Vantage',
     account: 'alpha_vantage',
     about:
-      'Fills gaps: market data when FMP has none, company details FMP leaves empty, and financial statements SEC filings leave out. The free plan allows 25 requests a day.',
+      'Fills gaps: market data when FMP has none, company details FMP leaves empty, and financial statements SEC filings leave out.',
+    signUp: 'https://www.alphavantage.co/support/#api-key',
+    free: 'The free plan allows 25 requests a day; answers are reused for up to a day to make them last.',
+    without: (account) =>
+      has(account, 'fmp')
+        ? "No backup when FMP fails or your FMP plan doesn't cover a stock, and financial statement items SEC filings leave out stay empty."
+        : "Financial statement items SEC filings leave out stay empty, and there's no second source of price history.",
+  },
+  {
+    field: 'finnhub_api_key',
+    name: 'Finnhub',
+    account: 'finnhub',
+    about:
+      'Company news, analyst ratings, earnings results and dates, and insider trades, on stock pages and in AI reports. Also the first source of live US quotes and a backup for company profiles.',
+    signUp: 'https://finnhub.io/register',
+    free: 'The free plan is enough: 60 requests a minute, US stocks.',
+    without: (account) =>
+      `No news, analyst ratings, earnings dates or insider trades, on stock pages or in AI reports.${has(account, 'fmp') ? " Live quotes use your FMP plan's daily allowance instead." : ''}`,
+  },
+]
+
+interface Feature {
+  name: string
+  works: (account: Account) => boolean
+  needs: string
+}
+
+const hasPrices = (account: Account) =>
+  has(account, 'fmp') || has(account, 'alpha_vantage') || account.market_data_fallback
+
+const FEATURES: Feature[] = [
+  {
+    name: 'Price charts, volatility, factor exposures, backtests and portfolio tools',
+    works: hasPrices,
+    needs: 'a Financial Modeling Prep or Alpha Vantage key',
+  },
+  {
+    name: 'Live quotes and company profiles',
+    works: (account) => hasPrices(account) || has(account, 'finnhub'),
+    needs: 'a Finnhub, Financial Modeling Prep or Alpha Vantage key',
+  },
+  {
+    name: 'AI research reports',
+    works: (account) => has(account, 'anthropic') && hasPrices(account),
+    needs: 'an Anthropic key, and a price source (Financial Modeling Prep or Alpha Vantage)',
+  },
+  {
+    name: 'News, analyst ratings, earnings and insider trades',
+    works: (account) => has(account, 'finnhub'),
+    needs: 'a Finnhub key',
+  },
+  {
+    name: 'Financial statements, valuation and SEC filings',
+    works: (account) => account.sec_filings,
+    needs: 'the server owner to set SEC_USER_AGENT; no key of yours',
   },
 ]
 
@@ -60,6 +139,7 @@ export function SettingsPage() {
       {account.error !== null && <ErrorNotice error={account.error} />}
       {account.data && (
         <>
+          <FeatureSummary account={account.data} />
           <section className="card stack" style={{ gap: 16 }}>
             <div>
               <h2>Provider keys</h2>
@@ -72,7 +152,7 @@ export function SettingsPage() {
               <KeyForm
                 key={provider.field}
                 provider={provider}
-                current={account.data[provider.account]}
+                account={account.data}
                 onSaved={onSaved}
               />
             ))}
@@ -85,15 +165,49 @@ export function SettingsPage() {
   )
 }
 
+function FeatureSummary({ account }: { account: Account }) {
+  const missing = FEATURES.filter((feature) => !feature.works(account))
+  return (
+    <section className="card stack" style={{ gap: 12 }}>
+      <div>
+        <h2>What works with your keys</h2>
+        <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
+          {missing.length === 0
+            ? 'Everything is available.'
+            : 'PyQxel works with any of the keys below; each one you add turns more on.'}
+        </p>
+      </div>
+      <ul className="feature-list">
+        {FEATURES.map((feature) => {
+          const works = feature.works(account)
+          return (
+            <li key={feature.name}>
+              <span className={`badge ${works ? 'good' : 'warning'}`}>
+                {works ? '✓ On' : '! Off'}
+              </span>
+              <span>
+                {feature.name}
+                {!works && <span className="feature-needs"> · needs {feature.needs}</span>}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
 function KeyForm({
   provider,
-  current,
+  account,
   onSaved,
 }: {
-  provider: (typeof PROVIDERS)[number]
-  current: Account['anthropic']
+  provider: ProviderInfo
+  account: Account
   onSaved: (account: Account) => void
 }) {
+  const current = account[provider.account]
+  const lost = current.configured ? null : provider.without(account)
   const [value, setValue] = useState('')
   const save = useMutation({
     mutationFn: (key: string | null) =>
@@ -117,7 +231,17 @@ function KeyForm({
           <span className="badge warning">! Not set</span>
         )}
       </div>
-      <p className="disclaimer">{provider.about}</p>
+      <p className="disclaimer">
+        {provider.about} {provider.free}{' '}
+        <a href={provider.signUp} target="_blank" rel="noopener noreferrer">
+          Get a key
+        </a>
+      </p>
+      {lost && (
+        <Notice tone="warning">
+          <strong>Without this key:</strong> {lost}
+        </Notice>
+      )}
       <div className="filter-row">
         <label className="field" style={{ flex: 1, maxWidth: 420 }}>
           <span className="visually-hidden">{provider.name} API key</span>

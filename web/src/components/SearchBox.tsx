@@ -124,7 +124,11 @@ export function SearchBox({
               {option.match ? (
                 <>
                   <span className="name">{option.match.name}</span>
-                  <span className="meta">{compact(option.match.market_cap)}</span>
+                  <span className="meta">
+                    {option.match.market_cap != null
+                      ? compact(option.match.market_cap)
+                      : (option.match.kind ?? '')}
+                  </span>
                 </>
               ) : (
                 <span className="name">Go to {option.symbol}</span>

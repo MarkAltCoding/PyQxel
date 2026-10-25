@@ -73,6 +73,21 @@ export function dateTime(value: string | null | undefined): string {
   })
 }
 
+/** How long ago `value` was, e.g. "5 minutes ago", "3 hours ago" or "Oct 12" beyond a week. */
+export function timeAgo(value: string | null | undefined, now: Date = new Date()): string {
+  if (!value) return DASH
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const minutes = Math.max(0, Math.round((now.getTime() - date.getTime()) / 60_000))
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
+  const days = Math.round(hours / 24)
+  if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 /** "+" / "-" class names for values whose sign is good or bad news. */
 export function tone(value: number | null | undefined): 'up' | 'down' | undefined {
   if (missing(value) || value === 0) return undefined

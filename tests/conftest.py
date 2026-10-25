@@ -36,6 +36,8 @@ from app.core.credentials import use_provider_keys  # noqa: E402
 from app.core.rate_limit import clear_local_counts  # noqa: E402
 from app.data.factors import clear_factor_memory  # noqa: E402
 from app.data.fetcher import clear_alpha_vantage_memory, clear_quote_cache  # noqa: E402
+from app.data.finnhub import clear_signals_memory  # noqa: E402
+from app.data.news import clear_news_memory  # noqa: E402
 from app.db.session import (  # noqa: E402
     close_database,
     configure_database,
@@ -82,12 +84,16 @@ def isolated_storage() -> Iterator[None]:
     clear_factor_memory()
     clear_quote_cache()
     clear_alpha_vantage_memory()
+    clear_news_memory()
+    clear_signals_memory()
     clear_local_counts()
     yield
     configure_cache(None)
     clear_factor_memory()
     clear_quote_cache()
     clear_alpha_vantage_memory()
+    clear_news_memory()
+    clear_signals_memory()
     asyncio.run(close_database())
 
 

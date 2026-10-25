@@ -175,9 +175,12 @@ describe('deleting the account', () => {
     anthropic: { configured: false, hint: null },
     fmp: { configured: false, hint: null },
     alpha_vantage: { configured: false, hint: null },
+    finnhub: { configured: false, hint: null },
     limits: { ai_requests_per_hour: null, ai_requests_per_day: null },
     usage: { last_hour: 0, last_day: 0 },
     rate_limit_per_minute: 120,
+    market_data_fallback: false,
+    sec_filings: true,
   }
 
   it('asks for the email, deletes, and signs out', async () => {

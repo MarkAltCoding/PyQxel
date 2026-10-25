@@ -100,8 +100,8 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
           <h2>AI research report</h2>
           <div className="subtitle">
             Written by Claude from prices, factor exposures, a GARCH volatility forecast, peer
-            comparisons from the screener, financial statements and SEC filings. Billed to your
-            Anthropic key.
+            comparisons from the screener, financial statements, SEC filings and recent news. Billed
+            to your Anthropic key.
           </div>
         </div>
         <div className="filter-row">

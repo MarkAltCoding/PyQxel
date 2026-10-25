@@ -4,7 +4,11 @@ Financial Modeling Prep (FMP), a licensed provider, is the primary source, calle
 the requesting user's own API key (see :mod:`app.core.credentials`), so each user's
 data is billed to their own plan. Alpha Vantage, also licensed and also on the user's
 own key, comes next: it answers when FMP fails or the user's FMP plan does not cover a
-request, and fills in ticker info fields FMP leaves empty. yfinance, which scrapes
+request, and fills in ticker info fields FMP leaves empty. Finnhub, on the user's own key,
+serves quotes and company profiles, which its free plan covers for US listings at 60
+requests a minute: it is the first source for US quotes, since they are real time and
+FMP's free plan quotes only a sample of symbols, and it backs up and fills in profiles.
+It has no price history on its free plan. yfinance, which scrapes
 Yahoo, is used only when ``YFINANCE_FALLBACK`` is on, for development, after the
 licensed providers. A user with no usable key gets
 :class:`ProviderNotConfiguredError`, and a request their plan excludes,
@@ -36,7 +40,7 @@ import httpx2
 import pandas as pd
 import yfinance as yf
 
-from app.core.cache import cache_get, cache_set
+from app.core.cache import cache_get, cache_increment, cache_set
 from app.core.config import get_settings
 from app.core.credentials import current_provider_keys
 from app.models.quote import Quote
@@ -46,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 FMP_BASE_URL: str = "https://financialmodelingprep.com/stable"
 ALPHA_VANTAGE_URL: str = "https://www.alphavantage.co/query"
+FINNHUB_URL: str = "https://finnhub.io/api/v1"
 HTTP_TIMEOUT_SECONDS: float = 10.0
 OHLCV_COLUMNS: list[str] = ["Open", "High", "Low", "Close", "Volume"]
 QUOTE_TTL_SECONDS: float = 5.0
@@ -97,12 +102,24 @@ FMP_LIMIT_PAUSE_SECONDS: float = 30 * 60
 such as a free plan's 250 requests a day."""
 ALPHA_VANTAGE_LIMIT_PAUSE_SECONDS: float = 60 * 60
 """How long Alpha Vantage is left out for a key after its daily limit is reached."""
+FINNHUB_REQUESTS_PER_MINUTE: int = 55
+"""Finnhub requests sent per key per minute, under the free plan's 60. Beyond it, quotes
+fall to the next provider rather than spending the key's allowance meant for news."""
+FINNHUB_REFUSAL_TTL_SECONDS: float = 24 * 60 * 60
+"""How long a key's Finnhub plan is taken not to cover a request for a symbol."""
+FINNHUB_LIMIT_PAUSE_SECONDS: float = 60
+"""How long Finnhub is left out for a key after it answers that the rate limit is reached."""
+FINNHUB_PROFILE_TTL_SECONDS: float = 24 * 60 * 60
+"""How long a Finnhub company profile, used to fill in ticker info, is reused."""
 RECALL_MEMORY_SIZE: int = 4096
 """Refusals and pauses kept in process memory, in front of Redis."""
 HISTORY_NOTICE: str = "notice"
 """Key in a history frame's ``attrs`` for a provider's note on what the bars lack."""
 
-Provider = Literal["fmp", "alpha_vantage", "yfinance"]
+Provider = Literal["fmp", "finnhub", "alpha_vantage", "yfinance"]
+
+DataKind = Literal["history", "quote", "info"]
+"""What is asked of the providers: Finnhub's free plan serves quotes and profiles only."""
 
 DEFAULT_TIMEZONE: str = "America/New_York"
 SUFFIX_TIMEZONES: dict[str, str] = {
@@ -156,6 +173,8 @@ _alpha_vantage_next_slot: float = 0.0
 """Monotonic time from which the next Alpha Vantage request may be sent."""
 _recalled: "OrderedDict[str, float]" = OrderedDict()
 """Recall key -> monotonic time it expires: refusals and pauses known to this process."""
+_finnhub_counts: dict[tuple[str, int], int] = {}
+"""(key digest, minute) -> Finnhub requests sent, for deployments without Redis."""
 
 T = TypeVar("T")
 
@@ -169,11 +188,11 @@ class SymbolNotFoundError(DataFetchError):
 
 
 class ProviderNotConfiguredError(DataFetchError):
-    """Raised when the user has no usable FMP key and the yfinance fallback is off."""
+    """Raised when the user has no usable key for the data and the yfinance fallback is off."""
 
 
 class ProviderPlanError(DataFetchError):
-    """Raised when the user's FMP plan does not cover the request.
+    """Raised when the user's plan with a provider does not cover the request.
 
     ``remembered`` is true when the refusal was recalled rather than just received.
     """
@@ -191,6 +210,14 @@ class AlphaVantageDailyLimitError(DataFetchError):
     """Raised when a key has used up its Alpha Vantage requests for the day."""
 
 
+class FinnhubRateLimitError(DataFetchError):
+    """Raised when a key has sent its Finnhub requests for the minute."""
+
+    def __init__(self, message: str, retry_after: int | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 def _normalize_symbol(symbol: str) -> str:
     """Return ``symbol`` stripped and upper-cased, rejecting empty input."""
     cleaned = symbol.strip().upper()
@@ -199,27 +226,67 @@ def _normalize_symbol(symbol: str) -> str:
     return cleaned
 
 
-def available_providers() -> list[tuple[Provider, str | None]]:
+def finnhub_symbol(symbol: str) -> str:
+    """``symbol`` as Finnhub names it: share classes take a dot, as in ``BRK.B``."""
+    symbol = symbol.strip().upper()
+    return symbol.replace("-", ".") if "." not in symbol else symbol
+
+
+def finnhub_free_covers(symbol: str) -> bool:
+    """Whether Finnhub's free plan serves ``symbol``: US listings, not indices or foreign
+    listings, which carry an exchange suffix."""
+    symbol = symbol.strip().upper()
+    return bool(symbol) and "." not in symbol and not symbol.startswith("^") and "=" not in symbol
+
+
+def available_providers(
+    kind: DataKind = "history", symbol: str = ""
+) -> list[tuple[Provider, str | None]]:
     """The providers to try for the current user, in order, with the key to use.
 
+    Finnhub is tried for quotes and ticker info only: first for quotes of US listings,
+    after FMP for their info, and after the other licensed providers for anything else.
+
     Raises:
-        ProviderNotConfiguredError: If the user has neither an FMP nor an Alpha Vantage
-            key and the fallback is off.
+        ProviderNotConfiguredError: If the user has no key for this kind of data and the
+            fallback is off.
     """
     keys = current_provider_keys()
+    finnhub: tuple[Provider, str | None] | None = None
+    if keys.finnhub is not None and kind != "history":
+        finnhub = ("finnhub", keys.finnhub.get_secret_value())
+    covered = finnhub_free_covers(symbol)
     providers: list[tuple[Provider, str | None]] = []
+    if finnhub and covered and kind == "quote":
+        providers.append(finnhub)
     if keys.fmp is not None:
         providers.append(("fmp", keys.fmp.get_secret_value()))
+    if finnhub and covered and kind == "info":
+        providers.append(finnhub)
     if keys.alpha_vantage is not None:
         providers.append(("alpha_vantage", keys.alpha_vantage.get_secret_value()))
+    if finnhub and not covered:
+        providers.append(finnhub)
     if get_settings().yfinance_fallback:
         providers.append(("yfinance", None))
     if not providers:
+        if kind == "history":
+            raise ProviderNotConfiguredError(
+                "Price history is billed to your own Financial Modeling Prep or Alpha "
+                "Vantage plan (Finnhub's free plan has none): add your API key with PUT "
+                "/api/v1/me/credentials."
+            )
         raise ProviderNotConfiguredError(
-            "Market data is billed to your own Financial Modeling Prep or Alpha Vantage "
-            "plan: add your API key with PUT /api/v1/me/credentials."
+            "Market data is billed to your own Financial Modeling Prep, Finnhub or Alpha "
+            "Vantage plan: add your API key with PUT /api/v1/me/credentials."
         )
     return providers
+
+
+def finnhub_key() -> str | None:
+    """The current user's Finnhub key, if they stored one."""
+    key = current_provider_keys().finnhub
+    return None if key is None else key.get_secret_value()
 
 
 def alpha_vantage_key() -> str | None:
@@ -354,6 +421,85 @@ async def fmp_get(
         raise DataFetchError("Your Financial Modeling Prep plan's rate limit was reached.")
     response.raise_for_status()
     return response.json()
+
+
+async def _finnhub_slot(api_key: str) -> None:
+    """Count a request against the key's minute, refusing it beyond
+    :data:`FINNHUB_REQUESTS_PER_MINUTE`. The count is shared through Redis when it is set."""
+    now = time.time()
+    minute, digest = int(now // 60), _key_digest(api_key)
+    count = await cache_increment(f"finnhub:count:{digest}:{minute}", 60)
+    if count is None:
+        count = _finnhub_counts.get((digest, minute), 0) + 1
+        _finnhub_counts[digest, minute] = count
+        for stale in [entry for entry in _finnhub_counts if entry[1] < minute]:
+            del _finnhub_counts[stale]
+    if count > FINNHUB_REQUESTS_PER_MINUTE:
+        raise FinnhubRateLimitError(
+            "Your Finnhub plan's rate limit was reached; try again shortly.",
+            retry_after=60 - int(now % 60),
+        )
+
+
+async def finnhub_get(
+    path: str, params: dict[str, str], api_key: str, client: httpx2.AsyncClient | None
+) -> Any:
+    """GET a Finnhub endpoint with the user's key, classifying key, plan and limit errors.
+
+    The key travels in a header rather than the URL, so it stays out of logs. A refusal
+    is remembered for :data:`FINNHUB_REFUSAL_TTL_SECONDS` for the symbol, and a reached
+    rate limit leaves Finnhub out for :data:`FINNHUB_LIMIT_PAUSE_SECONDS`; either is
+    answered at once, without a request.
+    """
+    symbol = params.get("symbol", "")
+    digest = _key_digest(api_key)
+    refused, paused = f"finnhub:refused:{digest}:{path}:{symbol}", f"finnhub:paused:{digest}"
+    if await _recall(paused):
+        raise FinnhubRateLimitError(
+            "Your Finnhub plan's rate limit was reached; try again shortly."
+        )
+    if await _recall(refused):
+        raise ProviderPlanError(
+            f"Your Finnhub plan does not cover this request ({path} for {symbol}).",
+            remembered=True,
+        )
+    await _finnhub_slot(api_key)
+
+    async def get(http: httpx2.AsyncClient) -> httpx2.Response:
+        return await http.get(
+            f"{FINNHUB_URL}/{path}", params=params, headers={"X-Finnhub-Token": api_key}
+        )
+
+    try:
+        if client is not None:
+            response = await get(client)
+        else:
+            async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
+                response = await get(own_client)
+    except httpx2.HTTPError as exc:
+        raise DataFetchError("Finnhub could not be reached.") from exc
+    if response.status_code == 401:
+        raise ProviderNotConfiguredError(
+            "Finnhub rejected your API key; update it with PUT /api/v1/me/credentials."
+        )
+    if response.status_code == 403:
+        await _remember(refused, FINNHUB_REFUSAL_TTL_SECONDS)
+        raise ProviderPlanError(
+            f"Your Finnhub plan does not cover this request ({path} for {symbol})."
+        )
+    if response.status_code == 429:
+        await _remember(paused, FINNHUB_LIMIT_PAUSE_SECONDS)
+        value = response.headers.get("retry-after")
+        raise FinnhubRateLimitError(
+            "Your Finnhub plan's rate limit was reached; try again shortly.",
+            int(value) if value is not None and value.isdigit() else None,
+        )
+    if response.status_code >= 400:
+        raise DataFetchError(f"Finnhub returned an error ({response.status_code}).")
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise DataFetchError("Finnhub returned an unreadable answer.") from exc
 
 
 def _alpha_vantage_error(
@@ -496,12 +642,13 @@ async def alpha_vantage_get(
 
 def clear_alpha_vantage_memory() -> None:
     """Forget Alpha Vantage answers, plan refusals and request spacing kept in memory, and
-    every provider's refusals and pauses."""
+    every provider's refusals, pauses and request counts."""
     global _alpha_vantage_next_slot
     _alpha_vantage_memory.clear()
     _alpha_vantage_premium.clear()
     _alpha_vantage_next_slot = 0.0
     _recalled.clear()
+    _finnhub_counts.clear()
 
 
 def alpha_vantage_number(value: object) -> float | None:
@@ -576,6 +723,58 @@ async def _alpha_vantage_info(
     )
 
 
+def _positive(value: object) -> float | None:
+    """``value`` as a float when it is positive; Finnhub answers zero for missing figures."""
+    number = _finite(value)
+    return number if number is not None and number > 0 else None
+
+
+async def _finnhub_profile(
+    symbol: str, api_key: str, client: httpx2.AsyncClient | None
+) -> TickerInfo:
+    """A company's profile from Finnhub, without a price, reused for a day."""
+    key = f"finnhub:profile:{symbol}"
+    cached = await cache_get(key)
+    if cached is not None:
+        try:
+            return TickerInfo.model_validate_json(cached)
+        except ValueError:
+            logger.warning("Ignoring an unreadable cached Finnhub profile for %s.", symbol)
+    payload = await finnhub_get(
+        "stock/profile2", {"symbol": finnhub_symbol(symbol)}, api_key, client
+    )
+    if not isinstance(payload, dict) or not payload.get("name"):
+        raise SymbolNotFoundError(f"Finnhub has no profile for {symbol!r}.")
+    market_cap = _positive(payload.get("marketCapitalization"))
+    profile = TickerInfo(
+        symbol=symbol,
+        name=payload.get("name") or None,
+        currency=payload.get("currency") or None,
+        exchange=payload.get("exchange") or None,
+        industry=payload.get("finnhubIndustry") or None,
+        # Finnhub gives the market cap in millions.
+        market_cap=None if market_cap is None else market_cap * 1e6,
+        source="finnhub",
+    )
+    await cache_set(key, profile.model_dump_json(), FINNHUB_PROFILE_TTL_SECONDS)
+    return profile
+
+
+async def _finnhub_info(symbol: str, api_key: str, client: httpx2.AsyncClient | None) -> TickerInfo:
+    """Ticker info from Finnhub's company profile and quote."""
+    profile = await _finnhub_profile(symbol, api_key, client)
+    try:
+        quote = await _finnhub_quote(symbol, api_key, client)
+    except DataFetchError as exc:
+        logger.info("Finnhub has a profile but no quote for %s: %s", symbol, exc)
+        return profile
+    return profile.model_copy(update={"price": quote.price})
+
+
+FINNHUB_GAP_FIELDS: tuple[str, ...] = ("name", "currency", "exchange", "industry", "market_cap")
+"""Ticker info fields Finnhub's free company profile fills in when another provider leaves
+them empty."""
+
 INFO_GAP_FIELDS: tuple[str, ...] = (
     "name",
     "currency",
@@ -589,8 +788,34 @@ empty. The overview needs a paid plan; a free key's refusal is remembered for a 
 costs one request a day."""
 
 
+async def _fill_from_finnhub(info: TickerInfo, client: httpx2.AsyncClient | None) -> TickerInfo:
+    """Fill the fields ``info``'s provider left empty from Finnhub's profile, if the user can.
+
+    A market cap is filled only in the currency ``info`` is priced in.
+    """
+    api_key = finnhub_key()
+    missing = [field for field in FINNHUB_GAP_FIELDS if getattr(info, field) is None]
+    if api_key is None or info.source == "finnhub" or not missing:
+        return info
+    try:
+        profile = await _finnhub_profile(info.symbol, api_key, client)
+    except DataFetchError as exc:
+        logger.info("Finnhub could not fill %s's info: %s", info.symbol, exc)
+        return info
+    if info.currency is not None and profile.currency != info.currency:
+        missing = [field for field in missing if field != "market_cap"]
+    filled = {field: value for field in missing if (value := getattr(profile, field)) is not None}
+    if not filled:
+        return info
+    return info.model_copy(
+        update=filled | {"filled_fields": [*info.filled_fields, *sorted(filled)]}
+    )
+
+
 async def _fill_info(info: TickerInfo, client: httpx2.AsyncClient | None) -> TickerInfo:
-    """Fill the fields ``info``'s provider left empty from Alpha Vantage, if the user can."""
+    """Fill the fields ``info``'s provider left empty from Finnhub, then Alpha Vantage, if
+    the user has keys for them."""
+    info = await _fill_from_finnhub(info, client)
     api_key = alpha_vantage_key()
     missing = [field for field in INFO_GAP_FIELDS if getattr(info, field) is None]
     if api_key is None or info.source == "alpha_vantage" or not missing:
@@ -655,7 +880,8 @@ async def fetch_ticker_info(symbol: str, client: httpx2.AsyncClient | None = Non
 
     Returns:
         The normalized ticker snapshot. Fields its provider left empty are filled from
-        Alpha Vantage when the user has a key for it, and named in ``filled_fields``.
+        Finnhub and Alpha Vantage when the user has keys for them, and named in
+        ``filled_fields``.
 
     Raises:
         ValueError: If ``symbol`` is empty.
@@ -679,6 +905,9 @@ async def fetch_ticker_info(symbol: str, client: httpx2.AsyncClient | None = Non
             if provider == "fmp":
                 assert api_key is not None
                 info = await _fmp_info(symbol, api_key, client)
+            elif provider == "finnhub":
+                assert api_key is not None
+                info = await _finnhub_info(symbol, api_key, client)
             elif provider == "alpha_vantage":
                 assert api_key is not None
                 info = await _alpha_vantage_info(symbol, api_key, client)
@@ -690,7 +919,9 @@ async def fetch_ticker_info(symbol: str, client: httpx2.AsyncClient | None = Non
         return run
 
     info = await first_success(
-        symbol, "ticker info", [(p, attempt(p, k)) for p, k in available_providers()]
+        symbol,
+        "ticker info",
+        [(p, attempt(p, k)) for p, k in available_providers("info", symbol)],
     )
     return await _fill_info(info, client)
 
@@ -1079,6 +1310,24 @@ async def _fmp_quote(symbol: str, api_key: str, client: httpx2.AsyncClient | Non
     )
 
 
+async def _finnhub_quote(symbol: str, api_key: str, client: httpx2.AsyncClient | None) -> Quote:
+    """Fetch the latest quote from Finnhub, real time for US listings on its free plan."""
+    payload = await finnhub_get("quote", {"symbol": finnhub_symbol(symbol)}, api_key, client)
+    if not isinstance(payload, dict):
+        raise DataFetchError("Finnhub returned an unexpected quote.")
+    # Finnhub answers an unknown symbol with zeros rather than an error.
+    if not payload.get("t"):
+        raise SymbolNotFoundError(f"Finnhub has no quote for {symbol!r}.")
+    return _build_quote(
+        symbol,
+        price=_positive(payload.get("c")),
+        previous_close=_positive(payload.get("pc")),
+        source="finnhub",
+        day_high=_positive(payload.get("h")),
+        day_low=_positive(payload.get("l")),
+    )
+
+
 async def _alpha_vantage_quote(
     symbol: str, api_key: str, client: httpx2.AsyncClient | None
 ) -> Quote:
@@ -1115,7 +1364,8 @@ async def fetch_quote(symbol: str, client: httpx2.AsyncClient | None = None) -> 
         ValueError: If ``symbol`` is empty.
         ProviderNotConfiguredError: If the user has no market data key and the fallback
             is off.
-        ProviderPlanError: If the user's FMP plan does not cover ``symbol``.
+        ProviderPlanError: If the user's plan with its only provider does not cover
+            ``symbol``.
         SymbolNotFoundError: If the providers that answered have no price for ``symbol``.
         DataFetchError: If every provider fails.
     """
@@ -1141,6 +1391,9 @@ async def fetch_quote(symbol: str, client: httpx2.AsyncClient | None = None) -> 
                             await forget_fmp_refusal("quote", symbol, api_key)
                             raise
                     raise
+            elif provider == "finnhub":
+                assert api_key is not None
+                quote = await _finnhub_quote(symbol, api_key, client)
             elif provider == "alpha_vantage":
                 assert api_key is not None
                 quote = await _alpha_vantage_quote(symbol, api_key, client)
@@ -1160,7 +1413,7 @@ async def fetch_quote(symbol: str, client: httpx2.AsyncClient | None = None) -> 
         return run
 
     return await first_success(
-        symbol, "a quote", [(p, attempt(p, k)) for p, k in available_providers()]
+        symbol, "a quote", [(p, attempt(p, k)) for p, k in available_providers("quote", symbol)]
     )
 
 

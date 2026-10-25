@@ -6,6 +6,7 @@ faked, so nothing touches the network or spends money.
 
 import asyncio
 from collections.abc import Iterator
+from datetime import date, datetime, timezone
 from typing import Any
 
 import pandas as pd
@@ -18,9 +19,11 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.api import auth
 from app.api.v1.endpoints import backtest, research, stocks
+from app.api.v1.endpoints import news as news_route
 from app.core.config import Settings
 from app.core.credentials import current_provider_keys
 from app.data.fetcher import DataFetchError
+from app.data.news import NewsNotConfiguredError
 from app.data.sec_edgar import FilingFetchError
 from app.db.session import get_sessionmaker
 from app.db.tables import (
@@ -35,6 +38,7 @@ from app.db.tables import (
 from app.db.users import User, create_api_key
 from app.jobs import users as users_cli
 from app.main import app
+from app.models.news import CompanyNews
 from app.models.research import AnalysisContext, Filing, InvestmentThesis
 from app.models.stock import TickerInfo
 from tests.conftest import make_user
@@ -250,6 +254,41 @@ def test_alpha_vantage_key_is_stored_and_used_for_the_requester(
 
     assert body["alpha_vantage"] == {"configured": True, "hint": "…9876"}
     assert seen == ["av-secret-9876"]
+
+
+def test_finnhub_key_is_stored_and_used_for_the_requesters_news(
+    monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str], bob: tuple[User, str]
+) -> None:
+    """A Finnhub key is stored like the others and reaches the news fetcher, for its owner only."""
+    (_, alice_key), (_, bob_key) = alice, bob
+    body = client.put(
+        "/api/v1/me/credentials",
+        headers=_headers(alice_key),
+        json={"finnhub_api_key": "fh-secret-4321"},
+    ).json()
+    seen: list[str | None] = []
+
+    async def fake_news(symbol: str) -> CompanyNews:
+        stored = current_provider_keys().finnhub
+        seen.append(None if stored is None else stored.get_secret_value())
+        if stored is None:
+            raise NewsNotConfiguredError("No Finnhub key.")
+        today = date.today()
+        return CompanyNews(
+            symbol=symbol,
+            start=today,
+            end=today,
+            articles=[],
+            fetched_at=datetime.now(timezone.utc),
+        )
+
+    monkeypatch.setattr(news_route, "fetch_company_news", fake_news)
+    mine = client.get("/api/v1/stocks/AAPL/news", headers=_headers(alice_key))
+    theirs = client.get("/api/v1/stocks/AAPL/news", headers=_headers(bob_key))
+
+    assert body["finnhub"] == {"configured": True, "hint": "…4321"}
+    assert (mine.status_code, theirs.status_code) == (200, 403)
+    assert seen == ["fh-secret-4321", None]
 
 
 # Isolation of stored results.

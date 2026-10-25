@@ -47,6 +47,8 @@ class UserRecord(Base):
     fmp_key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
     alpha_vantage_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     alpha_vantage_key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    finnhub_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finnhub_key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
     ai_requests_per_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ai_requests_per_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

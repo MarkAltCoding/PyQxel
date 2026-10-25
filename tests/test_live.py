@@ -6,6 +6,7 @@ market data changes daily: they check that each service answers with plausible d
 """
 
 from collections.abc import Iterator
+from datetime import date
 
 import httpx2
 import pandas as pd
@@ -20,6 +21,8 @@ from app.data import fetcher
 from app.data.alpha_vantage import fetch_alpha_vantage_financials
 from app.data.exchange_rates import fetch_exchange_rate
 from app.data.factors import fetch_factors
+from app.data.finnhub import fetch_company_metrics, fetch_signals, search_symbols
+from app.data.news import fetch_company_news
 from app.data.panel import fetch_close_panel
 from app.data.sec_edgar import edgar_client, fetch_latest_filings
 from app.data.universe import FmpSession, fetch_listings, fetch_profiles
@@ -44,6 +47,9 @@ needs_screener_fmp = pytest.mark.skipif(
 needs_sec = pytest.mark.skipif(not settings.sec_user_agent, reason="SEC_USER_AGENT is not set")
 needs_alpha_vantage = pytest.mark.skipif(
     settings.alpha_vantage_api_key is None, reason="ALPHA_VANTAGE_API_KEY is not set"
+)
+needs_finnhub = pytest.mark.skipif(
+    settings.finnhub_api_key is None, reason="FINNHUB_API_KEY is not set"
 )
 
 
@@ -406,3 +412,40 @@ async def test_alpha_vantage_serves_everything_on_its_own_key(
     assert 0.5 < rate < 2.0
     assert financials.revenue is not None and financials.revenue.ttm
     assert financials.total_debt is not None and financials.cash is not None
+
+
+@needs_finnhub
+@pytest.mark.asyncio
+async def test_finnhub_free_plan_covers_everything_used(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With only a Finnhub key, free or paid, quotes, profiles, news, analyst ratings,
+    earnings, insider trades and sentiment, key metrics, peers and search all answer for
+    a large US stock.
+
+    Uses twelve of the free plan's 60 requests a minute. A part the plan refuses shows up
+    in ``signals.notice``.
+    """
+    key = settings.finnhub_api_key
+    assert key is not None
+    no_fallback = Settings(yfinance_fallback=False)
+    monkeypatch.setattr(fetcher, "get_settings", lambda: no_fallback)
+    use_provider_keys(ProviderKeys(finnhub=key))
+
+    quote = await fetcher.fetch_quote("AAPL")
+    info = await fetcher.fetch_ticker_info("MSFT")
+    news = await fetch_company_news("AAPL")
+    signals = await fetch_signals("AAPL", date.today())
+    metrics = await fetch_company_metrics("AAPL")
+    matches = await search_symbols("apple", 10)
+
+    assert quote.source == "finnhub" and quote.price > 0 and quote.previous_close
+    assert info.source == "finnhub" and info.name and info.market_cap and info.price
+    assert len(news.articles) > 10
+    assert signals.notice is None, signals.notice
+    assert signals.recommendations and signals.recommendations[0].total > 10
+    assert signals.earnings and signals.earnings[0].actual is not None
+    assert signals.insider_window is not None and signals.insider_sentiment
+    assert metrics.metrics.pe_ttm and metrics.metrics.week_52_high and metrics.peers
+    assert 0 < (metrics.metrics.gross_margin_ttm or 0) < 1
+    assert "AAPL" in [match.symbol for match in matches]

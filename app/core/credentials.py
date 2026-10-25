@@ -18,6 +18,7 @@ class ProviderKeys:
 
     fmp: SecretStr | None = None
     alpha_vantage: SecretStr | None = None
+    finnhub: SecretStr | None = None
 
 
 _current: ContextVar[ProviderKeys] = ContextVar("provider_keys", default=ProviderKeys())

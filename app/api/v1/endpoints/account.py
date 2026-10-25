@@ -2,9 +2,9 @@
 deleting the account.
 
 Each account pays for its own usage. AI analyses run on the Anthropic key stored here,
-market data on the Financial Modeling Prep key, and data the other sources leave out on
-the Alpha Vantage key; none is ever used for another account, and the server's own keys
-are never used for anyone.
+market data on the Financial Modeling Prep key, data the other sources leave out on the
+Alpha Vantage key, and company news on the Finnhub key; none is ever used for another
+account, and the server's own keys are never used for anyone.
 """
 
 import logging
@@ -66,9 +66,14 @@ async def _account(session: AsyncSession, user: User) -> Account:
         alpha_vantage=ProviderCredential(
             configured=user.alpha_vantage_api_key is not None, hint=user.alpha_vantage_key_hint
         ),
+        finnhub=ProviderCredential(
+            configured=user.finnhub_api_key is not None, hint=user.finnhub_key_hint
+        ),
         limits=user.limits,
         usage=await ai_usage(session, user.id),
         rate_limit_per_minute=get_settings().rate_limit_per_minute,
+        market_data_fallback=get_settings().yfinance_fallback,
+        sec_filings=bool(get_settings().sec_user_agent),
     )
 
 
@@ -85,12 +90,13 @@ async def read_account(user: CurrentUser, session: Session) -> Account:
 async def store_credentials(
     user: CurrentUser, session: Session, changes: Annotated[CredentialsUpdate, Body()]
 ) -> Account:
-    """Store, replace or remove your Anthropic, Financial Modeling Prep and Alpha Vantage keys.
+    """Store, replace or remove your Anthropic, Financial Modeling Prep, Alpha Vantage and
+    Finnhub keys.
 
     Omitted fields are left as they are and ``null`` removes a key. Keys are encrypted at
     rest, never returned, and used only for your own requests: analyses are billed to
-    your Anthropic account, market data to your FMP plan, and the gaps Alpha Vantage
-    fills to your Alpha Vantage plan.
+    your Anthropic account, market data to your FMP plan, the gaps Alpha Vantage
+    fills to your Alpha Vantage plan, and company news to your Finnhub plan.
 
     Returns 503 when the server has no ``CREDENTIALS_ENCRYPTION_KEY``.
     """

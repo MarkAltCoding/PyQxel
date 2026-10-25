@@ -8,6 +8,7 @@ import type {
   BacktestList,
   BacktestRequest,
   BacktestResponse,
+  CompanyMetrics,
   CopulaFitResponse,
   CredentialsUpdate,
   CustomBacktestRequest,
@@ -15,6 +16,8 @@ import type {
   FactorRegression,
   HoldingShares,
   HoldingsResponse,
+  MarketSignals,
+  NewsResponse,
   PriceHistory,
   ScreenRequest,
   ScreenResponse,
@@ -51,6 +54,10 @@ export const getVolatility = (symbol: string, period: string, model: 'garch' | '
   api<VolatilityEstimate>(`${path(symbol)}/volatility`, { query: { period, model, horizon: 21 } })
 export const getFactors = (symbol: string, period: string, model: string) =>
   api<FactorRegression>(`${path(symbol)}/factors`, { query: { period, model } })
+export const getMetrics = (symbol: string) => api<CompanyMetrics>(`${path(symbol)}/metrics`)
+export const getSignals = (symbol: string) => api<MarketSignals>(`${path(symbol)}/signals`)
+export const getNews = (symbol: string) =>
+  api<NewsResponse>(`${path(symbol)}/news`, { query: { limit: 50 } })
 
 export const listAnalyses = (symbol: string) =>
   api<AnalysisList>(`${V1}/analyses`, { query: { symbol, limit: 10 } })
