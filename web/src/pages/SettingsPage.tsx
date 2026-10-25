@@ -70,11 +70,11 @@ const PROVIDERS: ProviderInfo[] = [
     name: 'Finnhub',
     account: 'finnhub',
     about:
-      'Company news, analyst ratings, earnings results and dates, and insider trades, on stock pages and in AI reports. Also the first source of live US quotes and a backup for company profiles.',
+      'Company news, analyst ratings, earnings, insider trading, key metrics, lobbying, government contracts and patents on stock pages; market news and the earnings, IPO and holiday calendar on the Markets tab; all of it in AI reports. Also the first source of live US quotes, and a backup for company profiles and for financial statements when SEC EDGAR cannot be read.',
     signUp: 'https://finnhub.io/register',
     free: 'The free plan is enough: 60 requests a minute, US stocks.',
     without: (account) =>
-      `No news, analyst ratings, earnings dates or insider trades, on stock pages or in AI reports.${has(account, 'fmp') ? " Live quotes use your FMP plan's daily allowance instead." : ''}`,
+      `No company or market news, analyst ratings, earnings dates, insider trades, key metrics, lobbying, government contracts or patents, on stock pages, the Markets tab or in AI reports; the Markets calendar shows FOMC meetings only.${has(account, 'fmp') ? " Live quotes use your FMP plan's daily allowance instead." : ''}`,
   },
 ]
 
@@ -104,12 +104,27 @@ const FEATURES: Feature[] = [
     needs: 'an Anthropic key, and a price source (Financial Modeling Prep or Alpha Vantage)',
   },
   {
-    name: 'News, analyst ratings, earnings and insider trades',
+    name: 'News, analyst ratings, earnings, insider trades and key metrics',
     works: (account) => has(account, 'finnhub'),
     needs: 'a Finnhub key',
   },
   {
-    name: 'Financial statements, valuation and SEC filings',
+    name: 'Lobbying, government contracts, patents and recent SEC filings',
+    works: (account) => has(account, 'finnhub'),
+    needs: 'a Finnhub key',
+  },
+  {
+    name: 'Market news, and earnings, IPOs and holidays on the Markets calendar',
+    works: (account) => has(account, 'finnhub'),
+    needs: 'a Finnhub key (FOMC meetings show without one)',
+  },
+  {
+    name: 'Financial statements and valuation',
+    works: (account) => account.sec_filings || has(account, 'finnhub'),
+    needs: 'the server owner to set SEC_USER_AGENT, or a Finnhub key',
+  },
+  {
+    name: 'SEC filing text (Risk Factors and MD&A) in AI reports',
     works: (account) => account.sec_filings,
     needs: 'the server owner to set SEC_USER_AGENT; no key of yours',
   },

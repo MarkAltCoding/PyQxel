@@ -9,6 +9,7 @@ import { FactorChart, FactorTable } from '../charts/FactorChart'
 import { PriceChart, PriceTable } from '../charts/PriceChart'
 import { useChartTheme } from '../charts/theme'
 import { VolatilityChart, VolatilityTable } from '../charts/VolatilityChart'
+import { AlternativeCard } from '../components/AlternativeCard'
 import { AnalysisPanel } from '../components/AnalysisPanel'
 import { MetricsCard } from '../components/MetricsCard'
 import { NewsCard } from '../components/NewsCard'
@@ -207,6 +208,8 @@ export function StockPage() {
       <SignalsCard symbol={symbol} currency={currency} />
 
       <MetricsCard symbol={symbol} currency={currency} />
+
+      <AlternativeCard symbol={symbol} />
 
       <AnalysisPanel key={symbol} symbol={symbol} />
     </div>

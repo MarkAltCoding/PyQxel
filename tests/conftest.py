@@ -36,7 +36,10 @@ from app.core.credentials import use_provider_keys  # noqa: E402
 from app.core.rate_limit import clear_local_counts  # noqa: E402
 from app.data.factors import clear_factor_memory  # noqa: E402
 from app.data.fetcher import clear_alpha_vantage_memory, clear_quote_cache  # noqa: E402
+from app.api.v1.endpoints import markets as markets_route  # noqa: E402
 from app.data.finnhub import clear_signals_memory  # noqa: E402
+from app.data.fomc import FALLBACK_MEETINGS, clear_fomc_memory  # noqa: E402
+from app.models.markets import FomcMeeting  # noqa: E402
 from app.data.news import clear_news_memory  # noqa: E402
 from app.db.session import (  # noqa: E402
     close_database,
@@ -74,6 +77,16 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 @pytest.fixture(autouse=True)
+def no_fed_calendar(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serve FOMC dates from the built-in list, so no test reaches federalreserve.gov."""
+
+    async def fallback() -> list[FomcMeeting]:
+        return FALLBACK_MEETINGS
+
+    monkeypatch.setattr(markets_route, "fetch_fomc_meetings", fallback)
+
+
+@pytest.fixture(autouse=True)
 def isolated_storage() -> Iterator[None]:
     """Give each test a fresh in-memory database and no cache."""
     # A module-scoped app may have opened the default engine already.
@@ -86,6 +99,7 @@ def isolated_storage() -> Iterator[None]:
     clear_alpha_vantage_memory()
     clear_news_memory()
     clear_signals_memory()
+    clear_fomc_memory()
     clear_local_counts()
     yield
     configure_cache(None)
@@ -94,6 +108,7 @@ def isolated_storage() -> Iterator[None]:
     clear_alpha_vantage_memory()
     clear_news_memory()
     clear_signals_memory()
+    clear_fomc_memory()
     asyncio.run(close_database())
 
 

@@ -2,8 +2,10 @@
 
 Reports are grounded in price statistics, factor exposures, a GARCH volatility forecast,
 peer percentiles from the screener and, where available, financial statements and filings
-from SEC EDGAR, and recent company news, analyst ratings, earnings, insider trading, key
-metrics and peers from Finnhub. Each report
+from SEC EDGAR, recent company news, analyst ratings, earnings, insider trading, key
+metrics, peers, lobbying, government contracts and patents from Finnhub, and the market
+backdrop: FOMC meetings, major earnings reports, IPOs, holidays and market headlines.
+Each report
 can be fetched whole, or streamed as Server-Sent Events while Claude writes it. Reports
 are stored, and one for the same options is reused for a while instead of being paid for
 again. Stored reports can be listed and read back under ``/analyses``.
@@ -56,6 +58,8 @@ from app.data.news import (
     NewsRateLimitError,
     fetch_company_news,
 )
+from app.api.v1.endpoints.markets import fetch_market_context
+from app.data.alternative import fetch_alternative
 from app.data.finnhub import fetch_company_metrics, fetch_signals
 from app.data.fetcher import (
     DataFetchError,
@@ -77,6 +81,8 @@ from app.core.security import CredentialsUnavailableError
 from app.db.session import get_session, get_sessionmaker
 from app.db.users import User, ai_usage
 from app.models.fundamentals import Financials, Fundamentals
+from app.models.alternative import AlternativeContext, AlternativeRecords
+from app.models.markets import MarketContext
 from app.models.metrics import CompanyMetrics
 from app.models.news import CompanyNews, NewsContext
 from app.models.signals import MarketSignals, SignalsContext
@@ -100,6 +106,7 @@ from app.models.volatility import GarchContext
 from app.stats.factors import fit_factor_model
 from app.stats.garch import CONTEXT_HORIZONS, ModelFitError, fit_garch, summarize_garch
 from app.stats.indicators import summarize_prices
+from app.stats.alternative import alternative_context, summarize_alternative
 from app.stats.news import news_context
 from app.stats.signals import signals_context, summarize_signals
 from app.stats.peers import compare_to_peers
@@ -315,6 +322,38 @@ def _metrics_context(
     return result, None
 
 
+def _alternative_context(
+    result: AlternativeRecords | BaseException,
+) -> tuple[AlternativeContext | None, str | None]:
+    """Lobbying, government contracts, patents and filings, or why they are missing.
+
+    They add context but are not essential, so a failure becomes a notice rather than an
+    error. Without a Finnhub key, the signals' notice already says so.
+    """
+    if isinstance(result, ProviderNotConfiguredError):
+        return None, None
+    if isinstance(result, BaseException):
+        raise result
+    data = summarize_alternative(result, datetime.now(timezone.utc))
+    notice = None if data.notice is None else f"From Finnhub: {data.notice}"
+    return alternative_context(data, result), notice
+
+
+def _market_context(
+    result: MarketContext | BaseException,
+) -> tuple[MarketContext | None, str | None]:
+    """The market backdrop, or why it is missing.
+
+    FOMC dates come for every account, so the backdrop is missing only when Finnhub
+    rejects the key or something unexpected fails, which becomes a notice.
+    """
+    if isinstance(result, DataFetchError):
+        return None, "The market backdrop (FOMC dates, earnings, IPOs, headlines) was left out."
+    if isinstance(result, BaseException):
+        raise result
+    return result, None
+
+
 async def _fundamentals(
     symbol: str, result: Financials | BaseException, info: TickerInfo | None
 ) -> tuple[Fundamentals | None, list[str]]:
@@ -455,10 +494,12 @@ async def prepare_analysis(
     api_key = _anthropic_key(user)
     await _check_ai_limits(user)
 
-    # Two groups, run together, since asyncio.gather is typed for at most six awaitables.
+    # Groups run together, since asyncio.gather is typed for at most six awaitables.
+    today = datetime.now(timezone.utc).date()
     (
         (info_result, history_result, filings_result, factors_result, financials_result),
         (garch_result, peers_result, news_result, signals_result, metrics_result),
+        (alternative_result, market_result),
     ) = await asyncio.gather(
         asyncio.gather(
             fetch_ticker_info(symbol),
@@ -472,9 +513,12 @@ async def prepare_analysis(
             _garch_forecast(symbol),
             _peer_group(symbol.upper()),
             fetch_company_news(symbol),
-            fetch_signals(symbol, datetime.now(timezone.utc).date()),
+            fetch_signals(symbol, today),
             fetch_company_metrics(symbol),
             return_exceptions=True,
+        ),
+        asyncio.gather(
+            fetch_alternative(symbol, today), fetch_market_context(today), return_exceptions=True
         ),
     )
     if isinstance(history_result, DataFetchError):
@@ -523,9 +567,19 @@ async def prepare_analysis(
     news, news_notice = _news_context(symbol, news_result)
     signals, signals_notice = _signals_context(signals_result)
     metrics, metrics_notice = _metrics_context(symbol, metrics_result)
+    alternative, alternative_notice = _alternative_context(alternative_result)
+    market, market_notice = _market_context(market_result)
     notices.extend(
         notice
-        for notice in (garch_notice, peer_notice, news_notice, signals_notice, metrics_notice)
+        for notice in (
+            garch_notice,
+            peer_notice,
+            news_notice,
+            signals_notice,
+            metrics_notice,
+            alternative_notice,
+            market_notice,
+        )
         if notice
     )
 
@@ -542,6 +596,8 @@ async def prepare_analysis(
         news=news,
         signals=signals,
         metrics=metrics,
+        alternative=alternative,
+        market=market,
         notice=" ".join(notices) or None,
     )
     return PreparedAnalysis(
@@ -571,8 +627,10 @@ async def create_analysis(prepared: Prepared) -> AnalysisResponse:
     screening metrics ranked among its industry or sector peers, the company's financial
     statement figures and valuation multiples, the headlines and summaries of the last
     two weeks of news, analysts' ratings, earnings surprises, the next earnings date,
-    insiders' trades and sentiment, key metrics and peers from Finnhub (with a Finnhub key
-    stored), and, unless
+    insiders' trades and sentiment, key metrics and peers, lobbying, federal contracts,
+    patents and recent SEC filings from Finnhub (with a Finnhub key stored), the market
+    backdrop of upcoming FOMC meetings (for every account) and, with a Finnhub key, major
+    earnings reports, IPOs, holidays and market headlines, and, unless
     ``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K
     and any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of
     it cannot be fetched the report is written without it and ``context.notice`` says so.

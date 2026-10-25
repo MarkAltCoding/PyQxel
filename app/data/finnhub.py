@@ -131,13 +131,18 @@ def _api_key() -> str:
     return api_key
 
 
-async def _get(
+async def cached_get(
     path: str,
     params: dict[str, str],
     client: httpx2.AsyncClient | None,
     ttl: float = SIGNALS_TTL_SECONDS,
 ) -> Any:
-    """A Finnhub answer, reused for ``ttl`` seconds."""
+    """A Finnhub answer, reused for ``ttl`` seconds in memory and in Redis.
+
+    Raises:
+        ProviderNotConfiguredError: If the user has no Finnhub key, or it is rejected.
+        DataFetchError: As :func:`app.data.fetcher.finnhub_get` raises it.
+    """
     api_key = _api_key()
     key = "finnhub:" + path + ":" + ":".join(f"{k}={v}" for k, v in sorted(params.items()))
     entry = _memory.get(key)
@@ -195,7 +200,7 @@ async def fetch_recommendations(
     symbol: str, client: httpx2.AsyncClient | None = None
 ) -> list[RecommendationMonth]:
     """Monthly counts of analysts' ratings, newest first."""
-    payload = await _get("stock/recommendation", {"symbol": finnhub_symbol(symbol)}, client)
+    payload = await cached_get("stock/recommendation", {"symbol": finnhub_symbol(symbol)}, client)
     months: list[RecommendationMonth] = []
     for row in _rows(payload):
         period = _date(row.get("period"))
@@ -219,7 +224,7 @@ async def fetch_earnings_surprises(
     symbol: str, client: httpx2.AsyncClient | None = None
 ) -> list[EarningsSurprise]:
     """Reported against estimated EPS for recent quarters, newest first."""
-    payload = await _get("stock/earnings", {"symbol": finnhub_symbol(symbol)}, client)
+    payload = await cached_get("stock/earnings", {"symbol": finnhub_symbol(symbol)}, client)
     quarters: list[EarningsSurprise] = []
     for row in _rows(payload):
         period = _date(row.get("period"))
@@ -246,7 +251,7 @@ async def fetch_next_earnings(
 ) -> EarningsDate | None:
     """The next scheduled earnings report within :data:`EARNINGS_LOOKAHEAD_DAYS`, if any."""
     end = today + timedelta(days=EARNINGS_LOOKAHEAD_DAYS)
-    payload = await _get(
+    payload = await cached_get(
         "calendar/earnings",
         {"symbol": finnhub_symbol(symbol), "from": today.isoformat(), "to": end.isoformat()},
         client,
@@ -275,7 +280,7 @@ async def fetch_insider_trades(
 ) -> list[InsiderTrade]:
     """Open-market insider purchases and sales over :data:`INSIDER_DAYS`, newest first."""
     start = today - timedelta(days=INSIDER_DAYS)
-    payload = await _get(
+    payload = await cached_get(
         "stock/insider-transactions",
         {"symbol": finnhub_symbol(symbol), "from": start.isoformat(), "to": today.isoformat()},
         client,
@@ -310,7 +315,7 @@ async def fetch_insider_sentiment(
 ) -> list[InsiderSentimentMonth]:
     """Monthly insider sentiment for the last year, newest first."""
     start = today - timedelta(days=366)
-    payload = await _get(
+    payload = await cached_get(
         "stock/insider-sentiment",
         {"symbol": finnhub_symbol(symbol), "from": start.isoformat(), "to": today.isoformat()},
         client,
@@ -429,8 +434,8 @@ async def fetch_company_metrics(
     symbol = symbol.strip().upper()
     params = {"symbol": finnhub_symbol(symbol)}
     results: tuple[Any, Any] = await asyncio.gather(
-        _get("stock/metric", params | {"metric": "all"}, client),
-        _get("stock/peers", params, client),
+        cached_get("stock/metric", params | {"metric": "all"}, client),
+        cached_get("stock/peers", params, client),
         return_exceptions=True,
     )
     payload, peers = results
@@ -459,7 +464,7 @@ async def search_symbols(
         ProviderNotConfiguredError: If the user has no Finnhub key, or it is rejected.
         DataFetchError: If Finnhub fails.
     """
-    payload = await _get(
+    payload = await cached_get(
         "search", {"q": query.strip(), "exchange": "US"}, client, ttl=SEARCH_TTL_SECONDS
     )
     rows = _rows(payload.get("result") if isinstance(payload, dict) else None)

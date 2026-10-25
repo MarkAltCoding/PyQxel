@@ -1054,3 +1054,47 @@ table.data .muted {
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
+
+.calendar {
+  display: grid;
+  gap: 14px;
+}
+
+.calendar-day h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.calendar-day ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.calendar-day li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.calendar-kind {
+  flex: none;
+  min-width: 64px;
+  justify-content: center;
+}
+
+.calendar.filtered .calendar-kind {
+  display: none;
+}
+
+.calendar-detail {
+  color: var(--text-muted);
+}
+
+table.data td.award {
+  min-width: 220px;
+  white-space: normal;
+}

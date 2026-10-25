@@ -30,9 +30,10 @@ BalanceItemName = Literal["cash", "stockholders_equity"]
 AccountingStandard = Literal["US GAAP", "IFRS"]
 """The accounting standard financial statements were prepared under."""
 
-FinancialsSource = Literal["sec_edgar", "alpha_vantage"]
-"""Where financial statements came from: the company's XBRL filings on SEC EDGAR, or
-Alpha Vantage when EDGAR has none for it."""
+FinancialsSource = Literal["sec_edgar", "finnhub", "alpha_vantage"]
+"""Where financial statements came from: the company's XBRL filings on SEC EDGAR, the same
+filings as Finnhub relays them when EDGAR cannot be read, or Alpha Vantage when neither
+has them."""
 
 MarketCapSource = Literal["provider", "shares_outstanding"]
 """``provider`` when the market data provider reported the market capitalization,

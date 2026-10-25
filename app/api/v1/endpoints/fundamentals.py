@@ -49,7 +49,7 @@ def financials_failure_notice(symbol: str, exc: FilingFetchError) -> str:
         return "SEC financial data is not configured, so fundamentals were left out."
     if isinstance(exc, (CompanyNotFoundError, FinancialsNotFoundError)):
         return (
-            f"{symbol} has no US GAAP or IFRS financial statements on SEC EDGAR, or from "
+            f"{symbol} has no US GAAP or IFRS financial statements on SEC EDGAR, Finnhub or "
             "Alpha Vantage."
         )
     return "SEC financial data could not be fetched, so fundamentals were left out."
@@ -75,6 +75,11 @@ ITEM_LABELS: dict[str, str] = {
 
 def _source_notices(financials: Financials) -> list[str]:
     """Say which figures come from Alpha Vantage rather than SEC filings."""
+    if financials.source == "finnhub":
+        return [
+            "SEC EDGAR could not be read, so the financial statements come from the same "
+            "SEC filings as Finnhub relays them."
+        ]
     if financials.source == "alpha_vantage":
         return [
             "SEC EDGAR has no financial statements for this company, so they come from "

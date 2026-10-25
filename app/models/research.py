@@ -11,7 +11,9 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.models.factors import FactorContext
+from app.models.alternative import AlternativeContext
 from app.models.fundamentals import Fundamentals
+from app.models.markets import MarketContext
 from app.models.metrics import CompanyMetrics
 from app.models.news import NewsContext
 from app.models.signals import SignalsContext
@@ -22,14 +24,16 @@ from app.models.volatility import GarchContext, VolatilityPeriod
 AnalysisKind = Literal["thesis", "risk"]
 """Report types: an investment thesis, or a risk summary."""
 
-ANALYSIS_CONTEXT_VERSION: int = 6
+ANALYSIS_CONTEXT_VERSION: int = 7
 """Version of the data an analysis is written from. Bump it when the context gains data
 that changes reports, so stored reports written without it are not reused. Version 2
 added factor exposures; version 3 added fundamentals and valuation; version 4 added
 financials and ticker info from Alpha Vantage where other sources leave gaps; version 5
 added the GARCH volatility forecast and peer percentiles from the screener; version 6
 added company news, analyst ratings, earnings results and dates, insider trading, key
-metrics and peers from Finnhub."""
+metrics and peers from Finnhub; version 7 added lobbying, government contracts, patents
+and SEC filings, and the market backdrop of FOMC meetings, major earnings reports, IPOs,
+holidays and market headlines."""
 
 AnalysisPeriod = VolatilityPeriod
 """Lookback windows an analysis may cover; ``6mo`` or more gives a usable sample."""
@@ -179,6 +183,16 @@ class AnalysisContext(BaseModel):
         description="Finnhub's key metrics (52-week range, beta, valuation including a "
         "forward P/E, dividends, margins, growth, leverage) and its list of peers; null "
         "when unavailable.",
+    )
+    alternative: AlternativeContext | None = Field(
+        default=None,
+        description="The company's lobbying spending, federal contracts, patents and recent "
+        "SEC filings, from Finnhub; null without a Finnhub key.",
+    )
+    market: MarketContext | None = Field(
+        default=None,
+        description="The market backdrop: upcoming FOMC meetings, market holidays, major "
+        "companies' earnings reports and IPOs, and the newest market headlines.",
     )
     notice: str | None = Field(
         default=None, description="Explains which part of the window has no data, if any."

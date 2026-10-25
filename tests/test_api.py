@@ -45,6 +45,12 @@ from app.models.research import (
     RiskSummary,
 )
 from app.models.fundamentals import Financials
+from app.models.alternative import (
+    AlternativeRecords,
+    GovernmentAward,
+    LobbyingFiling,
+    SecFiling,
+)
 from app.models.metrics import CompanyMetrics, KeyMetrics
 from app.models.news import CompanyNews, NewsArticle
 from app.models.signals import EarningsSurprise, InsiderTrade, MarketSignals, RecommendationMonth
@@ -2313,6 +2319,49 @@ def test_analysis_context_carries_finnhub_metrics(monkeypatch: pytest.MonkeyPatc
 
     metrics = response.json()["context"]["metrics"]
     assert metrics["metrics"]["forward_pe"] == 25.0 and metrics["peers"] == ["MSFT"]
+    context, _, _ = calls[0]
+    assert context.notice is None
+
+
+def test_analysis_context_has_fomc_dates_without_a_finnhub_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Fed's meeting dates reach the model for every account; Finnhub's parts stay empty."""
+    calls = _serve_analysis(monkeypatch, ANALYZABLE, _recent_frame(), THESIS)
+
+    response = client.post("/api/v1/stocks/aapl/analysis", json={"include_filings": False})
+
+    market = response.json()["context"]["market"]
+    assert market["fomc_meetings"]
+    assert market["major_earnings"] == [] and market["headlines"] == []
+    context, _, _ = calls[0]
+    assert context.alternative is None
+
+
+def test_analysis_context_carries_alternative_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lobbying, contracts, patents and 8-K dates are given to the model."""
+    calls = _serve_analysis(monkeypatch, ANALYZABLE, _recent_frame(), THESIS)
+
+    asked: list[date] = []
+
+    async def fake_alternative(symbol: str, today: date) -> AlternativeRecords:
+        asked.append(today)
+        return AlternativeRecords(
+            symbol=symbol.upper(),
+            lobbying=[LobbyingFiling(year=2026, in_house=True, amount=1e6)],
+            contracts=[GovernmentAward(action_date=today, recipient="Apple", value=5e7)],
+            patents=[],
+            filings=[SecFiling(form="8-K", filed=today)],
+        )
+
+    monkeypatch.setattr(research, "fetch_alternative", fake_alternative)
+
+    response = client.post("/api/v1/stocks/aapl/analysis", json={"include_filings": False})
+
+    alternative = response.json()["context"]["alternative"]
+    assert alternative["contracts_total"] == 5e7
+    assert alternative["lobbying_years"][0]["amount"] == 1e6
+    assert alternative["recent_8k_dates"] == [asked[0].isoformat()]
     context, _, _ = calls[0]
     assert context.notice is None
 

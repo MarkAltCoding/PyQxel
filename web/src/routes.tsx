@@ -2,6 +2,7 @@ import { RequireKey } from './components/RequireKey'
 import { Layout } from './components/Layout'
 import { BacktestPage } from './pages/BacktestPage'
 import { HomePage } from './pages/HomePage'
+import { MarketsPage } from './pages/MarketsPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { PortfolioPage } from './pages/PortfolioPage'
 import { PrivacyPage } from './pages/PrivacyPage'
@@ -23,6 +24,7 @@ export const routes = [
     children: [
       { path: '/', element: <HomePage /> },
       { path: '/stocks/:symbol', element: <StockPage /> },
+      { path: '/markets', element: <MarketsPage /> },
       { path: '/portfolio', element: <PortfolioPage /> },
       { path: '/backtest', element: <BacktestPage /> },
       { path: '/screener', element: <ScreenerPage /> },

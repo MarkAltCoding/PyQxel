@@ -4,9 +4,11 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
     account,
+    alternative,
     backtest,
     factors,
     fundamentals,
+    markets,
     metrics,
     news,
     portfolio,
@@ -29,6 +31,8 @@ api_router.include_router(fundamentals.router, prefix="/stocks", tags=["fundamen
 api_router.include_router(news.router, prefix="/stocks", tags=["news"])
 api_router.include_router(signals.router, prefix="/stocks", tags=["signals"])
 api_router.include_router(metrics.router, prefix="/stocks", tags=["metrics"])
+api_router.include_router(alternative.router, prefix="/stocks", tags=["alternative data"])
+api_router.include_router(markets.router, prefix="/markets", tags=["markets"])
 api_router.include_router(backtest.results_router, prefix="/backtests", tags=["backtest"])
 api_router.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
 api_router.include_router(search.router, prefix="/search", tags=["search"])

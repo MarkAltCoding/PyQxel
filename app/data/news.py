@@ -12,6 +12,7 @@ reused for :data:`NEWS_FRESH_SECONDS`. When Finnhub fails or rate limits the key
 answer is served instead, marked ``stale``.
 """
 
+import html
 import logging
 import re
 from collections import OrderedDict
@@ -77,12 +78,16 @@ def clear_news_memory() -> None:
 
 
 _SPACE = re.compile(r"\s+")
+_TAG = re.compile(r"<[^>]*>")
 _WORD = re.compile(r"[a-z0-9]+")
 
 
 def _clean(text: object) -> str:
-    """``text`` with runs of whitespace collapsed; empty for anything not a string."""
-    return _SPACE.sub(" ", text).strip() if isinstance(text, str) else ""
+    """``text`` without HTML tags or entities, and with runs of whitespace collapsed; empty
+    for anything not a string. Some feeds send summaries as HTML lists of links."""
+    if not isinstance(text, str):
+        return ""
+    return _SPACE.sub(" ", html.unescape(_TAG.sub(" ", text))).strip()
 
 
 def _shorten(text: str, limit: int) -> str:
@@ -102,6 +107,9 @@ def _article(row: Any, start: datetime) -> NewsArticle | None:
     if not isinstance(row, dict):
         return None
     headline, url = _clean(row.get("headline")), _clean(row.get("url"))
+    source = _clean(row.get("source")) or "Unknown"
+    # Aggregated wire stories end with their publisher, which is already the source.
+    headline = headline.removesuffix(f" - {source}")
     stamp = row.get("datetime")
     if not headline or not url.startswith(("https://", "http://")):
         return None
@@ -117,7 +125,7 @@ def _article(row: Any, start: datetime) -> NewsArticle | None:
         published_at=published,
         headline=headline,
         summary=_shorten(summary, SUMMARY_MAX_CHARS) or None,
-        source=_clean(row.get("source")) or "Unknown",
+        source=source,
         url=url,
         category=_clean(row.get("category")) or None,
     )

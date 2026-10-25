@@ -394,3 +394,16 @@ def test_route_errors(
 
     assert response.status_code == status
     assert response.headers.get("retry-after") == retry_after
+
+
+def test_publisher_suffix_is_dropped_from_headlines() -> None:
+    """A headline ending with its source's name, as aggregated wire stories do, drops it."""
+    articles = parse_articles(
+        [
+            _row(1, "Stocks rise - Reuters", source="Reuters"),
+            _row(2, "Rates - fall", source="CNBC"),
+        ],
+        WINDOW_START,
+    )
+
+    assert [a.headline for a in articles] == ["Stocks rise", "Rates - fall"]

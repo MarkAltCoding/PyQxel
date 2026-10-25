@@ -142,6 +142,59 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/markets/calendar': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Market calendar
+     * @description Return the market-moving dates of the next ``days`` days.
+     *
+     *     ``fomc`` lists the Federal Reserve's scheduled FOMC meetings, from its own calendar,
+     *     for every account. With a Finnhub key, ``earnings`` lists major companies' earnings
+     *     reports (a market cap of $10 billion or more, or for companies outside the screened
+     *     universe a quarterly revenue estimate of $2 billion or more), ``ipos`` the IPO
+     *     calendar, ``holidays`` US market holidays and early closes, and ``status`` whether
+     *     the market is open. ``min_market_cap`` sets which companies' reports are listed
+     *     ($10 billion by default). Calendars are reused for six hours. A part that could not be
+     *     supplied is left empty and ``notice`` says why.
+     */
+    get: operations['get_calendar_api_v1_markets_calendar_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/markets/news': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Market news
+     * @description Return the latest market-wide news in ``category``, newest first, from Finnhub.
+     *
+     *     ``general`` is business and markets news, ``forex`` currencies, ``crypto``
+     *     cryptocurrencies, and ``merger`` mergers and acquisitions. Reused for five minutes.
+     *     Returns 403 without a valid Finnhub key, and 502 when Finnhub fails.
+     */
+    get: operations['get_market_news_api_v1_markets_news_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/me': {
     parameters: {
       query?: never
@@ -552,6 +605,39 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/stocks/{symbol}/alternative': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Lobbying, government contracts, patents and SEC filings
+     * @description Return ``symbol``'s lobbying, federal contracts, patents and recent SEC filings.
+     *
+     *     ``lobbying_years`` totals last year's and this year's quarterly disclosures under the Lobbying
+     *     Disclosure Act, whether the company lobbied itself or hired firms, the newest of
+     *     which are in ``lobbying``. ``contracts_total`` sums the last year's federal awards
+     *     from USAspending.gov to the company and its subsidiaries, ``contract_agencies`` says
+     *     who awarded them, and ``contracts`` lists the largest. ``patents_count`` counts the
+     *     patents and applications the USPTO published in the last year, the newest of which
+     *     are in ``patents``. ``filing_counts`` counts the last 90 days of SEC filings by form,
+     *     and ``filings`` lists the newest.
+     *
+     *     Fetched on your own Finnhub key (``PUT /api/v1/me/credentials``), whose free plan
+     *     covers US companies, and reused for a day. A part Finnhub cannot supply is left
+     *     empty and named in ``notice``. Returns 403 without a valid Finnhub key.
+     */
+    get: operations['get_alternative_api_v1_stocks__symbol__alternative_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/stocks/{symbol}/analysis': {
     parameters: {
       query?: never
@@ -571,8 +657,10 @@ export interface paths {
      *     screening metrics ranked among its industry or sector peers, the company's financial
      *     statement figures and valuation multiples, the headlines and summaries of the last
      *     two weeks of news, analysts' ratings, earnings surprises, the next earnings date,
-     *     insiders' trades and sentiment, key metrics and peers from Finnhub (with a Finnhub key
-     *     stored), and, unless
+     *     insiders' trades and sentiment, key metrics and peers, lobbying, federal contracts,
+     *     patents and recent SEC filings from Finnhub (with a Finnhub key stored), the market
+     *     backdrop of upcoming FOMC meetings (for every account) and, with a Finnhub key, major
+     *     earnings reports, IPOs, holidays and market headlines, and, unless
      *     ``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K
      *     and any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of
      *     it cannot be fetched the report is written without it and ``context.notice`` says so.
@@ -1008,6 +1096,18 @@ export interface components {
       usage: components['schemas']['AiUsage']
     }
     /**
+     * AgencyTotal
+     * @description What one federal agency awarded the company over the window.
+     */
+    AgencyTotal: {
+      /** Agency */
+      agency: string
+      /** Awards */
+      awards: number
+      /** Value */
+      value: number
+    }
+    /**
      * AiLimits
      * @description Caps on new AI analyses, which are billed to the account's own Anthropic key.
      *
@@ -1030,12 +1130,110 @@ export interface components {
       last_hour: number
     }
     /**
+     * AlternativeContext
+     * @description A company's lobbying, government contracts, patents and recent filings, as given to
+     *     Claude.
+     */
+    AlternativeContext: {
+      /** Contract Agencies */
+      contract_agencies: components['schemas']['AgencyTotal'][]
+      /** Contracts Total */
+      contracts_total?: number | null
+      /** Filing Counts */
+      filing_counts: {
+        [key: string]: number
+      }
+      /** Largest Contracts */
+      largest_contracts: components['schemas']['GovernmentAward'][]
+      /** Lobbying Years */
+      lobbying_years: components['schemas']['LobbyingYear'][]
+      /** Patents Count */
+      patents_count?: number | null
+      /**
+       * Recent 8K Dates
+       * @description When the company filed 8-Ks, which report material events, lately.
+       */
+      recent_8k_dates: string[]
+      /**
+       * Recent Patents
+       * @description Descriptions of the newest patents.
+       */
+      recent_patents: string[]
+    }
+    /**
+     * AlternativeData
+     * @description A company's lobbying, government contracts, patents and SEC filings.
+     */
+    AlternativeData: {
+      /**
+       * As Of
+       * Format: date-time
+       */
+      as_of: string
+      /**
+       * Contract Agencies
+       * @description Agencies that awarded the most over the last year.
+       */
+      contract_agencies: components['schemas']['AgencyTotal'][]
+      /**
+       * Contracts
+       * @description The largest awards of the last year.
+       */
+      contracts: components['schemas']['GovernmentAward'][]
+      /**
+       * Contracts Total
+       * @description Federal awards over the last year, in US dollars.
+       */
+      contracts_total?: number | null
+      /**
+       * Filing Counts
+       * @description SEC filings in the last 90 days, by form.
+       */
+      filing_counts?: {
+        [key: string]: number
+      }
+      /**
+       * Filings
+       * @description The newest SEC filings, newest first.
+       */
+      filings: components['schemas']['SecFiling'][]
+      /**
+       * Lobbying
+       * @description The newest disclosures, newest first.
+       */
+      lobbying: components['schemas']['LobbyingFiling'][]
+      /**
+       * Lobbying Years
+       * @description Lobbying spending last year and this year, newest first.
+       */
+      lobbying_years: components['schemas']['LobbyingYear'][]
+      /**
+       * Notice
+       * @description Says which parts Finnhub could not supply, if any.
+       */
+      notice?: string | null
+      /**
+       * Patents
+       * @description The newest patents and applications.
+       */
+      patents: components['schemas']['Patent'][]
+      /**
+       * Patents Count
+       * @description Patents and applications published in the last year.
+       */
+      patents_count?: number | null
+      /** Symbol */
+      symbol: string
+    }
+    /**
      * AnalysisContext
      * @description The market data an analysis is written from, sent to Claude verbatim.
      *
      *     Filing text is sent alongside it; the context lists only which filings were read.
      */
     AnalysisContext: {
+      /** @description The company's lobbying spending, federal contracts, patents and recent SEC filings, from Finnhub; null without a Finnhub key. */
+      alternative?: components['schemas']['AlternativeContext'] | null
       /**
        * Coverage
        * @enum {string}
@@ -1050,6 +1248,8 @@ export interface components {
       filings?: components['schemas']['FilingReference'][]
       /** @description Financial statement figures from SEC filings and the valuation built on them; null when they could not be fetched. */
       fundamentals?: components['schemas']['Fundamentals'] | null
+      /** @description The market backdrop: upcoming FOMC meetings, market holidays, major companies' earnings reports and IPOs, and the newest market headlines. */
+      market?: components['schemas']['MarketContext'] | null
       /** @description Finnhub's key metrics (52-week range, beta, valuation including a forward P/E, dividends, margins, growth, leverage) and its list of peers; null when unavailable. */
       metrics?: components['schemas']['CompanyMetrics'] | null
       /** @description Headlines and summaries of the last two weeks of company news from Finnhub; null when it could not be fetched. */
@@ -1889,6 +2089,39 @@ export interface components {
       year?: number | null
     }
     /**
+     * EarningsEvent
+     * @description A company's scheduled earnings report.
+     */
+    EarningsEvent: {
+      /**
+       * Date
+       * Format: date
+       */
+      date: string
+      /** Eps Estimate */
+      eps_estimate?: number | null
+      /**
+       * Hour
+       * @description ``bmo`` before the open, ``amc`` after the close.
+       */
+      hour?: string | null
+      /**
+       * Market Cap
+       * @description From the screened universe, when the company is in it.
+       */
+      market_cap?: number | null
+      /** Name */
+      name?: string | null
+      /** Quarter */
+      quarter?: number | null
+      /** Revenue Estimate */
+      revenue_estimate?: number | null
+      /** Symbol */
+      symbol: string
+      /** Year */
+      year?: number | null
+    }
+    /**
      * EarningsSurprise
      * @description Reported earnings per share for one quarter against the analysts' estimate.
      */
@@ -2256,7 +2489,7 @@ export interface components {
        * @default sec_edgar
        * @enum {string}
        */
-      source?: 'sec_edgar' | 'alpha_vantage'
+      source?: 'sec_edgar' | 'finnhub' | 'alpha_vantage'
       /** @description Equity attributable to the company's shareholders. */
       stockholders_equity?: components['schemas']['BalanceItem'] | null
       /** @description Short- and long-term borrowings, excluding operating leases; null when the company does not report its long-term debt in a recognized form. */
@@ -2292,6 +2525,28 @@ export interface components {
        * @description Change from the TTM figure a year earlier; null without it or when it was zero or negative.
        */
       ttm_growth?: number | null
+    }
+    /**
+     * FomcMeeting
+     * @description A scheduled meeting of the Federal Reserve's Federal Open Market Committee.
+     */
+    FomcMeeting: {
+      /**
+       * End
+       * Format: date
+       * @description The decision is announced at 2 p.m. Eastern on this day.
+       */
+      end: string
+      /**
+       * Projections
+       * @description Whether the Summary of Economic Projections is released with it.
+       */
+      projections: boolean
+      /**
+       * Start
+       * Format: date
+       */
+      start: string
     }
     /**
      * Fundamentals
@@ -2504,6 +2759,34 @@ export interface components {
       correlation: number[][]
       /** Log Likelihood */
       log_likelihood: number
+    }
+    /**
+     * GovernmentAward
+     * @description A federal contract or grant awarded to the company or a subsidiary.
+     */
+    GovernmentAward: {
+      /**
+       * Action Date
+       * Format: date
+       */
+      action_date: string
+      /** Agency */
+      agency?: string | null
+      /** Description */
+      description?: string | null
+      /** Performance End */
+      performance_end?: string | null
+      /** Recipient */
+      recipient: string
+      /** Sub Agency */
+      sub_agency?: string | null
+      /** Url */
+      url?: string | null
+      /**
+       * Value
+       * @description The award's total obligated value, in US dollars.
+       */
+      value: number
     }
     /** HTTPValidationError */
     HTTPValidationError: {
@@ -2754,6 +3037,40 @@ export interface components {
       what_would_change_the_view: string[]
     }
     /**
+     * IpoEvent
+     * @description An initial public offering on the calendar.
+     */
+    IpoEvent: {
+      /**
+       * Date
+       * Format: date
+       */
+      date: string
+      /** Exchange */
+      exchange?: string | null
+      /** Name */
+      name: string
+      /**
+       * Price
+       * @description The price or range, e.g. 10.00-12.00.
+       */
+      price?: string | null
+      /** Shares */
+      shares?: number | null
+      /**
+       * Status
+       * @description ``expected``, ``priced``, ``filed`` or ``withdrawn``.
+       */
+      status?: string | null
+      /** Symbol */
+      symbol?: string | null
+      /**
+       * Value
+       * @description Shares times price, in US dollars.
+       */
+      value?: number | null
+    }
+    /**
      * KeyMetrics
      * @description Trading, valuation, dividend, profitability, growth and balance sheet metrics, as
      *     Finnhub computes them. Any may be null when Finnhub has no figure.
@@ -2880,6 +3197,43 @@ export interface components {
       week_52_low_date?: string | null
     }
     /**
+     * LobbyingFiling
+     * @description One quarterly lobbying disclosure filed with the Senate or House.
+     */
+    LobbyingFiling: {
+      /**
+       * Amount
+       * @description Spent on lobbying in the period, in US dollars: the company's expenses when it lobbied itself, or the hired firm's income from it.
+       */
+      amount?: number | null
+      /**
+       * In House
+       * @description True when the company lobbied itself, false when it hired a firm.
+       */
+      in_house: boolean
+      /**
+       * Period
+       * @description The quarter, e.g. Q3.
+       */
+      period?: string | null
+      /** Url */
+      url?: string | null
+      /** Year */
+      year: number
+    }
+    /**
+     * LobbyingYear
+     * @description Lobbying spending disclosed for one year.
+     */
+    LobbyingYear: {
+      /** Amount */
+      amount: number
+      /** Filings */
+      filings: number
+      /** Year */
+      year: number
+    }
+    /**
      * Macd
      * @description Hold the asset while the MACD line is above its signal line.
      *
@@ -2947,6 +3301,113 @@ export interface components {
       volatility: number
     }
     /**
+     * MarketCalendar
+     * @description Market-moving dates over a window, each list in date order.
+     */
+    MarketCalendar: {
+      /**
+       * Earnings
+       * @description Major companies' earnings reports: a market cap of ``min_market_cap`` or more in the screened universe or, for companies outside it, a quarterly revenue estimate of a fifth of it or more.
+       */
+      earnings: components['schemas']['EarningsEvent'][]
+      /**
+       * End
+       * Format: date
+       */
+      end: string
+      /** Fomc */
+      fomc: components['schemas']['FomcMeeting'][]
+      /** Holidays */
+      holidays: components['schemas']['MarketHoliday'][]
+      /** Ipos */
+      ipos: components['schemas']['IpoEvent'][]
+      /**
+       * Notice
+       * @description Says which parts could not be supplied, if any.
+       */
+      notice?: string | null
+      /**
+       * Start
+       * Format: date
+       */
+      start: string
+      status?: components['schemas']['MarketStatus'] | null
+    }
+    /**
+     * MarketContext
+     * @description The market backdrop an analysis is written against.
+     */
+    MarketContext: {
+      /**
+       * As Of
+       * Format: date
+       */
+      as_of: string
+      /**
+       * Fomc Meetings
+       * @description The next scheduled FOMC meetings.
+       */
+      fomc_meetings: components['schemas']['FomcMeeting'][]
+      /**
+       * Headlines
+       * @description The newest general market headlines, newest first.
+       */
+      headlines: components['schemas']['NewsHeadline'][]
+      /**
+       * Holidays
+       * @description Holidays in the next month.
+       */
+      holidays: components['schemas']['MarketHoliday'][]
+      /**
+       * Ipos
+       * @description IPOs in the next two weeks, largest first.
+       */
+      ipos: components['schemas']['IpoEvent'][]
+      /**
+       * Major Earnings
+       * @description Major companies reporting in the next two weeks, largest first.
+       */
+      major_earnings: components['schemas']['EarningsEvent'][]
+      /** Market Open */
+      market_open?: boolean | null
+    }
+    /**
+     * MarketHoliday
+     * @description A day US exchanges close, or close early.
+     */
+    MarketHoliday: {
+      /**
+       * Date
+       * Format: date
+       */
+      date: string
+      /** Name */
+      name: string
+      /**
+       * Trading Hours
+       * @description The shortened session, e.g. 09:30-13:00; null when closed.
+       */
+      trading_hours?: string | null
+    }
+    /**
+     * MarketNews
+     * @description The latest market-wide news in a category, newest first.
+     */
+    MarketNews: {
+      /** Articles */
+      articles: components['schemas']['NewsArticle'][]
+      /**
+       * Category
+       * @enum {string}
+       */
+      category: 'general' | 'forex' | 'crypto' | 'merger'
+      /**
+       * Fetched At
+       * Format: date-time
+       */
+      fetched_at: string
+    }
+    /**
      * MarketSignals
      * @description Analyst ratings, earnings results and dates, and insider trading for a company.
      */
@@ -2982,6 +3443,26 @@ export interface components {
       recommendations: components['schemas']['RecommendationMonth'][]
       /** Symbol */
       symbol: string
+    }
+    /**
+     * MarketStatus
+     * @description Whether US exchanges are trading now.
+     */
+    MarketStatus: {
+      /**
+       * As Of
+       * Format: date-time
+       */
+      as_of: string
+      /** Holiday */
+      holiday?: string | null
+      /** Is Open */
+      is_open: boolean
+      /**
+       * Session
+       * @description ``pre-market``, ``regular`` or ``post-market``.
+       */
+      session?: string | null
     }
     /**
      * MeanReversion
@@ -3277,6 +3758,30 @@ export interface components {
        * @description Under the t copula, the limiting chance that one asset has an extreme day given the other does, in either tail. Zero under the Gaussian copula.
        */
       tail_dependence: number
+    }
+    /**
+     * Patent
+     * @description A US patent or patent application naming the company.
+     */
+    Patent: {
+      /** Description */
+      description: string
+      /** Filing Date */
+      filing_date?: string | null
+      /**
+       * Kind
+       * @description e.g. Utility or Design.
+       */
+      kind?: string | null
+      /** Number */
+      number?: string | null
+      /** Publication Date */
+      publication_date?: string | null
+      /**
+       * Status
+       * @description Application or Patent.
+       */
+      status?: string | null
     }
     /**
      * PeerComparison
@@ -4205,6 +4710,21 @@ export interface components {
       query: string
     }
     /**
+     * SecFiling
+     * @description A filing with the SEC, as listed by Finnhub.
+     */
+    SecFiling: {
+      /**
+       * Filed
+       * Format: date
+       */
+      filed: string
+      /** Form */
+      form: string
+      /** Url */
+      url?: string | null
+    }
+    /**
      * SignInProvider
      * @description A provider people can sign in with on this server.
      */
@@ -5070,6 +5590,72 @@ export interface operations {
       }
     }
   }
+  get_calendar_api_v1_markets_calendar_get: {
+    parameters: {
+      query?: {
+        /** @description Days ahead, today included. */
+        days?: number
+        /** @description Smallest market cap, in US dollars, of companies listed. */
+        min_market_cap?: number
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['MarketCalendar']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  get_market_news_api_v1_markets_news_get: {
+    parameters: {
+      query?: {
+        /** @description News category. */
+        category?: 'general' | 'forex' | 'crypto' | 'merger'
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['MarketNews']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
   read_account_api_v1_me_get: {
     parameters: {
       query?: never
@@ -5607,6 +6193,38 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['TickerInfo']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  get_alternative_api_v1_stocks__symbol__alternative_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Ticker symbol, e.g. AAPL, BRK-B or ^GSPC. */
+        symbol: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['AlternativeData']
         }
       }
       /** @description Validation Error */

@@ -272,6 +272,23 @@ async def search_stocks(session: AsyncSession, query: str, limit: int) -> list[S
     return [SearchMatch.model_validate(record, from_attributes=True) for record in records]
 
 
+async def market_caps(
+    session: AsyncSession, symbols: Iterable[str]
+) -> dict[str, tuple[str, float]]:
+    """The name and market cap of each of ``symbols`` in the screened universe."""
+    wanted = sorted(set(symbols))
+    found: dict[str, tuple[str, float]] = {}
+    # SQLite allows a limited number of bound parameters per statement.
+    for start in range(0, len(wanted), 500):
+        rows = await session.execute(
+            select(
+                ScreenerStockRecord.symbol, ScreenerStockRecord.name, ScreenerStockRecord.market_cap
+            ).where(ScreenerStockRecord.symbol.in_(wanted[start : start + 500]))
+        )
+        found.update({symbol: (name, cap) for symbol, name, cap in rows})
+    return found
+
+
 @dataclass(frozen=True)
 class PeerGroup:
     """A stock in the screened universe and the stocks it is compared with."""

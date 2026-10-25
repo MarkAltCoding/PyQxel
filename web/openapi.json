@@ -69,6 +69,31 @@
         "title": "Account",
         "type": "object"
       },
+      "AgencyTotal": {
+        "description": "What one federal agency awarded the company over the window.",
+        "properties": {
+          "agency": {
+            "title": "Agency",
+            "type": "string"
+          },
+          "awards": {
+            "minimum": 1.0,
+            "title": "Awards",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "agency",
+          "value",
+          "awards"
+        ],
+        "title": "AgencyTotal",
+        "type": "object"
+      },
       "AiLimits": {
         "description": "Caps on new AI analyses, which are billed to the account's own Anthropic key.\n\nReused reports do not count. ``null`` means no cap.",
         "properties": {
@@ -123,9 +148,220 @@
         "title": "AiUsage",
         "type": "object"
       },
+      "AlternativeContext": {
+        "description": "A company's lobbying, government contracts, patents and recent filings, as given to\nClaude.",
+        "properties": {
+          "contract_agencies": {
+            "items": {
+              "$ref": "#/components/schemas/AgencyTotal"
+            },
+            "title": "Contract Agencies",
+            "type": "array"
+          },
+          "contracts_total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contracts Total"
+          },
+          "filing_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Filing Counts",
+            "type": "object"
+          },
+          "largest_contracts": {
+            "items": {
+              "$ref": "#/components/schemas/GovernmentAward"
+            },
+            "title": "Largest Contracts",
+            "type": "array"
+          },
+          "lobbying_years": {
+            "items": {
+              "$ref": "#/components/schemas/LobbyingYear"
+            },
+            "title": "Lobbying Years",
+            "type": "array"
+          },
+          "patents_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Patents Count"
+          },
+          "recent_8k_dates": {
+            "description": "When the company filed 8-Ks, which report material events, lately.",
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Recent 8K Dates",
+            "type": "array"
+          },
+          "recent_patents": {
+            "description": "Descriptions of the newest patents.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Recent Patents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lobbying_years",
+          "contract_agencies",
+          "largest_contracts",
+          "recent_patents",
+          "filing_counts",
+          "recent_8k_dates"
+        ],
+        "title": "AlternativeContext",
+        "type": "object"
+      },
+      "AlternativeData": {
+        "description": "A company's lobbying, government contracts, patents and SEC filings.",
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "contract_agencies": {
+            "description": "Agencies that awarded the most over the last year.",
+            "items": {
+              "$ref": "#/components/schemas/AgencyTotal"
+            },
+            "title": "Contract Agencies",
+            "type": "array"
+          },
+          "contracts": {
+            "description": "The largest awards of the last year.",
+            "items": {
+              "$ref": "#/components/schemas/GovernmentAward"
+            },
+            "title": "Contracts",
+            "type": "array"
+          },
+          "contracts_total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Federal awards over the last year, in US dollars.",
+            "title": "Contracts Total"
+          },
+          "filing_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "SEC filings in the last 90 days, by form.",
+            "title": "Filing Counts",
+            "type": "object"
+          },
+          "filings": {
+            "description": "The newest SEC filings, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/SecFiling"
+            },
+            "title": "Filings",
+            "type": "array"
+          },
+          "lobbying": {
+            "description": "The newest disclosures, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/LobbyingFiling"
+            },
+            "title": "Lobbying",
+            "type": "array"
+          },
+          "lobbying_years": {
+            "description": "Lobbying spending last year and this year, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/LobbyingYear"
+            },
+            "title": "Lobbying Years",
+            "type": "array"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Says which parts Finnhub could not supply, if any.",
+            "title": "Notice"
+          },
+          "patents": {
+            "description": "The newest patents and applications.",
+            "items": {
+              "$ref": "#/components/schemas/Patent"
+            },
+            "title": "Patents",
+            "type": "array"
+          },
+          "patents_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Patents and applications published in the last year.",
+            "title": "Patents Count"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "lobbying_years",
+          "lobbying",
+          "contract_agencies",
+          "contracts",
+          "patents",
+          "filings",
+          "as_of"
+        ],
+        "title": "AlternativeData",
+        "type": "object"
+      },
       "AnalysisContext": {
         "description": "The market data an analysis is written from, sent to Claude verbatim.\n\nFiling text is sent alongside it; the context lists only which filings were read.",
         "properties": {
+          "alternative": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AlternativeContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The company's lobbying spending, federal contracts, patents and recent SEC filings, from Finnhub; null without a Finnhub key."
+          },
           "coverage": {
             "enum": [
               "full",
@@ -164,6 +400,17 @@
               }
             ],
             "description": "Financial statement figures from SEC filings and the valuation built on them; null when they could not be fetched."
+          },
+          "market": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MarketContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The market backdrop: upcoming FOMC meetings, market holidays, major companies' earnings reports and IPOs, and the newest market headlines."
           },
           "metrics": {
             "anyOf": [
@@ -1783,6 +2030,105 @@
         "title": "EarningsDate",
         "type": "object"
       },
+      "EarningsEvent": {
+        "description": "A company's scheduled earnings report.",
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "eps_estimate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eps Estimate"
+          },
+          "hour": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "``bmo`` before the open, ``amc`` after the close.",
+            "title": "Hour"
+          },
+          "market_cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the screened universe, when the company is in it.",
+            "title": "Market Cap"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "quarter": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quarter"
+          },
+          "revenue_estimate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Estimate"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "symbol",
+          "date"
+        ],
+        "title": "EarningsEvent",
+        "type": "object"
+      },
       "EarningsSurprise": {
         "description": "Reported earnings per share for one quarter against the analysts' estimate.",
         "properties": {
@@ -2544,6 +2890,7 @@
             "default": "sec_edgar",
             "enum": [
               "sec_edgar",
+              "finnhub",
               "alpha_vantage"
             ],
             "title": "Source",
@@ -2636,6 +2983,34 @@
           "concept"
         ],
         "title": "FlowItem",
+        "type": "object"
+      },
+      "FomcMeeting": {
+        "description": "A scheduled meeting of the Federal Reserve's Federal Open Market Committee.",
+        "properties": {
+          "end": {
+            "description": "The decision is announced at 2 p.m. Eastern on this day.",
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "projections": {
+            "description": "Whether the Summary of Economic Projections is released with it.",
+            "title": "Projections",
+            "type": "boolean"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "projections"
+        ],
+        "title": "FomcMeeting",
         "type": "object"
       },
       "Fundamentals": {
@@ -3026,6 +3401,88 @@
           "aic"
         ],
         "title": "GaussianCopula",
+        "type": "object"
+      },
+      "GovernmentAward": {
+        "description": "A federal contract or grant awarded to the company or a subsidiary.",
+        "properties": {
+          "action_date": {
+            "format": "date",
+            "title": "Action Date",
+            "type": "string"
+          },
+          "agency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agency"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "performance_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Performance End"
+          },
+          "recipient": {
+            "title": "Recipient",
+            "type": "string"
+          },
+          "sub_agency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Agency"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "value": {
+            "description": "The award's total obligated value, in US dollars.",
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "action_date",
+          "recipient",
+          "value"
+        ],
+        "title": "GovernmentAward",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -3482,6 +3939,95 @@
           "data_limitations"
         ],
         "title": "InvestmentThesis",
+        "type": "object"
+      },
+      "IpoEvent": {
+        "description": "An initial public offering on the calendar.",
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "exchange": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The price or range, e.g. 10.00-12.00.",
+            "title": "Price"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "``expected``, ``priced``, ``filed`` or ``withdrawn``.",
+            "title": "Status"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shares times price, in US dollars.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "date",
+          "name"
+        ],
+        "title": "IpoEvent",
         "type": "object"
       },
       "KeyMetrics": {
@@ -3946,6 +4492,87 @@
         "title": "KeyMetrics",
         "type": "object"
       },
+      "LobbyingFiling": {
+        "description": "One quarterly lobbying disclosure filed with the Senate or House.",
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Spent on lobbying in the period, in US dollars: the company's expenses when it lobbied itself, or the hired firm's income from it.",
+            "title": "Amount"
+          },
+          "in_house": {
+            "description": "True when the company lobbied itself, false when it hired a firm.",
+            "title": "In House",
+            "type": "boolean"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The quarter, e.g. Q3.",
+            "title": "Period"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "in_house"
+        ],
+        "title": "LobbyingFiling",
+        "type": "object"
+      },
+      "LobbyingYear": {
+        "description": "Lobbying spending disclosed for one year.",
+        "properties": {
+          "amount": {
+            "minimum": 0.0,
+            "title": "Amount",
+            "type": "number"
+          },
+          "filings": {
+            "minimum": 0.0,
+            "title": "Filings",
+            "type": "integer"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "amount",
+          "filings"
+        ],
+        "title": "LobbyingYear",
+        "type": "object"
+      },
       "Macd": {
         "description": "Hold the asset while the MACD line is above its signal line.\n\nThe MACD line is the ``fast``-bar exponential average of closes minus the ``slow``-bar\none, and the signal line is its ``signal``-bar exponential average. Below it the\nstrategy is flat, or short when ``allow_short`` is set.",
         "properties": {
@@ -4037,6 +4664,219 @@
         "title": "MarginalFit",
         "type": "object"
       },
+      "MarketCalendar": {
+        "description": "Market-moving dates over a window, each list in date order.",
+        "properties": {
+          "earnings": {
+            "description": "Major companies' earnings reports: a market cap of ``min_market_cap`` or more in the screened universe or, for companies outside it, a quarterly revenue estimate of a fifth of it or more.",
+            "items": {
+              "$ref": "#/components/schemas/EarningsEvent"
+            },
+            "title": "Earnings",
+            "type": "array"
+          },
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "fomc": {
+            "items": {
+              "$ref": "#/components/schemas/FomcMeeting"
+            },
+            "title": "Fomc",
+            "type": "array"
+          },
+          "holidays": {
+            "items": {
+              "$ref": "#/components/schemas/MarketHoliday"
+            },
+            "title": "Holidays",
+            "type": "array"
+          },
+          "ipos": {
+            "items": {
+              "$ref": "#/components/schemas/IpoEvent"
+            },
+            "title": "Ipos",
+            "type": "array"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Says which parts could not be supplied, if any.",
+            "title": "Notice"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MarketStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "fomc",
+          "earnings",
+          "ipos",
+          "holidays"
+        ],
+        "title": "MarketCalendar",
+        "type": "object"
+      },
+      "MarketContext": {
+        "description": "The market backdrop an analysis is written against.",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "fomc_meetings": {
+            "description": "The next scheduled FOMC meetings.",
+            "items": {
+              "$ref": "#/components/schemas/FomcMeeting"
+            },
+            "title": "Fomc Meetings",
+            "type": "array"
+          },
+          "headlines": {
+            "description": "The newest general market headlines, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/NewsHeadline"
+            },
+            "title": "Headlines",
+            "type": "array"
+          },
+          "holidays": {
+            "description": "Holidays in the next month.",
+            "items": {
+              "$ref": "#/components/schemas/MarketHoliday"
+            },
+            "title": "Holidays",
+            "type": "array"
+          },
+          "ipos": {
+            "description": "IPOs in the next two weeks, largest first.",
+            "items": {
+              "$ref": "#/components/schemas/IpoEvent"
+            },
+            "title": "Ipos",
+            "type": "array"
+          },
+          "major_earnings": {
+            "description": "Major companies reporting in the next two weeks, largest first.",
+            "items": {
+              "$ref": "#/components/schemas/EarningsEvent"
+            },
+            "title": "Major Earnings",
+            "type": "array"
+          },
+          "market_open": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Open"
+          }
+        },
+        "required": [
+          "as_of",
+          "fomc_meetings",
+          "holidays",
+          "major_earnings",
+          "ipos",
+          "headlines"
+        ],
+        "title": "MarketContext",
+        "type": "object"
+      },
+      "MarketHoliday": {
+        "description": "A day US exchanges close, or close early.",
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "trading_hours": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The shortened session, e.g. 09:30-13:00; null when closed.",
+            "title": "Trading Hours"
+          }
+        },
+        "required": [
+          "date",
+          "name"
+        ],
+        "title": "MarketHoliday",
+        "type": "object"
+      },
+      "MarketNews": {
+        "description": "The latest market-wide news in a category, newest first.",
+        "properties": {
+          "articles": {
+            "items": {
+              "$ref": "#/components/schemas/NewsArticle"
+            },
+            "title": "Articles",
+            "type": "array"
+          },
+          "category": {
+            "enum": [
+              "general",
+              "forex",
+              "crypto",
+              "merger"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "fetched_at": {
+            "format": "date-time",
+            "title": "Fetched At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "articles",
+          "fetched_at"
+        ],
+        "title": "MarketNews",
+        "type": "object"
+      },
       "MarketSignals": {
         "description": "Analyst ratings, earnings results and dates, and insider trading for a company.",
         "properties": {
@@ -4118,6 +4958,49 @@
           "insider_trades"
         ],
         "title": "MarketSignals",
+        "type": "object"
+      },
+      "MarketStatus": {
+        "description": "Whether US exchanges are trading now.",
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "holiday": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holiday"
+          },
+          "is_open": {
+            "title": "Is Open",
+            "type": "boolean"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "``pre-market``, ``regular`` or ``post-market``.",
+            "title": "Session"
+          }
+        },
+        "required": [
+          "is_open",
+          "as_of"
+        ],
+        "title": "MarketStatus",
         "type": "object"
       },
       "MeanReversion": {
@@ -4667,6 +5550,79 @@
           "empirical_upper_tail"
         ],
         "title": "PairDependence",
+        "type": "object"
+      },
+      "Patent": {
+        "description": "A US patent or patent application naming the company.",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "filing_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Date"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "e.g. Utility or Design.",
+            "title": "Kind"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Application or Patent.",
+            "title": "Status"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "title": "Patent",
         "type": "object"
       },
       "PeerComparison": {
@@ -6443,6 +7399,37 @@
         "title": "SearchResponse",
         "type": "object"
       },
+      "SecFiling": {
+        "description": "A filing with the SEC, as listed by Finnhub.",
+        "properties": {
+          "filed": {
+            "format": "date",
+            "title": "Filed",
+            "type": "string"
+          },
+          "form": {
+            "title": "Form",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "form",
+          "filed"
+        ],
+        "title": "SecFiling",
+        "type": "object"
+      },
       "SignInProvider": {
         "description": "A provider people can sign in with on this server.",
         "properties": {
@@ -8122,6 +9109,119 @@
         ]
       }
     },
+    "/api/v1/markets/calendar": {
+      "get": {
+        "description": "Return the market-moving dates of the next ``days`` days.\n\n``fomc`` lists the Federal Reserve's scheduled FOMC meetings, from its own calendar,\nfor every account. With a Finnhub key, ``earnings`` lists major companies' earnings\nreports (a market cap of $10 billion or more, or for companies outside the screened\nuniverse a quarterly revenue estimate of $2 billion or more), ``ipos`` the IPO\ncalendar, ``holidays`` US market holidays and early closes, and ``status`` whether\nthe market is open. ``min_market_cap`` sets which companies' reports are listed\n($10 billion by default). Calendars are reused for six hours. A part that could not be\nsupplied is left empty and ``notice`` says why.",
+        "operationId": "get_calendar_api_v1_markets_calendar_get",
+        "parameters": [
+          {
+            "description": "Days ahead, today included.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "Days ahead, today included.",
+              "maximum": 60,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Smallest market cap, in US dollars, of companies listed.",
+            "in": "query",
+            "name": "min_market_cap",
+            "required": false,
+            "schema": {
+              "default": 10000000000.0,
+              "description": "Smallest market cap, in US dollars, of companies listed.",
+              "minimum": 1000000000.0,
+              "title": "Min Market Cap",
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketCalendar"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Market calendar",
+        "tags": [
+          "markets"
+        ]
+      }
+    },
+    "/api/v1/markets/news": {
+      "get": {
+        "description": "Return the latest market-wide news in ``category``, newest first, from Finnhub.\n\n``general`` is business and markets news, ``forex`` currencies, ``crypto``\ncryptocurrencies, and ``merger`` mergers and acquisitions. Reused for five minutes.\nReturns 403 without a valid Finnhub key, and 502 when Finnhub fails.",
+        "operationId": "get_market_news_api_v1_markets_news_get",
+        "parameters": [
+          {
+            "description": "News category.",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "default": "general",
+              "description": "News category.",
+              "enum": [
+                "general",
+                "forex",
+                "crypto",
+                "merger"
+              ],
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketNews"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Market news",
+        "tags": [
+          "markets"
+        ]
+      }
+    },
     "/api/v1/me": {
       "delete": {
         "description": "Delete your account and everything it holds, at once and for good.\n\nYour provider keys, PyQxel API keys, sign-in links to GitHub and Google, holdings,\nand stored backtests, analyses and simulations are deleted, and every API key stops\nworking. Signing in again afterwards starts a new, empty account.",
@@ -8867,9 +9967,55 @@
         ]
       }
     },
+    "/api/v1/stocks/{symbol}/alternative": {
+      "get": {
+        "description": "Return ``symbol``'s lobbying, federal contracts, patents and recent SEC filings.\n\n``lobbying_years`` totals last year's and this year's quarterly disclosures under the Lobbying\nDisclosure Act, whether the company lobbied itself or hired firms, the newest of\nwhich are in ``lobbying``. ``contracts_total`` sums the last year's federal awards\nfrom USAspending.gov to the company and its subsidiaries, ``contract_agencies`` says\nwho awarded them, and ``contracts`` lists the largest. ``patents_count`` counts the\npatents and applications the USPTO published in the last year, the newest of which\nare in ``patents``. ``filing_counts`` counts the last 90 days of SEC filings by form,\nand ``filings`` lists the newest.\n\nFetched on your own Finnhub key (``PUT /api/v1/me/credentials``), whose free plan\ncovers US companies, and reused for a day. A part Finnhub cannot supply is left\nempty and named in ``notice``. Returns 403 without a valid Finnhub key.",
+        "operationId": "get_alternative_api_v1_stocks__symbol__alternative_get",
+        "parameters": [
+          {
+            "description": "Ticker symbol, e.g. AAPL, BRK-B or ^GSPC.",
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "description": "Ticker symbol, e.g. AAPL, BRK-B or ^GSPC.",
+              "pattern": "^[A-Za-z0-9.\\-^=]{1,15}$",
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlternativeData"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Lobbying, government contracts, patents and SEC filings",
+        "tags": [
+          "alternative data"
+        ]
+      }
+    },
     "/api/v1/stocks/{symbol}/analysis": {
       "post": {
-        "description": "Have Claude write an investment thesis or risk summary for ``symbol``.\n\nThe report is grounded in the ticker snapshot, return, volatility and drawdown\nstatistics computed from daily adjusted closes over ``period``, factor exposures, a\nGARCH(1,1) volatility forecast fit to five years of daily returns, the stock's\nscreening metrics ranked among its industry or sector peers, the company's financial\nstatement figures and valuation multiples, the headlines and summaries of the last\ntwo weeks of news, analysts' ratings, earnings surprises, the next earnings date,\ninsiders' trades and sentiment, key metrics and peers from Finnhub (with a Finnhub key\nstored), and, unless\n``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K\nand any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of\nit cannot be fetched the report is written without it and ``context.notice`` says so.\n\nThe report is written with, and billed to, your own Anthropic key (``PUT\n/api/v1/me/credentials``), within the hourly and daily limits you set (``PUT\n/api/v1/me/limits``). Every report is stored under your account. Your report for the\nsame options, model and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by\ndefault) is returned again with ``cached`` set and no charge, unless ``refresh`` is\ntrue. Identical requests that arrive together are written once.\n\nReturns 403 without a valid Anthropic key, 404 for unknown symbols, 422 when the\nwindow has too few bars or the model declines, 429 beyond your AI limits, 502 when a\nprovider fails, and 503 when Anthropic rate limits your account.",
+        "description": "Have Claude write an investment thesis or risk summary for ``symbol``.\n\nThe report is grounded in the ticker snapshot, return, volatility and drawdown\nstatistics computed from daily adjusted closes over ``period``, factor exposures, a\nGARCH(1,1) volatility forecast fit to five years of daily returns, the stock's\nscreening metrics ranked among its industry or sector peers, the company's financial\nstatement figures and valuation multiples, the headlines and summaries of the last\ntwo weeks of news, analysts' ratings, earnings surprises, the next earnings date,\ninsiders' trades and sentiment, key metrics and peers, lobbying, federal contracts,\npatents and recent SEC filings from Finnhub (with a Finnhub key stored), the market\nbackdrop of upcoming FOMC meetings (for every account) and, with a Finnhub key, major\nearnings reports, IPOs, holidays and market headlines, and, unless\n``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K\nand any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of\nit cannot be fetched the report is written without it and ``context.notice`` says so.\n\nThe report is written with, and billed to, your own Anthropic key (``PUT\n/api/v1/me/credentials``), within the hourly and daily limits you set (``PUT\n/api/v1/me/limits``). Every report is stored under your account. Your report for the\nsame options, model and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by\ndefault) is returned again with ``cached`` set and no charge, unless ``refresh`` is\ntrue. Identical requests that arrive together are written once.\n\nReturns 403 without a valid Anthropic key, 404 for unknown symbols, 422 when the\nwindow has too few bars or the model declines, 429 beyond your AI limits, 502 when a\nprovider fails, and 503 when Anthropic rate limits your account.",
         "operationId": "create_analysis_api_v1_stocks__symbol__analysis_post",
         "parameters": [
           {

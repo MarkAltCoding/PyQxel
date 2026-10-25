@@ -23,6 +23,7 @@ from typing import Any
 
 from app.data.fetcher import (
     DataFetchError,
+    finnhub_key,
     alpha_vantage_get,
     alpha_vantage_key,
     alpha_vantage_name,
@@ -35,6 +36,7 @@ from app.data.fundamentals import (
     QUARTER_DAYS,
     fetch_financials,
 )
+from app.data.finnhub_financials import fetch_finnhub_financials
 from app.data.sec_edgar import FilingFetchError
 from app.models.fundamentals import AnnualValue, BalanceItem, Financials, FlowItem
 
@@ -350,26 +352,41 @@ def missing_items(financials: Financials) -> list[str]:
     return [name for name in ITEM_STATEMENTS if getattr(financials, name) is None]
 
 
+async def _stand_in(symbol: str, api_key: str | None) -> Financials | None:
+    """Financials from Finnhub's relay of the SEC filings, or from Alpha Vantage, when
+    EDGAR cannot supply them; ``None`` when neither can."""
+    if finnhub_key() is not None:
+        try:
+            return await fetch_finnhub_financials(symbol)
+        except (DataFetchError, FilingFetchError) as exc:
+            logger.info("Finnhub could not stand in for EDGAR: %s", exc)
+    if api_key is not None:
+        try:
+            return await fetch_alpha_vantage_financials(symbol, api_key)
+        except DataFetchError as exc:
+            logger.info("Alpha Vantage could not stand in for EDGAR: %s", exc)
+    return None
+
+
 async def fetch_financials_filled(symbol: str) -> Financials:
     """Fetch ``symbol``'s financials from SEC EDGAR, with Alpha Vantage filling the gaps.
 
-    Without an Alpha Vantage key this is :func:`~app.data.fundamentals.fetch_financials`.
+    When EDGAR cannot supply them, the same filings as Finnhub relays them stand in, and
+    then Alpha Vantage's statements, for users with keys for them. Without either key
+    this is :func:`~app.data.fundamentals.fetch_financials`.
 
     Raises:
         FilingFetchError: As :func:`~app.data.fundamentals.fetch_financials` does, when
-            Alpha Vantage cannot stand in either.
+            neither Finnhub nor Alpha Vantage can stand in.
     """
     api_key = alpha_vantage_key()
     try:
         financials = await fetch_financials(symbol)
-    except FilingFetchError as exc:
-        if api_key is None:
+    except FilingFetchError:
+        stand_in = await _stand_in(symbol.strip().upper(), api_key)
+        if stand_in is None:
             raise
-        try:
-            return await fetch_alpha_vantage_financials(symbol.strip().upper(), api_key)
-        except DataFetchError as fallback:
-            logger.info("Alpha Vantage could not stand in for EDGAR: %s", fallback)
-            raise exc from None
+        return stand_in
     missing = missing_items(financials)
     if api_key is None or not missing:
         return financials

@@ -14,6 +14,7 @@ export function Layout() {
           PyQxel
         </NavLink>
         <nav className="nav" aria-label="Main">
+          <NavLink to="/markets">Markets</NavLink>
           <NavLink to="/portfolio">Portfolio</NavLink>
           <NavLink to="/backtest">Backtest</NavLink>
           <NavLink to="/screener">Screener</NavLink>

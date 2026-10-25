@@ -6,7 +6,7 @@ market data changes daily: they check that each service answers with plausible d
 """
 
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, timedelta
 
 import httpx2
 import pandas as pd
@@ -17,11 +17,21 @@ from app.core.config import Settings, get_settings
 from app.core.credentials import ProviderKeys, use_provider_keys
 from app.db.users import User
 from app.api.v1.endpoints.research import prepare_analysis
-from app.data import fetcher
+from app.data import fetcher, fomc
 from app.data.alpha_vantage import fetch_alpha_vantage_financials
 from app.data.exchange_rates import fetch_exchange_rate
 from app.data.factors import fetch_factors
+from app.data.alternative import fetch_alternative
 from app.data.finnhub import fetch_company_metrics, fetch_signals, search_symbols
+from app.data.finnhub_financials import fetch_finnhub_financials
+from app.data.fomc import FALLBACK_MEETINGS, fetch_fomc_meetings
+from app.data.markets import (
+    fetch_earnings_calendar,
+    fetch_ipo_calendar,
+    fetch_market_holidays,
+    fetch_market_news,
+    fetch_market_status,
+)
 from app.data.news import fetch_company_news
 from app.data.panel import fetch_close_panel
 from app.data.sec_edgar import edgar_client, fetch_latest_filings
@@ -449,3 +459,46 @@ async def test_finnhub_free_plan_covers_everything_used(
     assert metrics.metrics.pe_ttm and metrics.metrics.week_52_high and metrics.peers
     assert 0 < (metrics.metrics.gross_margin_ttm or 0) < 1
     assert "AAPL" in [match.symbol for match in matches]
+
+
+@pytest.mark.asyncio
+async def test_fed_publishes_fomc_meetings() -> None:
+    """The Fed's calendar page still reads, and lists the coming year's meetings."""
+    fomc.clear_fomc_memory()
+    meetings = await fetch_fomc_meetings()
+
+    assert meetings is not FALLBACK_MEETINGS
+    assert sum(meeting.start.year == date.today().year for meeting in meetings) >= 8
+
+
+@needs_finnhub
+@pytest.mark.asyncio
+async def test_finnhub_free_plan_covers_market_and_alternative_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Market news, the earnings and IPO calendars, holidays and status, a company's
+    lobbying, contracts, patents and filings, and its as-reported financials all answer.
+
+    Uses about 15 requests, more in earnings season, when the calendar is split.
+    """
+    key = settings.finnhub_api_key
+    assert key is not None
+    monkeypatch.setattr(fetcher, "get_settings", lambda: Settings(yfinance_fallback=False))
+    use_provider_keys(ProviderKeys(finnhub=key))
+    today = date.today()
+
+    news = await fetch_market_news("general")
+    earnings = await fetch_earnings_calendar(today, today + timedelta(days=13))
+    ipos = await fetch_ipo_calendar(today - timedelta(days=30), today + timedelta(days=30))
+    holidays = await fetch_market_holidays()
+    status = await fetch_market_status()
+    records = await fetch_alternative("LMT", today)
+    financials = await fetch_finnhub_financials("AAPL")
+
+    assert len(news.articles) > 20
+    assert len(earnings) > 100 and len({event.date for event in earnings}) > 5
+    assert ipos and holidays and any(holiday.date >= today for holiday in holidays)
+    assert status.as_of
+    assert not records.missing, records.missing
+    assert records.lobbying and records.contracts and records.filings
+    assert financials.revenue is not None and financials.revenue.ttm
