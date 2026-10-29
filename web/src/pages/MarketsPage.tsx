@@ -8,6 +8,7 @@ import { calendarRows, type CalendarRow } from '../lib/calendar'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { Segmented } from '../components/Segmented'
 import { timeAgo } from '../lib/format'
+import { safeUrl } from '../lib/safeUrl'
 
 const WINDOWS = [
   { value: '14', label: '2 weeks' },
@@ -202,7 +203,7 @@ function MarketNewsCard({
           <ul className="news-list">
             {shown.map((article) => (
               <li key={article.url}>
-                <a href={article.url} target="_blank" rel="noopener noreferrer">
+                <a href={safeUrl(article.url)} target="_blank" rel="noopener noreferrer">
                   {article.headline}
                 </a>
                 <div className="news-meta">

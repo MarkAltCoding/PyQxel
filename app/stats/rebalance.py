@@ -90,6 +90,8 @@ def plan_trades(
         holding when the target is zero.
     """
     total = math.fsum(shares * price for shares, price in holdings.values()) + cash
+    if total <= 0:
+        return Plan(total_value=0.0, trades=[], cash_after=cash, notes=["Nothing to invest."])
     current = {symbol: shares * price / total for symbol, (shares, price) in holdings.items()}
     weights = normalized(targets, current) if total > 0 else targets
     notes: list[str] = []

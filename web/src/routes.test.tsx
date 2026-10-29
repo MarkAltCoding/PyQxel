@@ -5,6 +5,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AuthProvider } from './auth/AuthContext'
 import { clearProviderKeys, providerKeyHeaders, setProviderKey } from './lib/providerKeys'
+import { markSignInStarted, signInStartedRecently } from './auth/pendingSignIn'
 import { routes } from './routes'
 
 function renderAt(path: string) {
@@ -92,6 +93,7 @@ describe('sign-in', () => {
       '/api/v1/auth/providers': () => json(PROVIDERS),
       '/api/v1/me': () => json({ email: 'octo@example.com' }),
     })
+    markSignInStarted()
     const router = renderAt('/signin#key=pq_signed_in&next=%2Fbacktest%3Fsymbol%3DSPY')
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/backtest'))
@@ -109,7 +111,10 @@ describe('sign-in', () => {
       '/api/v1/me': () => json({ email: 'octo@example.com' }),
     })
     const router = renderAt('/signin')
-    await screen.findByRole('link', { name: 'Continue with GitHub' })
+    // Clicking starts the sign-in in this tab; the test stays on the page instead of leaving.
+    const github = await screen.findByRole('link', { name: 'Continue with GitHub' })
+    github.addEventListener('click', (event) => event.preventDefault())
+    await userEvent.click(github)
 
     await router.navigate('/signin#key=pq_later&next=%2Fscreener')
 
@@ -119,11 +124,39 @@ describe('sign-in', () => {
 
   it('shows why signing in with a provider failed', async () => {
     serve({ '/api/v1/auth/providers': () => json(PROVIDERS) })
+    markSignInStarted()
     renderAt('/signin#error=Signing+in+with+GitHub+was+cancelled.')
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Signing in with GitHub was cancelled.',
     )
+  })
+
+  it('ignores a key in a link this tab did not start a sign-in for', async () => {
+    const calls = serve({
+      '/api/v1/auth/providers': () => json(PROVIDERS),
+      '/api/v1/me': () => json({ email: 'attacker@example.com' }),
+    })
+    const router = renderAt('/signin#key=pq_attackers_key&next=%2Fportfolio')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('was not started in this browser')
+    expect(router.state.location.pathname).toBe('/signin')
+    expect(window.localStorage.getItem('pyqxel.apiKey')).toBeNull()
+    expect(calls.some((call) => call.authorization === 'Bearer pq_attackers_key')).toBe(false)
+  })
+
+  it('does not show a message written into a link', async () => {
+    serve({ '/api/v1/auth/providers': () => json(PROVIDERS) })
+    renderAt('/signin#error=Your+account+is+locked.+Call+555-0100.')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('was not started in this browser')
+    expect(screen.queryByText(/555-0100/)).toBeNull()
+  })
+
+  it('does not trust a sign-in started long ago', () => {
+    markSignInStarted()
+    expect(signInStartedRecently()).toBe(true)
+    expect(signInStartedRecently(Date.now() + 16 * 60 * 1000)).toBe(false)
   })
 
   it('revokes the key on the server when signing out', async () => {

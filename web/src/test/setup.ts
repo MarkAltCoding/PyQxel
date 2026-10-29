@@ -12,5 +12,8 @@ if (typeof Range !== 'undefined' && !Range.prototype.getClientRects) {
 afterEach(() => {
   cleanup()
   // Tests that run under Node instead of jsdom, such as the C++ compiler's, have no window.
-  if (typeof window !== 'undefined') window.localStorage.clear()
+  if (typeof window !== 'undefined') {
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+  }
 })

@@ -8,7 +8,6 @@ the same schema the app's requests use, so it is stored like any other.
 """
 
 import json
-import re
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
@@ -70,27 +69,75 @@ def render_prompt(
     return "\n\n".join(parts) + "\n"
 
 
+MAX_CANDIDATES: int = 20
+"""Most places a pasted answer is tried for JSON at, which bounds the work any paste
+costs: each try is linear in its length."""
+
+
+def _fenced_blocks(text: str) -> list[str]:
+    """The contents of the first few Markdown code fences, without a language tag."""
+    blocks: list[str] = []
+    start = text.find("```")
+    while start != -1 and len(blocks) < MAX_CANDIDATES:
+        end = text.find("```", start + 3)
+        if end == -1:
+            break
+        block = text[start + 3 : end]
+        if block.lstrip().lower().startswith("json"):
+            block = block.lstrip()[4:]
+        blocks.append(block.strip())
+        start = text.find("```", end + 3)
+    return blocks
+
+
+def _too_deep() -> ExternalResponseError:
+    return ExternalResponseError("The answer nests too deeply to be one of these reports.")
+
+
 def _json_object(text: str) -> Any:
-    """The JSON object in ``text``, which may sit in a code fence or among other text."""
-    fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.DOTALL)
-    candidate = fenced.group(1) if fenced else text.strip()
-    try:
-        return json.loads(candidate)
-    except ValueError:
-        pass
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end <= start:
+    """The JSON object in ``text``, which may sit in a code fence or among other text.
+
+    Found by plain scanning rather than a regular expression, so a hostile paste costs
+    at most :data:`MAX_CANDIDATES` linear passes.
+    """
+    for candidate in (text.strip(), *_fenced_blocks(text)):
+        if candidate.startswith("{"):
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+            except RecursionError as exc:
+                raise _too_deep() from exc
+    decoder = json.JSONDecoder()
+    position = text.find("{")
+    if position == -1:
         raise ExternalResponseError(
             "No JSON object found. Paste Claude's whole answer: the prompt asks it to "
             "reply with one JSON object."
         )
-    try:
-        return json.loads(text[start : end + 1])
-    except json.JSONDecodeError as exc:
+    error: json.JSONDecodeError | None = None
+    for _ in range(MAX_CANDIDATES):
+        if position == -1:
+            break
+        try:
+            value, _end = decoder.raw_decode(text, position)
+            if isinstance(value, dict):
+                return value
+        except json.JSONDecodeError as exc:
+            error = error or exc
+        except RecursionError as exc:
+            raise _too_deep() from exc
+        position = text.find("{", position + 1)
+    if error is not None and error.msg.startswith("Expecting") and error.pos >= len(text) - 1:
         raise ExternalResponseError(
-            f"The answer is not valid JSON ({exc.msg} near character {exc.pos}). Paste it "
-            "again in full, or ask Claude to reply with the JSON object alone."
-        ) from exc
+            "The answer ends before its JSON does; it may have been cut short. Paste it "
+            "again in full."
+        )
+    detail = f" ({error.msg} near character {error.pos})" if error else ""
+    raise ExternalResponseError(
+        f"The answer is not valid JSON{detail}. Paste it again in full, or ask Claude to "
+        "reply with the JSON object alone."
+    )
 
 
 def parse_response(text: str, schema: type[Report]) -> Report:

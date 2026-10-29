@@ -65,7 +65,7 @@ def test_answers_are_read_with_or_without_fences_and_prose(pasted: str) -> None:
     ("pasted", "message"),
     [
         ("I can't help with that.", "No JSON object found"),
-        ('{"headline": "x",', "No JSON object found"),
+        ('{"headline": "x",', "cut short"),
         ('{"headline": "x", }', "not valid JSON"),
         ('{"headline": "x"}', "does not match the expected format: stance: Field required"),
     ],

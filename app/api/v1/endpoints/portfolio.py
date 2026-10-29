@@ -3,6 +3,7 @@ and Claude's review of the saved portfolio."""
 
 import asyncio
 import logging
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -547,6 +548,9 @@ async def store_holdings(
 
 # Claude's review of the saved portfolio.
 
+MAX_PLANNED_POSITIONS: int = 50
+"""Most target positions a plan covers."""
+
 CORRELATED_PAIRS: int = 5
 """Most and least correlated pairs listed in a review's data."""
 
@@ -708,17 +712,20 @@ async def _plan(context: PortfolioContext, report: PortfolioReview) -> Rebalance
     New symbols are priced here; one that cannot be is planned by value alone. Returns
     ``None`` when the review gives no targets.
     """
-    if not report.target_allocation:
-        return None
+    # Targets come from Claude, or from an answer pasted from outside the app: only real
+    # ticker symbols are planned, and few enough to price, since each new one is looked up.
     targets = {
-        position.symbol.strip().upper(): Target(
+        symbol: Target(
             position.target_weight,
             position.order_type,
             position.limit_offset_percent,
             position.rationale,
         )
-        for position in report.target_allocation
+        for position in report.target_allocation[:MAX_PLANNED_POSITIONS]
+        if re.fullmatch(SYMBOL_PATTERN, symbol := position.symbol.strip().upper())
     }
+    if not targets:
+        return None
     held = {h.symbol: (h.shares, h.price) for h in context.holdings if h.price > 0}
     new = [s for s in targets if s not in held and s != CASH]
     found = await asyncio.gather(*(fetch_ticker_info(s) for s in new), return_exceptions=True)
