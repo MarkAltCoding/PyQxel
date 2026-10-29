@@ -7,8 +7,9 @@ import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -19,6 +20,7 @@ from app.api.v1.api import api_router
 from app.api.v1.endpoints import account, signin
 from app.core.cache import close_cache
 from app.core.config import get_settings
+from app.core.redact import install_log_redaction, redact
 from app.db.session import close_database, init_db
 from app.stats.r_bridge import start_r
 from app.version import __version__
@@ -93,6 +95,17 @@ async def validation_error(request: Request, exc: RequestValidationError) -> JSO
     )
 
 
+async def http_error(request: Request, exc: HTTPException) -> Response:
+    """FastAPI's usual error response, with any key or token in the detail scrubbed.
+
+    Details often quote a provider's error, which can quote the URL the user's key was
+    sent in.
+    """
+    if isinstance(exc.detail, str):
+        exc.detail = redact(exc.detail)
+    return await http_exception_handler(request, exc)
+
+
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application.
 
@@ -100,9 +113,11 @@ def create_app() -> FastAPI:
         The configured application with CORS middleware, health checks, the v1 API
         and the web frontend registered.
     """
+    install_log_redaction()
     settings = get_settings()
     application = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
     application.exception_handler(RequestValidationError)(validation_error)
+    application.exception_handler(HTTPException)(http_error)
 
     application.add_middleware(CompressApiResponses, prefix=settings.api_v1_prefix)
     application.add_middleware(

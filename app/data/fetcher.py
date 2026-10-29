@@ -43,6 +43,7 @@ import yfinance as yf
 from app.core.cache import cache_get, cache_increment, cache_set
 from app.core.config import get_settings
 from app.core.credentials import current_provider_keys
+from app.core.redact import redact
 from app.models.quote import Quote
 from app.models.stock import TickerInfo
 
@@ -180,7 +181,14 @@ T = TypeVar("T")
 
 
 class DataFetchError(RuntimeError):
-    """Raised when market data cannot be retrieved from any provider."""
+    """Raised when market data cannot be retrieved from any provider.
+
+    The message is scrubbed of keys (see :mod:`app.core.redact`), since it often quotes
+    a provider's error, and errors quote the URL the user's key was sent in.
+    """
+
+    def __init__(self, message: str = "", *args: object) -> None:
+        super().__init__(redact(str(message)), *args)
 
 
 class SymbolNotFoundError(DataFetchError):

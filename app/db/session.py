@@ -36,17 +36,23 @@ _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
 
+HIDE_PARAMETERS: dict[str, bool] = {"hide_parameters": True}
+"""Keeps statement parameters, such as emails and key hashes, out of database errors,
+which are logged."""
+
+
 def create_engine_for(url: str) -> AsyncEngine:
     """Create an engine for ``url``, preparing SQLite's file or in-memory connection."""
     parsed = make_url(url)
     if parsed.get_backend_name() != "sqlite":
         if not get_settings().database_pgbouncer:
-            return create_async_engine(url, pool_pre_ping=True)
+            return create_async_engine(url, pool_pre_ping=True, **HIDE_PARAMETERS)
         # PgBouncer in transaction mode hands each transaction any server connection, so
         # prepared statements must not be cached or reuse names across connections.
         return create_async_engine(
             parsed.update_query_dict({"prepared_statement_cache_size": "0"}),
             pool_pre_ping=True,
+            **HIDE_PARAMETERS,
             connect_args={
                 "statement_cache_size": 0,
                 "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4()}__",
@@ -56,14 +62,17 @@ def create_engine_for(url: str) -> AsyncEngine:
         # Each connection to an in-memory database gets its own empty database, so
         # every session must share one connection.
         return create_async_engine(
-            url, poolclass=StaticPool, connect_args={"check_same_thread": False}
+            url,
+            poolclass=StaticPool,
+            connect_args={"check_same_thread": False},
+            **HIDE_PARAMETERS,
         )
     try:
         Path(parsed.database).parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         # Connecting will fail too, and is reported where connections are handled.
         logger.error("Cannot create the folder for %s: %s", parsed.database, exc)
-    return create_async_engine(url)
+    return create_async_engine(url, **HIDE_PARAMETERS)
 
 
 def configure_database(url: str) -> AsyncEngine:

@@ -46,6 +46,7 @@ import pandas as pd
 
 from app.core.config import PROJECT_ROOT, get_settings
 from app.core.credentials import ProviderKeys, use_provider_keys
+from app.core.redact import install_log_redaction
 from app.data.exchange_rates import fetch_exchange_rates
 from app.data.factors import fetch_factors
 from app.data.fetcher import DataFetchError, ProviderNotConfiguredError, ProviderPlanError
@@ -505,6 +506,7 @@ def main() -> None:
         help="Rebuild financials from the SEC bulk archive even if they are recent.",
     )
     arguments = parser.parse_args()
+    install_log_redaction()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     asyncio.run(_main(arguments.fundamentals))
 

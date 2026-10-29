@@ -19,6 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import presented_key
+from app.core.rate_limit import RateLimitExceeded, check_rate_limit
 from app.core.config import get_settings
 from app.core.oauth import (
     OAuthError,
@@ -40,6 +41,12 @@ Session = Annotated[AsyncSession, Depends(get_session)]
 COOKIE = "pyqxel_sign_in"
 """Holds a sign-in's state, PKCE verifier and destination while the provider is visited."""
 COOKIE_SECONDS = 10 * 60
+
+SIGN_INS_PER_ADDRESS: int = 20
+"""Sign-in starts and callbacks one client address may make a minute."""
+SIGN_INS_PER_SERVER: int = 600
+"""Sign-in starts and callbacks the whole server takes a minute, which bounds the work
+an attacker can cause from however many addresses."""
 
 
 class SignInProvider(BaseModel):
@@ -70,6 +77,25 @@ def _destination(path: str | None) -> str:
     if path and path.startswith("/") and not path.startswith("//") and "\\" not in path:
         return path
     return "/"
+
+
+async def _throttle(request: Request) -> None:
+    """Count a sign-in request, from its address and in all.
+
+    Raises:
+        RateLimitExceeded: Beyond either limit this minute.
+    """
+    address = request.client.host if request.client else "unknown"
+    await check_rate_limit(f"sign-in:{address}", SIGN_INS_PER_ADDRESS)
+    await check_rate_limit("sign-in:all", SIGN_INS_PER_SERVER)
+
+
+def _too_many(exc: RateLimitExceeded) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many sign-in attempts; please wait a minute.",
+        headers={"Retry-After": str(exc.retry_after)},
+    )
 
 
 def _encode(text: str) -> str:
@@ -110,6 +136,10 @@ async def start_sign_in(
 ) -> RedirectResponse:
     """Send the browser to ``provider`` to sign in, returning to ``next`` afterwards."""
     oauth = _provider(provider)
+    try:
+        await _throttle(request)
+    except RateLimitExceeded as exc:
+        raise _too_many(exc) from exc
     state, verifier = new_secret(), new_secret()
     response = RedirectResponse(
         oauth.authorization_url(_callback_url(request, provider), state, verifier),
@@ -147,11 +177,18 @@ async def finish_sign_in(
     fragment: ``#key=…&next=…`` or ``#error=…``.
     """
     oauth = _provider(provider)
+    try:
+        await _throttle(request)
+    except RateLimitExceeded:
+        return _back_to_sign_in(
+            request, error="Too many sign-in attempts; please wait a minute and try again."
+        )
     if error:
+        # The error comes from the URL, which anyone can write, so it is not shown.
         message = (
             f"Signing in with {oauth.label} was cancelled."
             if error == "access_denied"
-            else f"{oauth.label} did not complete the sign-in: {error}."
+            else f"{oauth.label} did not complete the sign-in. Please try again."
         )
         return _back_to_sign_in(request, error=message)
     parts = request.cookies.get(COOKIE, "").split(".")
