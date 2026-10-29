@@ -21,6 +21,8 @@
 #                             and Nasdaq data, for a deployment only you use; when unset,
 #                             the running service's value is kept (false when deploying
 #                             for the first time)
+#   ADMIN_EMAIL               the account that sees admin settings, where it can turn the
+#                             yfinance fallback on for its own requests only; kept when unset
 #   GITHUB_CLIENT_ID          the GitHub OAuth app people sign in with, beside the
 #                             pyqxel-github-client-secret secret; kept when unset
 #   GOOGLE_CLIENT_ID          the Google OAuth client people sign in with, beside the
@@ -39,6 +41,7 @@ SCREENER_FMP_REQUESTS_PER_MINUTE="${SCREENER_FMP_REQUESTS_PER_MINUTE:-300}"
 YFINANCE_FALLBACK="${YFINANCE_FALLBACK:-}"
 GITHUB_CLIENT_ID="${GITHUB_CLIENT_ID:-}"
 GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 
 REPOSITORY="$SERVICE"
 JOB="$SERVICE-screener"
@@ -68,7 +71,7 @@ env = json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0].get("env
 print(next((e.get("value", "") for e in env if e["name"] == sys.argv[1]), ""))
 ' "$1" 2>/dev/null || true
 }
-for name in YFINANCE_FALLBACK GITHUB_CLIENT_ID GOOGLE_CLIENT_ID; do
+for name in YFINANCE_FALLBACK GITHUB_CLIENT_ID GOOGLE_CLIENT_ID ADMIN_EMAIL; do
     if [[ -z "${!name}" ]]; then
         value="$(running_env "$name")"
         if [[ -n "$value" ]]; then
@@ -170,7 +173,7 @@ env_vars="^|^YFINANCE_FALLBACK=$YFINANCE_FALLBACK|DATABASE_PGBOUNCER=true|SEC_US
 if [[ -n "$CORS_ORIGINS" ]]; then
     env_vars+="|CORS_ORIGINS=$CORS_ORIGINS"
 fi
-for name in GITHUB_CLIENT_ID GOOGLE_CLIENT_ID; do
+for name in GITHUB_CLIENT_ID GOOGLE_CLIENT_ID ADMIN_EMAIL; do
     if [[ -n "${!name}" ]]; then env_vars+="|$name=${!name}"; fi
 done
 

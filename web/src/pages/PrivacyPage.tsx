@@ -69,9 +69,8 @@ export function PrivacyPage() {
               PyQxel runs on Google Cloud, keeps its database at Neon and its cache at Upstash.
             </li>
             <li>
-              The symbols you look up are sent to market data providers: Financial Modeling Prep and
-              Alpha Vantage with your own keys, and Yahoo Finance and Nasdaq without anything about
-              you. Company filings come from the SEC.
+              The symbols you look up are sent to market data providers with your own keys:
+              Financial Modeling Prep, Alpha Vantage and Finnhub. Company filings come from the SEC.
             </li>
             <li>
               When you ask for an AI research report, the company’s data is sent to Anthropic with

@@ -51,6 +51,9 @@ class UserRecord(Base):
     finnhub_key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
     ai_requests_per_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ai_requests_per_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    yfinance_fallback: Mapped[bool] = mapped_column(Boolean, server_default=false())
+    """Whether the admin turned on the yfinance fallback for their own requests; ignored
+    for every other account."""
 
 
 class ApiKeyRecord(Base):

@@ -20,8 +20,9 @@ from starlette.websockets import WebSocketDisconnect
 from app.api import auth
 from app.api.v1.endpoints import backtest, research, stocks
 from app.api.v1.endpoints import news as news_route
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
 from app.core.credentials import current_provider_keys
+from app.data import fetcher
 from app.data.fetcher import DataFetchError
 from app.data.news import NewsNotConfiguredError
 from app.data.sec_edgar import FilingFetchError
@@ -627,3 +628,99 @@ def test_command_line_delete_refuses_an_unknown_email(monkeypatch: pytest.Monkey
 
     with pytest.raises(SystemExit, match="No account uses"):
         users_cli.main()
+
+
+# Admin settings.
+
+
+def _yfinance_seen(monkeypatch: pytest.MonkeyPatch, key: str) -> bool:
+    """Whether a request with ``key`` would fall back to yfinance."""
+    seen: list[bool] = []
+
+    async def fake_info(symbol: str) -> TickerInfo:
+        seen.append(fetcher.yfinance_fallback_on())
+        return TickerInfo(symbol=symbol, source="fmp")
+
+    monkeypatch.setattr(stocks, "fetch_ticker_info", fake_info)
+    client.get("/api/v1/stocks/AAPL", headers=_headers(key))
+    return seen[0]
+
+
+def test_only_the_admin_can_turn_yfinance_on_and_only_for_themselves(
+    monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str], bob: tuple[User, str]
+) -> None:
+    monkeypatch.setattr(get_settings(), "yfinance_fallback", False)
+    monkeypatch.setattr(get_settings(), "admin_email", "tester@example.com")
+    _, alice_key = alice
+    _, bob_key = bob
+
+    before = client.get("/api/v1/me", headers=_headers(alice_key)).json()
+    refused = client.put(
+        "/api/v1/me/admin", headers=_headers(bob_key), json={"yfinance_fallback": True}
+    )
+    turned_on = client.put(
+        "/api/v1/me/admin", headers=_headers(alice_key), json={"yfinance_fallback": True}
+    ).json()
+
+    assert before["admin"] == {"yfinance_fallback": False}
+    assert before["market_data_fallback"] is False
+    assert "admin" not in client.get("/api/v1/me", headers=_headers(bob_key)).json()
+    assert refused.status_code in (404, 405)
+    assert turned_on["admin"] == {"yfinance_fallback": True}
+    assert turned_on["market_data_fallback"] is True
+    assert _yfinance_seen(monkeypatch, alice_key) is True
+    assert _yfinance_seen(monkeypatch, bob_key) is False
+
+
+def test_the_switch_does_nothing_for_an_account_that_is_not_admin(
+    monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str]
+) -> None:
+    """A switch left on is ignored once ADMIN_EMAIL names someone else, or no one."""
+    monkeypatch.setattr(get_settings(), "yfinance_fallback", False)
+    monkeypatch.setattr(get_settings(), "admin_email", "tester@example.com")
+    _, key = alice
+    client.put("/api/v1/me/admin", headers=_headers(key), json={"yfinance_fallback": True})
+
+    for admin in ("someone@example.com", None):
+        monkeypatch.setattr(get_settings(), "admin_email", admin)
+        account = client.get("/api/v1/me", headers=_headers(key)).json()
+        assert "admin" not in account
+        assert account["market_data_fallback"] is False
+        assert _yfinance_seen(monkeypatch, key) is False
+
+
+def test_admin_email_is_matched_ignoring_case_and_spaces() -> None:
+    assert Settings(admin_email="  Mark@Example.COM ").admin_email == "mark@example.com"
+    assert Settings(admin_email=" ").admin_email is None
+
+
+def _answer(response: Any) -> tuple[int, str, dict[str, str]]:
+    """What a response tells the caller, without headers that differ between any two."""
+    headers = {k: v for k, v in response.headers.items() if k not in ("date", "x-request-id")}
+    return response.status_code, response.text, headers
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+def test_admin_settings_look_missing_to_everyone_but_the_admin(
+    monkeypatch: pytest.MonkeyPatch, method: str, alice: tuple[User, str], bob: tuple[User, str]
+) -> None:
+    """No key, a wrong key, another account's key, or the admin's with a method other
+    than PUT: each gets exactly what a path that does not exist gets."""
+    monkeypatch.setattr(get_settings(), "admin_email", "tester@example.com")
+    _, alice_key = alice
+    _, bob_key = bob
+    callers = [{}, _headers("pq_unknown"), _headers(bob_key)]
+    if method != "PUT":
+        callers.append(_headers(alice_key))
+    body = {"yfinance_fallback": True}
+
+    for headers in callers:
+        admin = client.request(method, "/api/v1/me/admin", headers=headers, json=body)
+        missing = client.request(method, "/api/v1/me/missing", headers=headers, json=body)
+        assert _answer(admin) == _answer(missing), headers
+
+
+def test_the_api_schema_does_not_mention_admin_settings() -> None:
+    schema = client.get("/openapi.json").text.lower()
+
+    assert "admin" not in schema

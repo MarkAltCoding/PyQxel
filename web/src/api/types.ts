@@ -3,7 +3,11 @@ import type { components } from './schema'
 
 type Schemas = components['schemas']
 
-export type Account = Schemas['Account']
+/** Only the admin's account is sent `admin`; it is left out of the API schema. */
+export interface AdminSettings {
+  yfinance_fallback: boolean
+}
+export type Account = Schemas['Account'] & { admin?: AdminSettings }
 export type AnalysisList = Schemas['AnalysisList']
 export type AnalysisRequest = Schemas['AnalysisRequest']
 export type AnalysisResponse = Schemas['AnalysisResponse']

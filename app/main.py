@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from app.api import health
 from app.api.auth import authenticate
 from app.api.v1.api import api_router
-from app.api.v1.endpoints import signin
+from app.api.v1.endpoints import account, signin
 from app.core.cache import close_cache
 from app.core.config import get_settings
 from app.db.session import close_database, init_db
@@ -121,6 +121,7 @@ def create_app() -> FastAPI:
     application.include_router(
         api_router, prefix=settings.api_v1_prefix, dependencies=[Depends(authenticate)]
     )
+    account.add_admin_route(application, f"{settings.api_v1_prefix}/me")
     mount_web(application, settings.web_dist_dir)
 
     return application

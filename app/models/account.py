@@ -5,6 +5,7 @@ from typing import Annotated
 from uuid import UUID
 
 from pydantic import BaseModel, Field, SecretStr, StringConstraints
+from pydantic.json_schema import SkipJsonSchema
 
 ProviderKey = Annotated[SecretStr, Field(min_length=8, max_length=512)]
 """A provider's API key, as entered; never echoed back."""
@@ -34,6 +35,15 @@ class AiUsage(BaseModel):
     last_day: int = Field(ge=0)
 
 
+class AdminSettings(BaseModel):
+    """Settings only the admin account (``ADMIN_EMAIL``) has."""
+
+    yfinance_fallback: bool = Field(
+        description="Whether your own requests fall back to yfinance when no licensed "
+        "provider answers. yfinance is unlicensed, so it is never used for other accounts."
+    )
+
+
 class Account(BaseModel):
     """The authenticated user's account."""
 
@@ -48,13 +58,19 @@ class Account(BaseModel):
     usage: AiUsage
     rate_limit_per_minute: int = Field(description="Requests allowed per minute, server-wide.")
     market_data_fallback: bool = Field(
-        description="Whether the server falls back to yfinance when no licensed provider "
+        description="Whether your requests fall back to yfinance when no licensed provider "
         "answers, as in development."
     )
     sec_filings: bool = Field(
         description="Whether the server reads financial statements and filings from SEC "
         "EDGAR, which needs no account key."
     )
+    admin: SkipJsonSchema[dict[str, bool] | None] = Field(
+        default=None, exclude_if=lambda settings: settings is None
+    )
+    """The admin's :class:`AdminSettings`. Sent to the admin alone, and left out of the API
+    schema, so other accounts cannot tell there are admin settings. A plain dict, since
+    FastAPI would list a model's schema even for a field it skips."""
 
 
 class CredentialsUpdate(BaseModel):

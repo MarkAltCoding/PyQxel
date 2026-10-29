@@ -11,11 +11,14 @@ import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.routing import Match
 
-from app.api.auth import CurrentUser
+from app.api.auth import CurrentUser, authenticate
 from app.core.config import get_settings
 from app.core.security import CredentialsUnavailableError
 from app.db.session import get_session
@@ -28,9 +31,11 @@ from app.db.users import (
     revoke_api_key,
     update_credentials,
     update_limits,
+    update_yfinance_fallback,
 )
 from app.models.account import (
     Account,
+    AdminSettings,
     AiLimits,
     ApiKeyCreate,
     ApiKeyInfo,
@@ -42,6 +47,8 @@ from app.models.account import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+ALL_METHODS: list[str] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
 Session = Annotated[AsyncSession, Depends(get_session)]
 
@@ -72,8 +79,14 @@ async def _account(session: AsyncSession, user: User) -> Account:
         limits=user.limits,
         usage=await ai_usage(session, user.id),
         rate_limit_per_minute=get_settings().rate_limit_per_minute,
-        market_data_fallback=get_settings().yfinance_fallback,
+        market_data_fallback=get_settings().yfinance_fallback
+        or (user.is_admin and user.yfinance_fallback),
         sec_filings=bool(get_settings().sec_user_agent),
+        admin=(
+            AdminSettings(yfinance_fallback=user.yfinance_fallback).model_dump()
+            if user.is_admin
+            else None
+        ),
     )
 
 
@@ -191,3 +204,71 @@ async def delete_account(user: CurrentUser, session: Session) -> Response:
         raise _database_error(exc) from exc
     logger.info("Deleted account %s at its owner's request.", user.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _as_if_missing(request: Request) -> HTTPException:
+    """The error the app gives ``request`` when the admin route is not there.
+
+    Routing tries the other routes as Starlette would: a full match is the web frontend's
+    catch-all, which answers API paths with 404; a path match with the wrong method is
+    405, naming that route's methods; anything else is 404.
+    """
+    for route in request.app.router.routes:
+        if getattr(route, "endpoint", None) is store_admin_settings:
+            continue
+        match, _ = route.matches(request.scope)
+        if match is Match.FULL:
+            break
+        if match is Match.PARTIAL:
+            methods = getattr(route, "methods", None) or ()
+            return HTTPException(
+                status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+                detail="Method Not Allowed",
+                headers={"Allow": ", ".join(methods)},
+            )
+    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
+async def store_admin_settings(request: Request, session: Session) -> Account:
+    """Turn the yfinance fallback on or off for the admin's own requests, with ``PUT``.
+
+    Only the account ``ADMIN_EMAIL`` names may. Everyone else, signed in or not, gets the
+    answer a path that does not exist gets, and the route is left out of the API schema,
+    so no one can tell there are admin settings, or whose they are.
+    """
+    try:
+        user = await authenticate(request)
+    except HTTPException:
+        raise _as_if_missing(request) from None
+    if request.method != "PUT" or not user.is_admin:
+        raise _as_if_missing(request)
+    try:
+        settings = AdminSettings.model_validate_json(await request.body())
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+    try:
+        updated = await update_yfinance_fallback(session, user.id, settings.yfinance_fallback)
+        logger.info(
+            "Admin %s turned the yfinance fallback %s.",
+            user.id,
+            "on" if settings.yfinance_fallback else "off",
+        )
+        return await _account(session, updated)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+
+
+def add_admin_route(application: FastAPI, prefix: str) -> None:
+    """Add :func:`store_admin_settings` at ``{prefix}/admin``, outside the API router.
+
+    The API router checks API keys before any of its routes run, answering 401; this
+    route checks them itself instead, so it can answer like a path that does not exist.
+    It is added as a plain route, which :func:`_as_if_missing` can tell from the others.
+    """
+    application.add_api_route(
+        f"{prefix}/admin",
+        store_admin_settings,
+        methods=ALL_METHODS,
+        response_model=Account,
+        include_in_schema=False,
+    )
