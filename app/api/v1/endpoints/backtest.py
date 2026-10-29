@@ -21,6 +21,7 @@ from app.api.v1.endpoints.stocks import (
 from app.api.auth import CurrentUser
 from app.data.factors import fetch_factors
 from app.data.fetcher import DataFetchError, SymbolNotFoundError, fetch_price_history
+from app.data.panel import fetch_close_panel
 from app.db.backtests import delete_backtest, get_backtest, list_backtests, save_backtest
 from app.db.session import get_session
 from app.models.backtest import (
@@ -29,23 +30,35 @@ from app.models.backtest import (
     BacktestRequest,
     BacktestResponse,
     BacktestStrategy,
+    CrossSectionalBacktestRequest,
+    CrossSectionalBacktestResponse,
     CustomBacktestRequest,
     CustomStrategy,
     DualMomentum,
     EquityPoint,
     BacktestStrategyType,
+    AssetWeight,
+    InformationCoefficient,
+    MultiAssetCustomBacktestRequest,
+    RankedAsset,
 )
 from app.models.factors import RISK_FREE, FactorContext, FactorModel
-from app.models.stock import SYMBOL_PATTERN
+from app.models.stock import SYMBOL_PATTERN, HistoryCoverage
 from app.stats.backtest import (
     BacktestResult,
     MisalignedPositionsError,
     Strategy,
+    cash_returns,
     replay_positions,
+    replay_weights,
     run_backtest,
+    run_portfolio_backtest,
     strategy_for,
 )
+from app.stats.copulas import asynchronous_trading_warning
+from app.stats.cross_section import CrossSectionalResult, run_cross_sectional_backtest
 from app.stats.factors import fit_factor_returns
+from app.stats.panel import first_date
 from app.stats.volatility import InsufficientDataError
 
 logger = logging.getLogger(__name__)
@@ -135,7 +148,7 @@ def attribute(
     return FactorContext(model=model, factor_data_end=end, fit=fit), None
 
 
-def equity_points(result: BacktestResult) -> list[EquityPoint]:
+def equity_points(result: BacktestResult | CrossSectionalResult) -> list[EquityPoint]:
     """The strategy and benchmark equity curves, bar by bar."""
     return [
         EquityPoint(
@@ -232,12 +245,7 @@ async def backtest_and_store(
         coverage=coverage,
         notice=notice or None,
     )
-    try:
-        return await save_backtest(session, user_id, response)
-    except SQLAlchemyError as exc:
-        await session.rollback()
-        logger.error("Could not store the %s backtest: %s", symbol, exc)
-        return response
+    return await _store(session, user_id, response)
 
 
 @router.post(
@@ -325,6 +333,294 @@ async def create_custom_backtest(
         ),
         session,
         user.id,
+    )
+
+
+async def _store(
+    session: AsyncSession, user_id: str, response: BacktestResponse
+) -> BacktestResponse:
+    """Store ``response``, or return it without an ``id`` if the database is unavailable."""
+    try:
+        return await save_backtest(session, user_id, response)
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        logger.error("Could not store the %s backtest: %s", response.symbol, exc)
+        return response
+
+
+def _shared_coverage(
+    closes: pd.DataFrame, window: pd.DataFrame, options: BacktestOptions
+) -> tuple[HistoryCoverage, str | None]:
+    """How much of the requested window the bars every symbol traded cover, naming the
+    symbol whose data starts last when they start late."""
+    coverage, notice = history_coverage(
+        ", ".join(str(symbol) for symbol in closes.columns),
+        options.period,
+        options.interval,
+        window,
+    )
+    if coverage == "partial" and not window.empty:
+        latest = max(closes.columns, key=lambda symbol: first_date(closes[str(symbol)]))
+        notice = (
+            f"The backtest starts {pd.Timestamp(window.index[0]).date()}, when {latest}'s "
+            "data begins: weights are only scored on bars every symbol traded."
+        )
+    return coverage, notice
+
+
+@results_router.post(
+    "/custom",
+    response_model=BacktestResponse,
+    summary="Score a custom strategy's weights across several symbols",
+)
+async def create_multi_asset_custom_backtest(
+    session: Session,
+    user: CurrentUser,
+    request: Annotated[MultiAssetCustomBacktestRequest, Body()],
+) -> BacktestResponse:
+    """Score the weights a custom strategy set across several ``symbols`` in the browser.
+
+    The code never runs on the server: it is stored with the result so the run can be
+    reproduced and edited. The server fetches every symbol's bars again, keeps the dates
+    all of them traded from the first of ``dates`` to the last, and holds each row of
+    ``weights`` over the bar after its date. Weights are shares of capital, reset every
+    bar; what they leave over is cash, which earns nothing or, with ``cash_interest``,
+    the risk-free rate, as do short sale proceeds. Each change of weight pays
+    ``cost_bps`` per unit traded. The benchmark holds the symbols in equal weights,
+    rebalanced every bar, without costs; ``assets`` gives each symbol's part.
+
+    The result is stored like a single-symbol backtest, under its first symbol, and its
+    ``id`` returned for ``GET /backtests/{id}``.
+
+    Returns 404 naming unknown symbols, 422 when a bar every symbol traded in that range
+    has no weights or the range has too few bars, and 502 when the data provider fails
+    or the risk-free rate cannot be fetched.
+    """
+    model = request.attribution if request.interval == "1d" else None
+    panel_result, factors_result = await asyncio.gather(
+        fetch_close_panel(request.symbols, period=request.period, interval=request.interval),
+        load_factors(model, request.cash_interest),
+        return_exceptions=True,
+    )
+    if isinstance(panel_result, DataFetchError):
+        raise upstream_error(panel_result) from panel_result
+    for outcome in (panel_result, factors_result):
+        if isinstance(outcome, BaseException):
+            raise outcome
+    assert not isinstance(panel_result, BaseException)
+    assert isinstance(factors_result, tuple)
+    factors, factor_notice = factors_result
+    periods_per_year = PERIODS_PER_YEAR[request.interval]
+    try:
+        prices, held = replay_weights(panel_result.closes, request.dates, request.weights)
+        result = await asyncio.to_thread(
+            run_portfolio_backtest,
+            prices,
+            {symbol: 1.0 for symbol in request.symbols},
+            lambda closes: held[closes.name],
+            periods_per_year,
+            cost_bps=request.cost_bps,
+            risk_free_rate=request.risk_free_rate,
+            cash=(
+                cash_returns(factors[RISK_FREE], prices.index)
+                if request.cash_interest and factors is not None
+                else None
+            ),
+            benchmark_weights={symbol: 1.0 / len(request.symbols) for symbol in request.symbols},
+        )
+    except (InsufficientDataError, MisalignedPositionsError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+    coverage, coverage_notice = _shared_coverage(panel_result.closes, prices, request)
+    attribution, attribution_notice = attribute(result.returns, factors, model)
+    if request.attribution is not None and request.interval != "1d":
+        attribution_notice = "Factor attribution needs daily bars, so it was left out."
+    notices = [
+        coverage_notice,
+        asynchronous_trading_warning(panel_result.timezones),
+        factor_notice,
+        attribution_notice,
+    ]
+    response = BacktestResponse(
+        symbol=request.symbols[0],
+        symbols=request.symbols,
+        period=request.period,
+        interval=request.interval,
+        periods_per_year=periods_per_year,
+        strategy=CustomStrategy(language=request.language, code=request.code),
+        cost_bps=request.cost_bps,
+        risk_free_rate=request.risk_free_rate,
+        metrics=result.metrics,
+        benchmark=result.benchmark,
+        trades=result.trades,
+        exposure=result.exposure,
+        cash_interest=request.cash_interest,
+        attribution=attribution,
+        assets=[
+            AssetWeight(
+                symbol=symbol,
+                average_weight=float(result.positions[symbol].mean()),
+                exposure=part.exposure,
+                contribution=part.contribution,
+                trades=part.trades,
+            )
+            for symbol, part in result.assets.items()
+        ],
+        equity_curve=equity_points(result),
+        coverage=coverage,
+        notice=" ".join(notice for notice in notices if notice) or None,
+    )
+    return await _store(session, user.id, response)
+
+
+LATE_RANKING: pd.Timedelta = pd.Timedelta(days=31)
+"""How long after the first rebalance a stock must first be ranked to be named as late."""
+
+
+def _ranking_notice(result: CrossSectionalResult) -> str | None:
+    """Name the stocks never ranked, and those ranked only well after the first rebalance."""
+    first = pd.Timestamp(result.equity.index[0])
+    never = [symbol for symbol, part in result.assets.items() if part.first_ranked is None]
+    late = [
+        f"{symbol} from {part.first_ranked.date()}"
+        for symbol, part in result.assets.items()
+        if part.first_ranked is not None and part.first_ranked - first > LATE_RANKING
+    ]
+    parts = []
+    if never:
+        parts.append(f"{', '.join(never)} never had enough history in the window to be ranked.")
+    if late:
+        parts.append(
+            f"Some stocks joined the ranking only once they had enough history: "
+            f"{'; '.join(late)}."
+        )
+    return " ".join(parts) or None
+
+
+@results_router.post(
+    "/cross-sectional",
+    response_model=CrossSectionalBacktestResponse,
+    summary="Backtest ranking a universe of stocks against one another",
+)
+async def create_cross_sectional_backtest(
+    request: Annotated[CrossSectionalBacktestRequest, Body()],
+) -> CrossSectionalBacktestResponse:
+    """Rank ``symbols`` by ``signal`` at the last close of every week, month or quarter, and
+    hold the best of them until the next ranking.
+
+    Signals: ``momentum`` (the return from ``lookback`` to ``skip`` bars ago, highest
+    first), ``reversal`` (the last ``lookback`` bars' return, lowest first),
+    ``low_volatility`` (the volatility of daily returns, lowest first), ``trend`` (the
+    distance above the moving average, highest first) and ``risk_adjusted_momentum``
+    (momentum over its volatility). The top ``quantile`` of the stocks ranked, or the top
+    ``top_n``, are bought; with ``long_short`` as many of the bottom ones are shorted, each
+    leg one unit of capital. Legs are split equally or by inverse volatility.
+
+    Stocks are ranked once they have the signal's full window, so recent listings join
+    later rather than shortening the window for all. Weights drift between rebalances;
+    each rebalance pays ``cost_bps`` per unit of capital traded. Capital not invested and
+    short sale proceeds earn nothing, or the risk-free rate with ``cash_interest``. The
+    benchmark holds every stock equally, rebalanced daily, without costs.
+
+    ``information_coefficient`` is the average Spearman correlation of each ranking with
+    the returns to the next one, and ``attribution`` regresses the daily returns on a
+    factor model. Results are not stored.
+
+    Returns 404 naming unknown symbols, 422 when no rebalance has enough stocks with the
+    signal's history, and 502 when the price provider fails or the risk-free rate cannot
+    be fetched.
+    """
+    panel_result, factors_result = await asyncio.gather(
+        fetch_close_panel(request.symbols, period=request.period, interval="1d"),
+        load_factors(request.attribution, request.cash_interest),
+        return_exceptions=True,
+    )
+    if isinstance(panel_result, DataFetchError):
+        raise upstream_error(panel_result) from panel_result
+    for outcome in (panel_result, factors_result):
+        if isinstance(outcome, BaseException):
+            raise outcome
+    assert not isinstance(panel_result, BaseException)
+    assert isinstance(factors_result, tuple)
+    factors, factor_notice = factors_result
+    try:
+        result = await asyncio.to_thread(
+            run_cross_sectional_backtest,
+            panel_result.closes,
+            request.signal,
+            rebalance=request.rebalance,
+            quantile=request.quantile,
+            top_n=request.top_n,
+            long_short=request.long_short,
+            weighting=request.weighting,
+            volatility_window=request.volatility_window,
+            cost_bps=request.cost_bps,
+            risk_free_rate=request.risk_free_rate,
+            risk_free=(
+                factors[RISK_FREE] if request.cash_interest and factors is not None else None
+            ),
+        )
+    except InsufficientDataError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+    attribution, attribution_notice = attribute(result.returns, factors, request.attribution)
+    notices = [
+        _ranking_notice(result),
+        asynchronous_trading_warning(panel_result.timezones),
+        factor_notice,
+        attribution_notice,
+    ]
+    information = result.information_coefficient
+    return CrossSectionalBacktestResponse(
+        symbols=request.symbols,
+        signal=request.signal,
+        rebalance=request.rebalance,
+        quantile=request.quantile,
+        top_n=request.top_n,
+        long_short=request.long_short,
+        weighting=request.weighting,
+        period=request.period,
+        cost_bps=request.cost_bps,
+        risk_free_rate=request.risk_free_rate,
+        cash_interest=request.cash_interest,
+        observations=len(result.returns),
+        rebalances=result.rebalances,
+        holdings_per_leg=result.holdings_per_leg,
+        turnover=result.turnover,
+        exposure=result.exposure,
+        metrics=result.metrics,
+        benchmark=result.benchmark,
+        information_coefficient=(
+            None
+            if information is None
+            else InformationCoefficient(
+                mean=information.mean,
+                t_stat=information.t_stat,
+                hit_rate=information.hit_rate,
+                observations=information.observations,
+            )
+        ),
+        assets=[
+            RankedAsset(
+                symbol=symbol,
+                contribution=part.contribution,
+                long_share=part.long_share,
+                short_share=part.short_share,
+                first_ranked=(
+                    None if part.first_ranked is None else part.first_ranked.to_pydatetime()
+                ),
+                score=part.score,
+                weight=part.weight,
+            )
+            for symbol, part in result.assets.items()
+        ],
+        attribution=attribution,
+        equity_curve=equity_points(result),
+        notice=" ".join(notice for notice in notices if notice) or None,
     )
 
 

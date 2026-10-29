@@ -1141,3 +1141,54 @@ table.data td.award {
   min-width: 220px;
   white-space: normal;
 }
+
+/* ── Filters with a custom number, and pagers ── */
+.preset-or-custom {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.custom-number {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.custom-number input {
+  width: 90px;
+}
+
+.custom-number input[aria-invalid='true'] {
+  border-color: var(--critical);
+}
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.pager-pages {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.pager-pages button[aria-current='page'] {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+.pager-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}

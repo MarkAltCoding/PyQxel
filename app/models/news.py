@@ -19,6 +19,13 @@ class NewsArticle(BaseModel):
     source: str = Field(description="Publisher or aggregator, e.g. Reuters.")
     url: str
     category: str | None = Field(default=None, description="Finnhub's category, if any.")
+    importance: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description="How market-moving the headline looks, from 0 to 1: its publisher, the "
+        "topics it names and how recent it is; null where not scored.",
+    )
 
 
 class CompanyNews(BaseModel):

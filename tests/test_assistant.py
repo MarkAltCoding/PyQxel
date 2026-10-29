@@ -164,3 +164,14 @@ def test_stream_errors_arrive_as_events(monkeypatch: pytest.MonkeyPatch) -> None
     assert _sse_events(response.text) == [
         ("error", {"status": 503, "detail": "slow down", "retry_after": 9})
     ]
+
+
+def test_several_symbols_are_named_in_place_of_one() -> None:
+    request = AssistantRequest(
+        code="def strategy(bars): ...", message="Why?", symbol="GOOG", symbols=["goog", "UNH"]
+    )
+
+    question = assistant_messages(request)[-1]["content"]
+
+    assert isinstance(question, str)
+    assert '<editor language="Python" symbols="GOOG,UNH">' in question

@@ -16,6 +16,7 @@ def _summary(record: BacktestRecord) -> BacktestSummary:
         id=UUID(record.id),
         saved_at=as_utc(record.created_at),
         symbol=record.symbol,
+        symbols=record.symbols,
         strategy=record.strategy,
         period=record.period,  # type: ignore[arg-type]
         interval=record.interval,  # type: ignore[arg-type]
@@ -47,6 +48,7 @@ async def save_backtest(
             user_id=user_id,
             created_at=saved.saved_at,
             symbol=saved.symbol,
+            symbols=saved.symbols,
             strategy=saved.strategy.type,
             period=saved.period,
             interval=saved.interval,
