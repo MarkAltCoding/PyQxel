@@ -12,6 +12,8 @@ from app.api.v1.endpoints import backtest, portfolio
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
 from app.data.panel import ClosePanel
 from app.main import app
+from app.models.portfolio import MAX_SYMBOLS
+from app.models.stock import TickerInfo
 
 client = TestClient(app)
 
@@ -38,7 +40,9 @@ def _serve(
     """Fake the panel download; return the (symbols, period) requested."""
     calls: list[tuple[list[str], str]] = []
 
-    async def fake_panel(symbols: list[str], period: str, interval: str) -> ClosePanel:
+    async def fake_panel(
+        symbols: list[str], period: str, interval: str, tolerate_failures: bool = False
+    ) -> ClosePanel:
         calls.append((symbols, period))
         if isinstance(result, Exception):
             raise result
@@ -154,12 +158,71 @@ def test_too_little_shared_history_is_422(monkeypatch: pytest.MonkeyPatch) -> No
     assert "daily closes" in response.json()["detail"]
 
 
+def _equities(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fake ticker info classing every symbol as a stock."""
+
+    async def info(symbol: str) -> TickerInfo:
+        return TickerInfo(symbol=symbol, quote_type="EQUITY", source="test")
+
+    monkeypatch.setattr(portfolio, "fetch_ticker_info", info)
+
+
+def test_holdings_the_fit_cannot_use_are_left_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cash, recent listings and failed downloads are listed; the rest are fitted."""
+    closes = _closes(["SPY", "QQQ", "IWM", "NEW"], days=1_310)
+    closes.loc[closes.index[:-170], "NEW"] = np.nan
+    calls: list[list[str]] = []
+
+    async def fake_panel(
+        symbols: list[str], period: str, interval: str, tolerate_failures: bool = False
+    ) -> ClosePanel:
+        calls.append(symbols)
+        assert tolerate_failures
+        kept = [symbol for symbol in symbols if symbol != "GONE"]
+        return ClosePanel(
+            closes=closes[kept],
+            timezones={symbol: "America/New_York" for symbol in kept},
+            failed={"GONE": "unknown symbol"},
+        )
+
+    monkeypatch.setattr(portfolio, "fetch_close_panel", fake_panel)
+    _equities(monkeypatch)
+
+    body = client.post(
+        "/api/v1/portfolio/copula",
+        json={"symbols": ["SPY", "SPAXX", "QQQ", "NEW", "GONE", "IWM"]},
+    ).json()
+
+    assert calls == [["SPY", "QQQ", "NEW", "GONE", "IWM"]]
+    assert body["symbols"] == ["SPY", "QQQ", "IWM"]
+    assert [(h["symbol"], h["reason"]) for h in body["left_out"]] == [
+        ("SPAXX", "cash"),
+        ("NEW", "short_history"),
+        ("GONE", "no_data"),
+    ]
+    assert len(body["pairs"]) == 3
+
+
+def test_fewer_than_two_usable_holdings_is_422(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With one holding left to compare, the reason names those left out."""
+    closes = _closes(["SPY", "NEW"], days=1_310)
+    closes.loc[closes.index[:-50], "NEW"] = np.nan
+    _serve(monkeypatch, closes)
+    _equities(monkeypatch)
+
+    response = client.post("/api/v1/portfolio/copula", json={"symbols": ["SPY", "NEW", "SPAXX"]})
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "NEW: 50 daily closes" in detail and "SPAXX: a money-market fund" in detail
+
+
 @pytest.mark.parametrize(
     "payload",
     [
         {"symbols": ["SPY"]},
         {"symbols": ["SPY", "spy"]},
-        {"symbols": [f"S{i}" for i in range(21)]},
+        {"symbols": [f"S{i}" for i in range(MAX_SYMBOLS + 1)]},
         {"symbols": ["SPY", "QQQ"], "period": "6mo"},
         {},
     ],

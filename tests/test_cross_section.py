@@ -249,7 +249,9 @@ def _serve(monkeypatch: pytest.MonkeyPatch, closes: pd.DataFrame | Exception) ->
     """Fake the panel and factor downloads; return the symbols requested."""
     requested: list[str] = []
 
-    async def fake_panel(symbols: list[str], period: str, interval: str) -> ClosePanel:
+    async def fake_panel(
+        symbols: list[str], period: str, interval: str, tolerate_failures: bool = False
+    ) -> ClosePanel:
         requested.extend(symbols)
         if isinstance(closes, Exception):
             raise closes

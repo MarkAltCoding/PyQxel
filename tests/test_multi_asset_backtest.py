@@ -28,7 +28,9 @@ def _closes(days: int = 300) -> pd.DataFrame:
 
 
 def _serve(monkeypatch: pytest.MonkeyPatch, closes: pd.DataFrame | Exception) -> None:
-    async def fake_panel(symbols: list[str], period: str, interval: str) -> ClosePanel:
+    async def fake_panel(
+        symbols: list[str], period: str, interval: str, tolerate_failures: bool = False
+    ) -> ClosePanel:
         if isinstance(closes, Exception):
             raise closes
         return ClosePanel(

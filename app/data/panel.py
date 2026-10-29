@@ -6,7 +6,7 @@ directly would convert them all to UTC, shifting Asian listings back a day.
 """
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -24,10 +24,13 @@ class ClosePanel:
     """One column per symbol, indexed by exchange date; ``NaN`` where a symbol has no bar."""
     timezones: dict[str, str | None]
     """Each symbol's exchange time zone, e.g. ``America/New_York``; ``None`` if unknown."""
+    failed: dict[str, str] = field(default_factory=dict)
+    """Symbols whose download failed, with why, when failures are tolerated; they have
+    no column in ``closes``."""
 
 
 async def fetch_close_panel(
-    symbols: list[str], period: str = "5y", interval: str = "1d"
+    symbols: list[str], period: str = "5y", interval: str = "1d", tolerate_failures: bool = False
 ) -> ClosePanel:
     """Fetch adjusted closes for every symbol, one column each, on the union of their dates.
 
@@ -37,6 +40,8 @@ async def fetch_close_panel(
         symbols: Distinct ticker symbols.
         period: yfinance lookback period, as for :func:`fetch_price_history`.
         interval: yfinance bar size.
+        tolerate_failures: Leave out symbols that are unknown or fail to download,
+            naming them in ``failed``, rather than raising, unless every one fails.
 
     Returns:
         Closes with a column per symbol in the order given, indexed by date, oldest
@@ -55,16 +60,29 @@ async def fetch_close_panel(
 
     results = await asyncio.gather(*(fetch(symbol) for symbol in symbols), return_exceptions=True)
 
+    failed = {
+        symbol: "unknown symbol" if isinstance(result, SymbolNotFoundError) else str(result)
+        for symbol, result in zip(symbols, results)
+        if isinstance(result, DataFetchError)
+    }
+    if tolerate_failures and failed and len(failed) < len(symbols):
+        kept = [symbol for symbol in symbols if symbol not in failed]
+        panel = _combine(kept, [r for s, r in zip(symbols, results) if s not in failed])
+        return ClosePanel(closes=panel.closes, timezones=panel.timezones, failed=failed)
+
     unknown = [s for s, r in zip(symbols, results) if isinstance(r, SymbolNotFoundError)]
     if unknown:
         raise SymbolNotFoundError(f"Unknown ticker symbols: {', '.join(unknown)}.")
-    failed = [s for s, r in zip(symbols, results) if isinstance(r, DataFetchError)]
     if failed:
         raise DataFetchError(f"Could not fetch price history for {', '.join(failed)}.")
+    return _combine(symbols, results)
+
+
+def _combine(symbols: list[str], results: list[pd.DataFrame | BaseException]) -> ClosePanel:
+    """Put each symbol's downloaded closes in a column, re-dated to its exchange's dates."""
     for result in results:
         if isinstance(result, BaseException):
             raise result
-
     frames = {
         symbol: frame for symbol, frame in zip(symbols, results) if isinstance(frame, pd.DataFrame)
     }

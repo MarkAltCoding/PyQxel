@@ -12,7 +12,7 @@ import pytest
 from scipy import stats
 
 from app.stats import monte_carlo
-from app.models.simulation import MAX_DRAWS
+from app.models.simulation import MAX_DRAWS, TailCheck
 from app.stats.copulas import MIN_DEGREES_OF_FREEDOM, fit_copulas, pseudo_observations
 from app.stats.monte_carlo import (
     MIN_RETURN,
@@ -390,3 +390,80 @@ def test_missing_returns_are_rejected() -> None:
 
     with pytest.raises(SimulationError, match="without missing values"):
         simulate_portfolio(history, {"A": 0.5, "B": 0.5}, horizon=5, paths=100)
+
+
+def test_cash_holds_its_value_and_scales_the_rest() -> None:
+    """Half in cash halves each day's return when rebalanced daily."""
+    history = _normal_history()[["A"]]
+
+    whole = simulate_portfolio(history, {"A": 1.0}, horizon=1, paths=50_000, seed=3)
+    half = simulate_portfolio(
+        history, {"A": 0.5}, horizon=1, paths=50_000, seed=3, cash={"CASH": 0.5}
+    )
+
+    assert half.expected_return == pytest.approx(whole.expected_return / 2)
+    assert half.terminal_return.std == pytest.approx(whole.terminal_return.std / 2)
+
+
+def test_buy_and_hold_cash_drifts_with_the_rest() -> None:
+    """Held without rebalancing, cash's final weight is reported beside the assets'."""
+    summary = simulate_portfolio(
+        _normal_history(),
+        {"A": 0.4, "B": 0.4},
+        horizon=252,
+        paths=2_000,
+        seed=4,
+        rebalancing="none",
+        cash={"SPAXX": 0.2},
+    )
+
+    final = {weight.symbol: weight.weight for weight in summary.mean_final_weights or []}
+    assert set(final) == {"A", "B", "SPAXX"}
+    assert sum(final.values()) == pytest.approx(1.0)
+    assert final["SPAXX"] != pytest.approx(0.2, abs=1e-6)
+
+
+def test_weights_and_cash_must_make_the_whole() -> None:
+    """Weights that sum to one only with cash are accepted; others are not."""
+    with pytest.raises(SimulationError, match="with cash, must sum to 1"):
+        simulate_portfolio(_normal_history(), {"A": 0.4, "B": 0.4}, horizon=1, paths=100)
+
+
+def test_many_understated_pairs_are_summed_up_in_one_warning() -> None:
+    """A large portfolio's understated pairs come as one warning naming the worst."""
+    checks = [
+        TailCheck(
+            symbols=(f"S{i}", f"T{i}"),
+            historical_lower_tail=0.4,
+            simulated_lower_tail=0.3 - i / 100,
+            understated=True,
+        )
+        for i in range(5)
+    ] + [
+        TailCheck(
+            symbols=("A", "B"),
+            historical_lower_tail=0.1,
+            simulated_lower_tail=0.1,
+            understated=False,
+        )
+    ]
+
+    warnings = monte_carlo._tail_warnings(checks)
+
+    assert len(warnings) == 1
+    assert warnings[0].startswith("For 5 of 6 pairs of holdings")
+    assert "S4 and T4, 26% against 40%; S3 and T3" in warnings[0]
+
+
+def test_a_few_understated_pairs_are_each_named() -> None:
+    """With few understated pairs, each gets its own warning."""
+    checks = [
+        TailCheck(
+            symbols=("A", "B"),
+            historical_lower_tail=0.4,
+            simulated_lower_tail=0.2,
+            understated=True,
+        )
+    ]
+
+    assert monte_carlo._tail_warnings(checks)[0].startswith("The simulation has A and B")

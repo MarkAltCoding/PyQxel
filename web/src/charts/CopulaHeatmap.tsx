@@ -8,6 +8,10 @@ import { InfoTip } from '../components/InfoTip'
 /** Largest matrix whose cells are labeled; beyond it values are in the tooltip and table. */
 const LABELED_UP_TO = 8
 
+/** Holdings beyond which the matrix grows taller and its axis labels smaller, so up to
+ * 40 rows stay legible. */
+const LARGE_MATRIX = 20
+
 /**
  * Kendall's tau between each pair: diverging blue (moving opposite) through gray
  * (independent) to red (moving together). The diagonal is left empty.
@@ -27,7 +31,11 @@ export function CopulaHeatmap({ fit }: { fit: CopulaFitResponse }) {
         if (row !== column && tau !== undefined) cells.push([column, n - 1 - row, tau])
       }
     }
-    const axisLabel = { color: theme.textSecondary, fontFamily: theme.font, fontSize: 11 }
+    const axisLabel = {
+      color: theme.textSecondary,
+      fontFamily: theme.font,
+      fontSize: n > LARGE_MATRIX ? 10 : 11,
+    }
     return {
       animation: false,
       textStyle: { fontFamily: theme.font },
@@ -82,7 +90,11 @@ export function CopulaHeatmap({ fit }: { fit: CopulaFitResponse }) {
         {
           type: 'heatmap',
           data: cells,
-          itemStyle: { borderColor: theme.surface, borderWidth: 2, borderRadius: 3 },
+          itemStyle: {
+            borderColor: theme.surface,
+            borderWidth: n > LARGE_MATRIX ? 1 : 2,
+            borderRadius: n > LARGE_MATRIX ? 2 : 3,
+          },
           emphasis: { itemStyle: { borderColor: theme.textPrimary, borderWidth: 2 } },
           label: {
             show: n <= LABELED_UP_TO,
@@ -94,7 +106,8 @@ export function CopulaHeatmap({ fit }: { fit: CopulaFitResponse }) {
       ],
     }
   }, [fit, theme])
-  const size = Math.min(560, Math.max(260, fit.symbols.length * 52 + 100))
+  const n = fit.symbols.length
+  const size = Math.max(260, Math.min(n > LARGE_MATRIX ? 960 : 560, n * 52 + 100))
   return (
     <EChart option={option} height={size} label="Kendall's tau between each pair of holdings" />
   )
