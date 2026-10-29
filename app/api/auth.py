@@ -1,8 +1,9 @@
 """Authentication of API requests by PyQxel API key, and per-user rate limiting.
 
 Clients send their key as ``Authorization: Bearer <key>`` or ``X-API-Key: <key>``.
-Browsers cannot set headers on WebSocket connections, so the quote stream also accepts
-``?api_key=<key>``; HTTP routes do not, to keep keys out of URLs and logs.
+Browsers cannot set those headers on WebSocket connections, so the quote stream also
+takes the key as a subprotocol: ``new WebSocket(url, ["pyqxel", key])``. Keys are never
+taken from the URL, which hosting platforms record in their request logs.
 
 Authenticating a request also makes the user's own provider keys the ones its market
 data is fetched with (see :mod:`app.core.credentials`).
@@ -18,7 +19,7 @@ from starlette.requests import HTTPConnection
 from app.core.config import get_settings
 from app.core.credentials import use_provider_keys
 from app.core.rate_limit import RateLimitExceeded, check_rate_limit
-from app.core.security import CredentialsUnavailableError
+from app.core.security import API_KEY_PREFIX, CredentialsUnavailableError
 from app.db.session import get_sessionmaker
 from app.db.users import User
 from app.db.users import authenticate as user_for_key
@@ -35,7 +36,8 @@ def presented_key(connection: HTTPConnection) -> str | None:
     if header := connection.headers.get("x-api-key", "").strip():
         return header
     if connection.scope["type"] == "websocket":
-        return connection.query_params.get("api_key") or None
+        offered = connection.scope.get("subprotocols") or []
+        return next((p for p in offered if p.startswith(API_KEY_PREFIX)), None)
     return None
 
 

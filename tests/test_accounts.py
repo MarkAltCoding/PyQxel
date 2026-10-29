@@ -123,18 +123,21 @@ def test_health_and_docs_stay_open() -> None:
     assert client.get("/openapi.json").status_code == 200
 
 
-def test_quote_stream_takes_the_key_from_the_url(alice: tuple[User, str]) -> None:
-    """Browsers cannot set WebSocket headers, so the stream accepts ?api_key=."""
+def test_quote_stream_takes_the_key_as_a_subprotocol(alice: tuple[User, str]) -> None:
+    """Browsers cannot set WebSocket headers, so the stream takes the key as a
+    subprotocol, and accepts ``pyqxel``; never from the URL, which request logs record."""
     _, key = alice
 
-    with client.websocket_connect(f"/api/v1/ws/quotes?api_key={key}") as socket:
+    with client.websocket_connect("/api/v1/ws/quotes", subprotocols=["pyqxel", key]) as socket:
+        assert socket.accepted_subprotocol == "pyqxel"
         socket.send_text("not json")
         assert socket.receive_json()["type"] == "error"
 
-    with pytest.raises(WebSocketDisconnect) as refused:
-        with client.websocket_connect("/api/v1/ws/quotes") as socket:
-            socket.receive_json()
-    assert refused.value.code == 1008
+    for url in ("/api/v1/ws/quotes", f"/api/v1/ws/quotes?api_key={key}"):
+        with pytest.raises(WebSocketDisconnect) as refused:
+            with client.websocket_connect(url) as socket:
+                socket.receive_json()
+        assert refused.value.code == 1008
 
 
 def test_requests_beyond_the_rate_limit_are_refused(

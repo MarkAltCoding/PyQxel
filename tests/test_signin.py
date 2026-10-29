@@ -138,7 +138,7 @@ def test_starting_sends_the_browser_to_the_provider_with_state_and_pkce(
     )
     assert query["client_id"] == "gh-client"
     assert query["redirect_uri"] == "http://testserver/api/v1/auth/github/callback"
-    assert query["scope"] == "read:user user:email"
+    assert query["scope"] == "user:email"
     assert query["code_challenge_method"] == "S256"
     state, verifier, _ = client.cookies["pyqxel_sign_in"].split(".")
     assert query["state"] == state

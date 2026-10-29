@@ -149,7 +149,8 @@ def configured_providers(settings: Settings) -> dict[ProviderName, OAuthProvider
             label="GitHub",
             authorize_url="https://github.com/login/oauth/authorize",
             token_url="https://github.com/login/oauth/access_token",
-            scope="read:user user:email",
+            # Only the email addresses: the user's ID comes with any token.
+            scope="user:email",
             client_id=settings.github_client_id,
             client_secret=settings.github_client_secret,
         )
@@ -159,7 +160,8 @@ def configured_providers(settings: Settings) -> dict[ProviderName, OAuthProvider
             label="Google",
             authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
             token_url="https://oauth2.googleapis.com/token",
-            scope="openid email profile",
+            # Only the ID and email: no name or photo.
+            scope="openid email",
             client_id=settings.google_client_id,
             client_secret=settings.google_client_secret,
         )

@@ -43,6 +43,9 @@ MIN_INTERVAL_SECONDS: float = 5.0
 MAX_INTERVAL_SECONDS: float = 300.0
 DEFAULT_INTERVAL_SECONDS: float = 15.0
 
+STREAM_SUBPROTOCOL: str = "pyqxel"
+"""The subprotocol browsers offer beside their API key, and the one accepted."""
+
 
 def _quote_changed(previous: Quote | None, current: Quote) -> bool:
     """Whether ``current`` differs from the last quote sent in any market field."""
@@ -186,8 +189,15 @@ async def quote_stream(
         ),
     ] = DEFAULT_INTERVAL_SECONDS,
 ) -> None:
-    """Stream quotes for the symbols the client follows until it disconnects."""
-    await websocket.accept()
+    """Stream quotes for the symbols the client follows until it disconnects.
+
+    Browsers send their API key as a subprotocol beside ``pyqxel``, which the server
+    then accepts; a browser drops a connection that accepts none of those it offered.
+    """
+    offered = websocket.scope.get("subprotocols") or []
+    await websocket.accept(
+        subprotocol=STREAM_SUBPROTOCOL if STREAM_SUBPROTOCOL in offered else None
+    )
     session = _QuoteSession(websocket, interval)
     if symbols:
         try:

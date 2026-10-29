@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
-const UPDATED = 'October 19, 2026'
+const UPDATED = 'October 28, 2026'
 const CONTACT = 'https://github.com/MarkAltCoding'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -33,23 +33,30 @@ export function PrivacyPage() {
           <p>
             Signing in with GitHub or Google gives PyQxel two things: that provider’s permanent ID
             for your account, and your verified email address. They identify your PyQxel account, so
-            the same person signing in with either provider reaches the same account. PyQxel does
-            not keep your name, profile picture or anything else from those accounts, nor the access
-            token the provider issues, which it uses once and discards.
+            the same person signing in with either provider reaches the same account. PyQxel asks
+            for nothing else, not even your name or profile picture, and does not keep the access
+            token the provider issues, which it uses once and discards. PyQxel does not log who
+            signs in.
           </p>
           <p>
             Signing in gives your browser a PyQxel API key that works for 30 days, and PyQxel stores
             only a one-way hash of it. A cookie holds the sign-in in progress for up to ten minutes
             and is then deleted; PyQxel sets no other cookies.
           </p>
+          <p>
+            To slow down abuse, sign-in attempts are counted by IP address for a few minutes, then
+            forgotten. Google Cloud, which hosts PyQxel, records the IP address and page of each
+            request in its access logs.
+          </p>
         </Section>
 
         <Section title="What your account holds">
           <ul>
             <li>
-              Keys you choose to add for Anthropic, Financial Modeling Prep or Alpha Vantage. They
-              are encrypted when stored and used only for your own requests, which those services
-              bill to you.
+              Keys you choose to add for Anthropic, Financial Modeling Prep, Alpha Vantage or
+              Finnhub. They are encrypted when stored, kept out of logs and error messages, never
+              shown again to anyone, you or whoever runs PyQxel, and used only for your own
+              requests, which those services bill to you.
             </li>
             <li>
               What you save: your portfolio holdings, backtests (with the code of custom
