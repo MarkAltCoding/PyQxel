@@ -4,8 +4,22 @@ import { money, shortDate, signedPercent } from '../lib/format'
 import { EChart } from './EChart'
 import { axisStyle, escapeHtml, tooltipRow, tooltipStyle, useChartTheme } from './theme'
 
-/** Growth of $10,000 for the strategy and buy-and-hold, on one axis, ends labeled. */
-export function EquityChart({ points, start = 10_000 }: { points: EquityPoint[]; start?: number }) {
+interface Props {
+  points: EquityPoint[]
+  start?: number
+  /** What the benchmark is, such as holding every stock equally. */
+  benchmarkLabel?: string
+  /** The benchmark's short name, at the end of its line. */
+  benchmarkShort?: string
+}
+
+/** Growth of $10,000 for the strategy and its benchmark, on one axis, ends labeled. */
+export function EquityChart({
+  points,
+  start = 10_000,
+  benchmarkLabel = 'Buy and hold',
+  benchmarkShort = 'Hold',
+}: Props) {
   const theme = useChartTheme()
   const option = useMemo(() => {
     const axis = axisStyle(theme)
@@ -35,7 +49,7 @@ export function EquityChart({ points, start = 10_000 }: { points: EquityPoint[];
             tooltipRow(
               theme.series2,
               money(point.benchmark * start, 'USD', 0),
-              `Buy and hold (${signedPercent(point.benchmark - 1)})`,
+              `${benchmarkLabel} (${signedPercent(point.benchmark - 1)})`,
             )
           )
         },
@@ -69,23 +83,31 @@ export function EquityChart({ points, start = 10_000 }: { points: EquityPoint[];
           z: 3,
         },
         {
-          name: 'Buy and hold',
+          name: benchmarkLabel,
           type: 'line',
           data: points.map((point) => point.benchmark * start),
           showSymbol: false,
           lineStyle: { width: 2, color: theme.series2 },
           itemStyle: { color: theme.series2 },
-          endLabel: endLabel('Hold'),
+          endLabel: endLabel(benchmarkShort),
         },
       ],
     }
-  }, [points, start, theme])
+  }, [points, start, benchmarkLabel, benchmarkShort, theme])
   return (
-    <EChart option={option} height={320} label="Growth of $10,000: strategy and buy-and-hold" />
+    <EChart
+      option={option}
+      height={320}
+      label={`Growth of $10,000: strategy and ${benchmarkLabel.toLowerCase()}`}
+    />
   )
 }
 
-export function EquityTable({ points, start = 10_000 }: { points: EquityPoint[]; start?: number }) {
+export function EquityTable({
+  points,
+  start = 10_000,
+  benchmarkLabel = 'Buy and hold',
+}: Omit<Props, 'benchmarkShort'>) {
   // Every bar would be thousands of rows; month-ends keep the table readable.
   const rows = points.filter((point, index) => {
     const next = points[index + 1]
@@ -97,7 +119,7 @@ export function EquityTable({ points, start = 10_000 }: { points: EquityPoint[];
         <tr>
           <th>Month end</th>
           <th className="num">Strategy</th>
-          <th className="num">Buy and hold</th>
+          <th className="num">{benchmarkLabel}</th>
         </tr>
       </thead>
       <tbody>

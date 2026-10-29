@@ -212,6 +212,49 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/backtests/cross-sectional': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Backtest ranking a universe of stocks against one another
+     * @description Rank ``symbols`` by ``signal`` at the last close of every week, month or quarter, and
+     *     hold the best of them until the next ranking.
+     *
+     *     Signals: ``momentum`` (the return from ``lookback`` to ``skip`` bars ago, highest
+     *     first), ``reversal`` (the last ``lookback`` bars' return, lowest first),
+     *     ``low_volatility`` (the volatility of daily returns, lowest first), ``trend`` (the
+     *     distance above the moving average, highest first) and ``risk_adjusted_momentum``
+     *     (momentum over its volatility). The top ``quantile`` of the stocks ranked, or the top
+     *     ``top_n``, are bought; with ``long_short`` as many of the bottom ones are shorted, each
+     *     leg one unit of capital. Legs are split equally or by inverse volatility.
+     *
+     *     Stocks are ranked once they have the signal's full window, so recent listings join
+     *     later rather than shortening the window for all. Weights drift between rebalances;
+     *     each rebalance pays ``cost_bps`` per unit of capital traded. Capital not invested and
+     *     short sale proceeds earn nothing, or the risk-free rate with ``cash_interest``. The
+     *     benchmark holds every stock equally, rebalanced daily, without costs.
+     *
+     *     ``information_coefficient`` is the average Spearman correlation of each ranking with
+     *     the returns to the next one, and ``attribution`` regresses the daily returns on a
+     *     factor model. Results are not stored.
+     *
+     *     Returns 404 naming unknown symbols, 422 when no rebalance has enough stocks with the
+     *     signal's history, and 502 when the price provider fails or the risk-free rate cannot
+     *     be fetched.
+     */
+    post: operations['create_cross_sectional_backtest_api_v1_backtests_cross_sectional_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/backtests/{backtest_id}': {
     parameters: {
       query?: never
@@ -2258,6 +2301,198 @@ export interface components {
       symbols: string[]
     }
     /**
+     * CrossSectionalBacktestRequest
+     * @description Rank a universe of stocks against one another on a schedule, and hold the best.
+     */
+    CrossSectionalBacktestRequest: {
+      /**
+       * Attribution
+       * @description Factor model to regress the strategy's daily returns on; null to skip.
+       * @default carhart4
+       */
+      attribution?: ('ff3' | 'carhart4' | 'ff5') | null
+      /**
+       * Cash Interest
+       * @description Let capital not invested, and short sale proceeds, earn the risk-free rate (the one-month T-bill).
+       * @default false
+       */
+      cash_interest?: boolean
+      /**
+       * Cost Bps
+       * @description Trading cost per unit of turnover, in basis points (5 = 0.05%).
+       * @default 5
+       */
+      cost_bps?: number
+      /**
+       * Long Short
+       * @description Also short the same number of the worst-ranked stocks. Each leg is one unit of capital, so the portfolio is dollar-neutral and its gross exposure 2.
+       * @default false
+       */
+      long_short?: boolean
+      /**
+       * Period
+       * @description Lookback window of daily bars.
+       * @default 10y
+       * @enum {string}
+       */
+      period?: '1y' | '2y' | '5y' | '10y' | 'max'
+      /**
+       * Quantile
+       * @description Share of the ranked stocks held in each leg (0.2 = the top fifth); at least one stock. Ignored when ``top_n`` is set.
+       * @default 0.2
+       */
+      quantile?: number
+      /**
+       * Rebalance
+       * @description How often the universe is ranked again, at the last close of each week, month or quarter.
+       * @default monthly
+       * @enum {string}
+       */
+      rebalance?: 'weekly' | 'monthly' | 'quarterly'
+      /**
+       * Risk Free Rate
+       * @description Annual risk-free rate for Sharpe and Sortino, as a decimal (0.04 = 4%).
+       * @default 0
+       */
+      risk_free_rate?: number
+      /** Signal */
+      signal?:
+        | components['schemas']['CrossSectionalMomentum']
+        | components['schemas']['ShortTermReversal']
+        | components['schemas']['LowVolatility']
+        | components['schemas']['DistanceFromAverage']
+        | components['schemas']['RiskAdjustedMomentum']
+      /** Symbols */
+      symbols: string[]
+      /**
+       * Top N
+       * @description Number of stocks held in each leg, instead of ``quantile``.
+       */
+      top_n?: number | null
+      /**
+       * Volatility Window
+       * @description Daily returns the inverse-volatility weights are measured over.
+       * @default 63
+       */
+      volatility_window?: number
+      /**
+       * Weighting
+       * @description Split each leg equally, or in inverse proportion to each stock's volatility over ``volatility_window``.
+       * @default equal
+       * @enum {string}
+       */
+      weighting?: 'equal' | 'inverse_volatility'
+    }
+    /**
+     * CrossSectionalBacktestResponse
+     * @description A ranking strategy's performance on a universe, against holding all of it equally.
+     */
+    CrossSectionalBacktestResponse: {
+      /** Assets */
+      assets: components['schemas']['RankedAsset'][]
+      attribution?: components['schemas']['FactorContext'] | null
+      /** @description Holding every stock in the universe equally, rebalanced daily, without costs. */
+      benchmark: components['schemas']['PerformanceMetrics']
+      /** Cash Interest */
+      cash_interest: boolean
+      /** Cost Bps */
+      cost_bps: number
+      /**
+       * Disclaimer
+       * @default Backtested on historical adjusted prices of today's listings, so stocks that were delisted are missing: rankings look better than they would have at the time. Past performance does not predict future results.
+       */
+      disclaimer?: string
+      /** Equity Curve */
+      equity_curve: components['schemas']['EquityPoint'][]
+      /**
+       * Exposure
+       * @description Average gross exposure: 1 long-only, about 2 long-short, as the legs drift apart between rebalances.
+       */
+      exposure: number
+      /**
+       * Holdings Per Leg
+       * @description Average number of stocks in the long leg.
+       */
+      holdings_per_leg: number
+      /** @description Null when fewer than two rebalances could be scored. */
+      information_coefficient?: components['schemas']['InformationCoefficient'] | null
+      /** Long Short */
+      long_short: boolean
+      metrics: components['schemas']['PerformanceMetrics']
+      /** Notice */
+      notice?: string | null
+      /**
+       * Observations
+       * @description Daily returns from the first rebalance.
+       */
+      observations: number
+      /**
+       * Period
+       * @enum {string}
+       */
+      period: '1y' | '2y' | '5y' | '10y' | 'max'
+      /** Quantile */
+      quantile: number
+      /**
+       * Rebalance
+       * @enum {string}
+       */
+      rebalance: 'weekly' | 'monthly' | 'quarterly'
+      /**
+       * Rebalances
+       * @description Times the universe was ranked and traded.
+       */
+      rebalances: number
+      /** Risk Free Rate */
+      risk_free_rate: number
+      /** Signal */
+      signal:
+        | components['schemas']['CrossSectionalMomentum']
+        | components['schemas']['ShortTermReversal']
+        | components['schemas']['LowVolatility']
+        | components['schemas']['DistanceFromAverage']
+        | components['schemas']['RiskAdjustedMomentum']
+      /** Symbols */
+      symbols: string[]
+      /** Top N */
+      top_n: number | null
+      /**
+       * Turnover
+       * @description Average share of capital traded per rebalance, buys and sells counted once each (2 replaces a whole long-only portfolio).
+       */
+      turnover: number
+      /**
+       * Weighting
+       * @enum {string}
+       */
+      weighting: 'equal' | 'inverse_volatility'
+    }
+    /**
+     * CrossSectionalMomentum
+     * @description Rank by each stock's return from ``lookback`` bars ago to ``skip`` bars ago, highest
+     *     first: the momentum of Jegadeesh and Titman, skipping the latest month by default to
+     *     sidestep its short-term reversal.
+     */
+    CrossSectionalMomentum: {
+      /**
+       * Lookback
+       * @description Bars back the return starts; 252 is a year.
+       * @default 252
+       */
+      lookback?: number
+      /**
+       * Skip
+       * @description Most recent bars left out of the return.
+       * @default 21
+       */
+      skip?: number
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'momentum'
+    }
+    /**
      * CustomBacktestRequest
      * @description Positions a custom strategy produced in the browser, to be scored on the server.
      *
@@ -2351,6 +2586,24 @@ export interface components {
        * @enum {string}
        */
       type: 'custom'
+    }
+    /**
+     * DistanceFromAverage
+     * @description Rank by how far the close is above its ``window``-bar moving average, highest first:
+     *     the strongest trends.
+     */
+    DistanceFromAverage: {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'trend'
+      /**
+       * Window
+       * @description Moving-average window, in bars.
+       * @default 200
+       */
+      window?: number
     }
     /**
      * Distribution
@@ -3261,6 +3514,30 @@ export interface components {
       holdings?: components['schemas']['HoldingShares'][]
     }
     /**
+     * InformationCoefficient
+     * @description How well the signal ranked the next period's returns: the Spearman correlation of
+     *     each rebalance's ranking with the returns to the next rebalance.
+     */
+    InformationCoefficient: {
+      /**
+       * Hit Rate
+       * @description Share of rebalances with a positive one.
+       */
+      hit_rate: number
+      /** Mean */
+      mean: number
+      /**
+       * Observations
+       * @description Rebalances it was measured over.
+       */
+      observations: number
+      /**
+       * T Stat
+       * @description Mean over its standard error; null when it never varies.
+       */
+      t_stat?: number | null
+    }
+    /**
      * InsiderSentimentMonth
      * @description Finnhub's monthly insider sentiment for a company.
      */
@@ -3649,6 +3926,24 @@ export interface components {
       filings: number
       /** Year */
       year: number
+    }
+    /**
+     * LowVolatility
+     * @description Rank by the standard deviation of the last ``window`` daily returns, lowest first:
+     *     the low-volatility anomaly.
+     */
+    LowVolatility: {
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'low_volatility'
+      /**
+       * Window
+       * @description Returns the volatility is measured over.
+       * @default 126
+       */
+      window?: number
     }
     /**
      * Macd
@@ -4936,6 +5231,44 @@ export interface components {
       hint?: string | null
     }
     /**
+     * RankedAsset
+     * @description One stock's part in a cross-sectional backtest.
+     */
+    RankedAsset: {
+      /**
+       * Contribution
+       * @description Sum of its weighted daily returns, before costs: its share of the strategy's arithmetic return.
+       */
+      contribution: number
+      /**
+       * First Ranked
+       * @description First rebalance it could be ranked at; null if it never had enough history.
+       */
+      first_ranked?: string | null
+      /**
+       * Long Share
+       * @description Share of rebalances that put it in the long leg.
+       */
+      long_share: number
+      /**
+       * Score
+       * @description Its signal at the last rebalance; null if not ranked.
+       */
+      score?: number | null
+      /**
+       * Short Share
+       * @description Share of rebalances that put it in the short leg.
+       */
+      short_share: number
+      /** Symbol */
+      symbol: string
+      /**
+       * Weight
+       * @description Weight set at the last rebalance: positive long, negative short.
+       */
+      weight: number
+    }
+    /**
      * RankedStock
      * @description A stock matching a screen, with its position in the sorted results.
      */
@@ -5149,6 +5482,30 @@ export interface components {
       strong_buy: number
       /** Strong Sell */
       strong_sell: number
+    }
+    /**
+     * RiskAdjustedMomentum
+     * @description Rank by the return from ``lookback`` to ``skip`` bars ago divided by the volatility
+     *     of daily returns over the same bars, highest first: steady winners over erratic ones.
+     */
+    RiskAdjustedMomentum: {
+      /**
+       * Lookback
+       * @description Bars back the return starts; 252 is a year.
+       * @default 252
+       */
+      lookback?: number
+      /**
+       * Skip
+       * @description Most recent bars left out of the return.
+       * @default 21
+       */
+      skip?: number
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'risk_adjusted_momentum'
     }
     /**
      * RiskFactor
@@ -5464,6 +5821,24 @@ export interface components {
       form: string
       /** Url */
       url?: string | null
+    }
+    /**
+     * ShortTermReversal
+     * @description Rank by the return over the last ``lookback`` bars, lowest first: last month's
+     *     losers tend to bounce back against its winners.
+     */
+    ShortTermReversal: {
+      /**
+       * Lookback
+       * @description Bars the return spans.
+       * @default 21
+       */
+      lookback?: number
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'reversal'
     }
     /**
      * SignInProvider
@@ -6422,6 +6797,39 @@ export interface operations {
         }
         content: {
           'text/event-stream': unknown
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  create_cross_sectional_backtest_api_v1_backtests_cross_sectional_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CrossSectionalBacktestRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CrossSectionalBacktestResponse']
         }
       }
       /** @description Validation Error */

@@ -15,6 +15,8 @@ import type {
   BacktestResponse,
   CompanyMetrics,
   CopulaFitResponse,
+  CrossSectionalBacktestRequest,
+  CrossSectionalBacktestResponse,
   CustomBacktestRequest,
   AiLimits,
   AlternativeData,
@@ -96,6 +98,9 @@ export const runBacktest = (symbol: string, body: BacktestRequest) =>
 /** Scores positions a custom strategy computed in the browser; the server never runs its code. */
 export const runCustomBacktest = (symbol: string, body: CustomBacktestRequest) =>
   api<BacktestResponse>(`${path(symbol)}/backtest/custom`, { method: 'POST', body })
+/** Ranks a universe of stocks against one another; the result is not stored. */
+export const runCrossSectionalBacktest = (body: CrossSectionalBacktestRequest) =>
+  api<CrossSectionalBacktestResponse>(`${V1}/backtests/cross-sectional`, { method: 'POST', body })
 export const listBacktests = () => api<BacktestList>(`${V1}/backtests`, { query: { limit: 50 } })
 export const getBacktest = (id: string) => api<BacktestResponse>(`${V1}/backtests/${id}`)
 export const deleteBacktest = (id: string) =>

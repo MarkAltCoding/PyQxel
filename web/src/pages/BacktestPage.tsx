@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { lazy, Suspense, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../api/client'
@@ -15,14 +15,14 @@ import type {
   BacktestResponse,
   CodeLanguage,
   LastRun,
-  PerformanceMetrics,
   Strategy,
   StrategyType,
 } from '../api/types'
 import { ChartCard, Legend } from '../charts/ChartCard'
 import { EquityChart, EquityTable } from '../charts/EquityChart'
-import { FACTOR_NAMES } from '../lib/factors'
 import { useChartTheme } from '../charts/theme'
+import { AttributionCard, MetricsTable, NumberField } from '../components/BacktestParts'
+import { CrossSectionalBacktest } from '../components/CrossSectionalBacktest'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { SearchBox } from '../components/SearchBox'
 import { Segmented } from '../components/Segmented'
@@ -297,7 +297,42 @@ function strategyOf(form: Form): Strategy {
   }
 }
 
+type Mode = 'stock' | 'universe'
+
+const MODES: { value: Mode; label: string }[] = [
+  { value: 'stock', label: 'Single stock' },
+  { value: 'universe', label: 'Across tickers' },
+]
+
+const SUBTITLES: Record<Mode, string> = {
+  stock: 'Run a trading rule over history and compare it with buying and holding.',
+  universe:
+    'Rank a set of stocks against one another on a schedule, hold the best, and compare it with holding them all.',
+}
+
 export function BacktestPage() {
+  const [params, setParams] = useSearchParams()
+  const mode: Mode = params.get('mode') === 'universe' ? 'universe' : 'stock'
+  return (
+    <div className="stack">
+      <header className="page-header">
+        <div>
+          <h1>Backtest</h1>
+          <div className="subtitle">{SUBTITLES[mode]}</div>
+        </div>
+        <Segmented
+          label="What to backtest"
+          value={mode}
+          options={MODES}
+          onChange={(next) => setParams(next === 'universe' ? { mode: 'universe' } : {})}
+        />
+      </header>
+      {mode === 'universe' ? <CrossSectionalBacktest /> : <SingleStockBacktest />}
+    </div>
+  )
+}
+
+function SingleStockBacktest() {
   const queryClient = useQueryClient()
   const [params, setParams] = useSearchParams()
   const openId = params.get('id')
@@ -487,16 +522,7 @@ export function BacktestPage() {
   }
 
   return (
-    <div className="stack">
-      <header className="page-header">
-        <div>
-          <h1>Backtest</h1>
-          <div className="subtitle">
-            Run a trading rule over history and compare it with buying and holding.
-          </div>
-        </div>
-      </header>
-
+    <>
       <form id="backtest-form" className="card stack" style={{ gap: 14 }} onSubmit={submit}>
         <div className="filter-row">
           <div className="field" style={{ width: 220 }}>
@@ -977,31 +1003,7 @@ export function BacktestPage() {
           </div>
         )}
       </section>
-    </div>
-  )
-}
-
-function NumberField(props: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  min: number
-  max: number
-  step?: number
-}) {
-  return (
-    <label className="field" style={{ width: 120 }}>
-      <span>{props.label}</span>
-      <input
-        type="number"
-        required
-        min={props.min}
-        max={props.max}
-        step={props.step ?? 1}
-        value={props.value}
-        onChange={(event) => props.onChange(event.target.value)}
-      />
-    </label>
+    </>
   )
 }
 
@@ -1085,93 +1087,15 @@ function ResultChart({ result, refreshing }: { result: BacktestResponse; refresh
 }
 
 function ResultDetails({ result }: { result: BacktestResponse }) {
-  const m = result.metrics
-  const b = result.benchmark
   return (
     <div className="grid-2">
       <section className="card">
         <div className="card-header">
           <h2>Performance</h2>
         </div>
-        <MetricsTable strategy={m} benchmark={b} />
+        <MetricsTable strategy={result.metrics} benchmark={result.benchmark} />
       </section>
-      <section className="card">
-        <div className="card-header">
-          <div>
-            <h2>Return attribution</h2>
-            <div className="subtitle">The strategy's daily returns regressed on factor returns</div>
-          </div>
-        </div>
-        {result.attribution ? (
-          <table className="data">
-            <tbody>
-              <Row label="Alpha (annualized)">
-                {signedPercent(result.attribution.fit.alpha.estimate)} (t{' '}
-                {number(result.attribution.fit.alpha.t_stat)})
-              </Row>
-              {result.attribution.fit.exposures.map((exposure) => (
-                <Row key={exposure.factor} label={`${FACTOR_NAMES[exposure.factor]} beta`}>
-                  {number(exposure.estimate)}
-                </Row>
-              ))}
-              <Row label="R²">{percent(result.attribution.fit.r_squared, 0)}</Row>
-            </tbody>
-          </table>
-        ) : (
-          <div className="empty">No attribution for this backtest.</div>
-        )}
-      </section>
+      <AttributionCard attribution={result.attribution} />
     </div>
-  )
-}
-
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <tr>
-      <td>{label}</td>
-      <td className="num">{children}</td>
-    </tr>
-  )
-}
-
-function MetricsTable({
-  strategy,
-  benchmark,
-}: {
-  strategy: PerformanceMetrics
-  benchmark: PerformanceMetrics
-}) {
-  const rows: [string, (m: PerformanceMetrics) => string][] = [
-    ['Total return', (m) => signedPercent(m.total_return)],
-    ['Annualized return', (m) => signedPercent(m.annualized_return)],
-    ['Annualized volatility', (m) => percent(m.annualized_volatility)],
-    ['Sharpe ratio', (m) => number(m.sharpe_ratio)],
-    ['Sortino ratio', (m) => number(m.sortino_ratio)],
-    ['Max drawdown', (m) => percent(m.max_drawdown)],
-    ['Drawdown trough', (m) => shortDate(m.max_drawdown_trough)],
-    [
-      'Recovered',
-      (m) => (m.max_drawdown_recovery ? shortDate(m.max_drawdown_recovery) : 'Not yet'),
-    ],
-  ]
-  return (
-    <table className="data">
-      <thead>
-        <tr>
-          <th />
-          <th className="num">Strategy</th>
-          <th className="num">Buy and hold</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map(([label, format]) => (
-          <tr key={label}>
-            <td>{label}</td>
-            <td className="num">{format(strategy)}</td>
-            <td className="num">{format(benchmark)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   )
 }
