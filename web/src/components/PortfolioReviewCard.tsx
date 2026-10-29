@@ -21,6 +21,7 @@ import { ExternalClaude } from './ExternalClaude'
 import { Points } from './AnalysisPanel'
 import { ErrorNotice } from './Notice'
 import { Segmented } from './Segmented'
+import { InfoTip } from './InfoTip'
 
 type Period = NonNullable<PortfolioAnalysisRequest['period']>
 
@@ -122,7 +123,10 @@ export function PortfolioReviewCard({
     <section className="card">
       <div className="card-header">
         <div>
-          <h2>AI portfolio review</h2>
+          <div className="heading-with-info">
+            <h2>AI portfolio review</h2>
+            <InfoTip topic="portfolioReview" />
+          </div>
           <div className="subtitle">
             Written by Claude from your saved holdings: where the risk comes from, how well the
             holdings diversify one another, and a specific plan with the orders to carry it out.
@@ -221,9 +225,11 @@ function Review({ response }: { response: PortfolioAnalysisResponse }) {
       <div className="filter-row" style={{ alignItems: 'center', marginBottom: 8 }}>
         <span className={`badge ${LEVEL_TONE[report.risk_level]}`}>
           Risk level: {report.risk_level}
+          <InfoTip topic="riskLevel" />
         </span>
         <span className={`badge ${DIVERSIFICATION_TONE[report.diversification]}`}>
           Diversification: {report.diversification}
+          <InfoTip topic="diversification" />
         </span>
         <span className="badge">
           Volatility {percent(context.portfolio.volatility)} · max drawdown{' '}

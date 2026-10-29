@@ -3,6 +3,7 @@ import type { VolatilityEstimate } from '../api/types'
 import { percent, shortDate } from '../lib/format'
 import { EChart } from './EChart'
 import { axisStyle, escapeHtml, tooltipRow, tooltipStyle, useChartTheme } from './theme'
+import { InfoTip } from '../components/InfoTip'
 
 type Fit = VolatilityEstimate['fit']
 
@@ -123,7 +124,10 @@ export function VolatilityTable({ fit }: { fit: Fit }) {
       <thead>
         <tr>
           <th>When</th>
-          <th className="num">Annualized volatility</th>
+          <th className="num">
+            Annualized volatility
+            <InfoTip topic="volatility" />
+          </th>
         </tr>
       </thead>
       <tbody>

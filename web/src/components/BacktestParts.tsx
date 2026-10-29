@@ -1,7 +1,9 @@
 // Pieces the single-stock and cross-sectional backtests share.
 import type { ReactNode } from 'react'
 import type { BacktestResponse, PerformanceMetrics } from '../api/types'
-import { FACTOR_NAMES } from '../lib/factors'
+import { FACTOR_INFO, FACTOR_NAMES } from '../lib/factors'
+import type { InfoKey } from '../lib/glossary'
+import { InfoTip } from './InfoTip'
 import { number, percent, shortDate, signedPercent } from '../lib/format'
 
 export function NumberField(props: {
@@ -28,10 +30,21 @@ export function NumberField(props: {
   )
 }
 
-export function Row({ label, children }: { label: string; children: ReactNode }) {
+export function Row({
+  label,
+  info,
+  children,
+}: {
+  label: string
+  info: InfoKey
+  children: ReactNode
+}) {
   return (
     <tr>
-      <td>{label}</td>
+      <td>
+        {label}
+        <InfoTip topic={info} />
+      </td>
       <td className="num">{children}</td>
     </tr>
   )
@@ -46,16 +59,17 @@ export function MetricsTable({
   benchmark: PerformanceMetrics
   benchmarkLabel?: string
 }) {
-  const rows: [string, (m: PerformanceMetrics) => string][] = [
-    ['Total return', (m) => signedPercent(m.total_return)],
-    ['Annualized return', (m) => signedPercent(m.annualized_return)],
-    ['Annualized volatility', (m) => percent(m.annualized_volatility)],
-    ['Sharpe ratio', (m) => number(m.sharpe_ratio)],
-    ['Sortino ratio', (m) => number(m.sortino_ratio)],
-    ['Max drawdown', (m) => percent(m.max_drawdown)],
-    ['Drawdown trough', (m) => shortDate(m.max_drawdown_trough)],
+  const rows: [string, InfoKey, (m: PerformanceMetrics) => string][] = [
+    ['Total return', 'totalReturn', (m) => signedPercent(m.total_return)],
+    ['Annualized return', 'annualizedReturn', (m) => signedPercent(m.annualized_return)],
+    ['Annualized volatility', 'annualizedVolatility', (m) => percent(m.annualized_volatility)],
+    ['Sharpe ratio', 'sharpe', (m) => number(m.sharpe_ratio)],
+    ['Sortino ratio', 'sortino', (m) => number(m.sortino_ratio)],
+    ['Max drawdown', 'maxDrawdown', (m) => percent(m.max_drawdown)],
+    ['Drawdown trough', 'drawdownTrough', (m) => shortDate(m.max_drawdown_trough)],
     [
       'Recovered',
+      'recovered',
       (m) => (m.max_drawdown_recovery ? shortDate(m.max_drawdown_recovery) : 'Not yet'),
     ],
   ]
@@ -69,9 +83,12 @@ export function MetricsTable({
         </tr>
       </thead>
       <tbody>
-        {rows.map(([label, format]) => (
+        {rows.map(([label, info, format]) => (
           <tr key={label}>
-            <td>{label}</td>
+            <td>
+              {label}
+              <InfoTip topic={info} />
+            </td>
             <td className="num">{format(strategy)}</td>
             <td className="num">{format(benchmark)}</td>
           </tr>
@@ -87,23 +104,32 @@ export function AttributionCard({ attribution }: { attribution: BacktestResponse
     <section className="card">
       <div className="card-header">
         <div>
-          <h2>Return attribution</h2>
+          <div className="heading-with-info">
+            <h2>Return attribution</h2>
+            <InfoTip topic="attribution" />
+          </div>
           <div className="subtitle">The strategy's daily returns regressed on factor returns</div>
         </div>
       </div>
       {attribution ? (
         <table className="data">
           <tbody>
-            <Row label="Alpha (annualized)">
+            <Row label="Alpha (annualized)" info="alpha">
               {signedPercent(attribution.fit.alpha.estimate)} (t{' '}
               {number(attribution.fit.alpha.t_stat)})
             </Row>
             {attribution.fit.exposures.map((exposure) => (
-              <Row key={exposure.factor} label={`${FACTOR_NAMES[exposure.factor]} beta`}>
+              <Row
+                key={exposure.factor}
+                label={`${FACTOR_NAMES[exposure.factor]} beta`}
+                info={FACTOR_INFO[exposure.factor]}
+              >
                 {number(exposure.estimate)}
               </Row>
             ))}
-            <Row label="R²">{percent(attribution.fit.r_squared, 0)}</Row>
+            <Row label="R²" info="rSquared">
+              {percent(attribution.fit.r_squared, 0)}
+            </Row>
           </tbody>
         </table>
       ) : (

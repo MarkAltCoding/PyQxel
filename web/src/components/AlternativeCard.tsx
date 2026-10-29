@@ -68,6 +68,7 @@ function Body({ data }: { data: AlternativeData }) {
       {data.notice && <Notice tone="warning">{data.notice}</Notice>}
       <div className="stats">
         <Stat
+          info="lobbying"
           label="Lobbying"
           value={lobbyingThisYear ? compact(lobbyingThisYear.amount) : '—'}
           detail={
@@ -77,6 +78,7 @@ function Body({ data }: { data: AlternativeData }) {
           }
         />
         <Stat
+          info="federalAwards"
           label="Federal awards, 1 year"
           value={data.contracts_total == null ? '—' : compact(data.contracts_total)}
           detail={
@@ -88,11 +90,17 @@ function Body({ data }: { data: AlternativeData }) {
           }
         />
         <Stat
+          info="patents"
           label="Patents, 1 year"
           value={data.patents_count == null ? '—' : data.patents_count}
           detail="Published by the USPTO"
         />
-        <Stat label="SEC filings, 90 days" value={filings} detail={formSummary(data)} />
+        <Stat
+          info="secFilings"
+          label="SEC filings, 90 days"
+          value={filings}
+          detail={formSummary(data)}
+        />
       </div>
       <div className="grid-2">
         <div>

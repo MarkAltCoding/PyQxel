@@ -122,20 +122,23 @@ export function StockPage() {
       {ticker.error !== null && <ErrorNotice error={ticker.error} />}
 
       <div className="stats">
-        <Stat label="Price" value={money(info?.price, currency)} />
-        <Stat label="Market cap" value={compact(info?.market_cap)} />
+        <Stat info="price" label="Price" value={money(info?.price, currency)} />
+        <Stat info="marketCap" label="Market cap" value={compact(info?.market_cap)} />
         <Stat
+          info="periodReturn"
           label={`Return, ${period.toUpperCase()}`}
           value={signedPercent(periodReturn)}
           className={tone(periodReturn)}
           detail={bars.length ? `Since ${shortDate(bars[0]?.timestamp.slice(0, 10))}` : undefined}
         />
         <Stat
+          info="volatilityNow"
           label="Volatility now"
           value={percent(volatility.data?.estimate.fit.current_volatility)}
           detail="Annualized, conditional"
         />
         <Stat
+          info="marketBeta"
           label="Market beta"
           value={number(
             factors.data?.fit.exposures.find((row) => row.factor === 'Mkt-RF')?.estimate,
@@ -145,6 +148,7 @@ export function StockPage() {
       </div>
 
       <ChartCard
+        info="priceChart"
         title="Price"
         subtitle={`Adjusted closes, ${interval === '1d' ? 'daily' : 'weekly'} · Ctrl + scroll to zoom`}
         loading={history.isLoading}
@@ -166,6 +170,7 @@ export function StockPage() {
           onModel={setFactorModel}
         />
         <ChartCard
+          info="volatilityChart"
           title="Volatility"
           subtitle={
             volatility.data
@@ -227,6 +232,7 @@ function FactorCard(props: {
   const fit = props.regression?.fit
   return (
     <ChartCard
+      info="factorModel"
       title="Factor exposures"
       subtitle="Betas on Fama–French factors, with 95% intervals"
       actions={
@@ -246,12 +252,19 @@ function FactorCard(props: {
         fit && (
           <div className="stats" style={{ marginTop: 14 }}>
             <Stat
+              info="alpha"
               label="Alpha"
               value={signedPercent(fit.alpha.estimate, 1)}
               detail={`Annualized · t ${number(fit.alpha.t_stat)}`}
             />
-            <Stat label="R²" value={percent(fit.r_squared, 0)} detail="Explained by factors" />
             <Stat
+              info="rSquared"
+              label="R²"
+              value={percent(fit.r_squared, 0)}
+              detail="Explained by factors"
+            />
+            <Stat
+              info="systematicRisk"
               label="Systematic risk"
               value={percent(fit.systematic_share, 0)}
               detail={`Idiosyncratic ${percent(fit.idiosyncratic_share, 0)}`}
@@ -274,19 +287,22 @@ function VolatilityFooter({
   return (
     <div className="stack" style={{ gap: 12, marginTop: 14 }}>
       <div className="stats">
-        <Stat label="Now" value={percent(fit.current_volatility)} />
+        <Stat info="volatilityNow" label="Now" value={percent(fit.current_volatility)} />
         <Stat
+          info="garchForecast"
           label="In 21 days"
           value={percent(fit.forecast.at(-1)?.volatility)}
           detail="Forecast"
         />
         <Stat
+          info="realizedVolatility"
           label="Realized"
           value={percent(fit.realized_volatility)}
           detail={`Over ${estimate.period.toUpperCase()}`}
         />
         {fit.model === 'garch' && (
           <Stat
+            info="longRunVolatility"
             label="Long run"
             value={percent(fit.long_run_volatility)}
             detail={

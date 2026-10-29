@@ -9123,7 +9123,7 @@
         "type": "object"
       },
       "SearchMatch": {
-        "description": "A listing whose symbol or name matches a search: a stock in the screened universe,\nor one Finnhub found.",
+        "description": "A listing whose symbol or name matches a search: a stock in the screened universe,\none Finnhub found, or one on the SEC's list of listed companies.",
         "properties": {
           "exchange": {
             "anyOf": [
@@ -9179,7 +9179,8 @@
             "default": "universe",
             "enum": [
               "universe",
-              "finnhub"
+              "finnhub",
+              "sec"
             ],
             "title": "Source",
             "type": "string"
@@ -12204,7 +12205,7 @@
     },
     "/api/v1/search": {
       "get": {
-        "description": "Find US listings by symbol prefix or part of the company name.\n\nSearches the screened universe of US common stocks, which the screener refresh job\nbuilds, first. With a Finnhub key, Finnhub's search of US listings fills the rest of\nthe ``limit``, finding ETFs, ADRs and stocks outside the universe (``source`` is\n``finnhub``, with their ``kind`` and no market cap). Every listing works on the\n``/stocks/{symbol}`` routes whether it is found here or not.\n\nReturns 503 when the database is unavailable and Finnhub finds nothing.",
+        "description": "Find US listings by symbol prefix or part of the company name.\n\nSearches the screened universe of US common stocks, which the screener refresh job\nbuilds, first. With a Finnhub key, Finnhub's search of US listings fills the rest of\nthe ``limit``, finding ETFs, ADRs and stocks outside the universe (``source`` is\n``finnhub``, with their ``kind`` and no market cap). The SEC's list of listed\ncompanies, which needs no key, fills any room left (``source`` ``sec``), so typing\nthe start of a ticker suggests it even when the universe is empty and there is no\nFinnhub key. Every listing works on the\n``/stocks/{symbol}`` routes whether it is found here or not.\n\nReturns 503 when the database is unavailable and Finnhub finds nothing.",
         "operationId": "search_api_v1_search_get",
         "parameters": [
           {

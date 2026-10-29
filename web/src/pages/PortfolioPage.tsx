@@ -14,6 +14,7 @@ import { PresetOrCustom } from '../components/PresetOrCustom'
 import { Segmented } from '../components/Segmented'
 import { Stat } from '../components/Stat'
 import { money, number, percent, signedPercent, tone } from '../lib/format'
+import { InfoTip } from '../components/InfoTip'
 
 const MAX_HOLDINGS = 20
 
@@ -123,6 +124,7 @@ export function PortfolioPage() {
                 <th className="num">Value</th>
                 <th className="num" style={{ minWidth: 150 }}>
                   Weight
+                  <InfoTip topic="holdingWeight" />
                 </th>
                 <th>
                   <span className="visually-hidden">Remove</span>
@@ -276,6 +278,7 @@ function SimulationCard({
 
   return (
     <ChartCard
+      info="monteCarlo"
       title="Simulated outcomes"
       subtitle={
         summary
@@ -344,23 +347,35 @@ function SimulationCard({
           <div className="stack" style={{ gap: 12, marginTop: 14 }}>
             <div className="stats">
               <Stat
+                info="expectedReturn"
                 label="Expected return"
                 value={signedPercent(summary.expected_return)}
                 className={tone(summary.expected_return)}
               />
-              <Stat label="Median return" value={signedPercent(summary.median_return)} />
-              <Stat label="Chance of a loss" value={percent(summary.probability_of_loss, 0)} />
               <Stat
+                info="medianReturn"
+                label="Median return"
+                value={signedPercent(summary.median_return)}
+              />
+              <Stat
+                info="chanceOfLoss"
+                label="Chance of a loss"
+                value={percent(summary.probability_of_loss, 0)}
+              />
+              <Stat
+                info="valueAtRisk"
                 label="95% Value at Risk"
                 value={money(risk95?.value_at_risk_amount, 'USD', 0)}
                 detail={`${percent(risk95?.value_at_risk)} of value`}
               />
               <Stat
+                info="expectedShortfall"
                 label="95% Expected shortfall"
                 value={money(risk95?.conditional_value_at_risk_amount, 'USD', 0)}
                 detail="Average loss in the worst 5%"
               />
               <Stat
+                info="medianMaxDrawdown"
                 label="Median max drawdown"
                 value={percent(drawdown?.value)}
                 detail={
@@ -397,6 +412,7 @@ function CopulaCard({ symbols, stale }: { symbols: string[]; stale: boolean }) {
   const data = fit.data
   return (
     <ChartCard
+      info="copula"
       title="How the holdings move together"
       subtitle={
         data

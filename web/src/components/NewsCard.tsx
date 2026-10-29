@@ -31,6 +31,7 @@ export function NewsCard({ symbol }: { symbol: string }) {
 
   return (
     <ChartCard
+      info="newsChart"
       title="News"
       subtitle={
         overview
@@ -59,14 +60,24 @@ export function NewsCard({ symbol }: { symbol: string }) {
             {overview.total_articles > 0 && (
               <>
                 <div className="stats">
-                  <Stat label="Last 24 hours" value={overview.last_day_articles} />
-                  <Stat label="Last 7 days" value={overview.last_week_articles} />
                   <Stat
+                    info="newsLastDay"
+                    label="Last 24 hours"
+                    value={overview.last_day_articles}
+                  />
+                  <Stat
+                    info="newsLastWeek"
+                    label="Last 7 days"
+                    value={overview.last_week_articles}
+                  />
+                  <Stat
+                    info="newsPerDay"
                     label="Per day"
                     value={number(overview.daily_average, 1)}
                     detail="Two-week average"
                   />
                   <Stat
+                    info="newsBusiestDay"
                     label="Busiest day"
                     value={
                       overview.busiest_day

@@ -3,37 +3,72 @@ import { useNavigate } from 'react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { getUniverseStatus, screen } from '../api/endpoints'
 import type { RankedStock, ScreenField, ScreenFilter, ScreenRequest } from '../api/types'
+import { InfoTip } from '../components/InfoTip'
 import { ErrorNotice, Notice } from '../components/Notice'
+import type { InfoKey } from '../lib/glossary'
 import { compact, dateTime, money, number, percent, shortDate } from '../lib/format'
 import { readStored, writeStored } from '../lib/storage'
 
 type Kind = 'percent' | 'ratio' | 'money' | 'compact' | 'beta'
 
 /** Every screenable metric: how to label it, show it, and enter bounds for it. */
-const FIELDS: Record<ScreenField, { label: string; kind: Kind; descending: boolean }> = {
-  market_cap: { label: 'Market cap', kind: 'compact', descending: true },
-  price: { label: 'Price', kind: 'money', descending: true },
-  avg_dollar_volume: { label: 'Avg. daily $ volume', kind: 'compact', descending: true },
-  pe_ratio: { label: 'P/E', kind: 'ratio', descending: false },
-  price_to_sales: { label: 'Price / sales', kind: 'ratio', descending: false },
-  ev_to_ebitda: { label: 'EV / EBITDA', kind: 'ratio', descending: false },
-  fcf_yield: { label: 'FCF yield', kind: 'percent', descending: true },
-  gross_margin: { label: 'Gross margin', kind: 'percent', descending: true },
-  operating_margin: { label: 'Operating margin', kind: 'percent', descending: true },
-  net_margin: { label: 'Net margin', kind: 'percent', descending: true },
-  return_on_equity: { label: 'Return on equity', kind: 'percent', descending: true },
-  revenue_growth: { label: 'Revenue growth', kind: 'percent', descending: true },
-  earnings_growth: { label: 'Earnings growth', kind: 'percent', descending: true },
-  return_1m: { label: '1-month return', kind: 'percent', descending: true },
-  return_6m: { label: '6-month return', kind: 'percent', descending: true },
-  momentum_12_1: { label: 'Momentum (12–1)', kind: 'percent', descending: true },
-  volatility: { label: 'Volatility', kind: 'percent', descending: false },
-  max_drawdown: { label: 'Max drawdown', kind: 'percent', descending: true },
-  beta_market: { label: 'Market beta', kind: 'beta', descending: false },
-  beta_size: { label: 'Size beta', kind: 'beta', descending: true },
-  beta_value: { label: 'Value beta', kind: 'beta', descending: true },
-  beta_momentum: { label: 'Momentum beta', kind: 'beta', descending: true },
-  factor_r_squared: { label: 'Factor R²', kind: 'percent', descending: false },
+const FIELDS: Record<
+  ScreenField,
+  { label: string; info: InfoKey; kind: Kind; descending: boolean }
+> = {
+  market_cap: { label: 'Market cap', info: 'marketCap', kind: 'compact', descending: true },
+  price: { label: 'Price', info: 'price', kind: 'money', descending: true },
+  avg_dollar_volume: {
+    label: 'Avg. daily $ volume',
+    info: 'avgDollarVolume',
+    kind: 'compact',
+    descending: true,
+  },
+  pe_ratio: { label: 'P/E', info: 'pe', kind: 'ratio', descending: false },
+  price_to_sales: { label: 'Price / sales', info: 'priceSales', kind: 'ratio', descending: false },
+  ev_to_ebitda: { label: 'EV / EBITDA', info: 'evEbitda', kind: 'ratio', descending: false },
+  fcf_yield: { label: 'FCF yield', info: 'fcfYield', kind: 'percent', descending: true },
+  gross_margin: { label: 'Gross margin', info: 'grossMargin', kind: 'percent', descending: true },
+  operating_margin: {
+    label: 'Operating margin',
+    info: 'operatingMargin',
+    kind: 'percent',
+    descending: true,
+  },
+  net_margin: { label: 'Net margin', info: 'netMargin', kind: 'percent', descending: true },
+  return_on_equity: { label: 'Return on equity', info: 'roe', kind: 'percent', descending: true },
+  revenue_growth: {
+    label: 'Revenue growth',
+    info: 'revenueGrowth',
+    kind: 'percent',
+    descending: true,
+  },
+  earnings_growth: {
+    label: 'Earnings growth',
+    info: 'earningsGrowth',
+    kind: 'percent',
+    descending: true,
+  },
+  return_1m: { label: '1-month return', info: 'return1m', kind: 'percent', descending: true },
+  return_6m: { label: '6-month return', info: 'return6m', kind: 'percent', descending: true },
+  momentum_12_1: {
+    label: 'Momentum (12–1)',
+    info: 'momentum12_1',
+    kind: 'percent',
+    descending: true,
+  },
+  volatility: { label: 'Volatility', info: 'volatility', kind: 'percent', descending: false },
+  max_drawdown: { label: 'Max drawdown', info: 'maxDrawdown', kind: 'percent', descending: true },
+  beta_market: { label: 'Market beta', info: 'marketBeta', kind: 'beta', descending: false },
+  beta_size: { label: 'Size beta', info: 'sizeBeta', kind: 'beta', descending: true },
+  beta_value: { label: 'Value beta', info: 'valueBeta', kind: 'beta', descending: true },
+  beta_momentum: { label: 'Momentum beta', info: 'momentumBeta', kind: 'beta', descending: true },
+  factor_r_squared: {
+    label: 'Factor R²',
+    info: 'factorRSquared',
+    kind: 'percent',
+    descending: false,
+  },
 }
 
 const FIELD_NAMES = Object.keys(FIELDS) as ScreenField[]
@@ -255,6 +290,7 @@ export function ScreenerPage() {
                   style={{ border: 0, margin: 0, display: 'flex', gap: 8, alignItems: 'flex-end' }}
                 >
                   <legend className="visually-hidden">{FIELDS[row.field].label}</legend>
+                  <InfoTip topic={FIELDS[row.field].info} />
                   <label className="field" style={{ width: 96 }}>
                     <span>
                       {FIELDS[row.field].label} min{unit}
@@ -346,6 +382,7 @@ export function ScreenerPage() {
                       {FIELDS[field].label}
                       {field === state.sort ? (state.descending ? ' ↓' : ' ↑') : ''}
                     </button>
+                    <InfoTip topic={FIELDS[field].info} />
                   </th>
                 ))}
               </tr>

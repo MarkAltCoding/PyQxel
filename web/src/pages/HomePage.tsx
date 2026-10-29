@@ -3,6 +3,11 @@ import { SearchBox } from '../components/SearchBox'
 
 const SHORTCUTS = [
   {
+    to: '/markets',
+    title: 'Markets',
+    text: 'Market news, and the calendar of earnings, IPOs, holidays and Fed meetings.',
+  },
+  {
     to: '/portfolio',
     title: 'Portfolio',
     text: 'Your holdings, simulated outcomes and how they move together.',

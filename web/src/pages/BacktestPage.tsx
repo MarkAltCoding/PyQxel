@@ -27,6 +27,7 @@ import { CrossSectionalBacktest } from '../components/CrossSectionalBacktest'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { SearchBox } from '../components/SearchBox'
 import { Segmented } from '../components/Segmented'
+import { InfoTip } from '../components/InfoTip'
 import { Stat } from '../components/Stat'
 import { StrategyAssistant } from '../components/StrategyAssistant'
 import { StrategyRunOutput } from '../components/StrategyRunOutput'
@@ -1176,6 +1177,7 @@ function ResultChart({ result, refreshing }: { result: BacktestResponse; refresh
   const benchmark = benchmarkLabel(result)
   return (
     <ChartCard
+      info="equityChart"
       title={`${symbolsOf(result)}: ${describe(result.strategy)}`}
       subtitle={`${shortDate(m.start)} to ${shortDate(m.end)} · ${result.trades} trades · average exposure ${percent(result.exposure, 0)} · ${result.cost_bps} bps per trade`}
       refreshing={refreshing}
@@ -1199,22 +1201,26 @@ function ResultChart({ result, refreshing }: { result: BacktestResponse; refresh
         <div className="stack" style={{ gap: 12, marginTop: 14 }}>
           <div className="stats">
             <Stat
+              info="totalReturn"
               label="Total return"
               value={signedPercent(m.total_return)}
               className={tone(m.total_return)}
               detail={`${benchmark} ${signedPercent(b.total_return)}`}
             />
             <Stat
+              info="annualizedReturn"
               label="Annualized"
               value={signedPercent(m.annualized_return)}
               detail={`${benchmark} ${signedPercent(b.annualized_return)}`}
             />
             <Stat
+              info="sharpe"
               label="Sharpe ratio"
               value={number(m.sharpe_ratio)}
               detail={`${benchmark} ${number(b.sharpe_ratio)}`}
             />
             <Stat
+              info="maxDrawdown"
               label="Max drawdown"
               value={percent(m.max_drawdown)}
               detail={`${benchmark} ${percent(b.max_drawdown)}`}
@@ -1239,7 +1245,10 @@ function ResultDetails({ result }: { result: BacktestResponse }) {
       <div className="grid-2">
         <section className="card">
           <div className="card-header">
-            <h2>Performance</h2>
+            <div className="heading-with-info">
+              <h2>Performance</h2>
+              <InfoTip topic="backtestPerformance" />
+            </div>
           </div>
           <MetricsTable
             strategy={result.metrics}
@@ -1262,10 +1271,22 @@ function ResultDetails({ result }: { result: BacktestResponse }) {
               <thead>
                 <tr>
                   <th>Symbol</th>
-                  <th className="num">Average weight</th>
-                  <th className="num">Held</th>
-                  <th className="num">Trades</th>
-                  <th className="num">Contribution</th>
+                  <th className="num">
+                    Average weight
+                    <InfoTip topic="averageWeight" />
+                  </th>
+                  <th className="num">
+                    Held
+                    <InfoTip topic="timeHeld" />
+                  </th>
+                  <th className="num">
+                    Trades
+                    <InfoTip topic="trades" />
+                  </th>
+                  <th className="num">
+                    Contribution
+                    <InfoTip topic="contribution" />
+                  </th>
                 </tr>
               </thead>
               <tbody>

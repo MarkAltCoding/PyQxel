@@ -37,6 +37,7 @@ from app.core.rate_limit import clear_local_counts  # noqa: E402
 from app.data.factors import clear_factor_memory  # noqa: E402
 from app.data.fetcher import clear_alpha_vantage_memory, clear_quote_cache  # noqa: E402
 from app.api.v1.endpoints import markets as markets_route  # noqa: E402
+from app.api.v1.endpoints import search as search_route  # noqa: E402
 from app.data.finnhub import clear_signals_memory  # noqa: E402
 from app.data.fomc import FALLBACK_MEETINGS, clear_fomc_memory  # noqa: E402
 from app.models.markets import FomcMeeting  # noqa: E402
@@ -84,6 +85,17 @@ def no_fed_calendar(monkeypatch: pytest.MonkeyPatch) -> None:
         return FALLBACK_MEETINGS
 
     monkeypatch.setattr(markets_route, "fetch_fomc_meetings", fallback)
+
+
+@pytest.fixture(autouse=True)
+def no_sec_ticker_search(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Search finds nothing on the SEC's ticker list, so no test reaches sec.gov; tests
+    of that search fake the list themselves."""
+
+    async def nothing(query: str, limit: int) -> list[tuple[str, str]]:
+        return []
+
+    monkeypatch.setattr(search_route, "search_tickers", nothing)
 
 
 @pytest.fixture(autouse=True)

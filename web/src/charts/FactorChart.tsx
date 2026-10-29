@@ -5,6 +5,7 @@ import { EChart } from './EChart'
 import { axisStyle, escapeHtml, tooltipStyle, useChartTheme } from './theme'
 
 import { FACTOR_NAMES, FACTOR_SHORT_NAMES } from '../lib/factors'
+import { InfoTip } from '../components/InfoTip'
 
 type Exposure = FactorRegression['fit']['exposures'][number]
 
@@ -123,11 +124,26 @@ export function FactorTable({ exposures }: { exposures: Exposure[] }) {
       <thead>
         <tr>
           <th>Factor</th>
-          <th className="num">Beta</th>
-          <th className="num">Std. error</th>
-          <th className="num">t</th>
-          <th className="num">p</th>
-          <th className="num">Share of variance</th>
+          <th className="num">
+            Beta
+            <InfoTip topic="factorBeta" />
+          </th>
+          <th className="num">
+            Std. error
+            <InfoTip topic="standardError" />
+          </th>
+          <th className="num">
+            t
+            <InfoTip topic="tStat" />
+          </th>
+          <th className="num">
+            p
+            <InfoTip topic="pValue" />
+          </th>
+          <th className="num">
+            Share of variance
+            <InfoTip topic="shareOfVariance" />
+          </th>
         </tr>
       </thead>
       <tbody>

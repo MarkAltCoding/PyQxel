@@ -23,6 +23,7 @@ import { LEVEL_TONE } from '../lib/tones'
 import { ExternalClaude } from './ExternalClaude'
 import { ErrorNotice } from './Notice'
 import { Segmented } from './Segmented'
+import { InfoTip } from './InfoTip'
 
 const KINDS = [
   { value: 'thesis', label: 'Investment thesis' },
@@ -129,7 +130,10 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
     <section className="card">
       <div className="card-header">
         <div>
-          <h2>AI research report</h2>
+          <div className="heading-with-info">
+            <h2>AI research report</h2>
+            <InfoTip topic="aiReport" />
+          </div>
           <div className="subtitle">
             Written by Claude from prices, factor exposures, a GARCH volatility forecast, peer
             comparisons, financial statements, SEC filings, news, analyst ratings, earnings, insider

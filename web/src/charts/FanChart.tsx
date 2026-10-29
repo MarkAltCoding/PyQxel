@@ -3,6 +3,7 @@ import type { SimulationResponse } from '../api/types'
 import { money } from '../lib/format'
 import { EChart } from './EChart'
 import { axisStyle, tooltipRow, tooltipStyle, useChartTheme } from './theme'
+import { InfoTip } from '../components/InfoTip'
 
 type FanPoint = SimulationResponse['simulation']['fan_chart'][number]
 
@@ -126,7 +127,10 @@ export function FanTable({ fan }: { fan: FanPoint[] }) {
           <th className="num">Day</th>
           <th className="num">5th</th>
           <th className="num">25th</th>
-          <th className="num">Median</th>
+          <th className="num">
+            Median
+            <InfoTip topic="simulationPercentiles" />
+          </th>
           <th className="num">75th</th>
           <th className="num">95th</th>
         </tr>
