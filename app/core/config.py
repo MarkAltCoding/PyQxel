@@ -82,6 +82,12 @@ class Settings(BaseSettings):
         "public feed for the screener refresh when SCREENER_FMP_API_KEY is unset. These "
         "sources are unlicensed: keep it off once anyone else uses the deployment.",
     )
+    admin_email: str | None = Field(
+        default=None,
+        description="Email of the account that sees admin settings, where it can turn the "
+        "yfinance fallback on for its own requests only. Accounts are matched by the "
+        "verified email they sign in with; no account is admin when unset.",
+    )
     sign_in_key_days: int = Field(
         default=30,
         ge=1,
@@ -180,6 +186,12 @@ class Settings(BaseSettings):
         return url.set(drivername="postgresql+asyncpg", query=query).render_as_string(
             hide_password=False
         )
+
+    @field_validator("admin_email")
+    @classmethod
+    def _normalize_email(cls, value: str | None) -> str | None:
+        """Store the address as accounts store theirs, so they compare equal; blank is unset."""
+        return value.strip().lower() or None if value is not None else None
 
 
 @lru_cache

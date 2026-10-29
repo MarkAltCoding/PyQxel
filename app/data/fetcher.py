@@ -8,9 +8,9 @@ request, and fills in ticker info fields FMP leaves empty. Finnhub, on the user'
 serves quotes and company profiles, which its free plan covers for US listings at 60
 requests a minute: it is the first source for US quotes, since they are real time and
 FMP's free plan quotes only a sample of symbols, and it backs up and fills in profiles.
-It has no price history on its free plan. yfinance, which scrapes
-Yahoo, is used only when ``YFINANCE_FALLBACK`` is on, for development, after the
-licensed providers. A user with no usable key gets
+It has no price history on its free plan. yfinance, which scrapes Yahoo, is used only
+when ``YFINANCE_FALLBACK`` is on, for development, or for the admin account when they
+turn it on for themselves, after the licensed providers. A user with no usable key gets
 :class:`ProviderNotConfiguredError`, and a request their plan excludes,
 :class:`ProviderPlanError`.
 
@@ -239,6 +239,12 @@ def finnhub_free_covers(symbol: str) -> bool:
     return bool(symbol) and "." not in symbol and not symbol.startswith("^") and "=" not in symbol
 
 
+def yfinance_fallback_on() -> bool:
+    """Whether yfinance answers for the current user: server-wide with
+    ``YFINANCE_FALLBACK``, or for the admin alone when they turned it on."""
+    return get_settings().yfinance_fallback or current_provider_keys().yfinance
+
+
 def available_providers(
     kind: DataKind = "history", symbol: str = ""
 ) -> list[tuple[Provider, str | None]]:
@@ -267,7 +273,7 @@ def available_providers(
         providers.append(("alpha_vantage", keys.alpha_vantage.get_secret_value()))
     if finnhub and not covered:
         providers.append(finnhub)
-    if get_settings().yfinance_fallback:
+    if yfinance_fallback_on():
         providers.append(("yfinance", None))
     if not providers:
         if kind == "history":
@@ -1072,7 +1078,7 @@ async def _alpha_vantage_history(
     """
     end = today or date.today()
     start = pd.Timestamp(_window_start(period, end))
-    limited = not get_settings().yfinance_fallback
+    limited = not yfinance_fallback_on()
     notice: str | None = None
     if interval in ALPHA_VANTAGE_INTRADAY:
         size, resample_to = ALPHA_VANTAGE_INTRADAY[interval]

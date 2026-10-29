@@ -8,6 +8,7 @@ from pydantic import SecretStr
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.credentials import ProviderKeys
 from app.core.security import (
     API_KEY_DISPLAY_LENGTH,
@@ -53,6 +54,13 @@ class User:
     finnhub_api_key: str | None
     finnhub_key_hint: str | None
     limits: AiLimits
+    yfinance_fallback: bool = False
+
+    @property
+    def is_admin(self) -> bool:
+        """Whether this is the account ``ADMIN_EMAIL`` names; none is when it is unset."""
+        admin = get_settings().admin_email
+        return admin is not None and self.email == admin
 
     def anthropic_key(self) -> SecretStr | None:
         """The account's Anthropic key, decrypted, or ``None`` if it has none."""
@@ -77,6 +85,7 @@ class User:
             fmp=self.fmp_key(),
             alpha_vantage=self.alpha_vantage_key(),
             finnhub=self.finnhub_key(),
+            yfinance=self.is_admin and self.yfinance_fallback,
         )
 
 
@@ -97,6 +106,7 @@ def _user(record: UserRecord) -> User:
             ai_requests_per_hour=record.ai_requests_per_hour,
             ai_requests_per_day=record.ai_requests_per_day,
         ),
+        yfinance_fallback=bool(record.yfinance_fallback),
     )
 
 
@@ -316,6 +326,15 @@ async def update_limits(session: AsyncSession, user_id: str, limits: AiLimits) -
     assert record is not None
     record.ai_requests_per_hour = limits.ai_requests_per_hour
     record.ai_requests_per_day = limits.ai_requests_per_day
+    await session.commit()
+    return _user(record)
+
+
+async def update_yfinance_fallback(session: AsyncSession, user_id: str, enabled: bool) -> User:
+    """Turn the account's yfinance fallback on or off; it applies only to the admin."""
+    record = await session.get(UserRecord, user_id)
+    assert record is not None
+    record.yfinance_fallback = enabled
     await session.commit()
     return _user(record)
 

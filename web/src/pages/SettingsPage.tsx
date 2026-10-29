@@ -1,7 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { deleteAccount, getAccount, updateCredentials, updateLimits } from '../api/endpoints'
-import type { Account, CredentialsUpdate } from '../api/types'
+import {
+  deleteAccount,
+  getAccount,
+  updateAdminSettings,
+  updateCredentials,
+  updateLimits,
+} from '../api/endpoints'
+import type { Account, AdminSettings, CredentialsUpdate } from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { Stat } from '../components/Stat'
@@ -173,6 +179,7 @@ export function SettingsPage() {
             ))}
           </section>
           <LimitsForm account={account.data} onSaved={onSaved} />
+          {account.data.admin && <AdminSettingsForm admin={account.data.admin} onSaved={onSaved} />}
           <DeleteAccount email={account.data.email} />
         </>
       )}
@@ -339,6 +346,49 @@ function LimitsForm({ account, onSaved }: { account: Account; onSaved: (a: Accou
       {save.isSuccess && <Notice>Limits saved.</Notice>}
       {save.error !== null && <ErrorNotice error={save.error} />}
     </form>
+  )
+}
+
+/** Shown only to the account ADMIN_EMAIL names; the server refuses everyone else. */
+function AdminSettingsForm({
+  admin,
+  onSaved,
+}: {
+  admin: AdminSettings
+  onSaved: (account: Account) => void
+}) {
+  const save = useMutation({
+    mutationFn: (yfinance_fallback: boolean) => updateAdminSettings({ yfinance_fallback }),
+    onSuccess: onSaved,
+  })
+  return (
+    <section className="card stack" style={{ gap: 14 }}>
+      <div>
+        <h2>Admin settings</h2>
+        <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
+          Only your account sees these.
+        </p>
+      </div>
+      <label className="filter-row" style={{ alignItems: 'center', gap: 10 }}>
+        <input
+          type="checkbox"
+          checked={admin.yfinance_fallback}
+          disabled={save.isPending}
+          onChange={(event) => save.mutate(event.target.checked)}
+        />
+        <span>Fall back to yfinance for my own requests</span>
+        <span className={`badge ${admin.yfinance_fallback ? 'good' : 'warning'}`}>
+          {admin.yfinance_fallback ? '✓ On' : '! Off'}
+        </span>
+      </label>
+      <p className="disclaimer">
+        Fills the gaps in your free FMP and Alpha Vantage plans (full adjusted price history, ETFs,
+        indices, foreign listings, intraday bars and exchange rates) with Yahoo data, which is
+        unlicensed and can break without notice. It applies to your requests only; other accounts
+        never get yfinance data. The screener refresh is not affected.
+      </p>
+      {save.error !== null && <ErrorNotice error={save.error} />}
+    </section>
   )
 }
 

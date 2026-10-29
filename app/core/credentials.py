@@ -14,11 +14,16 @@ from pydantic import SecretStr
 
 @dataclass(frozen=True)
 class ProviderKeys:
-    """API keys for paid data providers; ``None`` when the user has not stored one."""
+    """API keys for paid data providers; ``None`` when the user has not stored one.
+
+    ``yfinance`` is whether the user may fall back to yfinance: only the admin, with it
+    turned on in their admin settings.
+    """
 
     fmp: SecretStr | None = None
     alpha_vantage: SecretStr | None = None
     finnhub: SecretStr | None = None
+    yfinance: bool = False
 
 
 _current: ContextVar[ProviderKeys] = ContextVar("provider_keys", default=ProviderKeys())

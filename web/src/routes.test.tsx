@@ -209,3 +209,52 @@ describe('deleting the account', () => {
     expect(window.localStorage.getItem('pyqxel.apiKey')).toBeNull()
   })
 })
+
+describe('admin settings', () => {
+  const ACCOUNT = {
+    id: '6f9619ff-8b86-d011-b42d-00c04fc964ff',
+    email: 'me@example.com',
+    created_at: '2026-10-01T00:00:00Z',
+    anthropic: { configured: false, hint: null },
+    fmp: { configured: false, hint: null },
+    alpha_vantage: { configured: false, hint: null },
+    finnhub: { configured: false, hint: null },
+    limits: { ai_requests_per_hour: null, ai_requests_per_day: null },
+    usage: { last_hour: 0, last_day: 0 },
+    rate_limit_per_minute: 120,
+    market_data_fallback: false,
+    sec_filings: true,
+  }
+
+  it('are hidden when the server sends none', async () => {
+    window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
+    serve({ '/api/v1/me': () => json(ACCOUNT) })
+    renderAt('/settings')
+
+    expect(await screen.findByRole('heading', { name: 'Delete account' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Admin settings' })).toBeNull()
+    expect(screen.queryByText(/Fall back to yfinance/)).toBeNull()
+  })
+
+  it('turn the yfinance fallback on for the admin', async () => {
+    window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
+    const admin = { ...ACCOUNT, admin: { yfinance_fallback: false } }
+    const calls = serve({
+      '/api/v1/me': () => json(admin),
+      '/api/v1/me/admin': () =>
+        json({ ...admin, admin: { yfinance_fallback: true }, market_data_fallback: true }),
+    })
+    renderAt('/settings')
+
+    const toggle = await screen.findByRole('checkbox', { name: /Fall back to yfinance/ })
+    expect(toggle).not.toBeChecked()
+    await userEvent.click(toggle)
+
+    await waitFor(() => expect(toggle).toBeChecked())
+    expect(calls.find((call) => call.path === '/api/v1/me/admin')).toEqual({
+      path: '/api/v1/me/admin',
+      method: 'PUT',
+      authorization: 'Bearer pq_mine',
+    })
+  })
+})

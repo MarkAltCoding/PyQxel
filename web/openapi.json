@@ -34,7 +34,7 @@
             "$ref": "#/components/schemas/AiLimits"
           },
           "market_data_fallback": {
-            "description": "Whether the server falls back to yfinance when no licensed provider answers, as in development.",
+            "description": "Whether your requests fall back to yfinance when no licensed provider answers, as in development.",
             "title": "Market Data Fallback",
             "type": "boolean"
           },

@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select, update
 
 from app.api.v1.endpoints import signin
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
 from app.db.session import get_sessionmaker
 from app.db.tables import ApiKeyRecord, IdentityRecord, UserRecord
 from app.db.users import authenticate, create_api_key, revoke_signed_in_key, user_for_identity
@@ -405,3 +405,39 @@ def test_signing_in_clears_away_spent_sign_in_keys(user: Any) -> None:
     asyncio.run(issue("new sign-in", "github"))
 
     assert asyncio.run(names()) == {"still signed in", "my script", "new sign-in"}
+
+
+@pytest.mark.usefixtures("real_auth")
+@pytest.mark.parametrize("provider", ["github", "google"])
+def test_admin_settings_show_for_the_admin_email_through_either_sign_in(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, provider: str
+) -> None:
+    """GitHub's primary verified email and Google's verified email both reach the admin."""
+    monkeypatch.setattr(get_settings(), "admin_email", "octo@example.com")
+    _providers(monkeypatch)
+
+    key = _sign_in(client, provider)["key"]
+    account = client.get("/api/v1/me", headers={"Authorization": f"Bearer {key}"}).json()
+
+    assert account["email"] == "octo@example.com"
+    assert account["admin"] == {"yfinance_fallback": False}
+
+
+@pytest.mark.usefixtures("real_auth")
+@pytest.mark.parametrize("provider", ["github", "google"])
+def test_admin_settings_stay_hidden_from_every_other_email(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, provider: str
+) -> None:
+    """A secondary or unverified address that matches the admin's makes no one admin."""
+    monkeypatch.setattr(get_settings(), "admin_email", "octo@users.noreply.github.com")
+    _providers(monkeypatch)
+
+    key = _sign_in(client, provider)["key"]
+    headers = {"Authorization": f"Bearer {key}"}
+    account = client.get("/api/v1/me", headers=headers).json()
+    changed = client.put("/api/v1/me/admin", headers=headers, json={"yfinance_fallback": True})
+
+    assert account["email"] == "octo@example.com"
+    missing = client.put("/api/v1/me/missing", headers=headers, json={"yfinance_fallback": True})
+    assert "admin" not in account
+    assert (changed.status_code, changed.text) == (missing.status_code, missing.text)

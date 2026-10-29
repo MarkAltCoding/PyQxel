@@ -2,6 +2,7 @@
 import { api, send } from './client'
 import type {
   Account,
+  AdminSettings,
   AnalysisList,
   AnalysisRequest,
   AnalysisResponse,
@@ -46,6 +47,8 @@ export const updateCredentials = (body: CredentialsUpdate) =>
   api<Account>(`${V1}/me/credentials`, { method: 'PUT', body })
 export const updateLimits = (body: AiLimits) =>
   api<Account>(`${V1}/me/limits`, { method: 'PUT', body })
+export const updateAdminSettings = (body: AdminSettings) =>
+  api<Account>(`${V1}/me/admin`, { method: 'PUT', body })
 export const deleteAccount = () => api<void>(`${V1}/me`, { method: 'DELETE' })
 
 export const search = (q: string, signal?: AbortSignal) =>
