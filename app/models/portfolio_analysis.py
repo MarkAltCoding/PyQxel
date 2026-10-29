@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.portfolio import PortfolioPeriod
+from app.models.portfolio import MAX_SYMBOLS, PortfolioPeriod
 from app.models.research import RiskFactor
 
 
@@ -56,10 +56,10 @@ class AssetRisk(BaseModel):
     name: str | None = None
     sector: str | None = None
     industry: str | None = None
-    shares: float
-    price: float = Field(description="Latest price.")
-    value: float = Field(description="Shares times the latest price.")
-    weight: float = Field(description="Share of the portfolio's value.")
+    shares: float = Field(gt=0, allow_inf_nan=False)
+    price: float = Field(gt=0, allow_inf_nan=False, description="Latest price.")
+    value: float = Field(gt=0, allow_inf_nan=False, description="Shares times the latest price.")
+    weight: float = Field(ge=0, le=1, description="Share of the portfolio's value.")
     annualized_return: float
     volatility: float
     max_drawdown: float = Field(le=0)
@@ -121,8 +121,10 @@ class PortfolioContext(BaseModel):
 
     profile: InvestorProfile = Field(default_factory=InvestorProfile)
     period: PortfolioPeriod
-    total_value: float = Field(description="Value of the priced holdings, at latest prices.")
-    holdings: list[AssetRisk]
+    total_value: float = Field(
+        gt=0, allow_inf_nan=False, description="Value of the priced holdings, at latest prices."
+    )
+    holdings: list[AssetRisk] = Field(min_length=1, max_length=MAX_SYMBOLS)
     sectors: dict[str, float] = Field(
         description="Weight in each sector, by the providers' classification; holdings "
         "without one are under Unclassified."

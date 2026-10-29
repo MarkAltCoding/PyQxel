@@ -21,6 +21,7 @@ from app.api.v1.endpoints import account, signin
 from app.core.cache import close_cache
 from app.core.config import get_settings
 from app.core.redact import install_log_redaction, redact
+from app.core.request_limits import BodySizeLimit
 from app.db.session import close_database, init_db
 from app.stats.r_bridge import start_r
 from app.version import __version__
@@ -84,14 +85,21 @@ def _json_safe(value: object) -> object:
 
 
 async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
-    """Return FastAPI's usual 422 for an invalid request.
+    """Return FastAPI's usual 422 for an invalid request, without echoing the input.
 
-    Errors echo the input they reject, and a rejected NaN or infinity would otherwise
-    make the response itself unserializable, turning the 422 into a 500.
+    FastAPI's errors repeat the value each one rejects. That sends back whatever was
+    rejected, a pasted answer or a key, and a deeply nested value is encoded
+    recursively until the 422 turns into a 500. Where and why is enough to fix a request.
+    A NaN or infinity left in an error's context is written as a string, which JSON can
+    hold.
     """
+    errors = [
+        {field: value for field, value in error.items() if field != "input"}
+        for error in exc.errors()
+    ]
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        content={"detail": _json_safe(jsonable_encoder(exc.errors()))},
+        content={"detail": _json_safe(jsonable_encoder(errors))},
     )
 
 
@@ -120,6 +128,7 @@ def create_app() -> FastAPI:
     application.exception_handler(HTTPException)(http_error)
 
     application.add_middleware(CompressApiResponses, prefix=settings.api_v1_prefix)
+    application.add_middleware(BodySizeLimit)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

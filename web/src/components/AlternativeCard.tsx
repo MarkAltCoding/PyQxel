@@ -6,6 +6,7 @@ import type { AlternativeData } from '../api/types'
 import { compact, shortDate } from '../lib/format'
 import { ErrorNotice, Notice } from './Notice'
 import { Stat } from './Stat'
+import { safeUrl } from '../lib/safeUrl'
 
 const FORM_NAMES: Record<string, string> = {
   '8-K': 'material events',
@@ -181,7 +182,7 @@ function Body({ data }: { data: AlternativeData }) {
               {data.filings.map((filing, index) => (
                 <li key={`${filing.form}-${filing.filed}-${index}`}>
                   {filing.url ? (
-                    <a href={filing.url} target="_blank" rel="noopener noreferrer">
+                    <a href={safeUrl(filing.url)} target="_blank" rel="noopener noreferrer">
                       Form {filing.form}
                     </a>
                   ) : (

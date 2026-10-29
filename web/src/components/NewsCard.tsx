@@ -9,6 +9,7 @@ import { NewsChart, NewsTable } from '../charts/NewsChart'
 import { number, shortDate, timeAgo } from '../lib/format'
 import { Notice } from './Notice'
 import { Stat } from './Stat'
+import { safeUrl } from '../lib/safeUrl'
 
 const FIRST_ARTICLES = 8
 
@@ -112,7 +113,7 @@ export function NewsCard({ symbol }: { symbol: string }) {
 function Article({ article }: { article: NewsArticle }) {
   return (
     <li>
-      <a href={article.url} target="_blank" rel="noopener noreferrer">
+      <a href={safeUrl(article.url)} target="_blank" rel="noopener noreferrer">
         {article.headline}
       </a>
       <div className="news-meta">
