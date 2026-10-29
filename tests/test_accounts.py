@@ -5,6 +5,7 @@ faked, so nothing touches the network or spends money.
 """
 
 import asyncio
+import json
 from collections.abc import Iterator
 from datetime import date, datetime, timezone
 from typing import Any
@@ -21,7 +22,7 @@ from app.api import auth
 from app.api.v1.endpoints import backtest, research, stocks
 from app.api.v1.endpoints import news as news_route
 from app.core.config import Settings, get_settings
-from app.core.credentials import current_provider_keys
+from app.core.credentials import PROVIDER_HEADERS, current_provider_keys
 from app.data import fetcher
 from app.data.fetcher import DataFetchError
 from app.data.news import NewsNotConfiguredError
@@ -30,6 +31,7 @@ from app.db.session import get_sessionmaker
 from app.db.tables import (
     AnalysisRecord,
     ApiKeyRecord,
+    Base,
     BacktestRecord,
     HoldingRecord,
     IdentityRecord,
@@ -59,8 +61,11 @@ def _key_for(user: User, name: str = "test") -> str:
     return asyncio.run(issue())
 
 
-def _headers(key: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {key}"}
+def _headers(key: str, **provider_keys: str) -> dict[str, str]:
+    """Headers with the API key, and provider keys by name, e.g. ``fmp="..."``."""
+    return {"Authorization": f"Bearer {key}"} | {
+        PROVIDER_HEADERS[name]: value for name, value in provider_keys.items()
+    }
 
 
 @pytest.fixture
@@ -71,8 +76,8 @@ def alice(user: User) -> tuple[User, str]:
 
 @pytest.fixture
 def bob() -> tuple[User, str]:
-    """A second account with its own Anthropic key and no FMP key."""
-    other = asyncio.run(make_user("bob@example.com", "sk-ant-bob-key", None))
+    """A second account."""
+    other = asyncio.run(make_user("bob@example.com"))
     return other, _key_for(other)
 
 
@@ -155,127 +160,100 @@ def test_requests_beyond_the_rate_limit_are_refused(
     assert other.status_code == 200
 
 
-# Credentials.
+# Provider keys, which travel with each request and are never stored.
 
 
-def test_credentials_are_stored_encrypted_and_never_returned(alice: tuple[User, str]) -> None:
-    account, key = alice
-
-    response = client.put(
-        "/api/v1/me/credentials",
-        headers=_headers(key),
-        json={"anthropic_api_key": "sk-ant-new-secret-1234", "fmp_api_key": "fmp-secret-5678"},
-    )
-
-    body = response.json()
-    assert response.status_code == 200
-    assert body["anthropic"] == {"configured": True, "hint": "…1234"}
-    assert body["fmp"] == {"configured": True, "hint": "…5678"}
-    assert "secret" not in response.text
-
-    async def stored() -> UserRecord:
-        async with get_sessionmaker()() as session:
-            record = await session.scalar(select(UserRecord).where(UserRecord.id == account.id))
-            assert record is not None
-            return record
-
-    record = asyncio.run(stored())
-    assert record.anthropic_api_key is not None
-    assert "sk-ant-new-secret" not in record.anthropic_api_key
-
-
-def test_omitted_credentials_are_kept_and_null_removes(alice: tuple[User, str]) -> None:
-    _, key = alice
-    client.put("/api/v1/me/credentials", headers=_headers(key), json={"fmp_api_key": "fmp-1234567"})
-
-    kept = client.put(
-        "/api/v1/me/credentials", headers=_headers(key), json={"anthropic_api_key": None}
-    ).json()
-
-    assert kept["fmp"]["configured"] is True
-    assert kept["anthropic"] == {"configured": False, "hint": None}
-
-
-def test_credentials_need_an_encryption_key(
-    monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str]
+def test_provider_keys_sent_with_a_request_are_reported_but_never_echoed(
+    alice: tuple[User, str],
 ) -> None:
     _, key = alice
-    monkeypatch.setattr(
-        "app.core.security.get_settings", lambda: Settings(credentials_encryption_key=None)
-    )
+
+    body = client.get(
+        "/api/v1/me",
+        headers=_headers(key, anthropic="sk-ant-new-secret-1234", fmp="fmp-secret-5678"),
+    ).json()
+
+    assert body["anthropic"] == {"configured": True, "hint": "…1234"}
+    assert body["fmp"] == {"configured": True, "hint": "…5678"}
+    assert body["finnhub"] == {"configured": False, "hint": None}
+    assert "secret" not in json.dumps(body)
+
+
+def test_provider_keys_are_never_stored(alice: tuple[User, str]) -> None:
+    """Nothing about a sent key reaches the database, and the next request without it
+    has none."""
+    account, key = alice
+    client.get("/api/v1/me", headers=_headers(key, fmp="fmp-secret-5678"))
+
+    async def every_row() -> str:
+        async with get_sessionmaker()() as session:
+            rows = []
+            for table in Base.metadata.sorted_tables:
+                rows += [tuple(row) for row in (await session.execute(select(table))).all()]
+            return repr(rows)
+
+    later = client.get("/api/v1/me", headers=_headers(key)).json()
+
+    assert "fmp-secret" not in asyncio.run(every_row())
+    assert later["fmp"] == {"configured": False, "hint": None}
+    assert not any("key" in column.name for column in UserRecord.__table__.columns)
+
+
+def test_keys_can_no_longer_be_stored(alice: tuple[User, str]) -> None:
+    _, key = alice
 
     response = client.put(
         "/api/v1/me/credentials", headers=_headers(key), json={"fmp_api_key": "fmp-1234567"}
     )
 
-    assert response.status_code == 503
-    assert "CREDENTIALS_ENCRYPTION_KEY" in response.json()["detail"]
+    assert response.status_code in (404, 405)
 
 
-def test_market_data_is_fetched_with_the_requesters_fmp_key(
+@pytest.mark.parametrize("value", ["", "   ", "short", "x" * 513, "bad\nkey-1234567"])
+def test_implausible_keys_are_ignored(alice: tuple[User, str], value: str) -> None:
+    _, key = alice
+
+    body = client.get("/api/v1/me", headers=_headers(key, finnhub=value)).json()
+
+    assert body["finnhub"] == {"configured": False, "hint": None}
+
+
+def test_market_data_is_fetched_with_the_requests_own_keys(
     monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str], bob: tuple[User, str]
 ) -> None:
-    """Each request's provider key is its own user's: Bob has none, so he gets none."""
+    """Each request is served with the keys it carries: Bob sends none, so he gets none."""
     _, alice_key = alice
     _, bob_key = bob
-    client.put(
-        "/api/v1/me/credentials", headers=_headers(alice_key), json={"fmp_api_key": "fmp-alice-1"}
-    )
-    seen: list[str | None] = []
+    seen: list[tuple[str | None, ...]] = []
 
     async def fake_info(symbol: str) -> TickerInfo:
-        key = current_provider_keys().fmp
-        seen.append(None if key is None else key.get_secret_value())
+        keys = current_provider_keys()
+        seen.append(
+            tuple(
+                None if secret is None else secret.get_secret_value()
+                for secret in (keys.fmp, keys.alpha_vantage, keys.finnhub)
+            )
+        )
         return TickerInfo(symbol=symbol, source="fmp")
 
     monkeypatch.setattr(stocks, "fetch_ticker_info", fake_info)
-
-    client.get("/api/v1/stocks/AAPL", headers=_headers(alice_key))
+    sent = {"fmp": "fmp-alice-1", "alpha_vantage": "av-alice-98", "finnhub": "fh-alice-43"}
+    client.get("/api/v1/stocks/AAPL", headers=_headers(alice_key, **sent))
     client.get("/api/v1/stocks/AAPL", headers=_headers(bob_key))
 
-    assert seen == ["fmp-alice-1", None]
+    assert seen == [("fmp-alice-1", "av-alice-98", "fh-alice-43"), (None, None, None)]
 
 
-def test_alpha_vantage_key_is_stored_and_used_for_the_requester(
-    monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str]
-) -> None:
-    """An Alpha Vantage key is stored like the others and reaches the data fetchers."""
-    _, key = alice
-    body = client.put(
-        "/api/v1/me/credentials",
-        headers=_headers(key),
-        json={"alpha_vantage_api_key": "av-secret-9876"},
-    ).json()
-    seen: list[str | None] = []
-
-    async def fake_info(symbol: str) -> TickerInfo:
-        stored = current_provider_keys().alpha_vantage
-        seen.append(None if stored is None else stored.get_secret_value())
-        return TickerInfo(symbol=symbol, source="alpha_vantage")
-
-    monkeypatch.setattr(stocks, "fetch_ticker_info", fake_info)
-    client.get("/api/v1/stocks/AAPL", headers=_headers(key))
-
-    assert body["alpha_vantage"] == {"configured": True, "hint": "…9876"}
-    assert seen == ["av-secret-9876"]
-
-
-def test_finnhub_key_is_stored_and_used_for_the_requesters_news(
+def test_finnhub_key_reaches_the_news_fetcher_for_its_request_only(
     monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str], bob: tuple[User, str]
 ) -> None:
-    """A Finnhub key is stored like the others and reaches the news fetcher, for its owner only."""
     (_, alice_key), (_, bob_key) = alice, bob
-    body = client.put(
-        "/api/v1/me/credentials",
-        headers=_headers(alice_key),
-        json={"finnhub_api_key": "fh-secret-4321"},
-    ).json()
     seen: list[str | None] = []
 
     async def fake_news(symbol: str) -> CompanyNews:
-        stored = current_provider_keys().finnhub
-        seen.append(None if stored is None else stored.get_secret_value())
-        if stored is None:
+        sent = current_provider_keys().finnhub
+        seen.append(None if sent is None else sent.get_secret_value())
+        if sent is None:
             raise NewsNotConfiguredError("No Finnhub key.")
         today = date.today()
         return CompanyNews(
@@ -287,10 +265,11 @@ def test_finnhub_key_is_stored_and_used_for_the_requesters_news(
         )
 
     monkeypatch.setattr(news_route, "fetch_company_news", fake_news)
-    mine = client.get("/api/v1/stocks/AAPL/news", headers=_headers(alice_key))
+    mine = client.get(
+        "/api/v1/stocks/AAPL/news", headers=_headers(alice_key, finnhub="fh-secret-4321")
+    )
     theirs = client.get("/api/v1/stocks/AAPL/news", headers=_headers(bob_key))
 
-    assert body["finnhub"] == {"configured": True, "hint": "…4321"}
     assert (mine.status_code, theirs.status_code) == (200, 403)
     assert seen == ["fh-secret-4321", None]
 
@@ -398,9 +377,11 @@ def test_analyses_are_billed_to_the_requesters_key_and_not_shared(
     _, alice_key = alice
     _, bob_key = bob
 
-    first = client.post("/api/v1/stocks/AAPL/analysis", headers=_headers(alice_key), json=ANALYSIS)
-    again = client.post("/api/v1/stocks/AAPL/analysis", headers=_headers(alice_key), json=ANALYSIS)
-    other = client.post("/api/v1/stocks/AAPL/analysis", headers=_headers(bob_key), json=ANALYSIS)
+    alice_headers = _headers(alice_key, anthropic="sk-ant-alice-key")
+    bob_headers = _headers(bob_key, anthropic="sk-ant-bob-key")
+    first = client.post("/api/v1/stocks/AAPL/analysis", headers=alice_headers, json=ANALYSIS)
+    again = client.post("/api/v1/stocks/AAPL/analysis", headers=alice_headers, json=ANALYSIS)
+    other = client.post("/api/v1/stocks/AAPL/analysis", headers=bob_headers, json=ANALYSIS)
 
     assert [r.status_code for r in (first, again, other)] == [200, 200, 200]
     assert again.json()["cached"] is True
@@ -413,14 +394,13 @@ def test_analyses_are_billed_to_the_requesters_key_and_not_shared(
 def test_analyses_need_the_users_own_anthropic_key(
     analysis_calls: list[str], alice: tuple[User, str]
 ) -> None:
-    """Without a stored key nothing is fetched or billed, and no server key is used."""
+    """Without a key in the request nothing is fetched or billed, and no server key is used."""
     _, key = alice
-    client.put("/api/v1/me/credentials", headers=_headers(key), json={"anthropic_api_key": None})
 
     response = client.post("/api/v1/stocks/AAPL/analysis", headers=_headers(key), json=ANALYSIS)
 
     assert response.status_code == 403
-    assert "PUT /api/v1/me/credentials" in response.json()["detail"]
+    assert "X-Anthropic-Key" in response.json()["detail"]
     assert analysis_calls == []
 
 
@@ -436,9 +416,10 @@ def test_analyses_stop_at_the_users_own_limits(
     )
     assert limits.json()["limits"] == {"ai_requests_per_hour": 1, "ai_requests_per_day": None}
 
-    first = client.post("/api/v1/stocks/AAPL/analysis", headers=_headers(key), json=ANALYSIS)
-    reused = client.post("/api/v1/stocks/AAPL/analysis", headers=_headers(key), json=ANALYSIS)
-    over = client.post("/api/v1/stocks/MSFT/analysis", headers=_headers(key), json=ANALYSIS)
+    headers = _headers(key, anthropic="sk-ant-alice-key")
+    first = client.post("/api/v1/stocks/AAPL/analysis", headers=headers, json=ANALYSIS)
+    reused = client.post("/api/v1/stocks/AAPL/analysis", headers=headers, json=ANALYSIS)
+    over = client.post("/api/v1/stocks/MSFT/analysis", headers=headers, json=ANALYSIS)
 
     assert (first.status_code, reused.status_code) == (200, 200)
     assert over.status_code == 429
@@ -478,23 +459,14 @@ def test_other_users_keys_cannot_be_revoked(alice: tuple[User, str], bob: tuple[
     assert client.get("/api/v1/me", headers=_headers(bob_key)).status_code == 200
 
 
-def test_command_line_creates_accounts_with_imported_keys(
+def test_command_line_creates_accounts(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """``create --import-env-keys`` stores the server's keys in that one account only."""
-    settings = Settings(
-        anthropic_api_key=SecretStr("sk-ant-owner-0001"),
-        financial_data_api_key=SecretStr("fmp-owner-0002"),
-    )
-    monkeypatch.setattr(users_cli, "get_settings", lambda: settings)
-
     async def keep_open() -> None:
         """Leave the test's in-memory database open."""
 
     monkeypatch.setattr(users_cli, "close_database", keep_open)
-    monkeypatch.setattr(
-        "sys.argv", ["users", "create", "Owner@Example.com", "--import-env-keys", "--claim-unowned"]
-    )
+    monkeypatch.setattr("sys.argv", ["users", "create", "Owner@Example.com", "--claim-unowned"])
 
     users_cli.main()
 
@@ -502,8 +474,6 @@ def test_command_line_creates_accounts_with_imported_keys(
     key = output.split("API key (shown once): ")[1].strip()
     me = client.get("/api/v1/me", headers=_headers(key)).json()
     assert me["email"] == "owner@example.com"
-    assert me["anthropic"] == {"configured": True, "hint": "…0001"}
-    assert me["fmp"] == {"configured": True, "hint": "…0002"}
     assert "Claimed unowned results" in output
 
 
@@ -665,11 +635,16 @@ def test_only_the_admin_can_turn_yfinance_on_and_only_for_themselves(
         "/api/v1/me/admin", headers=_headers(alice_key), json={"yfinance_fallback": True}
     ).json()
 
-    assert before["admin"] == {"yfinance_fallback": False}
+    assert before["admin"] == {
+        "yfinance_fallback": False,
+        "yfinance_fallback_for_everyone": False,
+        "yfinance_fallback_from_server": False,
+    }
     assert before["market_data_fallback"] is False
     assert "admin" not in client.get("/api/v1/me", headers=_headers(bob_key)).json()
     assert refused.status_code in (404, 405)
-    assert turned_on["admin"] == {"yfinance_fallback": True}
+    assert turned_on["admin"]["yfinance_fallback"] is True
+    assert turned_on["admin"]["yfinance_fallback_for_everyone"] is False
     assert turned_on["market_data_fallback"] is True
     assert _yfinance_seen(monkeypatch, alice_key) is True
     assert _yfinance_seen(monkeypatch, bob_key) is False
@@ -690,6 +665,45 @@ def test_the_switch_does_nothing_for_an_account_that_is_not_admin(
         assert "admin" not in account
         assert account["market_data_fallback"] is False
         assert _yfinance_seen(monkeypatch, key) is False
+
+
+def test_the_admin_can_turn_yfinance_on_for_everyone(
+    monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str], bob: tuple[User, str]
+) -> None:
+    """The app-wide switch reaches every account, and only the admin can change it."""
+    monkeypatch.setattr(get_settings(), "yfinance_fallback", False)
+    monkeypatch.setattr(get_settings(), "admin_email", "tester@example.com")
+    (_, alice_key), (_, bob_key) = alice, bob
+    everyone = {"yfinance_fallback_for_everyone": True}
+
+    refused = client.put("/api/v1/me/admin", headers=_headers(bob_key), json=everyone)
+    assert refused.status_code in (404, 405)
+    assert _yfinance_seen(monkeypatch, bob_key) is False
+
+    turned_on = client.put("/api/v1/me/admin", headers=_headers(alice_key), json=everyone).json()
+    assert turned_on["admin"]["yfinance_fallback_for_everyone"] is True
+    assert turned_on["admin"]["yfinance_fallback"] is False, "omitted fields are kept"
+    assert _yfinance_seen(monkeypatch, bob_key) is True
+    assert client.get("/api/v1/me", headers=_headers(bob_key)).json()["market_data_fallback"]
+
+    client.put(
+        "/api/v1/me/admin",
+        headers=_headers(alice_key),
+        json={"yfinance_fallback_for_everyone": False},
+    )
+    assert _yfinance_seen(monkeypatch, bob_key) is False
+
+
+def test_the_admin_sees_when_the_server_forces_the_fallback_on(
+    monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str]
+) -> None:
+    monkeypatch.setattr(get_settings(), "yfinance_fallback", True)
+    monkeypatch.setattr(get_settings(), "admin_email", "tester@example.com")
+    _, key = alice
+
+    admin = client.get("/api/v1/me", headers=_headers(key)).json()["admin"]
+
+    assert admin["yfinance_fallback_from_server"] is True
 
 
 def test_admin_email_is_matched_ignoring_case_and_spaces() -> None:

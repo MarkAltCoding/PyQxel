@@ -5,8 +5,8 @@ Browsers cannot set those headers on WebSocket connections, so the quote stream 
 takes the key as a subprotocol: ``new WebSocket(url, ["pyqxel", key])``. Keys are never
 taken from the URL, which hosting platforms record in their request logs.
 
-Authenticating a request also makes the user's own provider keys the ones its market
-data is fetched with (see :mod:`app.core.credentials`).
+Authenticating a request also makes the provider keys it carries, in their own headers,
+the ones its data is fetched with (see :mod:`app.core.credentials`); none are stored.
 """
 
 import logging
@@ -17,9 +17,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.requests import HTTPConnection
 
 from app.core.config import get_settings
-from app.core.credentials import use_provider_keys
+from app.core.credentials import provider_keys_from, use_provider_keys
 from app.core.rate_limit import RateLimitExceeded, check_rate_limit
-from app.core.security import API_KEY_PREFIX, CredentialsUnavailableError
+from app.core.security import API_KEY_PREFIX
+from app.db.app_settings import yfinance_for_everyone
 from app.db.session import get_sessionmaker
 from app.db.users import User
 from app.db.users import authenticate as user_for_key
@@ -52,11 +53,11 @@ def _refuse(
 
 async def authenticate(connection: HTTPConnection) -> User:
     """Identify the user by API key, count the request against their rate limit, and
-    make their provider keys the request's.
+    make the provider keys the request carries the ones it is served with.
 
     Raises:
         HTTPException: 401 for a missing, unknown or revoked key; 429 beyond the rate
-            limit; 503 when the account database or stored credentials are unavailable.
+            limit; 503 when the account database is unavailable.
             WebSocket connections are closed with code 1008 instead.
     """
     key = presented_key(connection)
@@ -70,6 +71,7 @@ async def authenticate(connection: HTTPConnection) -> User:
     try:
         async with get_sessionmaker()() as session:
             user = await user_for_key(session, key)
+            everyone = user is not None and await yfinance_for_everyone(session)
     except SQLAlchemyError as exc:
         logger.error("Could not check an API key: %s", exc)
         raise _refuse(
@@ -93,11 +95,8 @@ async def authenticate(connection: HTTPConnection) -> User:
             {"Retry-After": str(exc.retry_after)},
         ) from exc
 
-    try:
-        use_provider_keys(user.provider_keys())
-    except CredentialsUnavailableError as exc:
-        logger.error("Cannot read the stored credentials of user %s: %s", user.id, exc)
-        raise _refuse(connection, status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    yfinance = everyone or (user.is_admin and user.yfinance_fallback)
+    use_provider_keys(provider_keys_from(connection.headers, yfinance=yfinance))
     return user
 
 

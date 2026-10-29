@@ -38,6 +38,7 @@ from app.ai.agent import (
 )
 from app.ai.cache import analysis_slot, cached_analysis, remember_analysis
 from app.api.auth import CurrentUser
+from app.core.credentials import current_provider_keys
 from app.api.v1.endpoints.fundamentals import (
     build_fundamentals,
     financials_failure_notice,
@@ -77,7 +78,6 @@ from app.data.sec_edgar import (
 )
 from app.db.analyses import get_analysis, list_analyses
 from app.db.screener import PeerGroup, peer_group
-from app.core.security import CredentialsUnavailableError
 from app.db.session import get_session, get_sessionmaker
 from app.db.users import User, ai_usage
 from app.models.fundamentals import Financials, Fundamentals
@@ -384,7 +384,7 @@ def _ai_error(exc: AnalysisError) -> HTTPException:
     if isinstance(exc, AINotConfiguredError):
         return HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"{exc} Update your Anthropic API key with PUT /api/v1/me/credentials.",
+            detail=f"{exc} Update your Anthropic API key in Settings.",
         )
     if isinstance(exc, AIRefusalError):
         return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
@@ -449,18 +449,13 @@ async def _check_ai_limits(user: User) -> None:
 
 
 def _anthropic_key(user: User) -> SecretStr:
-    """The user's own Anthropic key, which every analysis they request is billed to."""
-    try:
-        key = user.anthropic_key()
-    except CredentialsUnavailableError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
-        ) from exc
+    """The Anthropic key the request carries, which the analysis is billed to."""
+    key = current_provider_keys().anthropic
     if key is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Analyses are billed to your own Anthropic account: add your API key "
-            "with PUT /api/v1/me/credentials.",
+            "in Settings, or send it in the X-Anthropic-Key header.",
         )
     return key
 
@@ -635,8 +630,8 @@ async def create_analysis(prepared: Prepared) -> AnalysisResponse:
     and any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of
     it cannot be fetched the report is written without it and ``context.notice`` says so.
 
-    The report is written with, and billed to, your own Anthropic key (``PUT
-    /api/v1/me/credentials``), within the hourly and daily limits you set (``PUT
+    The report is written with, and billed to, your own Anthropic key, sent in the
+    ``X-Anthropic-Key`` header, within the hourly and daily limits you set (``PUT
     /api/v1/me/limits``). Every report is stored under your account. Your report for the
     same options, model and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by
     default) is returned again with ``cached`` set and no charge, unless ``refresh`` is

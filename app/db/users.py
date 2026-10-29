@@ -1,23 +1,17 @@
-"""Storage of accounts, their API keys, provider credentials and AI limits."""
+"""Storage of accounts, their API keys and AI limits.
+
+Provider keys are not stored: browsers keep them and send them with each request.
+"""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
-from pydantic import SecretStr
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.credentials import ProviderKeys
-from app.core.security import (
-    API_KEY_DISPLAY_LENGTH,
-    decrypt_secret,
-    encrypt_secret,
-    generate_api_key,
-    hash_api_key,
-    key_hint,
-)
+from app.core.security import API_KEY_DISPLAY_LENGTH, generate_api_key, hash_api_key
 from app.db.tables import (
     AnalysisRecord,
     ApiKeyRecord,
@@ -28,7 +22,7 @@ from app.db.tables import (
     UserRecord,
     as_utc,
 )
-from app.models.account import AiLimits, AiUsage, ApiKeyInfo, CredentialsUpdate, NewApiKey
+from app.models.account import AiLimits, AiUsage, ApiKeyInfo, NewApiKey
 
 LAST_USED_RESOLUTION: timedelta = timedelta(minutes=1)
 """How stale a key's ``last_used_at`` may get, so busy keys are not written every request."""
@@ -40,19 +34,11 @@ class EmailTakenError(ValueError):
 
 @dataclass(frozen=True)
 class User:
-    """An authenticated account. Provider keys stay encrypted until used."""
+    """An authenticated account."""
 
     id: str
     email: str
     created_at: datetime
-    anthropic_api_key: str | None
-    anthropic_key_hint: str | None
-    fmp_api_key: str | None
-    fmp_key_hint: str | None
-    alpha_vantage_api_key: str | None
-    alpha_vantage_key_hint: str | None
-    finnhub_api_key: str | None
-    finnhub_key_hint: str | None
     limits: AiLimits
     yfinance_fallback: bool = False
 
@@ -62,46 +48,12 @@ class User:
         admin = get_settings().admin_email
         return admin is not None and self.email == admin
 
-    def anthropic_key(self) -> SecretStr | None:
-        """The account's Anthropic key, decrypted, or ``None`` if it has none."""
-        return None if self.anthropic_api_key is None else decrypt_secret(self.anthropic_api_key)
-
-    def fmp_key(self) -> SecretStr | None:
-        """The account's Financial Modeling Prep key, decrypted, or ``None``."""
-        return None if self.fmp_api_key is None else decrypt_secret(self.fmp_api_key)
-
-    def alpha_vantage_key(self) -> SecretStr | None:
-        """The account's Alpha Vantage key, decrypted, or ``None``."""
-        encrypted = self.alpha_vantage_api_key
-        return None if encrypted is None else decrypt_secret(encrypted)
-
-    def finnhub_key(self) -> SecretStr | None:
-        """The account's Finnhub key, decrypted, or ``None``."""
-        return None if self.finnhub_api_key is None else decrypt_secret(self.finnhub_api_key)
-
-    def provider_keys(self) -> ProviderKeys:
-        """The account's market data and news keys, decrypted, for serving its requests."""
-        return ProviderKeys(
-            fmp=self.fmp_key(),
-            alpha_vantage=self.alpha_vantage_key(),
-            finnhub=self.finnhub_key(),
-            yfinance=self.is_admin and self.yfinance_fallback,
-        )
-
 
 def _user(record: UserRecord) -> User:
     return User(
         id=record.id,
         email=record.email,
         created_at=as_utc(record.created_at),
-        anthropic_api_key=record.anthropic_api_key,
-        anthropic_key_hint=record.anthropic_key_hint,
-        fmp_api_key=record.fmp_api_key,
-        fmp_key_hint=record.fmp_key_hint,
-        alpha_vantage_api_key=record.alpha_vantage_api_key,
-        alpha_vantage_key_hint=record.alpha_vantage_key_hint,
-        finnhub_api_key=record.finnhub_api_key,
-        finnhub_key_hint=record.finnhub_key_hint,
         limits=AiLimits(
             ai_requests_per_hour=record.ai_requests_per_hour,
             ai_requests_per_day=record.ai_requests_per_day,
@@ -280,44 +232,6 @@ async def revoke_api_key(session: AsyncSession, user_id: str, key_id: UUID) -> b
         record.revoked_at = datetime.now(timezone.utc)
         await session.commit()
     return True
-
-
-async def update_credentials(
-    session: AsyncSession, user_id: str, changes: CredentialsUpdate
-) -> User:
-    """Store, replace or remove the account's provider keys, encrypted.
-
-    Raises:
-        app.core.security.CredentialsUnavailableError: If no encryption key is configured.
-    """
-    record = await session.get(UserRecord, user_id)
-    assert record is not None
-    if "anthropic_api_key" in changes.model_fields_set:
-        secret = changes.anthropic_api_key
-        record.anthropic_api_key = (
-            None if secret is None else encrypt_secret(secret.get_secret_value())
-        )
-        record.anthropic_key_hint = None if secret is None else key_hint(secret.get_secret_value())
-    if "fmp_api_key" in changes.model_fields_set:
-        secret = changes.fmp_api_key
-        record.fmp_api_key = None if secret is None else encrypt_secret(secret.get_secret_value())
-        record.fmp_key_hint = None if secret is None else key_hint(secret.get_secret_value())
-    if "alpha_vantage_api_key" in changes.model_fields_set:
-        secret = changes.alpha_vantage_api_key
-        record.alpha_vantage_api_key = (
-            None if secret is None else encrypt_secret(secret.get_secret_value())
-        )
-        record.alpha_vantage_key_hint = (
-            None if secret is None else key_hint(secret.get_secret_value())
-        )
-    if "finnhub_api_key" in changes.model_fields_set:
-        secret = changes.finnhub_api_key
-        record.finnhub_api_key = (
-            None if secret is None else encrypt_secret(secret.get_secret_value())
-        )
-        record.finnhub_key_hint = None if secret is None else key_hint(secret.get_secret_value())
-    await session.commit()
-    return _user(record)
 
 
 async def update_limits(session: AsyncSession, user_id: str, limits: AiLimits) -> User:

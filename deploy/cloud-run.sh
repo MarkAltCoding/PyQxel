@@ -49,12 +49,11 @@ RUN_ACCOUNT="$SERVICE-run@$PROJECT_ID.iam.gserviceaccount.com"
 SCHEDULER_ACCOUNT="$SERVICE-scheduler@$PROJECT_ID.iam.gserviceaccount.com"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$(git rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M%S)"
 
-# Secret Manager name -> environment variable. The first two are required; the first three
-# go to the screener job too, and the sign-in clients' secrets to the service only.
-SECRET_NAMES=(pyqxel-database-url pyqxel-credentials-key pyqxel-redis-url
+# Secret Manager name -> environment variable. The first is required; the first two go to
+# the screener job too, and the sign-in clients' secrets to the service only.
+SECRET_NAMES=(pyqxel-database-url pyqxel-redis-url
     pyqxel-github-client-secret pyqxel-google-client-secret)
-SECRET_VARIABLES=(DATABASE_URL CREDENTIALS_ENCRYPTION_KEY REDIS_URL
-    GITHUB_CLIENT_SECRET GOOGLE_CLIENT_SECRET)
+SECRET_VARIABLES=(DATABASE_URL REDIS_URL GITHUB_CLIENT_SECRET GOOGLE_CLIENT_SECRET)
 # The screener's licensed FMP key, given to the screener job only, never to the service.
 SCREENER_SECRET=pyqxel-screener-fmp-key
 
@@ -93,11 +92,11 @@ for i in "${!SECRET_NAMES[@]}"; do
     name="${SECRET_NAMES[$i]}"
     if gc secrets describe "$name" >/dev/null 2>&1; then
         secrets+=("${SECRET_VARIABLES[$i]}=$name:latest")
-        if [[ $i -lt 3 ]]; then job_secrets+=("${SECRET_VARIABLES[$i]}=$name:latest"); fi
-    elif [[ $i -lt 2 ]]; then
+        if [[ $i -lt 2 ]]; then job_secrets+=("${SECRET_VARIABLES[$i]}=$name:latest"); fi
+    elif [[ $i -lt 1 ]]; then
         echo "Missing secret $name; create it as README.md describes." >&2
         exit 1
-    elif [[ $i -eq 2 ]]; then
+    elif [[ $i -eq 1 ]]; then
         echo "No $name secret: running without Redis, so each instance keeps its own caches and rate limits."
     else
         provider="GitHub"

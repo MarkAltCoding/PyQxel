@@ -126,7 +126,7 @@ def _api_key() -> str:
     if api_key is None:
         raise ProviderNotConfiguredError(
             "Analyst ratings, earnings and insider trades come from Finnhub on your own "
-            "key: add it with PUT /api/v1/me/credentials."
+            "key: add it in Settings."
         )
     return api_key
 

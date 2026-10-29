@@ -249,7 +249,8 @@ def finnhub_free_covers(symbol: str) -> bool:
 
 def yfinance_fallback_on() -> bool:
     """Whether yfinance answers for the current user: server-wide with
-    ``YFINANCE_FALLBACK``, or for the admin alone when they turned it on."""
+    ``YFINANCE_FALLBACK``, or as the admin's settings say, for everyone or for the admin
+    alone."""
     return get_settings().yfinance_fallback or current_provider_keys().yfinance
 
 
@@ -287,12 +288,11 @@ def available_providers(
         if kind == "history":
             raise ProviderNotConfiguredError(
                 "Price history is billed to your own Financial Modeling Prep or Alpha "
-                "Vantage plan (Finnhub's free plan has none): add your API key with PUT "
-                "/api/v1/me/credentials."
+                "Vantage plan (Finnhub's free plan has none): add your API key in Settings."
             )
         raise ProviderNotConfiguredError(
             "Market data is billed to your own Financial Modeling Prep, Finnhub or Alpha "
-            "Vantage plan: add your API key with PUT /api/v1/me/credentials."
+            "Vantage plan: add your API key in Settings."
         )
     return providers
 
@@ -427,8 +427,7 @@ async def fmp_get(
         )
     if response.status_code in (401, 403):
         raise ProviderNotConfiguredError(
-            "Financial Modeling Prep rejected your API key; update it with PUT "
-            "/api/v1/me/credentials."
+            "Financial Modeling Prep rejected your API key; update it in Settings."
         )
     if response.status_code == 429:
         await _remember(paused, FMP_LIMIT_PAUSE_SECONDS)
@@ -493,9 +492,7 @@ async def finnhub_get(
     except httpx2.HTTPError as exc:
         raise DataFetchError("Finnhub could not be reached.") from exc
     if response.status_code == 401:
-        raise ProviderNotConfiguredError(
-            "Finnhub rejected your API key; update it with PUT /api/v1/me/credentials."
-        )
+        raise ProviderNotConfiguredError("Finnhub rejected your API key; update it in Settings.")
     if response.status_code == 403:
         await _remember(refused, FINNHUB_REFUSAL_TTL_SECONDS)
         raise ProviderPlanError(
@@ -539,7 +536,7 @@ def _alpha_vantage_error(
     )
     if bad_key or ("premium" in lowered and free and "rate limit" not in lowered):
         return ProviderNotConfiguredError(
-            "Alpha Vantage rejected your API key; update it with PUT /api/v1/me/credentials."
+            "Alpha Vantage rejected your API key; update it in Settings."
         )
     if "burst" in lowered or "per second" in lowered:
         return AlphaVantageBurstError(f"Alpha Vantage refused a burst of requests: {message}")

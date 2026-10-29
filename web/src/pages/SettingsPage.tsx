@@ -1,23 +1,16 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  deleteAccount,
-  getAccount,
-  updateAdminSettings,
-  updateCredentials,
-  updateLimits,
-} from '../api/endpoints'
-import type { Account, AdminSettings, CredentialsUpdate } from '../api/types'
+import { deleteAccount, getAccount, updateAdminSettings, updateLimits } from '../api/endpoints'
+import type { Account, AdminSettings, AdminSettingsUpdate } from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { Stat } from '../components/Stat'
 import { shortDate } from '../lib/format'
+import { setProviderKey, type ProviderName } from '../lib/providerKeys'
 
-type Provider = 'anthropic_api_key' | 'fmp_api_key' | 'alpha_vantage_api_key' | 'finnhub_api_key'
-type ProviderAccount = 'anthropic' | 'fmp' | 'alpha_vantage' | 'finnhub'
+type ProviderAccount = ProviderName
 
 interface ProviderInfo {
-  field: Provider
   name: string
   account: ProviderAccount
   about: string
@@ -33,7 +26,6 @@ const has = (account: Account, provider: ProviderAccount) => account[provider].c
 
 const PROVIDERS: ProviderInfo[] = [
   {
-    field: 'anthropic_api_key',
     name: 'Anthropic',
     account: 'anthropic',
     about: 'Writes AI research reports. Each report is billed to this key.',
@@ -42,7 +34,6 @@ const PROVIDERS: ProviderInfo[] = [
     without: () => 'No AI research reports. Everything else works.',
   },
   {
-    field: 'fmp_api_key',
     name: 'Financial Modeling Prep',
     account: 'fmp',
     about: 'Licensed market data: prices, quotes and company profiles, on your FMP plan.',
@@ -53,13 +44,12 @@ const PROVIDERS: ProviderInfo[] = [
         return 'Price history comes from Alpha Vantage alone: on its free plan, the latest 100 daily bars, not adjusted for splits or dividends, and 25 requests a day. Longer charts, five-year volatility models and long backtests lack history.'
       }
       if (account.market_data_fallback) {
-        return "Price history comes from this server's development fallback (yfinance), which is unlicensed and can break without notice."
+        return 'Price history comes from yfinance, which is unlicensed and can break without notice.'
       }
       return `With neither this nor an Alpha Vantage key there is no price history: charts, volatility, factor exposures, backtests, portfolio tools and AI reports don't work.${has(account, 'finnhub') ? ' Finnhub still gives live quotes and company profiles.' : ''}`
     },
   },
   {
-    field: 'alpha_vantage_api_key',
     name: 'Alpha Vantage',
     account: 'alpha_vantage',
     about:
@@ -72,7 +62,6 @@ const PROVIDERS: ProviderInfo[] = [
         : "Financial statement items SEC filings leave out stay empty, and there's no second source of price history.",
   },
   {
-    field: 'finnhub_api_key',
     name: 'Finnhub',
     account: 'finnhub',
     about:
@@ -141,9 +130,11 @@ export function SettingsPage() {
   const account = useQuery({ queryKey: ['account'], queryFn: () => getAccount() })
   const onSaved = (data: Account) => {
     queryClient.setQueryData(['account'], data)
-    // Data and reports depend on the keys; refetch what was loaded with the old ones.
+    // Data and reports depend on the settings; refetch what was loaded with the old ones.
     void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] !== 'account' })
   }
+  // The account reports the keys each request carries, so it is refetched too.
+  const onKeysChanged = () => void queryClient.invalidateQueries()
 
   return (
     <div className="stack">
@@ -165,16 +156,17 @@ export function SettingsPage() {
             <div>
               <h2>Provider keys</h2>
               <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
-                You pay for your own usage. Keys are encrypted on the server, used only for your
-                requests, and never shown again.
+                You pay for your own usage. Keys stay in this browser and are sent with each of your
+                requests; PyQxel's server never stores them, so no one else, not even whoever runs
+                PyQxel, can read them. Add them on each device you use. Signing out removes them.
               </p>
             </div>
             {PROVIDERS.map((provider) => (
               <KeyForm
-                key={provider.field}
+                key={provider.account}
                 provider={provider}
                 account={account.data}
-                onSaved={onSaved}
+                onChanged={onKeysChanged}
               />
             ))}
           </section>
@@ -222,33 +214,30 @@ function FeatureSummary({ account }: { account: Account }) {
 function KeyForm({
   provider,
   account,
-  onSaved,
+  onChanged,
 }: {
   provider: ProviderInfo
   account: Account
-  onSaved: (account: Account) => void
+  onChanged: () => void
 }) {
   const current = account[provider.account]
   const lost = current.configured ? null : provider.without(account)
   const [value, setValue] = useState('')
-  const save = useMutation({
-    mutationFn: (key: string | null) =>
-      updateCredentials({ [provider.field]: key } as CredentialsUpdate),
-    onSuccess: (data) => {
-      setValue('')
-      onSaved(data)
-    },
-  })
+  const save = (key: string | null) => {
+    setProviderKey(provider.account, key)
+    setValue('')
+    onChanged()
+  }
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (value.trim()) save.mutate(value.trim())
+    if (value.trim()) save(value.trim())
   }
   return (
     <form onSubmit={submit} className="stack" style={{ gap: 8 }}>
       <div className="filter-row" style={{ alignItems: 'center' }}>
         <h3>{provider.name}</h3>
         {current.configured ? (
-          <span className="badge good">✓ Stored · ends {current.hint}</span>
+          <span className="badge good">✓ In this browser · ends {current.hint}</span>
         ) : (
           <span className="badge warning">! Not set</span>
         )}
@@ -276,21 +265,15 @@ function KeyForm({
             onChange={(event) => setValue(event.target.value)}
           />
         </label>
-        <button type="submit" className="button primary" disabled={!value.trim() || save.isPending}>
+        <button type="submit" className="button primary" disabled={!value.trim()}>
           Save
         </button>
         {current.configured && (
-          <button
-            type="button"
-            className="button ghost danger"
-            disabled={save.isPending}
-            onClick={() => save.mutate(null)}
-          >
+          <button type="button" className="button ghost danger" onClick={() => save(null)}>
             Remove
           </button>
         )}
       </div>
-      {save.error !== null && <ErrorNotice error={save.error} />}
     </form>
   )
 }
@@ -358,9 +341,10 @@ function AdminSettingsForm({
   onSaved: (account: Account) => void
 }) {
   const save = useMutation({
-    mutationFn: (yfinance_fallback: boolean) => updateAdminSettings({ yfinance_fallback }),
+    mutationFn: (changes: AdminSettingsUpdate) => updateAdminSettings(changes),
     onSuccess: onSaved,
   })
+  const forced = admin.yfinance_fallback_from_server
   return (
     <section className="card stack" style={{ gap: 14 }}>
       <div>
@@ -369,26 +353,58 @@ function AdminSettingsForm({
           Only your account sees these.
         </p>
       </div>
-      <label className="filter-row" style={{ alignItems: 'center', gap: 10 }}>
-        <input
-          type="checkbox"
-          checked={admin.yfinance_fallback}
-          disabled={save.isPending}
-          onChange={(event) => save.mutate(event.target.checked)}
-        />
-        <span>Fall back to yfinance for my own requests</span>
-        <span className={`badge ${admin.yfinance_fallback ? 'good' : 'warning'}`}>
-          {admin.yfinance_fallback ? '✓ On' : '! Off'}
-        </span>
-      </label>
+      <AdminSwitch
+        label="Fall back to yfinance for my own requests"
+        on={admin.yfinance_fallback || admin.yfinance_fallback_for_everyone || forced}
+        disabled={save.isPending || admin.yfinance_fallback_for_everyone || forced}
+        onChange={(on) => save.mutate({ yfinance_fallback: on })}
+      />
+      <AdminSwitch
+        label="Fall back to yfinance for everyone"
+        on={admin.yfinance_fallback_for_everyone || forced}
+        disabled={save.isPending || forced}
+        onChange={(on) => save.mutate({ yfinance_fallback_for_everyone: on })}
+      />
+      {forced && (
+        <Notice tone="warning">
+          YFINANCE_FALLBACK is on where the server is deployed, so yfinance is on for everyone
+          whatever these say. Deploy with YFINANCE_FALLBACK=false to control it here.
+        </Notice>
+      )}
       <p className="disclaimer">
-        Fills the gaps in your free FMP and Alpha Vantage plans (full adjusted price history, ETFs,
-        indices, foreign listings, intraday bars and exchange rates) with Yahoo data, which is
-        unlicensed and can break without notice. It applies to your requests only; other accounts
-        never get yfinance data. The screener refresh is not affected.
+        yfinance fills the gaps in free FMP and Alpha Vantage plans (full adjusted price history,
+        ETFs, indices, foreign listings, intraday bars and exchange rates) with Yahoo data, which is
+        unlicensed and can break without notice. For yourself it is personal use. For everyone it
+        also refreshes the screener with yfinance and Nasdaq data, and shows Yahoo&apos;s data to
+        other people, which Yahoo&apos;s terms do not allow.
       </p>
       {save.error !== null && <ErrorNotice error={save.error} />}
     </section>
+  )
+}
+
+function AdminSwitch({
+  label,
+  on,
+  disabled,
+  onChange,
+}: {
+  label: string
+  on: boolean
+  disabled: boolean
+  onChange: (on: boolean) => void
+}) {
+  return (
+    <label className="filter-row" style={{ alignItems: 'center', gap: 10 }}>
+      <input
+        type="checkbox"
+        checked={on}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span>{label}</span>
+      <span className={`badge ${on ? 'good' : 'warning'}`}>{on ? '✓ On' : '! Off'}</span>
+    </label>
   )
 }
 

@@ -34,7 +34,7 @@
             "$ref": "#/components/schemas/AiLimits"
           },
           "market_data_fallback": {
-            "description": "Whether your requests fall back to yfinance when no licensed provider answers, as in development.",
+            "description": "Whether your requests fall back to yfinance when no licensed provider answers.",
             "title": "Market Data Fallback",
             "type": "boolean"
           },
@@ -1641,77 +1641,6 @@
           "symbols"
         ],
         "title": "CopulaRequest",
-        "type": "object"
-      },
-      "CredentialsUpdate": {
-        "description": "Provider keys to store. Omitted fields are left as they are; ``null`` removes a key.\n\nKeys are encrypted at rest and only ever used for this account's own requests.",
-        "properties": {
-          "alpha_vantage_api_key": {
-            "anyOf": [
-              {
-                "format": "password",
-                "maxLength": 512,
-                "minLength": 8,
-                "type": "string",
-                "writeOnly": true
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Alpha Vantage key, used for market data and financial statements the other sources leave out.",
-            "title": "Alpha Vantage Api Key"
-          },
-          "anthropic_api_key": {
-            "anyOf": [
-              {
-                "format": "password",
-                "maxLength": 512,
-                "minLength": 8,
-                "type": "string",
-                "writeOnly": true
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Anthropic API key, used for this account's analyses.",
-            "title": "Anthropic Api Key"
-          },
-          "finnhub_api_key": {
-            "anyOf": [
-              {
-                "format": "password",
-                "maxLength": 512,
-                "minLength": 8,
-                "type": "string",
-                "writeOnly": true
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Finnhub key, used for company news.",
-            "title": "Finnhub Api Key"
-          },
-          "fmp_api_key": {
-            "anyOf": [
-              {
-                "format": "password",
-                "maxLength": 512,
-                "minLength": 8,
-                "type": "string",
-                "writeOnly": true
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Financial Modeling Prep key, used for its market data.",
-            "title": "Fmp Api Key"
-          }
-        },
-        "title": "CredentialsUpdate",
         "type": "object"
       },
       "CustomBacktestRequest": {
@@ -6434,7 +6363,7 @@
         "type": "object"
       },
       "ProviderCredential": {
-        "description": "Whether a provider key is stored, and its last characters to recognize it by.",
+        "description": "Whether the request carried a provider's key, and its last characters to recognize\nit by. PyQxel stores no provider keys.",
         "properties": {
           "configured": {
             "title": "Configured",
@@ -9237,7 +9166,7 @@
         ]
       },
       "get": {
-        "description": "Return the account: which provider keys are stored, AI limits and recent usage.",
+        "description": "Return the account: which provider keys this request carried, AI limits and recent\nusage.",
         "operationId": "read_account_api_v1_me_get",
         "responses": {
           "200": {
@@ -9355,48 +9284,6 @@
           }
         },
         "summary": "Revoke an API key",
-        "tags": [
-          "account"
-        ]
-      }
-    },
-    "/api/v1/me/credentials": {
-      "put": {
-        "description": "Store, replace or remove your Anthropic, Financial Modeling Prep, Alpha Vantage and\nFinnhub keys.\n\nOmitted fields are left as they are and ``null`` removes a key. Keys are encrypted at\nrest, never returned, and used only for your own requests: analyses are billed to\nyour Anthropic account, market data to your FMP plan, the gaps Alpha Vantage\nfills to your Alpha Vantage plan, and company news to your Finnhub plan.\n\nReturns 503 when the server has no ``CREDENTIALS_ENCRYPTION_KEY``.",
-        "operationId": "store_credentials_api_v1_me_credentials_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CredentialsUpdate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Account"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Store your provider keys",
         "tags": [
           "account"
         ]
@@ -9969,7 +9856,7 @@
     },
     "/api/v1/stocks/{symbol}/alternative": {
       "get": {
-        "description": "Return ``symbol``'s lobbying, federal contracts, patents and recent SEC filings.\n\n``lobbying_years`` totals last year's and this year's quarterly disclosures under the Lobbying\nDisclosure Act, whether the company lobbied itself or hired firms, the newest of\nwhich are in ``lobbying``. ``contracts_total`` sums the last year's federal awards\nfrom USAspending.gov to the company and its subsidiaries, ``contract_agencies`` says\nwho awarded them, and ``contracts`` lists the largest. ``patents_count`` counts the\npatents and applications the USPTO published in the last year, the newest of which\nare in ``patents``. ``filing_counts`` counts the last 90 days of SEC filings by form,\nand ``filings`` lists the newest.\n\nFetched on your own Finnhub key (``PUT /api/v1/me/credentials``), whose free plan\ncovers US companies, and reused for a day. A part Finnhub cannot supply is left\nempty and named in ``notice``. Returns 403 without a valid Finnhub key.",
+        "description": "Return ``symbol``'s lobbying, federal contracts, patents and recent SEC filings.\n\n``lobbying_years`` totals last year's and this year's quarterly disclosures under the Lobbying\nDisclosure Act, whether the company lobbied itself or hired firms, the newest of\nwhich are in ``lobbying``. ``contracts_total`` sums the last year's federal awards\nfrom USAspending.gov to the company and its subsidiaries, ``contract_agencies`` says\nwho awarded them, and ``contracts`` lists the largest. ``patents_count`` counts the\npatents and applications the USPTO published in the last year, the newest of which\nare in ``patents``. ``filing_counts`` counts the last 90 days of SEC filings by form,\nand ``filings`` lists the newest.\n\nFetched on your own Finnhub key (``X-Finnhub-Key``), whose free plan\ncovers US companies, and reused for a day. A part Finnhub cannot supply is left\nempty and named in ``notice``. Returns 403 without a valid Finnhub key.",
         "operationId": "get_alternative_api_v1_stocks__symbol__alternative_get",
         "parameters": [
           {
@@ -10015,7 +9902,7 @@
     },
     "/api/v1/stocks/{symbol}/analysis": {
       "post": {
-        "description": "Have Claude write an investment thesis or risk summary for ``symbol``.\n\nThe report is grounded in the ticker snapshot, return, volatility and drawdown\nstatistics computed from daily adjusted closes over ``period``, factor exposures, a\nGARCH(1,1) volatility forecast fit to five years of daily returns, the stock's\nscreening metrics ranked among its industry or sector peers, the company's financial\nstatement figures and valuation multiples, the headlines and summaries of the last\ntwo weeks of news, analysts' ratings, earnings surprises, the next earnings date,\ninsiders' trades and sentiment, key metrics and peers, lobbying, federal contracts,\npatents and recent SEC filings from Finnhub (with a Finnhub key stored), the market\nbackdrop of upcoming FOMC meetings (for every account) and, with a Finnhub key, major\nearnings reports, IPOs, holidays and market headlines, and, unless\n``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K\nand any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of\nit cannot be fetched the report is written without it and ``context.notice`` says so.\n\nThe report is written with, and billed to, your own Anthropic key (``PUT\n/api/v1/me/credentials``), within the hourly and daily limits you set (``PUT\n/api/v1/me/limits``). Every report is stored under your account. Your report for the\nsame options, model and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by\ndefault) is returned again with ``cached`` set and no charge, unless ``refresh`` is\ntrue. Identical requests that arrive together are written once.\n\nReturns 403 without a valid Anthropic key, 404 for unknown symbols, 422 when the\nwindow has too few bars or the model declines, 429 beyond your AI limits, 502 when a\nprovider fails, and 503 when Anthropic rate limits your account.",
+        "description": "Have Claude write an investment thesis or risk summary for ``symbol``.\n\nThe report is grounded in the ticker snapshot, return, volatility and drawdown\nstatistics computed from daily adjusted closes over ``period``, factor exposures, a\nGARCH(1,1) volatility forecast fit to five years of daily returns, the stock's\nscreening metrics ranked among its industry or sector peers, the company's financial\nstatement figures and valuation multiples, the headlines and summaries of the last\ntwo weeks of news, analysts' ratings, earnings surprises, the next earnings date,\ninsiders' trades and sentiment, key metrics and peers, lobbying, federal contracts,\npatents and recent SEC filings from Finnhub (with a Finnhub key stored), the market\nbackdrop of upcoming FOMC meetings (for every account) and, with a Finnhub key, major\nearnings reports, IPOs, holidays and market headlines, and, unless\n``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K\nand any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of\nit cannot be fetched the report is written without it and ``context.notice`` says so.\n\nThe report is written with, and billed to, your own Anthropic key, sent in the\n``X-Anthropic-Key`` header, within the hourly and daily limits you set (``PUT\n/api/v1/me/limits``). Every report is stored under your account. Your report for the\nsame options, model and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by\ndefault) is returned again with ``cached`` set and no charge, unless ``refresh`` is\ntrue. Identical requests that arrive together are written once.\n\nReturns 403 without a valid Anthropic key, 404 for unknown symbols, 422 when the\nwindow has too few bars or the model declines, 429 beyond your AI limits, 502 when a\nprovider fails, and 503 when Anthropic rate limits your account.",
         "operationId": "create_analysis_api_v1_stocks__symbol__analysis_post",
         "parameters": [
           {
@@ -10502,7 +10389,7 @@
     },
     "/api/v1/stocks/{symbol}/metrics": {
       "get": {
-        "description": "Return ``symbol``'s key metrics and peers, from Finnhub's basic financials.\n\nThe metrics cover the 52-week range and returns, beta and trading volume; valuation\nmultiples, including a forward P/E on analysts' estimates; the dividend yield, payout\nand growth; margins and returns on capital; growth; and liquidity and leverage, as\nFinnhub computes them from its own data, so they can differ slightly from the\nfundamentals built from SEC filings. Ratios are decimals and totals are in units.\n``peers`` lists companies Finnhub places in the same industry.\n\nFetched on your own Finnhub key (``PUT /api/v1/me/credentials``), whose free plan\ncovers US listings, and reused for six hours. Returns 403 without a valid Finnhub key,\n402 when your plan does not cover the company, 404 when Finnhub has no metrics for it,\nand 502 when Finnhub fails.",
+        "description": "Return ``symbol``'s key metrics and peers, from Finnhub's basic financials.\n\nThe metrics cover the 52-week range and returns, beta and trading volume; valuation\nmultiples, including a forward P/E on analysts' estimates; the dividend yield, payout\nand growth; margins and returns on capital; growth; and liquidity and leverage, as\nFinnhub computes them from its own data, so they can differ slightly from the\nfundamentals built from SEC filings. Ratios are decimals and totals are in units.\n``peers`` lists companies Finnhub places in the same industry.\n\nFetched on your own Finnhub key (``X-Finnhub-Key``), whose free plan\ncovers US listings, and reused for six hours. Returns 403 without a valid Finnhub key,\n402 when your plan does not cover the company, 404 when Finnhub has no metrics for it,\nand 502 when Finnhub fails.",
         "operationId": "get_metrics_api_v1_stocks__symbol__metrics_get",
         "parameters": [
           {
@@ -10548,7 +10435,7 @@
     },
     "/api/v1/stocks/{symbol}/news": {
       "get": {
-        "description": "Return the last two weeks of news about ``symbol`` from Finnhub, newest first.\n\n``overview`` counts every article in the window by day and by publisher, while\n``articles`` holds the newest ``limit`` of them. Copies of a syndicated story under\nthe same headline count once. News is fetched on your own Finnhub key (``PUT\n/api/v1/me/credentials``), whose free plan covers North American companies, and\nreused for ten minutes. When Finnhub cannot be reached, the last news fetched in the\npast day is returned with a ``notice``.\n\nReturns 403 without a valid Finnhub key, 402 when your plan does not cover the\ncompany, 503 when Finnhub rate limits your key, and 502 when Finnhub fails.",
+        "description": "Return the last two weeks of news about ``symbol`` from Finnhub, newest first.\n\n``overview`` counts every article in the window by day and by publisher, while\n``articles`` holds the newest ``limit`` of them. Copies of a syndicated story under\nthe same headline count once. News is fetched on your own Finnhub key\n(``X-Finnhub-Key``), whose free plan covers North American companies, and\nreused for ten minutes. When Finnhub cannot be reached, the last news fetched in the\npast day is returned with a ``notice``.\n\nReturns 403 without a valid Finnhub key, 402 when your plan does not cover the\ncompany, 503 when Finnhub rate limits your key, and 502 when Finnhub fails.",
         "operationId": "get_news_api_v1_stocks__symbol__news_get",
         "parameters": [
           {
@@ -10608,7 +10495,7 @@
     },
     "/api/v1/stocks/{symbol}/signals": {
       "get": {
-        "description": "Return what analysts, earnings and insiders say about ``symbol``, from Finnhub.\n\n``recommendations`` counts analysts' ratings by month, ``earnings`` compares the last\nquarters' reported EPS with the estimate, ``next_earnings`` gives the next report\nwithin three months, ``insiders`` totals the last 90 days of open-market purchases\nand sales filed on Form 4, the newest of which are listed in ``insider_trades``, and\n``insider_sentiment`` gives Finnhub's monthly share purchase ratio for the last year.\n\nFetched on your own Finnhub key (``PUT /api/v1/me/credentials``), whose free plan\ncovers US companies, and reused for six hours. A part Finnhub cannot supply is left\nempty and named in ``notice``. Returns 403 without a valid Finnhub key.",
+        "description": "Return what analysts, earnings and insiders say about ``symbol``, from Finnhub.\n\n``recommendations`` counts analysts' ratings by month, ``earnings`` compares the last\nquarters' reported EPS with the estimate, ``next_earnings`` gives the next report\nwithin three months, ``insiders`` totals the last 90 days of open-market purchases\nand sales filed on Form 4, the newest of which are listed in ``insider_trades``, and\n``insider_sentiment`` gives Finnhub's monthly share purchase ratio for the last year.\n\nFetched on your own Finnhub key (``X-Finnhub-Key``), whose free plan\ncovers US companies, and reused for six hours. A part Finnhub cannot supply is left\nempty and named in ``notice``. Returns 403 without a valid Finnhub key.",
         "operationId": "get_signals_api_v1_stocks__symbol__signals_get",
         "parameters": [
           {

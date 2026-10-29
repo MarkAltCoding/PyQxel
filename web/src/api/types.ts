@@ -5,8 +5,16 @@ type Schemas = components['schemas']
 
 /** Only the admin's account is sent `admin`; it is left out of the API schema. */
 export interface AdminSettings {
+  /** The yfinance fallback for the admin's own requests. */
   yfinance_fallback: boolean
+  /** The yfinance fallback for every account and the screener refresh. */
+  yfinance_fallback_for_everyone: boolean
+  /** YFINANCE_FALLBACK, set where the server is deployed; read-only here. */
+  yfinance_fallback_from_server: boolean
 }
+export type AdminSettingsUpdate = Partial<
+  Pick<AdminSettings, 'yfinance_fallback' | 'yfinance_fallback_for_everyone'>
+>
 export type Account = Schemas['Account'] & { admin?: AdminSettings }
 export type AnalysisList = Schemas['AnalysisList']
 export type AnalysisRequest = Schemas['AnalysisRequest']
@@ -17,7 +25,6 @@ export type BacktestRequest = Schemas['BacktestRequest']
 export type BacktestResponse = Schemas['BacktestResponse']
 export type BacktestSummary = Schemas['BacktestSummary']
 export type CopulaFitResponse = Schemas['CopulaFitResponse']
-export type CredentialsUpdate = Schemas['CredentialsUpdate']
 export type CustomBacktestRequest = Schemas['CustomBacktestRequest']
 export type CustomStrategy = Schemas['CustomStrategy']
 export type AiLimits = Schemas['AiLimits']

@@ -188,7 +188,7 @@ def test_holdings_belong_to_their_account(
     from app.api.auth import authenticate
 
     client.put("/api/v1/portfolio/holdings", json={"holdings": [{"symbol": "AAPL", "shares": 1}]})
-    other = asyncio.run(make_user("other@example.com", None, None))
+    other = asyncio.run(make_user("other@example.com"))
 
     async def as_other() -> User:
         return other

@@ -28,7 +28,7 @@ async def get_signals(symbol: Symbol) -> MarketSignals:
     and sales filed on Form 4, the newest of which are listed in ``insider_trades``, and
     ``insider_sentiment`` gives Finnhub's monthly share purchase ratio for the last year.
 
-    Fetched on your own Finnhub key (``PUT /api/v1/me/credentials``), whose free plan
+    Fetched on your own Finnhub key (``X-Finnhub-Key``), whose free plan
     covers US companies, and reused for six hours. A part Finnhub cannot supply is left
     empty and named in ``notice``. Returns 403 without a valid Finnhub key.
     """

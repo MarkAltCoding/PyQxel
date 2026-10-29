@@ -21,7 +21,7 @@ async def get_metrics(symbol: Symbol) -> CompanyMetrics:
     fundamentals built from SEC filings. Ratios are decimals and totals are in units.
     ``peers`` lists companies Finnhub places in the same industry.
 
-    Fetched on your own Finnhub key (``PUT /api/v1/me/credentials``), whose free plan
+    Fetched on your own Finnhub key (``X-Finnhub-Key``), whose free plan
     covers US listings, and reused for six hours. Returns 403 without a valid Finnhub key,
     402 when your plan does not cover the company, 404 when Finnhub has no metrics for it,
     and 502 when Finnhub fails.

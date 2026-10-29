@@ -169,13 +169,12 @@ def test_hosted_postgres_urls_use_asyncpg(given: str, expected: str) -> None:
 def test_secrets_pasted_with_a_newline_still_work(monkeypatch: pytest.MonkeyPatch) -> None:
     """Values pasted into a secret manager often keep the Enter that ended them."""
     monkeypatch.setenv("DATABASE_URL", "postgresql://db/app?sslmode=require\n")
-    monkeypatch.setenv("CREDENTIALS_ENCRYPTION_KEY", "key\n")
+    monkeypatch.setenv("SEC_USER_AGENT", "PyQxel test@example.com\n")
 
     settings = Settings()
 
     assert settings.database_url == "postgresql+asyncpg://db/app?ssl=require"
-    assert settings.credentials_encryption_key is not None
-    assert settings.credentials_encryption_key.get_secret_value() == "key"
+    assert settings.sec_user_agent == "PyQxel test@example.com"
 
 
 def test_pgbouncer_mode_turns_off_prepared_statement_caching(

@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { configureClient } from '../api/client'
 import { getAccount, revokeSignIn } from '../api/endpoints'
+import { clearProviderKeys } from '../lib/providerKeys'
 import { readStored, writeStored } from '../lib/storage'
 import { AuthContext } from './useAuth'
 
@@ -26,6 +27,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(() => {
     // Best effort: signing out of this browser does not wait on the server.
     if (apiKey) revokeSignIn(apiKey).catch(() => {})
+    // Provider keys stay through an expired sign-in, but not past signing out, so the
+    // next person to use this browser cannot spend them.
+    clearProviderKeys()
     forget()
   }, [apiKey, forget])
 

@@ -30,10 +30,9 @@ class Base(DeclarativeBase):
 
 
 class UserRecord(Base):
-    """A PyQxel account, with the provider keys and AI limits its owner set.
+    """A PyQxel account and the AI limits its owner set.
 
-    Provider keys are encrypted (see :mod:`app.core.security`); the hints are their last
-    characters, shown so the owner can recognize them.
+    Provider keys are not stored: browsers keep them and send them with each request.
     """
 
     __tablename__ = "users"
@@ -41,19 +40,21 @@ class UserRecord(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    anthropic_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
-    anthropic_key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    fmp_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
-    fmp_key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    alpha_vantage_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
-    alpha_vantage_key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    finnhub_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
-    finnhub_key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
     ai_requests_per_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ai_requests_per_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     yfinance_fallback: Mapped[bool] = mapped_column(Boolean, server_default=false())
     """Whether the admin turned on the yfinance fallback for their own requests; ignored
     for every other account."""
+
+
+class AppSettingsRecord(Base):
+    """Settings for the whole server, which the admin changes; one row, ``id`` 1."""
+
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    yfinance_fallback: Mapped[bool] = mapped_column(Boolean, server_default=false())
+    """Whether every account's requests, and the screener refresh, fall back to yfinance."""
 
 
 class ApiKeyRecord(Base):

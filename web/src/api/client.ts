@@ -1,5 +1,7 @@
-// A small fetch wrapper: sends the API key, encodes JSON, and turns error responses
-// into ApiError with the server's message.
+// A small fetch wrapper: sends the API key and this browser's provider keys, encodes
+// JSON, and turns error responses into ApiError with the server's message.
+
+import { providerKeyHeaders } from '../lib/providerKeys'
 
 let apiKey: string | null = null
 let onUnauthorized: (() => void) | null = null
@@ -65,7 +67,7 @@ export async function errorMessage(response: Response): Promise<string> {
 }
 
 export async function send(path: string, options: RequestOptions = {}): Promise<Response> {
-  const headers: Record<string, string> = { Accept: 'application/json' }
+  const headers: Record<string, string> = { Accept: 'application/json', ...providerKeyHeaders() }
   const key = options.key ?? apiKey
   if (key) headers.Authorization = `Bearer ${key}`
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
