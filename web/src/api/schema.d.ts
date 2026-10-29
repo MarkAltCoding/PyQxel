@@ -362,8 +362,10 @@ export interface paths {
      * @description Return the latest market-wide news in ``category``, newest first, from Finnhub.
      *
      *     ``general`` is business and markets news, ``forex`` currencies, ``crypto``
-     *     cryptocurrencies, and ``merger`` mergers and acquisitions. Reused for five minutes.
-     *     Returns 403 without a valid Finnhub key, and 502 when Finnhub fails.
+     *     cryptocurrencies, and ``merger`` mergers and acquisitions. Each article's
+     *     ``importance``, from 0 to 1, scores how market-moving it looks: the topics its
+     *     headline names, its publisher and its age. Reused for five minutes. Returns 403
+     *     without a valid Finnhub key, and 502 when Finnhub fails.
      */
     get: operations['get_market_news_api_v1_markets_news_get']
     put?: never
@@ -4421,6 +4423,11 @@ export interface components {
       category?: string | null
       /** Headline */
       headline: string
+      /**
+       * Importance
+       * @description How market-moving the headline looks, from 0 to 1: its publisher, the topics it names and how recent it is; null where not scored.
+       */
+      importance?: number | null
       /**
        * Published At
        * Format: date-time
