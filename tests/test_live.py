@@ -5,8 +5,12 @@ a key from ``.env`` are skipped when it is not set. Assertions are loose because
 market data changes daily: they check that each service answers with plausible data.
 """
 
+import importlib.util
+import json
 from collections.abc import Iterator
 from datetime import date, timedelta
+from pathlib import Path
+from typing import Any
 
 import httpx2
 import pandas as pd
@@ -502,3 +506,115 @@ async def test_finnhub_free_plan_covers_market_and_alternative_data(
     assert not records.missing, records.missing
     assert records.lobbying and records.contracts and records.filings
     assert financials.revenue is not None and financials.revenue.ttm
+
+
+def _sse_result(
+    client: TestClient, path: str, body: dict[str, object]
+) -> tuple[list[str], dict[str, Any]]:
+    """POST to a Claude stream; return the event names and the result's data."""
+    names: list[str] = []
+    result: dict[str, Any] = {}
+    with client.stream("POST", path, json=body) as response:
+        assert response.status_code == 200, response.read()
+        event = ""
+        for line in response.iter_lines():
+            if line.startswith("event: "):
+                event = line[len("event: ") :]
+                names.append(event)
+            elif line.startswith("data: ") and event in ("result", "error"):
+                result = json.loads(line[len("data: ") :])
+    assert names[-1] == "result", result
+    return names, result
+
+
+@pytest.mark.paid
+def test_claude_portfolio_review_with_a_plan(client: TestClient) -> None:
+    """The streamed review of a real portfolio: a schema-valid review whose target
+    allocation becomes whole-share orders, tailored to the profile given.
+
+    Makes one billed request, roughly $0.05 to $0.15.
+    """
+    holdings = [{"symbol": "AAPL", "shares": 20}, {"symbol": "MSFT", "shares": 10}]
+    holdings.append({"symbol": "NVDA", "shares": 30})
+    assert client.put("/api/v1/portfolio/holdings", json={"holdings": holdings}).status_code == 200
+    profile = {
+        "risk_tolerance": "moderate",
+        "horizon_years": 15,
+        "cash_to_invest": 5000,
+        "notes": "Taxable account; keep at least some AAPL.",
+    }
+
+    names, result = _sse_result(
+        client, "/api/v1/portfolio/analysis/stream", {"period": "1y", "profile": profile}
+    )
+
+    assert names[0] == "context" and "report" in names
+    report, plan = result["report"], result["plan"]
+    targets = {t["symbol"].upper(): t["target_weight"] for t in report["target_allocation"]}
+    assert 0.95 <= sum(targets.values()) <= 1.05, targets
+    assert targets.get("AAPL", 0) > 0, "the notes asked to keep some AAPL"
+    assert plan["total_value"] > 5000 and plan["trades"]
+    for trade in plan["trades"]:
+        assert trade["value"] > 0 and trade["action"] in ("buy", "sell")
+        assert trade["shares"] is None or trade["shares"] == int(trade["shares"])
+        if trade["order_type"] == "limit" and trade["price"]:
+            assert abs(trade["limit_price"] / trade["price"] - 1) < 0.2
+    print(json.dumps({"report": report, "plan": plan}, indent=2))
+
+
+@pytest.mark.paid
+def test_claude_coding_assistant_fixes_a_failing_strategy(client: TestClient) -> None:
+    """The assistant gets a strategy that fails in the real harness, with its error, and
+    returns code that runs there and passes the harness's checks.
+
+    Makes one billed request, roughly $0.03 to $0.10.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "strategy_harness",
+        Path(__file__).parents[1] / "web" / "src" / "runners" / "python" / "harness.py",
+    )
+    assert spec is not None and spec.loader is not None
+    harness = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(harness)
+    bars = client.get("/api/v1/stocks/SPY/history", params={"period": "2y"}).json()["bars"]
+    payload = json.dumps(
+        {
+            "timestamps": [bar["timestamp"] for bar in bars],
+            **{
+                key: [bar[key] for bar in bars]
+                for key in ("open", "high", "low", "close", "volume")
+            },
+        }
+    )
+    code = (
+        "def strategy(bars: pd.DataFrame) -> pd.Series:\n"
+        "    close = bars['Close']\n"
+        "    return (close > close.rolling(50).mean()).astype(float) * close.rolling(20).std()\n"
+    )
+    failed = json.loads(harness.run_strategy(code, payload))
+    assert failed["ok"] is False, "the strategy is meant to fail"
+
+    response = client.post(
+        "/api/v1/backtests/assistant",
+        json={
+            "language": "python",
+            "code": code,
+            "message": "This fails. Fix it so it is long while above the 50-day average, "
+            "sized smaller when volatility is high.",
+            "symbol": "SPY",
+            "interval": "1d",
+            "last_run": {
+                "error_kind": failed["error"]["kind"],
+                "message": failed["error"]["message"],
+                "line": failed["error"]["line"],
+                "traceback": failed["error"]["traceback"],
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    reply = response.json()["reply"]
+    assert reply["code"], reply["explanation"]
+    fixed = json.loads(harness.run_strategy(reply["code"], payload))
+    assert fixed["ok"], fixed
+    print(f"Error sent: {failed['error']['message']}\n\n{reply['explanation']}\n\n{reply['code']}")
