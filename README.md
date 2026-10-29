@@ -106,7 +106,7 @@ An AI-native research and quantitative analysis platform that helps investors ch
    * **Search** by ticker or company name, over the screened universe (`GET /api/v1/search?q=`) and, with a Finnhub key, Finnhub's US listings, which adds ETFs, ADRs and stocks outside the universe; any other ticker can be typed in directly.
    * **Stock pages** with price and volume, factor exposures with confidence intervals, GARCH volatility with its forecast, and the AI research report, written on request and streamed as Claude writes it.
    * **Portfolio**: holdings saved to your account (`GET` and `PUT /api/v1/portfolio/holdings`, as symbols and share counts valued at the latest prices), a Monte Carlo fan chart of outcomes, and a heatmap of how the holdings move together, from the copula fit.
-   * **Backtest**: run strategies on any symbol, compare them with buy-and-hold, and reopen or delete saved runs.
+   * **Backtest**: run strategies on any symbol, compare them with buy-and-hold, and reopen or delete saved runs. *Across tickers* ranks a universe you type in, or a preset such as the sector ETFs or your holdings, and holds the best of it.
    * **Screener**: filter and sort the universe on any metric, by sector and universe.
    * **Settings**: store your Anthropic, FMP and Alpha Vantage keys and set your AI limits.
 
@@ -317,6 +317,16 @@ Every strategy needs only adjusted closes, so it runs on any symbol; when the wi
 In a portfolio, each holding is traded on its own prices on the days every holding traded, its position is scaled by its weight, and weights are reset daily. `assets` gives each holding's contribution, exposure and trades.
 
 Both return `attribution` for daily bars: a regression of the strategy's daily excess returns on `carhart4` factors (or `ff3`, `ff5`, or `null` to skip). `attribution.fit.alpha` is the annualized return the factors leave unexplained, with a Newey-West t-statistic, and the betas show how much of the result was simply market, size, value or momentum exposure. Single-stock backtests are stored as described above; portfolio backtests are not.
+
+**Across tickers.** `POST /api/v1/backtests/cross-sectional` ranks 3 to 60 `symbols` against one another at the last close of every week, month or quarter (`rebalance`), buys the best and holds them until the next ranking. Signals (`signal.type`):
+
+* `momentum`: the return from `lookback` bars ago to `skip` bars ago, highest first (default 252/21, the year leaving out the latest month).
+* `risk_adjusted_momentum`: the same return over the volatility of daily returns across those bars.
+* `trend`: how far the close is above its `window`-bar average (default 200).
+* `reversal`: the return over the last `lookback` bars, lowest first (default 21).
+* `low_volatility`: the volatility of the last `window` daily returns, lowest first (default 126).
+
+Each leg holds the top `quantile` of the stocks ranked (default 0.2, at least one) or the top `top_n`, split equally or, with `weighting` `inverse_volatility`, in inverse proportion to their volatility over `volatility_window` days. With `long_short` as many of the bottom-ranked stocks are shorted, each leg one unit of capital, so the portfolio is dollar-neutral. Weights drift between rebalances, and each rebalance pays `cost_bps` on the capital it trades; `cash_interest` and `attribution` work as above. The benchmark holds every stock equally, rebalanced daily, without costs. Stocks need not share a history: each is ranked once its signal has a full window, so a recent listing joins later instead of shortening the window for all, and `notice` names the stocks that joined late or never. `information_coefficient` is the average Spearman correlation of each ranking with the returns to the next one, with its t-statistic and how often it was positive, and `assets` gives each stock's latest score and weight, how often it was held in each leg and its contribution. The prices are today's listings', so delisted stocks are missing and results flatter the signal; results are not stored.
 
 **Coding assistant.** Beside the custom strategy editor, Claude answers questions about the strategy and can rewrite it: `POST /api/v1/backtests/assistant` (or `/stream`) takes the editor's `code` and `language`, the question, the conversation so far in `history`, and `last_run`, the error or printed output of the last run, and returns an `explanation` and, when it changed the code, the complete revised `code`, which the page applies to the editor on request. It knows each language's strategy contract and the sandbox's limits (NumPy and pandas only in Python), and points out look-ahead bias. The conversation stays in the browser and is never stored; only a count of answers is kept, against the account's AI limits.
 

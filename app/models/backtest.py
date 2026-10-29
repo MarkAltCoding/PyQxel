@@ -4,10 +4,23 @@ from datetime import datetime
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from app.models.factors import FactorContext, FactorModel
-from app.models.portfolio import Holding, Portfolio, PortfolioPeriod
+from app.models.portfolio import (
+    Holding,
+    Portfolio,
+    PortfolioPeriod,
+    PortfolioSymbol,
+    _unique as unique_symbols,
+)
 from app.models.stock import SYMBOL_PATTERN, HistoryCoverage
 
 BacktestPeriod = Literal["1y", "2y", "5y", "10y", "max"]
@@ -575,4 +588,261 @@ class PortfolioBacktestResponse(BaseModel):
     disclaimer: str = (
         "Backtested on historical adjusted prices. Past performance does not predict "
         "future results."
+    )
+
+
+MAX_UNIVERSE_SYMBOLS: int = 60
+"""Most symbols a cross-sectional backtest may rank; each is a separate price download."""
+
+UniverseSymbolList = Annotated[
+    list[PortfolioSymbol],
+    Field(min_length=3, max_length=MAX_UNIVERSE_SYMBOLS),
+    AfterValidator(unique_symbols),
+]
+"""Distinct ticker symbols to rank against one another."""
+
+
+class CrossSectionalMomentum(BaseModel):
+    """Rank by each stock's return from ``lookback`` bars ago to ``skip`` bars ago, highest
+    first: the momentum of Jegadeesh and Titman, skipping the latest month by default to
+    sidestep its short-term reversal."""
+
+    type: Literal["momentum"] = "momentum"
+    lookback: int = Field(
+        default=252, ge=20, le=756, description="Bars back the return starts; 252 is a year."
+    )
+    skip: int = Field(
+        default=21, ge=0, le=126, description="Most recent bars left out of the return."
+    )
+
+    @model_validator(mode="after")
+    def _skip_within_lookback(self) -> Self:
+        """Reject a skip that leaves no return to measure."""
+        if self.skip >= self.lookback:
+            raise ValueError("skip must be shorter than lookback")
+        return self
+
+
+class ShortTermReversal(BaseModel):
+    """Rank by the return over the last ``lookback`` bars, lowest first: last month's
+    losers tend to bounce back against its winners."""
+
+    type: Literal["reversal"] = "reversal"
+    lookback: int = Field(default=21, ge=2, le=126, description="Bars the return spans.")
+
+
+class LowVolatility(BaseModel):
+    """Rank by the standard deviation of the last ``window`` daily returns, lowest first:
+    the low-volatility anomaly."""
+
+    type: Literal["low_volatility"] = "low_volatility"
+    window: int = Field(
+        default=126, ge=10, le=504, description="Returns the volatility is measured over."
+    )
+
+
+class DistanceFromAverage(BaseModel):
+    """Rank by how far the close is above its ``window``-bar moving average, highest first:
+    the strongest trends."""
+
+    type: Literal["trend"] = "trend"
+    window: int = Field(default=200, ge=5, le=500, description="Moving-average window, in bars.")
+
+
+class RiskAdjustedMomentum(BaseModel):
+    """Rank by the return from ``lookback`` to ``skip`` bars ago divided by the volatility
+    of daily returns over the same bars, highest first: steady winners over erratic ones."""
+
+    type: Literal["risk_adjusted_momentum"] = "risk_adjusted_momentum"
+    lookback: int = Field(
+        default=252, ge=20, le=756, description="Bars back the return starts; 252 is a year."
+    )
+    skip: int = Field(
+        default=21, ge=0, le=126, description="Most recent bars left out of the return."
+    )
+
+    @model_validator(mode="after")
+    def _skip_within_lookback(self) -> Self:
+        """Reject a skip that leaves too few returns to measure volatility on."""
+        if self.lookback - self.skip < 10:
+            raise ValueError("lookback must exceed skip by at least 10 bars")
+        return self
+
+
+RankingSignal = Annotated[
+    CrossSectionalMomentum
+    | ShortTermReversal
+    | LowVolatility
+    | DistanceFromAverage
+    | RiskAdjustedMomentum,
+    Field(discriminator="type"),
+]
+"""What a cross-sectional backtest ranks the universe by, chosen by ``type``."""
+
+RebalanceFrequency = Literal["weekly", "monthly", "quarterly"]
+"""How often a cross-sectional backtest ranks the universe again."""
+
+LegWeighting = Literal["equal", "inverse_volatility"]
+"""How the stocks picked for a leg share its capital."""
+
+
+class CrossSectionalBacktestRequest(BaseModel):
+    """Rank a universe of stocks against one another on a schedule, and hold the best."""
+
+    symbols: UniverseSymbolList
+    signal: RankingSignal = Field(default_factory=CrossSectionalMomentum)
+    rebalance: RebalanceFrequency = Field(
+        default="monthly",
+        description="How often the universe is ranked again, at the last close of each "
+        "week, month or quarter.",
+    )
+    quantile: float = Field(
+        default=0.2,
+        gt=0,
+        le=1,
+        description="Share of the ranked stocks held in each leg (0.2 = the top fifth); at "
+        "least one stock. Ignored when ``top_n`` is set.",
+    )
+    top_n: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_UNIVERSE_SYMBOLS,
+        description="Number of stocks held in each leg, instead of ``quantile``.",
+    )
+    long_short: bool = Field(
+        default=False,
+        description="Also short the same number of the worst-ranked stocks. Each leg is "
+        "one unit of capital, so the portfolio is dollar-neutral and its gross exposure 2.",
+    )
+    weighting: LegWeighting = Field(
+        default="equal",
+        description="Split each leg equally, or in inverse proportion to each stock's "
+        "volatility over ``volatility_window``.",
+    )
+    volatility_window: int = Field(
+        default=63,
+        ge=10,
+        le=252,
+        description="Daily returns the inverse-volatility weights are measured over.",
+    )
+    period: BacktestPeriod = Field(default="10y", description="Lookback window of daily bars.")
+    cost_bps: float = Field(
+        default=5.0,
+        ge=0,
+        le=500,
+        description="Trading cost per unit of turnover, in basis points (5 = 0.05%).",
+    )
+    risk_free_rate: float = Field(
+        default=0.0,
+        ge=-0.05,
+        le=0.25,
+        description="Annual risk-free rate for Sharpe and Sortino, as a decimal (0.04 = 4%).",
+    )
+    cash_interest: bool = Field(
+        default=False,
+        description="Let capital not invested, and short sale proceeds, earn the risk-free "
+        "rate (the one-month T-bill).",
+    )
+    attribution: FactorModel | None = Field(
+        default="carhart4",
+        description="Factor model to regress the strategy's daily returns on; null to skip.",
+    )
+
+    @model_validator(mode="after")
+    def _legs_fit(self) -> Self:
+        """Reject legs that cannot both be filled from the universe."""
+        if self.long_short:
+            if self.top_n is not None and 2 * self.top_n > len(self.symbols):
+                raise ValueError("top_n must be at most half the symbols when long_short is set")
+            if self.top_n is None and self.quantile > 0.5:
+                raise ValueError("quantile must be at most 0.5 when long_short is set")
+        elif self.top_n is not None and self.top_n > len(self.symbols):
+            raise ValueError("top_n must not exceed the number of symbols")
+        return self
+
+
+class RankedAsset(BaseModel):
+    """One stock's part in a cross-sectional backtest."""
+
+    symbol: str
+    contribution: float = Field(
+        description="Sum of its weighted daily returns, before costs: its share of the "
+        "strategy's arithmetic return."
+    )
+    long_share: float = Field(
+        ge=0, le=1, description="Share of rebalances that put it in the long leg."
+    )
+    short_share: float = Field(
+        ge=0, le=1, description="Share of rebalances that put it in the short leg."
+    )
+    first_ranked: datetime | None = Field(
+        default=None,
+        description="First rebalance it could be ranked at; null if it never had enough "
+        "history.",
+    )
+    score: float | None = Field(
+        default=None, description="Its signal at the last rebalance; null if not ranked."
+    )
+    weight: float = Field(
+        ge=-1,
+        le=1,
+        description="Weight set at the last rebalance: positive long, negative short.",
+    )
+
+
+class InformationCoefficient(BaseModel):
+    """How well the signal ranked the next period's returns: the Spearman correlation of
+    each rebalance's ranking with the returns to the next rebalance."""
+
+    mean: float = Field(ge=-1, le=1)
+    t_stat: float | None = Field(
+        default=None, description="Mean over its standard error; null when it never varies."
+    )
+    hit_rate: float = Field(ge=0, le=1, description="Share of rebalances with a positive one.")
+    observations: int = Field(ge=1, description="Rebalances it was measured over.")
+
+
+class CrossSectionalBacktestResponse(BaseModel):
+    """A ranking strategy's performance on a universe, against holding all of it equally."""
+
+    symbols: list[str]
+    signal: RankingSignal
+    rebalance: RebalanceFrequency
+    quantile: float
+    top_n: int | None
+    long_short: bool
+    weighting: LegWeighting
+    period: BacktestPeriod
+    cost_bps: float
+    risk_free_rate: float
+    cash_interest: bool
+    observations: int = Field(ge=1, description="Daily returns from the first rebalance.")
+    rebalances: int = Field(ge=1, description="Times the universe was ranked and traded.")
+    holdings_per_leg: float = Field(gt=0, description="Average number of stocks in the long leg.")
+    turnover: float = Field(
+        ge=0,
+        description="Average share of capital traded per rebalance, buys and sells counted "
+        "once each (2 replaces a whole long-only portfolio).",
+    )
+    exposure: float = Field(
+        ge=0,
+        description="Average gross exposure: 1 long-only, about 2 long-short, as the legs "
+        "drift apart between rebalances.",
+    )
+    metrics: PerformanceMetrics
+    benchmark: PerformanceMetrics = Field(
+        description="Holding every stock in the universe equally, rebalanced daily, "
+        "without costs."
+    )
+    information_coefficient: InformationCoefficient | None = Field(
+        default=None, description="Null when fewer than two rebalances could be scored."
+    )
+    assets: list[RankedAsset]
+    attribution: FactorContext | None = None
+    equity_curve: list[EquityPoint]
+    notice: str | None = None
+    disclaimer: str = (
+        "Backtested on historical adjusted prices of today's listings, so stocks that were "
+        "delisted are missing: rankings look better than they would have at the time. Past "
+        "performance does not predict future results."
     )

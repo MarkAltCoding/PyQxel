@@ -21,6 +21,7 @@ from app.api.v1.endpoints.stocks import (
 from app.api.auth import CurrentUser
 from app.data.factors import fetch_factors
 from app.data.fetcher import DataFetchError, SymbolNotFoundError, fetch_price_history
+from app.data.panel import fetch_close_panel
 from app.db.backtests import delete_backtest, get_backtest, list_backtests, save_backtest
 from app.db.session import get_session
 from app.models.backtest import (
@@ -29,11 +30,15 @@ from app.models.backtest import (
     BacktestRequest,
     BacktestResponse,
     BacktestStrategy,
+    CrossSectionalBacktestRequest,
+    CrossSectionalBacktestResponse,
     CustomBacktestRequest,
     CustomStrategy,
     DualMomentum,
     EquityPoint,
     BacktestStrategyType,
+    InformationCoefficient,
+    RankedAsset,
 )
 from app.models.factors import RISK_FREE, FactorContext, FactorModel
 from app.models.stock import SYMBOL_PATTERN
@@ -45,6 +50,8 @@ from app.stats.backtest import (
     run_backtest,
     strategy_for,
 )
+from app.stats.copulas import asynchronous_trading_warning
+from app.stats.cross_section import CrossSectionalResult, run_cross_sectional_backtest
 from app.stats.factors import fit_factor_returns
 from app.stats.volatility import InsufficientDataError
 
@@ -135,7 +142,7 @@ def attribute(
     return FactorContext(model=model, factor_data_end=end, fit=fit), None
 
 
-def equity_points(result: BacktestResult) -> list[EquityPoint]:
+def equity_points(result: BacktestResult | CrossSectionalResult) -> list[EquityPoint]:
     """The strategy and benchmark equity curves, bar by bar."""
     return [
         EquityPoint(
@@ -325,6 +332,155 @@ async def create_custom_backtest(
         ),
         session,
         user.id,
+    )
+
+
+LATE_RANKING: pd.Timedelta = pd.Timedelta(days=31)
+"""How long after the first rebalance a stock must first be ranked to be named as late."""
+
+
+def _ranking_notice(result: CrossSectionalResult) -> str | None:
+    """Name the stocks never ranked, and those ranked only well after the first rebalance."""
+    first = pd.Timestamp(result.equity.index[0])
+    never = [symbol for symbol, part in result.assets.items() if part.first_ranked is None]
+    late = [
+        f"{symbol} from {part.first_ranked.date()}"
+        for symbol, part in result.assets.items()
+        if part.first_ranked is not None and part.first_ranked - first > LATE_RANKING
+    ]
+    parts = []
+    if never:
+        parts.append(f"{', '.join(never)} never had enough history in the window to be ranked.")
+    if late:
+        parts.append(
+            f"Some stocks joined the ranking only once they had enough history: "
+            f"{'; '.join(late)}."
+        )
+    return " ".join(parts) or None
+
+
+@results_router.post(
+    "/cross-sectional",
+    response_model=CrossSectionalBacktestResponse,
+    summary="Backtest ranking a universe of stocks against one another",
+)
+async def create_cross_sectional_backtest(
+    request: Annotated[CrossSectionalBacktestRequest, Body()],
+) -> CrossSectionalBacktestResponse:
+    """Rank ``symbols`` by ``signal`` at the last close of every week, month or quarter, and
+    hold the best of them until the next ranking.
+
+    Signals: ``momentum`` (the return from ``lookback`` to ``skip`` bars ago, highest
+    first), ``reversal`` (the last ``lookback`` bars' return, lowest first),
+    ``low_volatility`` (the volatility of daily returns, lowest first), ``trend`` (the
+    distance above the moving average, highest first) and ``risk_adjusted_momentum``
+    (momentum over its volatility). The top ``quantile`` of the stocks ranked, or the top
+    ``top_n``, are bought; with ``long_short`` as many of the bottom ones are shorted, each
+    leg one unit of capital. Legs are split equally or by inverse volatility.
+
+    Stocks are ranked once they have the signal's full window, so recent listings join
+    later rather than shortening the window for all. Weights drift between rebalances;
+    each rebalance pays ``cost_bps`` per unit of capital traded. Capital not invested and
+    short sale proceeds earn nothing, or the risk-free rate with ``cash_interest``. The
+    benchmark holds every stock equally, rebalanced daily, without costs.
+
+    ``information_coefficient`` is the average Spearman correlation of each ranking with
+    the returns to the next one, and ``attribution`` regresses the daily returns on a
+    factor model. Results are not stored.
+
+    Returns 404 naming unknown symbols, 422 when no rebalance has enough stocks with the
+    signal's history, and 502 when the price provider fails or the risk-free rate cannot
+    be fetched.
+    """
+    panel_result, factors_result = await asyncio.gather(
+        fetch_close_panel(request.symbols, period=request.period, interval="1d"),
+        load_factors(request.attribution, request.cash_interest),
+        return_exceptions=True,
+    )
+    if isinstance(panel_result, DataFetchError):
+        raise upstream_error(panel_result) from panel_result
+    for outcome in (panel_result, factors_result):
+        if isinstance(outcome, BaseException):
+            raise outcome
+    assert not isinstance(panel_result, BaseException)
+    assert isinstance(factors_result, tuple)
+    factors, factor_notice = factors_result
+    try:
+        result = await asyncio.to_thread(
+            run_cross_sectional_backtest,
+            panel_result.closes,
+            request.signal,
+            rebalance=request.rebalance,
+            quantile=request.quantile,
+            top_n=request.top_n,
+            long_short=request.long_short,
+            weighting=request.weighting,
+            volatility_window=request.volatility_window,
+            cost_bps=request.cost_bps,
+            risk_free_rate=request.risk_free_rate,
+            risk_free=(
+                factors[RISK_FREE] if request.cash_interest and factors is not None else None
+            ),
+        )
+    except InsufficientDataError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+    attribution, attribution_notice = attribute(result.returns, factors, request.attribution)
+    notices = [
+        _ranking_notice(result),
+        asynchronous_trading_warning(panel_result.timezones),
+        factor_notice,
+        attribution_notice,
+    ]
+    information = result.information_coefficient
+    return CrossSectionalBacktestResponse(
+        symbols=request.symbols,
+        signal=request.signal,
+        rebalance=request.rebalance,
+        quantile=request.quantile,
+        top_n=request.top_n,
+        long_short=request.long_short,
+        weighting=request.weighting,
+        period=request.period,
+        cost_bps=request.cost_bps,
+        risk_free_rate=request.risk_free_rate,
+        cash_interest=request.cash_interest,
+        observations=len(result.returns),
+        rebalances=result.rebalances,
+        holdings_per_leg=result.holdings_per_leg,
+        turnover=result.turnover,
+        exposure=result.exposure,
+        metrics=result.metrics,
+        benchmark=result.benchmark,
+        information_coefficient=(
+            None
+            if information is None
+            else InformationCoefficient(
+                mean=information.mean,
+                t_stat=information.t_stat,
+                hit_rate=information.hit_rate,
+                observations=information.observations,
+            )
+        ),
+        assets=[
+            RankedAsset(
+                symbol=symbol,
+                contribution=part.contribution,
+                long_share=part.long_share,
+                short_share=part.short_share,
+                first_ranked=(
+                    None if part.first_ranked is None else part.first_ranked.to_pydatetime()
+                ),
+                score=part.score,
+                weight=part.weight,
+            )
+            for symbol, part in result.assets.items()
+        ],
+        attribution=attribution,
+        equity_curve=equity_points(result),
+        notice=" ".join(notice for notice in notices if notice) or None,
     )
 
 
