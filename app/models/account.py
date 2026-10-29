@@ -17,7 +17,8 @@ class ProviderCredential(BaseModel):
 
 
 class AiLimits(BaseModel):
-    """Caps on new AI analyses, which are billed to the account's own Anthropic key.
+    """Caps on new AI requests (stock analyses, portfolio reviews and coding assistant
+    answers), which are billed to the account's own Anthropic key.
 
     Reused reports do not count. ``null`` means no cap.
     """
@@ -27,7 +28,7 @@ class AiLimits(BaseModel):
 
 
 class AiUsage(BaseModel):
-    """New AI analyses written for the account recently."""
+    """New AI requests made for the account recently."""
 
     last_hour: int = Field(ge=0)
     last_day: int = Field(ge=0)

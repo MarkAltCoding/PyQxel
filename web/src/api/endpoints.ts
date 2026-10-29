@@ -1,8 +1,9 @@
 // One function per API route the pages use.
-import { api, send } from './client'
+import { api, ApiError, send } from './client'
 import type {
   Account,
   AdminSettingsUpdate,
+  AssistantRequest,
   AnalysisList,
   AnalysisRequest,
   AnalysisResponse,
@@ -22,6 +23,8 @@ import type {
   HoldingsResponse,
   MarketSignals,
   NewsResponse,
+  PortfolioAnalysisRequest,
+  PortfolioAnalysisResponse,
   PriceHistory,
   ScreenRequest,
   ScreenResponse,
@@ -88,6 +91,20 @@ export const deleteBacktest = (id: string) =>
   api<void>(`${V1}/backtests/${id}`, { method: 'DELETE' })
 
 export const getHoldings = () => api<HoldingsResponse>(`${V1}/portfolio/holdings`)
+/** The latest stored portfolio review, or null when there is none yet. */
+export const getPortfolioReview = async (): Promise<PortfolioAnalysisResponse | null> => {
+  try {
+    return await api<PortfolioAnalysisResponse>(`${V1}/portfolio/analysis`)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null
+    throw error
+  }
+}
+export const streamPortfolioReview = (body: PortfolioAnalysisRequest, signal: AbortSignal) =>
+  send(`${V1}/portfolio/analysis/stream`, { method: 'POST', body, signal })
+/** Asks the strategy coding assistant; the conversation is sent each time, never stored. */
+export const streamAssistant = (body: AssistantRequest, signal: AbortSignal) =>
+  send(`${V1}/backtests/assistant/stream`, { method: 'POST', body, signal })
 export const saveHoldings = (holdings: HoldingShares[]) =>
   api<HoldingsResponse>(`${V1}/portfolio/holdings`, { method: 'PUT', body: { holdings } })
 export const simulate = (body: SimulationRequest) =>

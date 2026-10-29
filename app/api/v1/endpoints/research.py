@@ -369,7 +369,7 @@ async def _fundamentals(
     return build_fundamentals(result, info, await statement_exchange_rate(result, info))
 
 
-def _ai_error(exc: AnalysisError) -> HTTPException:
+def ai_error(exc: AnalysisError) -> HTTPException:
     """Translate an AI failure into an HTTP error.
 
     A rejected Anthropic key is the user's to fix, so it is a 403; Anthropic's rate
@@ -417,10 +417,11 @@ class PreparedAnalysis:
         )
 
 
-async def _check_ai_limits(user: User) -> None:
-    """Refuse a new analysis beyond the hourly or daily cap the user set.
+async def check_ai_limits(user: User) -> None:
+    """Refuse a new AI request beyond the hourly or daily cap the user set.
 
-    The count is read from the stored analyses, so it holds across workers and restarts.
+    The count is read from the stored analyses, portfolio reviews and assistant answers,
+    so it holds across workers and restarts.
     When it cannot be read the analysis is refused rather than risk going over.
     """
     limits = user.limits
@@ -442,19 +443,19 @@ async def _check_ai_limits(user: User) -> None:
         if cap is not None and used >= cap:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"You have reached your limit of {cap} new analyses per {window}; "
+                detail=f"You have reached your limit of {cap} new AI requests per {window}; "
                 "raise it with PUT /api/v1/me/limits or try again later.",
                 headers={"Retry-After": str(seconds)},
             )
 
 
-def _anthropic_key(user: User) -> SecretStr:
-    """The Anthropic key the request carries, which the analysis is billed to."""
+def anthropic_key() -> SecretStr:
+    """The Anthropic key the request carries, which the AI request is billed to."""
     key = current_provider_keys().anthropic
     if key is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Analyses are billed to your own Anthropic account: add your API key "
+            detail="AI features are billed to your own Anthropic account: add your API key "
             "in Settings, or send it in the X-Anthropic-Key header.",
         )
     return key
@@ -486,8 +487,8 @@ async def prepare_analysis(
             filings=[],
             cached=cached,
         )
-    api_key = _anthropic_key(user)
-    await _check_ai_limits(user)
+    api_key = anthropic_key()
+    await check_ai_limits(user)
 
     # Groups run together, since asyncio.gather is typed for at most six awaitables.
     today = datetime.now(timezone.utc).date()
@@ -654,7 +655,7 @@ async def create_analysis(prepared: Prepared) -> AnalysisResponse:
                     prepared.context, prepared.request.kind, prepared.filings, client=client
                 )
         except AnalysisError as exc:
-            raise _ai_error(exc) from exc
+            raise ai_error(exc) from exc
         return await remember_analysis(
             prepared.user_id, prepared.request, prepared.response(report, model)
         )
@@ -712,7 +713,7 @@ async def stream_analysis_events(prepared: Prepared) -> AsyncIterator[ServerSent
                     else:
                         yield ServerSentEvent(event="fallback", data=item)
         except AnalysisError as exc:
-            error = _ai_error(exc)
+            error = ai_error(exc)
             yield ServerSentEvent(
                 event="error",
                 data=AnalysisStreamError(

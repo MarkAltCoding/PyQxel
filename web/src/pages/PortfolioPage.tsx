@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fitCopula, getHoldings, saveHoldings, simulate } from '../api/endpoints'
+import { PortfolioReviewCard } from '../components/PortfolioReviewCard'
 import type { HoldingsResponse, SimulationRequest, SimulationResponse } from '../api/types'
 import { ChartCard, Legend } from '../charts/ChartCard'
 import { CopulaHeatmap, CopulaTable } from '../charts/CopulaHeatmap'
@@ -205,6 +206,7 @@ export function PortfolioPage() {
         stale={dirty}
       />
       <CopulaCard symbols={priced.map((h) => h.symbol)} stale={dirty} />
+      <PortfolioReviewCard hasHoldings={priced.length > 0} stale={dirty} />
     </div>
   )
 }

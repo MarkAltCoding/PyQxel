@@ -268,7 +268,7 @@ def test_portfolio_simulation(client: TestClient) -> None:
 @pytest.mark.asyncio
 async def test_analysis_context_has_factor_exposures(user: User) -> None:
     """Real prices and factor data give Claude factor exposures, without calling Claude."""
-    use_provider_keys(ProviderKeys(fmp=user.fmp_key()))
+    use_provider_keys(ProviderKeys(fmp=get_settings().financial_data_api_key))
     prepared = await prepare_analysis("AAPL", user, AnalysisRequest(include_filings=False))
 
     factors = prepared.context.factors

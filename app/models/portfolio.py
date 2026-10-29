@@ -182,6 +182,8 @@ class HoldingValue(BaseModel):
     symbol: str
     shares: float
     name: str | None = None
+    sector: str | None = None
+    industry: str | None = None
     price: float | None = Field(default=None, description="Latest price; null if unavailable.")
     value: float | None = Field(default=None, description="``shares`` x ``price``.")
     weight: float | None = Field(

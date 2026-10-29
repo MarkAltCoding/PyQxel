@@ -112,6 +112,62 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/backtests/assistant': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Ask Claude about your strategy
+     * @description Have Claude answer a question about the custom strategy in ``code``.
+     *
+     *     Send the code in the editor, its ``language``, the question, the conversation so far
+     *     in ``history``, and ``last_run`` with the error or output of the last run when there
+     *     is one. ``reply.code`` is the complete revised source when Claude changed the code,
+     *     and null otherwise. Nothing is stored but a count of answers.
+     *
+     *     It is written with, and billed to, your own Anthropic key (the ``X-Anthropic-Key``
+     *     header), within your AI limits. Returns 403 without a valid Anthropic key, 422 when
+     *     the model declines, 429 beyond your AI limits, 502 when Anthropic fails, and 503
+     *     when it rate limits your account.
+     */
+    post: operations['ask_assistant_api_v1_backtests_assistant_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/backtests/assistant/stream': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Stream Claude's answer about your strategy as Server-Sent Events
+     * @description Stream the answer of ``ask_assistant`` as Claude writes it.
+     *
+     *     Sends ``thinking`` fragments summarizing the model's reasoning, ``report`` fragments
+     *     of the reply's JSON, ``fallback`` when a model declines part-way and another
+     *     continues, then ``result`` (the :class:`AssistantResponse`) or ``error`` (an
+     *     :class:`AnalysisStreamError`). Failures before the stream opens return the same
+     *     statuses as ``ask_assistant``.
+     */
+    post: operations['stream_assistant_api_v1_backtests_assistant_stream_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/backtests/{backtest_id}': {
     parameters: {
       query?: never
@@ -287,6 +343,72 @@ export interface paths {
      */
     put: operations['store_limits_api_v1_me_limits_put']
     post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/portfolio/analysis': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Your latest portfolio review
+     * @description Return your newest stored portfolio review, whatever it was written for, so it can
+     *     be shown again without a charge. Returns 404 when you have none.
+     */
+    get: operations['read_portfolio_review_api_v1_portfolio_analysis_get']
+    put?: never
+    /**
+     * AI-written review of your saved portfolio
+     * @description Have Claude review your saved portfolio's construction and risk.
+     *
+     *     The review is grounded in your holdings valued at the latest prices, their sectors,
+     *     and statistics of today's weights over ``period`` of daily returns: each holding's
+     *     return, volatility, drawdown and share of the portfolio's risk, the portfolio's
+     *     volatility, drawdowns and diversification, and the most and least correlated pairs.
+     *     All of it is in ``context``.
+     *
+     *     It is written with, and billed to, your own Anthropic key (the ``X-Anthropic-Key``
+     *     header), within your AI limits, and stored under your account. A review of the same
+     *     holdings and period within ``ANALYSIS_CACHE_TTL_SECONDS`` is returned again with
+     *     ``cached`` set and no charge, unless ``refresh`` is true.
+     *
+     *     Returns 403 without a valid Anthropic key, 422 with no saved holdings, a window too
+     *     short, or when the model declines, 429 beyond your AI limits, 502 when a provider
+     *     fails, and 503 when Anthropic rate limits your account.
+     */
+    post: operations['create_portfolio_review_api_v1_portfolio_analysis_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/portfolio/analysis/stream': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Stream an AI-written review of your saved portfolio as Server-Sent Events
+     * @description Stream the review of ``create_portfolio_review`` as Claude writes it.
+     *
+     *     The same failures return the same statuses before the stream opens. Then it sends
+     *     ``context`` (the :class:`PortfolioContext`), ``thinking`` and ``report`` fragments,
+     *     ``fallback`` when a model declines part-way and another continues, and ``result``
+     *     (the :class:`PortfolioAnalysisResponse`) or ``error``, as the stock analysis stream
+     *     does. A reused review is sent as ``context`` then ``result`` alone.
+     */
+    post: operations['stream_portfolio_review_events_api_v1_portfolio_analysis_stream_post']
     delete?: never
     options?: never
     head?: never
@@ -1082,7 +1204,8 @@ export interface components {
     }
     /**
      * AiLimits
-     * @description Caps on new AI analyses, which are billed to the account's own Anthropic key.
+     * @description Caps on new AI requests (stock analyses, portfolio reviews and coding assistant
+     *     answers), which are billed to the account's own Anthropic key.
      *
      *     Reused reports do not count. ``null`` means no cap.
      */
@@ -1094,7 +1217,7 @@ export interface components {
     }
     /**
      * AiUsage
-     * @description New AI analyses written for the account recently.
+     * @description New AI requests made for the account recently.
      */
     AiUsage: {
       /** Last Day */
@@ -1456,6 +1579,126 @@ export interface components {
       trades: number
       /** Weight */
       weight: number
+    }
+    /**
+     * AssetRisk
+     * @description One holding: its place in the portfolio and its statistics over the window.
+     *
+     *     Returns and volatilities are decimals (0.25 = 25%), annualized from daily returns.
+     */
+    AssetRisk: {
+      /** Annualized Return */
+      annualized_return: number
+      /**
+       * Correlation To Rest
+       * @description Correlation of its daily returns with the rest of the portfolio's; null for a portfolio of one holding.
+       */
+      correlation_to_rest?: number | null
+      /** Industry */
+      industry?: string | null
+      /** Max Drawdown */
+      max_drawdown: number
+      /** Name */
+      name?: string | null
+      /**
+       * Price
+       * @description Latest price.
+       */
+      price: number
+      /**
+       * Risk Contribution
+       * @description Share of the portfolio's variance this holding accounts for; the shares sum to 1, and one above the holding's weight means it adds more risk than capital.
+       */
+      risk_contribution: number
+      /** Sector */
+      sector?: string | null
+      /** Shares */
+      shares: number
+      /** Symbol */
+      symbol: string
+      /**
+       * Value
+       * @description Shares times the latest price.
+       */
+      value: number
+      /** Volatility */
+      volatility: number
+      /**
+       * Weight
+       * @description Share of the portfolio's value.
+       */
+      weight: number
+    }
+    /**
+     * AssistantReply
+     * @description The assistant's answer: an explanation, and the revised code when it changes it.
+     */
+    AssistantReply: {
+      /**
+       * Code
+       * @description The complete revised strategy source, ready to replace the editor's code; null when the answer needs no change to the code.
+       */
+      code: string | null
+      /**
+       * Explanation
+       * @description The answer: what was wrong or what changed and why, in plain prose. Short code snippets may appear in backticks.
+       */
+      explanation: string
+    }
+    /**
+     * AssistantRequest
+     * @description A question about a custom strategy, with the code it is about.
+     */
+    AssistantRequest: {
+      /**
+       * Code
+       * @description The editor's code.
+       * @default
+       */
+      code?: string
+      /** History */
+      history?: components['schemas']['AssistantTurn'][]
+      /**
+       * Interval
+       * @description Bar size, e.g. 1d.
+       */
+      interval?: string | null
+      /**
+       * Language
+       * @default python
+       * @enum {string}
+       */
+      language?: 'python' | 'cpp'
+      last_run?: components['schemas']['LastRun'] | null
+      /** Message */
+      message: string
+      /**
+       * Symbol
+       * @description The symbol the strategy is backtested on.
+       */
+      symbol?: string | null
+    }
+    /**
+     * AssistantResponse
+     * @description The assistant's reply and the model that wrote it.
+     */
+    AssistantResponse: {
+      /** Model */
+      model: string
+      reply: components['schemas']['AssistantReply']
+    }
+    /**
+     * AssistantTurn
+     * @description An earlier message in the conversation.
+     */
+    AssistantTurn: {
+      /** Content */
+      content: string
+      /**
+       * Role
+       * @enum {string}
+       */
+      role: 'user' | 'assistant'
     }
     /**
      * BacktestList
@@ -2781,6 +3024,8 @@ export interface components {
      * @description A saved position valued at the latest price.
      */
     HoldingValue: {
+      /** Industry */
+      industry?: string | null
       /** Name */
       name?: string | null
       /**
@@ -2788,6 +3033,8 @@ export interface components {
        * @description Latest price; null if unavailable.
        */
       price?: number | null
+      /** Sector */
+      sector?: string | null
       /** Shares */
       shares: number
       /** Symbol */
@@ -2982,6 +3229,30 @@ export interface components {
       what_would_change_the_view: string[]
     }
     /**
+     * InvestorProfile
+     * @description What the review should tailor its plan to; every field is optional.
+     */
+    InvestorProfile: {
+      /**
+       * Cash To Invest
+       * @description New cash to put to work, in the holdings' currency.
+       * @default 0
+       */
+      cash_to_invest?: number
+      /**
+       * Horizon Years
+       * @description Years until the money is needed.
+       */
+      horizon_years?: number | null
+      /**
+       * Notes
+       * @description Anything else to take into account, e.g. a taxable account, holdings to keep, or sectors to avoid.
+       */
+      notes?: string | null
+      /** Risk Tolerance */
+      risk_tolerance?: ('conservative' | 'moderate' | 'aggressive') | null
+    }
+    /**
      * IpoEvent
      * @description An initial public offering on the calendar.
      */
@@ -3140,6 +3411,28 @@ export interface components {
       week_52_low?: number | null
       /** Week 52 Low Date */
       week_52_low_date?: string | null
+    }
+    /**
+     * LastRun
+     * @description How the code in the editor fared when last run, for the assistant to diagnose.
+     */
+    LastRun: {
+      /**
+       * Error Kind
+       * @description ``syntax``, ``compile``, ``runtime``, ``result`` or ``timeout``; null when the run succeeded.
+       */
+      error_kind?: string | null
+      /** Line */
+      line?: number | null
+      /** Message */
+      message?: string | null
+      /**
+       * Output
+       * @description What the code printed.
+       */
+      output?: string | null
+      /** Traceback */
+      traceback?: string | null
     }
     /**
      * LobbyingFiling
@@ -3677,6 +3970,18 @@ export interface components {
       volume?: number | null
     }
     /**
+     * PairCorrelation
+     * @description Correlation of two holdings' daily returns over the window.
+     */
+    PairCorrelation: {
+      /** Correlation */
+      correlation: number
+      /** First */
+      first: string
+      /** Second */
+      second: string
+    }
+    /**
      * PairDependence
      * @description How two assets move together, especially in extremes.
      */
@@ -3907,6 +4212,104 @@ export interface components {
       total_return: number
     }
     /**
+     * PlannedTrade
+     * @description One order that carries out the plan, computed from the targets and latest prices.
+     */
+    PlannedTrade: {
+      /**
+       * Action
+       * @enum {string}
+       */
+      action: 'buy' | 'sell'
+      /** Limit Price */
+      limit_price?: number | null
+      /**
+       * Order Type
+       * @enum {string}
+       */
+      order_type: 'market' | 'limit'
+      /**
+       * Price
+       * @description Latest price the trade was sized at.
+       */
+      price: number | null
+      /** Rationale */
+      rationale: string
+      /**
+       * Shares
+       * @description Whole shares to trade; null when the symbol could not be priced.
+       */
+      shares: number | null
+      /** Symbol */
+      symbol: string
+      /**
+       * Value
+       * @description Approximate value of the trade.
+       */
+      value: number
+    }
+    /**
+     * PortfolioAnalysisRequest
+     * @description Options for a review of the saved portfolio.
+     */
+    PortfolioAnalysisRequest: {
+      /**
+       * Period
+       * @description Window of daily returns the statistics are computed on.
+       * @default 1y
+       * @enum {string}
+       */
+      period?: '1y' | '2y' | '5y' | '10y'
+      profile?: components['schemas']['InvestorProfile']
+      /**
+       * Refresh
+       * @description Write a new review even when one for the same holdings and period is recent enough to reuse.
+       * @default false
+       */
+      refresh?: boolean
+    }
+    /**
+     * PortfolioAnalysisResponse
+     * @description A portfolio review together with the data it was written from.
+     */
+    PortfolioAnalysisResponse: {
+      /**
+       * Cached
+       * @description Whether this review was written earlier, at ``generated_at``, and reused.
+       * @default false
+       */
+      cached?: boolean
+      context: components['schemas']['PortfolioContext']
+      /**
+       * Disclaimer
+       * @default Generated by an AI model (Claude), not a licensed financial adviser, from historical prices of today's holdings and what you told it. Check prices, taxes and trading costs before placing any order; the decision and its risk are yours.
+       */
+      disclaimer?: string
+      /**
+       * Generated At
+       * Format: date-time
+       */
+      generated_at: string
+      /**
+       * Id
+       * @description ID of the stored review; null if it could not be saved.
+       */
+      id?: string | null
+      /**
+       * Model
+       * @description Claude model that wrote the review.
+       */
+      model: string
+      /**
+       * Period
+       * @enum {string}
+       */
+      period: '1y' | '2y' | '5y' | '10y'
+      /** @description Orders computed from the review's target allocation. */
+      plan?: components['schemas']['RebalancePlan'] | null
+      report: components['schemas']['PortfolioReview']
+    }
+    /**
      * PortfolioBacktestRequest
      * @description A strategy run on each holding of a portfolio, rebalanced to its weights every day.
      */
@@ -4022,6 +4425,154 @@ export interface components {
        * @description Days on which any position changed.
        */
       trades: number
+    }
+    /**
+     * PortfolioContext
+     * @description The data a portfolio review is written from, sent to Claude verbatim.
+     */
+    PortfolioContext: {
+      /** Holdings */
+      holdings: components['schemas']['AssetRisk'][]
+      /** Least Correlated */
+      least_correlated?: components['schemas']['PairCorrelation'][]
+      /**
+       * Left Out
+       * @description Holdings left out of the review because they could not be priced.
+       */
+      left_out?: string[]
+      /** Most Correlated */
+      most_correlated?: components['schemas']['PairCorrelation'][]
+      /**
+       * Notice
+       * @description Explains anything left out of the window or the holdings.
+       */
+      notice?: string | null
+      /**
+       * Period
+       * @enum {string}
+       */
+      period: '1y' | '2y' | '5y' | '10y'
+      portfolio: components['schemas']['PortfolioRiskStats']
+      profile?: components['schemas']['InvestorProfile']
+      /**
+       * Sectors
+       * @description Weight in each sector, by the providers' classification; holdings without one are under Unclassified.
+       */
+      sectors: {
+        [key: string]: number
+      }
+      /**
+       * Total Value
+       * @description Value of the priced holdings, at latest prices.
+       */
+      total_value: number
+    }
+    /**
+     * PortfolioReview
+     * @description Claude's data-grounded review of a portfolio, with a concrete plan to act on.
+     */
+    PortfolioReview: {
+      /**
+       * Considerations
+       * @description Trade-offs of the plan and alternatives worth weighing: taxes, trading costs, timing, and what would change the recommendation.
+       */
+      considerations: string[]
+      /**
+       * Data Limitations
+       * @description What the provided data cannot show.
+       */
+      data_limitations: string[]
+      /**
+       * Diversification
+       * @enum {string}
+       */
+      diversification: 'poor' | 'fair' | 'good' | 'strong'
+      /**
+       * Headline
+       * @description One-sentence assessment of the portfolio.
+       */
+      headline: string
+      /** Key Risks */
+      key_risks: components['schemas']['RiskFactor'][]
+      /**
+       * Plan Summary
+       * @description The recommended plan in a paragraph: what to change and why, and the assumptions it rests on.
+       */
+      plan_summary: string
+      /**
+       * Risk Level
+       * @enum {string}
+       */
+      risk_level: 'low' | 'moderate' | 'elevated' | 'high'
+      /**
+       * Strengths
+       * @description What the portfolio does well, citing figures.
+       */
+      strengths: string[]
+      /**
+       * Summary
+       * @description Two or three paragraphs on construction and risk.
+       */
+      summary: string
+      /**
+       * Target Allocation
+       * @description Every current holding and any new investment with its target weight; a holding to sell entirely gets 0. Weights sum to 1.
+       */
+      target_allocation: components['schemas']['TargetPosition'][]
+    }
+    /**
+     * PortfolioRiskStats
+     * @description The whole portfolio's statistics, holding today's weights over the window.
+     *
+     *     The returns are those of the current weights rebalanced daily, not of the trades the
+     *     account actually made.
+     */
+    PortfolioRiskStats: {
+      /** Annualized Return */
+      annualized_return: number
+      /**
+       * Average Correlation
+       * @description Average correlation over every pair of holdings, equally weighted; null for a portfolio of one holding.
+       */
+      average_correlation?: number | null
+      /** Current Drawdown */
+      current_drawdown: number
+      /**
+       * Diversification Ratio
+       * @description Weighted average of the holdings' volatilities over the portfolio's; 1 means no diversification benefit, and higher is more.
+       */
+      diversification_ratio: number
+      /**
+       * Effective Holdings
+       * @description 1 / the sum of squared weights: how many equal positions the portfolio's concentration matches.
+       */
+      effective_holdings: number
+      /**
+       * End
+       * Format: date-time
+       */
+      end: string
+      /** Largest Weight */
+      largest_weight: number
+      /** Max Drawdown */
+      max_drawdown: number
+      /**
+       * Observations
+       * @description Number of daily returns.
+       */
+      observations: number
+      /**
+       * Return To Volatility
+       * @description Annualized return over volatility; null at zero volatility.
+       */
+      return_to_volatility?: number | null
+      /**
+       * Start
+       * Format: date-time
+       */
+      start: string
+      /** Volatility */
+      volatility: number
     }
     /**
      * PriceHistory
@@ -4332,6 +4883,26 @@ export interface components {
       status: 'ok' | 'degraded' | 'unavailable'
       /** Version */
       version: string
+    }
+    /**
+     * RebalancePlan
+     * @description The orders that move the portfolio to Claude's target allocation.
+     */
+    RebalancePlan: {
+      /**
+       * Cash After
+       * @description Cash left over, including any CASH target.
+       */
+      cash_after: number
+      /** Notes */
+      notes?: string[]
+      /**
+       * Total Value
+       * @description Value of the holdings plus the new cash.
+       */
+      total_value: number
+      /** Trades */
+      trades: components['schemas']['PlannedTrade'][]
     }
     /**
      * RecommendationMonth
@@ -5030,6 +5601,38 @@ export interface components {
       understated: boolean
     }
     /**
+     * TargetPosition
+     * @description Where Claude would take one position: a current holding or a new investment.
+     */
+    TargetPosition: {
+      /**
+       * Limit Offset Percent
+       * @description For limit orders: the limit as a percent from the latest price, negative below it (e.g. -0.5 buys up to 0.5% below the last price).
+       */
+      limit_offset_percent?: number | null
+      /**
+       * Order Type
+       * @description limit for less liquid securities or to control the price, market for liquid ones where filling matters more.
+       * @enum {string}
+       */
+      order_type: 'market' | 'limit'
+      /**
+       * Rationale
+       * @description Why this weight, citing figures where it can.
+       */
+      rationale: string
+      /**
+       * Symbol
+       * @description Ticker, e.g. VXUS; CASH for uninvested cash.
+       */
+      symbol: string
+      /**
+       * Target Weight
+       * @description Share of the portfolio after the plan, as a decimal.
+       */
+      target_weight: number
+    }
+    /**
      * TickerInfo
      * @description Normalized descriptive and pricing snapshot for a single ticker.
      */
@@ -5476,6 +6079,72 @@ export interface operations {
       }
     }
   }
+  ask_assistant_api_v1_backtests_assistant_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AssistantRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['AssistantResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  stream_assistant_api_v1_backtests_assistant_stream_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AssistantRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'text/event-stream': unknown
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
   read_backtest_api_v1_backtests__backtest_id__get: {
     parameters: {
       query?: never
@@ -5742,6 +6411,92 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['Account']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_portfolio_review_api_v1_portfolio_analysis_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PortfolioAnalysisResponse']
+        }
+      }
+    }
+  }
+  create_portfolio_review_api_v1_portfolio_analysis_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        'application/json': components['schemas']['PortfolioAnalysisRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PortfolioAnalysisResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  stream_portfolio_review_events_api_v1_portfolio_analysis_stream_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        'application/json': components['schemas']['PortfolioAnalysisRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'text/event-stream': unknown
         }
       }
       /** @description Validation Error */

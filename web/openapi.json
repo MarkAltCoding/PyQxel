@@ -95,7 +95,7 @@
         "type": "object"
       },
       "AiLimits": {
-        "description": "Caps on new AI analyses, which are billed to the account's own Anthropic key.\n\nReused reports do not count. ``null`` means no cap.",
+        "description": "Caps on new AI requests (stock analyses, portfolio reviews and coding assistant\nanswers), which are billed to the account's own Anthropic key.\n\nReused reports do not count. ``null`` means no cap.",
         "properties": {
           "ai_requests_per_day": {
             "anyOf": [
@@ -128,7 +128,7 @@
         "type": "object"
       },
       "AiUsage": {
-        "description": "New AI analyses written for the account recently.",
+        "description": "New AI requests made for the account recently.",
         "properties": {
           "last_day": {
             "minimum": 0.0,
@@ -880,6 +880,257 @@
           "trades"
         ],
         "title": "AssetBacktest",
+        "type": "object"
+      },
+      "AssetRisk": {
+        "description": "One holding: its place in the portfolio and its statistics over the window.\n\nReturns and volatilities are decimals (0.25 = 25%), annualized from daily returns.",
+        "properties": {
+          "annualized_return": {
+            "title": "Annualized Return",
+            "type": "number"
+          },
+          "correlation_to_rest": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Correlation of its daily returns with the rest of the portfolio's; null for a portfolio of one holding.",
+            "title": "Correlation To Rest"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "max_drawdown": {
+            "maximum": 0.0,
+            "title": "Max Drawdown",
+            "type": "number"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "price": {
+            "description": "Latest price.",
+            "title": "Price",
+            "type": "number"
+          },
+          "risk_contribution": {
+            "description": "Share of the portfolio's variance this holding accounts for; the shares sum to 1, and one above the holding's weight means it adds more risk than capital.",
+            "title": "Risk Contribution",
+            "type": "number"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "shares": {
+            "title": "Shares",
+            "type": "number"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "value": {
+            "description": "Shares times the latest price.",
+            "title": "Value",
+            "type": "number"
+          },
+          "volatility": {
+            "title": "Volatility",
+            "type": "number"
+          },
+          "weight": {
+            "description": "Share of the portfolio's value.",
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "symbol",
+          "shares",
+          "price",
+          "value",
+          "weight",
+          "annualized_return",
+          "volatility",
+          "max_drawdown",
+          "risk_contribution"
+        ],
+        "title": "AssetRisk",
+        "type": "object"
+      },
+      "AssistantReply": {
+        "description": "The assistant's answer: an explanation, and the revised code when it changes it.",
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The complete revised strategy source, ready to replace the editor's code; null when the answer needs no change to the code.",
+            "title": "Code"
+          },
+          "explanation": {
+            "description": "The answer: what was wrong or what changed and why, in plain prose. Short code snippets may appear in backticks.",
+            "title": "Explanation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "explanation",
+          "code"
+        ],
+        "title": "AssistantReply",
+        "type": "object"
+      },
+      "AssistantRequest": {
+        "description": "A question about a custom strategy, with the code it is about.",
+        "properties": {
+          "code": {
+            "default": "",
+            "description": "The editor's code.",
+            "maxLength": 50000,
+            "title": "Code",
+            "type": "string"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/AssistantTurn"
+            },
+            "maxItems": 20,
+            "title": "History",
+            "type": "array"
+          },
+          "interval": {
+            "anyOf": [
+              {
+                "maxLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bar size, e.g. 1d.",
+            "title": "Interval"
+          },
+          "language": {
+            "default": "python",
+            "enum": [
+              "python",
+              "cpp"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The symbol the strategy is backtested on.",
+            "title": "Symbol"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "AssistantRequest",
+        "type": "object"
+      },
+      "AssistantResponse": {
+        "description": "The assistant's reply and the model that wrote it.",
+        "properties": {
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "reply": {
+            "$ref": "#/components/schemas/AssistantReply"
+          }
+        },
+        "required": [
+          "reply",
+          "model"
+        ],
+        "title": "AssistantResponse",
+        "type": "object"
+      },
+      "AssistantTurn": {
+        "description": "An earlier message in the conversation.",
+        "properties": {
+          "content": {
+            "maxLength": 58000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "AssistantTurn",
         "type": "object"
       },
       "BacktestList": {
@@ -3499,6 +3750,17 @@
       "HoldingValue": {
         "description": "A saved position valued at the latest price.",
         "properties": {
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
           "name": {
             "anyOf": [
               {
@@ -3521,6 +3783,17 @@
             ],
             "description": "Latest price; null if unavailable.",
             "title": "Price"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
           },
           "shares": {
             "title": "Shares",
@@ -3868,6 +4141,64 @@
           "data_limitations"
         ],
         "title": "InvestmentThesis",
+        "type": "object"
+      },
+      "InvestorProfile": {
+        "description": "What the review should tailor its plan to; every field is optional.",
+        "properties": {
+          "cash_to_invest": {
+            "default": 0.0,
+            "description": "New cash to put to work, in the holdings' currency.",
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Cash To Invest",
+            "type": "number"
+          },
+          "horizon_years": {
+            "anyOf": [
+              {
+                "maximum": 60.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Years until the money is needed.",
+            "title": "Horizon Years"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anything else to take into account, e.g. a taxable account, holdings to keep, or sectors to avoid.",
+            "title": "Notes"
+          },
+          "risk_tolerance": {
+            "anyOf": [
+              {
+                "enum": [
+                  "conservative",
+                  "moderate",
+                  "aggressive"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Tolerance"
+          }
+        },
+        "title": "InvestorProfile",
         "type": "object"
       },
       "IpoEvent": {
@@ -4419,6 +4750,75 @@
           }
         },
         "title": "KeyMetrics",
+        "type": "object"
+      },
+      "LastRun": {
+        "description": "How the code in the editor fared when last run, for the assistant to diagnose.",
+        "properties": {
+          "error_kind": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "``syntax``, ``compile``, ``runtime``, ``result`` or ``timeout``; null when the run succeeded.",
+            "title": "Error Kind"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the code printed.",
+            "title": "Output"
+          },
+          "traceback": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traceback"
+          }
+        },
+        "title": "LastRun",
         "type": "object"
       },
       "LobbyingFiling": {
@@ -5425,6 +5825,32 @@
         "title": "OHLCVBar",
         "type": "object"
       },
+      "PairCorrelation": {
+        "description": "Correlation of two holdings' daily returns over the window.",
+        "properties": {
+          "correlation": {
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "Correlation",
+            "type": "number"
+          },
+          "first": {
+            "title": "First",
+            "type": "string"
+          },
+          "second": {
+            "title": "Second",
+            "type": "string"
+          }
+        },
+        "required": [
+          "first",
+          "second",
+          "correlation"
+        ],
+        "title": "PairCorrelation",
+        "type": "object"
+      },
       "PairDependence": {
         "description": "How two assets move together, especially in extremes.",
         "properties": {
@@ -5864,6 +6290,189 @@
         "title": "PerformanceMetrics",
         "type": "object"
       },
+      "PlannedTrade": {
+        "description": "One order that carries out the plan, computed from the targets and latest prices.",
+        "properties": {
+          "action": {
+            "enum": [
+              "buy",
+              "sell"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "limit_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Price"
+          },
+          "order_type": {
+            "enum": [
+              "market",
+              "limit"
+            ],
+            "title": "Order Type",
+            "type": "string"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest price the trade was sized at.",
+            "title": "Price"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whole shares to trade; null when the symbol could not be priced.",
+            "title": "Shares"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "value": {
+            "description": "Approximate value of the trade.",
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "symbol",
+          "action",
+          "shares",
+          "price",
+          "value",
+          "order_type",
+          "rationale"
+        ],
+        "title": "PlannedTrade",
+        "type": "object"
+      },
+      "PortfolioAnalysisRequest": {
+        "description": "Options for a review of the saved portfolio.",
+        "properties": {
+          "period": {
+            "default": "1y",
+            "description": "Window of daily returns the statistics are computed on.",
+            "enum": [
+              "1y",
+              "2y",
+              "5y",
+              "10y"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/InvestorProfile"
+          },
+          "refresh": {
+            "default": false,
+            "description": "Write a new review even when one for the same holdings and period is recent enough to reuse.",
+            "title": "Refresh",
+            "type": "boolean"
+          }
+        },
+        "title": "PortfolioAnalysisRequest",
+        "type": "object"
+      },
+      "PortfolioAnalysisResponse": {
+        "description": "A portfolio review together with the data it was written from.",
+        "properties": {
+          "cached": {
+            "default": false,
+            "description": "Whether this review was written earlier, at ``generated_at``, and reused.",
+            "title": "Cached",
+            "type": "boolean"
+          },
+          "context": {
+            "$ref": "#/components/schemas/PortfolioContext"
+          },
+          "disclaimer": {
+            "default": "Generated by an AI model (Claude), not a licensed financial adviser, from historical prices of today's holdings and what you told it. Check prices, taxes and trading costs before placing any order; the decision and its risk are yours.",
+            "title": "Disclaimer",
+            "type": "string"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID of the stored review; null if it could not be saved.",
+            "title": "Id"
+          },
+          "model": {
+            "description": "Claude model that wrote the review.",
+            "title": "Model",
+            "type": "string"
+          },
+          "period": {
+            "enum": [
+              "1y",
+              "2y",
+              "5y",
+              "10y"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RebalancePlan"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Orders computed from the review's target allocation."
+          },
+          "report": {
+            "$ref": "#/components/schemas/PortfolioReview"
+          }
+        },
+        "required": [
+          "period",
+          "report",
+          "context",
+          "model",
+          "generated_at"
+        ],
+        "title": "PortfolioAnalysisResponse",
+        "type": "object"
+      },
       "PortfolioBacktestRequest": {
         "description": "A strategy run on each holding of a portfolio, rebalanced to its weights every day.",
         "properties": {
@@ -6157,6 +6766,274 @@
           "equity_curve"
         ],
         "title": "PortfolioBacktestResponse",
+        "type": "object"
+      },
+      "PortfolioContext": {
+        "description": "The data a portfolio review is written from, sent to Claude verbatim.",
+        "properties": {
+          "holdings": {
+            "items": {
+              "$ref": "#/components/schemas/AssetRisk"
+            },
+            "title": "Holdings",
+            "type": "array"
+          },
+          "least_correlated": {
+            "items": {
+              "$ref": "#/components/schemas/PairCorrelation"
+            },
+            "title": "Least Correlated",
+            "type": "array"
+          },
+          "left_out": {
+            "description": "Holdings left out of the review because they could not be priced.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Left Out",
+            "type": "array"
+          },
+          "most_correlated": {
+            "items": {
+              "$ref": "#/components/schemas/PairCorrelation"
+            },
+            "title": "Most Correlated",
+            "type": "array"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Explains anything left out of the window or the holdings.",
+            "title": "Notice"
+          },
+          "period": {
+            "enum": [
+              "1y",
+              "2y",
+              "5y",
+              "10y"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "portfolio": {
+            "$ref": "#/components/schemas/PortfolioRiskStats"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/InvestorProfile"
+          },
+          "sectors": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Weight in each sector, by the providers' classification; holdings without one are under Unclassified.",
+            "title": "Sectors",
+            "type": "object"
+          },
+          "total_value": {
+            "description": "Value of the priced holdings, at latest prices.",
+            "title": "Total Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "period",
+          "total_value",
+          "holdings",
+          "sectors",
+          "portfolio"
+        ],
+        "title": "PortfolioContext",
+        "type": "object"
+      },
+      "PortfolioReview": {
+        "description": "Claude's data-grounded review of a portfolio, with a concrete plan to act on.",
+        "properties": {
+          "considerations": {
+            "description": "Trade-offs of the plan and alternatives worth weighing: taxes, trading costs, timing, and what would change the recommendation.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Considerations",
+            "type": "array"
+          },
+          "data_limitations": {
+            "description": "What the provided data cannot show.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Data Limitations",
+            "type": "array"
+          },
+          "diversification": {
+            "enum": [
+              "poor",
+              "fair",
+              "good",
+              "strong"
+            ],
+            "title": "Diversification",
+            "type": "string"
+          },
+          "headline": {
+            "description": "One-sentence assessment of the portfolio.",
+            "title": "Headline",
+            "type": "string"
+          },
+          "key_risks": {
+            "items": {
+              "$ref": "#/components/schemas/RiskFactor"
+            },
+            "title": "Key Risks",
+            "type": "array"
+          },
+          "plan_summary": {
+            "description": "The recommended plan in a paragraph: what to change and why, and the assumptions it rests on.",
+            "title": "Plan Summary",
+            "type": "string"
+          },
+          "risk_level": {
+            "enum": [
+              "low",
+              "moderate",
+              "elevated",
+              "high"
+            ],
+            "title": "Risk Level",
+            "type": "string"
+          },
+          "strengths": {
+            "description": "What the portfolio does well, citing figures.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Strengths",
+            "type": "array"
+          },
+          "summary": {
+            "description": "Two or three paragraphs on construction and risk.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "target_allocation": {
+            "description": "Every current holding and any new investment with its target weight; a holding to sell entirely gets 0. Weights sum to 1.",
+            "items": {
+              "$ref": "#/components/schemas/TargetPosition"
+            },
+            "title": "Target Allocation",
+            "type": "array"
+          }
+        },
+        "required": [
+          "headline",
+          "risk_level",
+          "diversification",
+          "summary",
+          "strengths",
+          "key_risks",
+          "plan_summary",
+          "target_allocation",
+          "considerations",
+          "data_limitations"
+        ],
+        "title": "PortfolioReview",
+        "type": "object"
+      },
+      "PortfolioRiskStats": {
+        "description": "The whole portfolio's statistics, holding today's weights over the window.\n\nThe returns are those of the current weights rebalanced daily, not of the trades the\naccount actually made.",
+        "properties": {
+          "annualized_return": {
+            "title": "Annualized Return",
+            "type": "number"
+          },
+          "average_correlation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Average correlation over every pair of holdings, equally weighted; null for a portfolio of one holding.",
+            "title": "Average Correlation"
+          },
+          "current_drawdown": {
+            "maximum": 0.0,
+            "title": "Current Drawdown",
+            "type": "number"
+          },
+          "diversification_ratio": {
+            "description": "Weighted average of the holdings' volatilities over the portfolio's; 1 means no diversification benefit, and higher is more.",
+            "title": "Diversification Ratio",
+            "type": "number"
+          },
+          "effective_holdings": {
+            "description": "1 / the sum of squared weights: how many equal positions the portfolio's concentration matches.",
+            "title": "Effective Holdings",
+            "type": "number"
+          },
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "largest_weight": {
+            "title": "Largest Weight",
+            "type": "number"
+          },
+          "max_drawdown": {
+            "maximum": 0.0,
+            "title": "Max Drawdown",
+            "type": "number"
+          },
+          "observations": {
+            "description": "Number of daily returns.",
+            "minimum": 1.0,
+            "title": "Observations",
+            "type": "integer"
+          },
+          "return_to_volatility": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Annualized return over volatility; null at zero volatility.",
+            "title": "Return To Volatility"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "volatility": {
+            "title": "Volatility",
+            "type": "number"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "observations",
+          "annualized_return",
+          "volatility",
+          "max_drawdown",
+          "current_drawdown",
+          "diversification_ratio",
+          "effective_holdings",
+          "largest_weight"
+        ],
+        "title": "PortfolioRiskStats",
         "type": "object"
       },
       "PriceHistory": {
@@ -6801,6 +7678,42 @@
           "checks"
         ],
         "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "RebalancePlan": {
+        "description": "The orders that move the portfolio to Claude's target allocation.",
+        "properties": {
+          "cash_after": {
+            "description": "Cash left over, including any CASH target.",
+            "title": "Cash After",
+            "type": "number"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "total_value": {
+            "description": "Value of the holdings plus the new cash.",
+            "title": "Total Value",
+            "type": "number"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/PlannedTrade"
+            },
+            "title": "Trades",
+            "type": "array"
+          }
+        },
+        "required": [
+          "total_value",
+          "trades",
+          "cash_after"
+        ],
+        "title": "RebalancePlan",
         "type": "object"
       },
       "RecommendationMonth": {
@@ -8048,6 +8961,59 @@
         "title": "TailCheck",
         "type": "object"
       },
+      "TargetPosition": {
+        "description": "Where Claude would take one position: a current holding or a new investment.",
+        "properties": {
+          "limit_offset_percent": {
+            "anyOf": [
+              {
+                "maximum": 20.0,
+                "minimum": -20.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For limit orders: the limit as a percent from the latest price, negative below it (e.g. -0.5 buys up to 0.5% below the last price).",
+            "title": "Limit Offset Percent"
+          },
+          "order_type": {
+            "description": "limit for less liquid securities or to control the price, market for liquid ones where filling matters more.",
+            "enum": [
+              "market",
+              "limit"
+            ],
+            "title": "Order Type",
+            "type": "string"
+          },
+          "rationale": {
+            "description": "Why this weight, citing figures where it can.",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "symbol": {
+            "description": "Ticker, e.g. VXUS; CASH for uninvested cash.",
+            "title": "Symbol",
+            "type": "string"
+          },
+          "target_weight": {
+            "description": "Share of the portfolio after the plan, as a decimal.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Target Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "symbol",
+          "target_weight",
+          "order_type",
+          "rationale"
+        ],
+        "title": "TargetPosition",
+        "type": "object"
+      },
       "TickerInfo": {
         "description": "Normalized descriptive and pricing snapshot for a single ticker.",
         "properties": {
@@ -8959,6 +9925,105 @@
         ]
       }
     },
+    "/api/v1/backtests/assistant": {
+      "post": {
+        "description": "Have Claude answer a question about the custom strategy in ``code``.\n\nSend the code in the editor, its ``language``, the question, the conversation so far\nin ``history``, and ``last_run`` with the error or output of the last run when there\nis one. ``reply.code`` is the complete revised source when Claude changed the code,\nand null otherwise. Nothing is stored but a count of answers.\n\nIt is written with, and billed to, your own Anthropic key (the ``X-Anthropic-Key``\nheader), within your AI limits. Returns 403 without a valid Anthropic key, 422 when\nthe model declines, 429 beyond your AI limits, 502 when Anthropic fails, and 503\nwhen it rate limits your account.",
+        "operationId": "ask_assistant_api_v1_backtests_assistant_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ask Claude about your strategy",
+        "tags": [
+          "backtest"
+        ]
+      }
+    },
+    "/api/v1/backtests/assistant/stream": {
+      "post": {
+        "description": "Stream the answer of ``ask_assistant`` as Claude writes it.\n\nSends ``thinking`` fragments summarizing the model's reasoning, ``report`` fragments\nof the reply's JSON, ``fallback`` when a model declines part-way and another\ncontinues, then ``result`` (the :class:`AssistantResponse`) or ``error`` (an\n:class:`AnalysisStreamError`). Failures before the stream opens return the same\nstatuses as ``ask_assistant``.",
+        "operationId": "stream_assistant_api_v1_backtests_assistant_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Claude's answer about your strategy as Server-Sent Events",
+        "tags": [
+          "backtest"
+        ]
+      }
+    },
     "/api/v1/backtests/{backtest_id}": {
       "delete": {
         "description": "Delete a stored backtest.\n\nReturns 404 for unknown IDs and other users' backtests, and 503 when the database is\nunavailable.",
@@ -9328,6 +10393,137 @@
         "summary": "Set your AI request limits",
         "tags": [
           "account"
+        ]
+      }
+    },
+    "/api/v1/portfolio/analysis": {
+      "get": {
+        "description": "Return your newest stored portfolio review, whatever it was written for, so it can\nbe shown again without a charge. Returns 404 when you have none.",
+        "operationId": "read_portfolio_review_api_v1_portfolio_analysis_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioAnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Your latest portfolio review",
+        "tags": [
+          "portfolio"
+        ]
+      },
+      "post": {
+        "description": "Have Claude review your saved portfolio's construction and risk.\n\nThe review is grounded in your holdings valued at the latest prices, their sectors,\nand statistics of today's weights over ``period`` of daily returns: each holding's\nreturn, volatility, drawdown and share of the portfolio's risk, the portfolio's\nvolatility, drawdowns and diversification, and the most and least correlated pairs.\nAll of it is in ``context``.\n\nIt is written with, and billed to, your own Anthropic key (the ``X-Anthropic-Key``\nheader), within your AI limits, and stored under your account. A review of the same\nholdings and period within ``ANALYSIS_CACHE_TTL_SECONDS`` is returned again with\n``cached`` set and no charge, unless ``refresh`` is true.\n\nReturns 403 without a valid Anthropic key, 422 with no saved holdings, a window too\nshort, or when the model declines, 429 beyond your AI limits, 502 when a provider\nfails, and 503 when Anthropic rate limits your account.",
+        "operationId": "create_portfolio_review_api_v1_portfolio_analysis_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortfolioAnalysisRequest",
+                "default": {
+                  "period": "1y",
+                  "profile": {
+                    "cash_to_invest": 0.0
+                  },
+                  "refresh": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioAnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "AI-written review of your saved portfolio",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/v1/portfolio/analysis/stream": {
+      "post": {
+        "description": "Stream the review of ``create_portfolio_review`` as Claude writes it.\n\nThe same failures return the same statuses before the stream opens. Then it sends\n``context`` (the :class:`PortfolioContext`), ``thinking`` and ``report`` fragments,\n``fallback`` when a model declines part-way and another continues, and ``result``\n(the :class:`PortfolioAnalysisResponse`) or ``error``, as the stock analysis stream\ndoes. A reused review is sent as ``context`` then ``result`` alone.",
+        "operationId": "stream_portfolio_review_events_api_v1_portfolio_analysis_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortfolioAnalysisRequest",
+                "default": {
+                  "period": "1y",
+                  "profile": {
+                    "cash_to_invest": 0.0
+                  },
+                  "refresh": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream an AI-written review of your saved portfolio as Server-Sent Events",
+        "tags": [
+          "portfolio"
         ]
       }
     },

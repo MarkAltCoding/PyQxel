@@ -16,9 +16,9 @@ import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
-from pydantic import SecretStr, ValidationError
+from pydantic import BaseModel, SecretStr, ValidationError
 
 from app.ai.prompts import SYSTEM_PROMPT, TASKS, render_filings
 from app.core.config import get_settings
@@ -35,7 +35,14 @@ from app.models.research import (
 if TYPE_CHECKING:
     import anthropic
     from anthropic import AsyncAnthropic
-    from anthropic.types.beta import BetaMessage, BetaOutputConfigParam, BetaTextBlockParam
+    from anthropic.types.beta import (
+        BetaMessage,
+        BetaMessageParam,
+        BetaOutputConfigParam,
+        BetaTextBlockParam,
+    )
+
+Report = TypeVar("Report", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +85,14 @@ class WrittenReport:
     """The finished report of a streamed analysis and the model that wrote it."""
 
     report: InvestmentThesis | RiskSummary
+    model: str
+
+
+@dataclass(frozen=True)
+class Written[R: BaseModel]:
+    """The finished, validated output of a streamed request and the model that wrote it."""
+
+    output: R
     model: str
 
 
@@ -164,7 +179,7 @@ def _check_stop_reason(response: BetaMessage) -> None:
         raise AnalysisError("The AI response was truncated before the report was complete.")
 
 
-def _output_config(schema: type[InvestmentThesis | RiskSummary]) -> BetaOutputConfigParam:
+def _output_config(schema: type[BaseModel]) -> BetaOutputConfigParam:
     """Return the effort setting and the JSON schema that constrains the report."""
     from anthropic import transform_schema
 
@@ -174,9 +189,7 @@ def _output_config(schema: type[InvestmentThesis | RiskSummary]) -> BetaOutputCo
     }
 
 
-def _parse_report(
-    response: BetaMessage, schema: type[InvestmentThesis | RiskSummary]
-) -> InvestmentThesis | RiskSummary:
+def _parse_report(response: BetaMessage, schema: type[Report]) -> Report:
     """Validate the report in ``response`` against ``schema``.
 
     The text blocks are joined first: a model that declines part-way leaves the start of
@@ -188,6 +201,71 @@ def _parse_report(
         return schema.model_validate_json(text)
     except ValidationError as exc:
         raise AnalysisError("The AI response did not match the report schema.") from exc
+
+
+async def write_structured(
+    system: str | list[BetaTextBlockParam],
+    messages: list[BetaMessageParam],
+    schema: type[Report],
+    *,
+    client: AsyncAnthropic,
+) -> tuple[Report, str]:
+    """Have Claude answer ``messages`` with output that validates against ``schema``.
+
+    Returns the validated output and the model that wrote it, which differs from the
+    configured model when a declined request fell back to another. Errors are as for
+    :func:`write_analysis`.
+    """
+    with _translated_errors():
+        response = await client.beta.messages.create(
+            model=get_settings().anthropic_model,
+            max_tokens=MAX_TOKENS,
+            system=system,
+            messages=messages,
+            thinking={"type": "adaptive"},
+            output_config=_output_config(schema),
+            fallbacks="default",
+            betas=[FALLBACK_BETA],
+        )
+    return _parse_report(response, schema), response.model
+
+
+async def stream_structured(
+    system: str | list[BetaTextBlockParam],
+    messages: list[BetaMessageParam],
+    schema: type[Report],
+    *,
+    client: AsyncAnthropic,
+) -> AsyncIterator[AnalysisDelta | ModelFallback | Written[Report]]:
+    """Stream :func:`write_structured`: summarized reasoning and output JSON as
+    :class:`AnalysisDelta` fragments, a :class:`ModelFallback` when a model declines
+    part-way, then the validated :class:`Written` output. Errors are raised from the
+    iterator, possibly after fragments have been yielded.
+    """
+    with _translated_errors():
+        async with client.beta.messages.stream(
+            model=get_settings().anthropic_model,
+            max_tokens=STREAM_MAX_TOKENS,
+            system=system,
+            messages=messages,
+            thinking={"type": "adaptive", "display": "summarized"},
+            output_config=_output_config(schema),
+            fallbacks="default",
+            betas=[FALLBACK_BETA],
+        ) as stream:
+            async for event in stream:
+                if event.type == "content_block_start" and event.content_block.type == "fallback":
+                    yield ModelFallback(
+                        from_model=event.content_block.from_.model,
+                        to_model=event.content_block.to.model,
+                    )
+                elif event.type == "content_block_delta":
+                    if event.delta.type == "thinking_delta":
+                        yield AnalysisDelta(channel="thinking", text=event.delta.thinking)
+                    elif event.delta.type == "text_delta":
+                        yield AnalysisDelta(channel="report", text=event.delta.text)
+            response = await stream.get_final_message()
+    yield Written(output=_parse_report(response, schema), model=response.model)
 
 
 async def write_analysis(
@@ -216,21 +294,13 @@ async def write_analysis(
         AIRefusalError: If the request is declined.
         AnalysisError: If the response is truncated or does not match the schema.
     """
-    settings = get_settings()
-    schema = InvestmentThesis if kind == "thesis" else RiskSummary
-    with _translated_errors():
-        response = await client.beta.messages.create(
-            model=settings.anthropic_model,
-            max_tokens=MAX_TOKENS,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": _user_content(context, kind, filings or [])}],
-            thinking={"type": "adaptive"},
-            output_config=_output_config(schema),
-            fallbacks="default",
-            betas=[FALLBACK_BETA],
-        )
-
-    return _parse_report(response, schema), response.model
+    schema: type[InvestmentThesis | RiskSummary] = (
+        InvestmentThesis if kind == "thesis" else RiskSummary
+    )
+    messages: list[BetaMessageParam] = [
+        {"role": "user", "content": _user_content(context, kind, filings or [])}
+    ]
+    return await write_structured(SYSTEM_PROMPT, messages, schema, client=client)
 
 
 async def stream_analysis(
@@ -250,30 +320,14 @@ async def stream_analysis(
     Args and errors are as for :func:`write_analysis`; errors are raised from the
     iterator, possibly after fragments have been yielded.
     """
-    settings = get_settings()
-    schema = InvestmentThesis if kind == "thesis" else RiskSummary
-    with _translated_errors():
-        async with client.beta.messages.stream(
-            model=settings.anthropic_model,
-            max_tokens=STREAM_MAX_TOKENS,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": _user_content(context, kind, filings or [])}],
-            thinking={"type": "adaptive", "display": "summarized"},
-            output_config=_output_config(schema),
-            fallbacks="default",
-            betas=[FALLBACK_BETA],
-        ) as stream:
-            async for event in stream:
-                if event.type == "content_block_start" and event.content_block.type == "fallback":
-                    yield ModelFallback(
-                        from_model=event.content_block.from_.model,
-                        to_model=event.content_block.to.model,
-                    )
-                elif event.type == "content_block_delta":
-                    if event.delta.type == "thinking_delta":
-                        yield AnalysisDelta(channel="thinking", text=event.delta.thinking)
-                    elif event.delta.type == "text_delta":
-                        yield AnalysisDelta(channel="report", text=event.delta.text)
-            response = await stream.get_final_message()
-
-    yield WrittenReport(report=_parse_report(response, schema), model=response.model)
+    schema: type[InvestmentThesis | RiskSummary] = (
+        InvestmentThesis if kind == "thesis" else RiskSummary
+    )
+    messages: list[BetaMessageParam] = [
+        {"role": "user", "content": _user_content(context, kind, filings or [])}
+    ]
+    async for item in stream_structured(SYSTEM_PROMPT, messages, schema, client=client):
+        if isinstance(item, Written):
+            yield WrittenReport(report=item.output, model=item.model)
+        else:
+            yield item

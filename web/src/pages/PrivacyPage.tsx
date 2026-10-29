@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
-const UPDATED = 'October 28, 2026'
+const UPDATED = 'October 29, 2026'
 const CONTACT = 'https://github.com/MarkAltCoding'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -54,9 +54,13 @@ export function PrivacyPage() {
           <ul>
             <li>
               What you save: your portfolio holdings, backtests (with the code of custom
-              strategies), simulations and AI research reports. Only your account can see them.
+              strategies), simulations, AI research reports and AI reviews of your portfolio. Only
+              your account can see them.
             </li>
-            <li>Counts of your recent AI requests, to apply the limits you set.</li>
+            <li>
+              Counts of your recent AI requests, to apply the limits you set. Your conversations
+              with the strategy coding assistant are not stored: only that an answer was written.
+            </li>
           </ul>
           <p>
             Keys you add for Anthropic, Financial Modeling Prep, Alpha Vantage or Finnhub are not
@@ -82,8 +86,10 @@ export function PrivacyPage() {
               Financial Modeling Prep, Alpha Vantage and Finnhub. Company filings come from the SEC.
             </li>
             <li>
-              When you ask for an AI research report, the company’s data is sent to Anthropic with
-              your own key, under Anthropic’s terms.
+              When you use an AI feature, what it needs is sent to Anthropic with your own key,
+              under Anthropic’s terms: a company’s data for a research report, your holdings, their
+              statistics and the goals you enter for a portfolio review, and your strategy code, its
+              last run’s output and your questions for the coding assistant.
             </li>
           </ul>
           <p>

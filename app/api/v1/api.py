@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     account,
     alternative,
+    assistant,
     backtest,
     factors,
     fundamentals,
@@ -34,6 +35,7 @@ api_router.include_router(metrics.router, prefix="/stocks", tags=["metrics"])
 api_router.include_router(alternative.router, prefix="/stocks", tags=["alternative data"])
 api_router.include_router(markets.router, prefix="/markets", tags=["markets"])
 api_router.include_router(backtest.results_router, prefix="/backtests", tags=["backtest"])
+api_router.include_router(assistant.router, prefix="/backtests/assistant", tags=["backtest"])
 api_router.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
 api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(screener.router, prefix="/screener", tags=["screener"])

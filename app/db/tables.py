@@ -214,6 +214,46 @@ class HoldingRecord(Base):
     """Order in which the account listed its holdings."""
 
 
+class PortfolioAnalysisRecord(Base):
+    """One AI-written review of an account's saved portfolio.
+
+    ``holdings_key`` fingerprints the holdings it was written for, so a review is reused
+    only while the portfolio is unchanged. The full response is kept as JSON in
+    ``result``.
+    """
+
+    __tablename__ = "portfolio_analyses"
+    __table_args__ = (Index("ix_portfolio_analyses_user_created_at", "user_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    period: Mapped[str] = mapped_column(String(8))
+    holdings_key: Mapped[str] = mapped_column(String(64))
+    requested_model: Mapped[str] = mapped_column(String(64))
+    effort: Mapped[str] = mapped_column(String(16))
+    model: Mapped[str] = mapped_column(String(64))
+    headline: Mapped[str] = mapped_column(Text)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+
+class AssistantRequestRecord(Base):
+    """One answer the strategy coding assistant wrote, kept only to count against the
+    account's AI limits; the conversation itself is never stored."""
+
+    __tablename__ = "assistant_requests"
+    __table_args__ = (Index("ix_assistant_requests_user_created_at", "user_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    model: Mapped[str] = mapped_column(String(64))
+
+
 class ScreenerStockRecord(Base):
     """One stock in the screened universe and its precomputed metrics.
 
