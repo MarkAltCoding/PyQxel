@@ -1,18 +1,16 @@
-"""Schemas for accounts: API keys, stored provider credentials, and AI request limits."""
+"""Schemas for accounts: API keys, provider keys sent with requests, and AI request limits."""
 
 from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field, SecretStr, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints
 from pydantic.json_schema import SkipJsonSchema
-
-ProviderKey = Annotated[SecretStr, Field(min_length=8, max_length=512)]
-"""A provider's API key, as entered; never echoed back."""
 
 
 class ProviderCredential(BaseModel):
-    """Whether a provider key is stored, and its last characters to recognize it by."""
+    """Whether the request carried a provider's key, and its last characters to recognize
+    it by. PyQxel stores no provider keys."""
 
     configured: bool
     hint: str | None = Field(default=None, description="Last four characters, e.g. …a1b2.")
@@ -35,12 +33,18 @@ class AiUsage(BaseModel):
     last_day: int = Field(ge=0)
 
 
-class AdminSettings(BaseModel):
-    """Settings only the admin account (``ADMIN_EMAIL``) has."""
+class AdminSettingsUpdate(BaseModel):
+    """Changes to the admin's settings; omitted fields are left as they are."""
 
-    yfinance_fallback: bool = Field(
+    yfinance_fallback: bool | None = Field(
+        default=None,
         description="Whether your own requests fall back to yfinance when no licensed "
-        "provider answers. yfinance is unlicensed, so it is never used for other accounts."
+        "provider answers.",
+    )
+    yfinance_fallback_for_everyone: bool | None = Field(
+        default=None,
+        description="Whether every account's requests, and the screener refresh, fall back "
+        "to yfinance. yfinance is unlicensed, so this shows its data to other people.",
     )
 
 
@@ -59,7 +63,7 @@ class Account(BaseModel):
     rate_limit_per_minute: int = Field(description="Requests allowed per minute, server-wide.")
     market_data_fallback: bool = Field(
         description="Whether your requests fall back to yfinance when no licensed provider "
-        "answers, as in development."
+        "answers."
     )
     sec_filings: bool = Field(
         description="Whether the server reads financial statements and filings from SEC "
@@ -68,31 +72,11 @@ class Account(BaseModel):
     admin: SkipJsonSchema[dict[str, bool] | None] = Field(
         default=None, exclude_if=lambda settings: settings is None
     )
-    """The admin's :class:`AdminSettings`. Sent to the admin alone, and left out of the API
-    schema, so other accounts cannot tell there are admin settings. A plain dict, since
-    FastAPI would list a model's schema even for a field it skips."""
-
-
-class CredentialsUpdate(BaseModel):
-    """Provider keys to store. Omitted fields are left as they are; ``null`` removes a key.
-
-    Keys are encrypted at rest and only ever used for this account's own requests.
-    """
-
-    anthropic_api_key: ProviderKey | None = Field(
-        default=None, description="Anthropic API key, used for this account's analyses."
-    )
-    fmp_api_key: ProviderKey | None = Field(
-        default=None, description="Financial Modeling Prep key, used for its market data."
-    )
-    alpha_vantage_api_key: ProviderKey | None = Field(
-        default=None,
-        description="Alpha Vantage key, used for market data and financial statements the "
-        "other sources leave out.",
-    )
-    finnhub_api_key: ProviderKey | None = Field(
-        default=None, description="Finnhub key, used for company news."
-    )
+    """The admin's switches: ``yfinance_fallback``, ``yfinance_fallback_for_everyone``, and
+    the read-only ``yfinance_fallback_from_server`` (``YFINANCE_FALLBACK``). Sent to the
+    admin alone, and left out of the API schema, so other accounts cannot tell there are
+    admin settings. A plain dict, since FastAPI would list a model's schema even for a
+    field it skips."""
 
 
 class ApiKeyCreate(BaseModel):

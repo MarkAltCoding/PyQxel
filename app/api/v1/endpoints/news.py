@@ -47,8 +47,8 @@ async def get_news(
 
     ``overview`` counts every article in the window by day and by publisher, while
     ``articles`` holds the newest ``limit`` of them. Copies of a syndicated story under
-    the same headline count once. News is fetched on your own Finnhub key (``PUT
-    /api/v1/me/credentials``), whose free plan covers North American companies, and
+    the same headline count once. News is fetched on your own Finnhub key
+    (``X-Finnhub-Key``), whose free plan covers North American companies, and
     reused for ten minutes. When Finnhub cannot be reached, the last news fetched in the
     past day is returned with a ``notice``.
 

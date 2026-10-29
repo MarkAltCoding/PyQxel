@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AuthProvider } from './auth/AuthContext'
+import { clearProviderKeys, providerKeyHeaders, setProviderKey } from './lib/providerKeys'
 import { routes } from './routes'
 
 function renderAt(path: string) {
@@ -236,25 +237,129 @@ describe('admin settings', () => {
     expect(screen.queryByText(/Fall back to yfinance/)).toBeNull()
   })
 
-  it('turn the yfinance fallback on for the admin', async () => {
+  const ADMIN = {
+    yfinance_fallback: false,
+    yfinance_fallback_for_everyone: false,
+    yfinance_fallback_from_server: false,
+  }
+
+  it('turn the yfinance fallback on for the admin alone', async () => {
     window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
-    const admin = { ...ACCOUNT, admin: { yfinance_fallback: false } }
+    const admin = { ...ACCOUNT, admin: ADMIN }
+    const sent: unknown[] = []
     const calls = serve({
       '/api/v1/me': () => json(admin),
-      '/api/v1/me/admin': () =>
-        json({ ...admin, admin: { yfinance_fallback: true }, market_data_fallback: true }),
+      '/api/v1/me/admin': (init) => {
+        sent.push(JSON.parse(String(init?.body)))
+        return json({ ...admin, admin: { ...ADMIN, yfinance_fallback: true } })
+      },
     })
     renderAt('/settings')
 
-    const toggle = await screen.findByRole('checkbox', { name: /Fall back to yfinance/ })
-    expect(toggle).not.toBeChecked()
-    await userEvent.click(toggle)
+    const mine = await screen.findByRole('checkbox', { name: /for my own requests/ })
+    expect(mine).not.toBeChecked()
+    await userEvent.click(mine)
 
-    await waitFor(() => expect(toggle).toBeChecked())
+    await waitFor(() => expect(mine).toBeChecked())
+    expect(screen.getByRole('checkbox', { name: /for everyone/ })).not.toBeChecked()
+    expect(sent).toEqual([{ yfinance_fallback: true }])
     expect(calls.find((call) => call.path === '/api/v1/me/admin')).toEqual({
       path: '/api/v1/me/admin',
       method: 'PUT',
       authorization: 'Bearer pq_mine',
     })
+  })
+
+  it('turn the yfinance fallback on for everyone', async () => {
+    window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
+    const admin = { ...ACCOUNT, admin: ADMIN }
+    const sent: unknown[] = []
+    serve({
+      '/api/v1/me': () => json(admin),
+      '/api/v1/me/admin': (init) => {
+        sent.push(JSON.parse(String(init?.body)))
+        return json({ ...admin, admin: { ...ADMIN, yfinance_fallback_for_everyone: true } })
+      },
+    })
+    renderAt('/settings')
+
+    const everyone = await screen.findByRole('checkbox', { name: /for everyone/ })
+    await userEvent.click(everyone)
+
+    await waitFor(() => expect(everyone).toBeChecked())
+    expect(sent).toEqual([{ yfinance_fallback_for_everyone: true }])
+    // Everyone includes the admin, so their own switch shows on and is locked.
+    expect(screen.getByRole('checkbox', { name: /for my own requests/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /for my own requests/ })).toBeDisabled()
+  })
+
+  it('say when the server forces the fallback on', async () => {
+    window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
+    const admin = { ...ACCOUNT, admin: { ...ADMIN, yfinance_fallback_from_server: true } }
+    serve({ '/api/v1/me': () => json(admin) })
+    renderAt('/settings')
+
+    expect(await screen.findByText(/YFINANCE_FALLBACK is on/)).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /for everyone/ })).toBeDisabled()
+  })
+})
+
+describe('provider keys', () => {
+  const ACCOUNT = {
+    id: '6f9619ff-8b86-d011-b42d-00c04fc964ff',
+    email: 'me@example.com',
+    created_at: '2026-10-01T00:00:00Z',
+    anthropic: { configured: false, hint: null },
+    fmp: { configured: false, hint: null },
+    alpha_vantage: { configured: false, hint: null },
+    finnhub: { configured: false, hint: null },
+    limits: { ai_requests_per_hour: null, ai_requests_per_day: null },
+    usage: { last_hour: 0, last_day: 0 },
+    rate_limit_per_minute: 120,
+    market_data_fallback: false,
+    sec_filings: true,
+  }
+
+  afterEach(() => clearProviderKeys())
+
+  /** Answers /me as the server does: reporting the keys the request carried. */
+  const me = (init: RequestInit | undefined) => {
+    const headers = (init?.headers ?? {}) as Record<string, string>
+    const fmp = headers['X-FMP-Key']
+    return json({
+      ...ACCOUNT,
+      fmp: fmp ? { configured: true, hint: `…${fmp.slice(-4)}` } : ACCOUNT.fmp,
+    })
+  }
+
+  it('are kept in this browser and sent with requests, never stored on the server', async () => {
+    window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
+    const calls = serve({ '/api/v1/me': me })
+    renderAt('/settings')
+
+    const input = await screen.findByLabelText('Financial Modeling Prep API key')
+    await userEvent.type(input, 'fmp-secret-5678')
+    const form = input.closest('form') as HTMLFormElement
+    await userEvent.click(within(form).getByRole('button', { name: 'Save' }))
+
+    expect(await within(form).findByText(/In this browser · ends …5678/)).toBeInTheDocument()
+    expect(calls.every((call) => call.method === 'GET')).toBe(true)
+    expect(window.localStorage.getItem('pyqxel.providerKeys')).toContain('fmp-secret-5678')
+  })
+
+  it('are forgotten on signing out', async () => {
+    window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
+    setProviderKey('fmp', 'fmp-secret-5678')
+    serve({
+      '/api/v1/me': me,
+      '/api/v1/auth/signout': () => new Response(null, { status: 204 }),
+      '/api/v1/auth/providers': () => json([]),
+    })
+    renderAt('/settings')
+
+    await userEvent.click(await screen.findByRole('button', { name: /Sign out/ }))
+
+    await waitFor(() => expect(window.localStorage.getItem('pyqxel.providerKeys')).toBeNull())
+    expect(providerKeyHeaders()).toEqual({})
   })
 })

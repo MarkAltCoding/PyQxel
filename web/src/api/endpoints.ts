@@ -2,7 +2,7 @@
 import { api, send } from './client'
 import type {
   Account,
-  AdminSettings,
+  AdminSettingsUpdate,
   AnalysisList,
   AnalysisRequest,
   AnalysisResponse,
@@ -11,7 +11,6 @@ import type {
   BacktestResponse,
   CompanyMetrics,
   CopulaFitResponse,
-  CredentialsUpdate,
   CustomBacktestRequest,
   AiLimits,
   AlternativeData,
@@ -43,11 +42,9 @@ export const getSignInProviders = () => api<SignInProvider[]>(`${V1}/auth/provid
 /** Revokes `key` if signing in issued it; keys made for scripts keep working. */
 export const revokeSignIn = (key: string) =>
   api<void>(`${V1}/auth/signout`, { method: 'POST', key })
-export const updateCredentials = (body: CredentialsUpdate) =>
-  api<Account>(`${V1}/me/credentials`, { method: 'PUT', body })
 export const updateLimits = (body: AiLimits) =>
   api<Account>(`${V1}/me/limits`, { method: 'PUT', body })
-export const updateAdminSettings = (body: AdminSettings) =>
+export const updateAdminSettings = (body: AdminSettingsUpdate) =>
   api<Account>(`${V1}/me/admin`, { method: 'PUT', body })
 export const deleteAccount = () => api<void>(`${V1}/me`, { method: 'DELETE' })
 

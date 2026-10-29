@@ -23,9 +23,9 @@ Each run:
 
 Every account sees the universe, so market data is fetched on the screener's own key,
 ``SCREENER_FMP_API_KEY``, which must be on an FMP plan licensed for showing its data to
-your users, never on an account's key. Without that key the run fails, unless
-``YFINANCE_FALLBACK`` is on, for development or personal use, when yfinance and Nasdaq's
-public screener feed stand in.
+your users, never on an account's key. Without that key the run fails, unless the
+yfinance fallback is on for everyone (``YFINANCE_FALLBACK``, or the admin's switch), when
+yfinance and Nasdaq's public screener feed stand in.
 
 A full run takes one FMP request per listed stock, about 20 minutes at 300 requests a
 minute (``SCREENER_FMP_REQUESTS_PER_MINUTE``), plus a 1.3 GB download on the days
@@ -67,6 +67,7 @@ from app.data.universe import (
     fetch_share_counts,
     is_common_name,
 )
+from app.db.app_settings import yfinance_for_everyone
 from app.db.screener import (
     finish_run,
     fundamentals_refreshed_at,
@@ -372,12 +373,14 @@ async def _market_data() -> AsyncIterator[FmpSession | None]:
 
     Raises:
         ProviderNotConfiguredError: If ``SCREENER_FMP_API_KEY`` is unset and the yfinance
-            fallback is off.
+            fallback is off, both in ``YFINANCE_FALLBACK`` and in the admin's settings.
     """
     settings = get_settings()
     key = settings.screener_fmp_api_key
     if key is None:
-        if not settings.yfinance_fallback:
+        async with get_sessionmaker()() as session:
+            everyone = await yfinance_for_everyone(session)
+        if not settings.yfinance_fallback and not everyone:
             raise ProviderNotConfiguredError(
                 "The screener needs SCREENER_FMP_API_KEY: a Financial Modeling Prep key on a "
                 "plan licensed for showing its data to your users."

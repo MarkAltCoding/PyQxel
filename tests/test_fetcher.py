@@ -113,7 +113,7 @@ async def test_without_a_key_or_fallback_nothing_is_fetched(
         fetcher.fetch_price_history("AAPL"),
         fetcher.fetch_quote("AAPL"),
     ):
-        with pytest.raises(ProviderNotConfiguredError, match="PUT /api/v1/me/credentials"):
+        with pytest.raises(ProviderNotConfiguredError, match="in Settings"):
             await call
 
 

@@ -31,7 +31,7 @@ async def get_alternative(symbol: Symbol) -> AlternativeData:
     are in ``patents``. ``filing_counts`` counts the last 90 days of SEC filings by form,
     and ``filings`` lists the newest.
 
-    Fetched on your own Finnhub key (``PUT /api/v1/me/credentials``), whose free plan
+    Fetched on your own Finnhub key (``X-Finnhub-Key``), whose free plan
     covers US companies, and reused for a day. A part Finnhub cannot supply is left
     empty and named in ``notice``. Returns 403 without a valid Finnhub key.
     """

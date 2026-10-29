@@ -18,6 +18,7 @@ from app.core.credentials import current_provider_keys
 from app.data.fetcher import DataFetchError, ProviderNotConfiguredError
 from app.data.universe import FmpSession, Listing, Profile
 from app.db.screener import finish_run, load_fundamentals, start_run, universe_status
+from app.db.app_settings import set_yfinance_for_everyone
 from app.db.session import get_sessionmaker
 from app.db.tables import ScreenerRunRecord, ScreenerStockRecord
 from app.jobs import screener as job
@@ -302,6 +303,22 @@ async def test_refresh_needs_a_licensed_key_in_production(
         status = await universe_status(session)
     assert status.last_error is not None and "SCREENER_FMP_API_KEY" in status.last_error
     assert fakes.priced == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_follows_the_admins_switch_for_everyone(
+    fakes: Fakes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the fallback off in the environment, the admin's app-wide switch lets the
+    refresh run on yfinance."""
+    monkeypatch.setattr(get_settings(), "yfinance_fallback", False)
+    monkeypatch.setattr(get_settings(), "screener_fmp_api_key", None)
+    async with get_sessionmaker()() as session:
+        await set_yfinance_for_everyone(session, True)
+
+    await job.refresh_universe()
+
+    assert fakes.priced != []
 
 
 @pytest.mark.asyncio

@@ -1,10 +1,10 @@
-"""The authenticated user's account: provider keys, AI limits, PyQxel API keys, and
+"""The authenticated user's account: AI limits, PyQxel API keys, admin settings, and
 deleting the account.
 
-Each account pays for its own usage. AI analyses run on the Anthropic key stored here,
-market data on the Financial Modeling Prep key, data the other sources leave out on the
-Alpha Vantage key, and company news on the Finnhub key; none is ever used for another
-account, and the server's own keys are never used for anyone.
+Each account pays for its own usage, with provider keys PyQxel never stores: the browser
+keeps them and sends them with each request (see :mod:`app.core.credentials`), so AI
+analyses run on the Anthropic key the request carries, market data on its Financial
+Modeling Prep key, the gaps on its Alpha Vantage key, and news on its Finnhub key.
 """
 
 import logging
@@ -20,7 +20,9 @@ from starlette.routing import Match
 
 from app.api.auth import CurrentUser, authenticate
 from app.core.config import get_settings
-from app.core.security import CredentialsUnavailableError
+from app.core.credentials import ProviderKeys, current_provider_keys
+from app.core.security import key_hint
+from app.db.app_settings import set_yfinance_for_everyone, yfinance_for_everyone
 from app.db.session import get_session
 from app.db.users import (
     User,
@@ -29,17 +31,15 @@ from app.db.users import (
     delete_user,
     list_api_keys,
     revoke_api_key,
-    update_credentials,
     update_limits,
     update_yfinance_fallback,
 )
 from app.models.account import (
     Account,
-    AdminSettings,
+    AdminSettingsUpdate,
     AiLimits,
     ApiKeyCreate,
     ApiKeyInfo,
-    CredentialsUpdate,
     NewApiKey,
     ProviderCredential,
 )
@@ -61,29 +61,38 @@ def _database_error(exc: SQLAlchemyError) -> HTTPException:
     )
 
 
+def _sent(keys: ProviderKeys, provider: str) -> ProviderCredential:
+    """Whether the request carried ``provider``'s key, and its last characters."""
+    secret = getattr(keys, provider)
+    if secret is None:
+        return ProviderCredential(configured=False)
+    return ProviderCredential(configured=True, hint=key_hint(secret.get_secret_value()))
+
+
 async def _account(session: AsyncSession, user: User) -> Account:
+    keys = current_provider_keys()
+    server = get_settings().yfinance_fallback
+    everyone = await yfinance_for_everyone(session)
+    mine = user.is_admin and user.yfinance_fallback
     return Account(
         id=UUID(user.id),
         email=user.email,
         created_at=user.created_at,
-        anthropic=ProviderCredential(
-            configured=user.anthropic_api_key is not None, hint=user.anthropic_key_hint
-        ),
-        fmp=ProviderCredential(configured=user.fmp_api_key is not None, hint=user.fmp_key_hint),
-        alpha_vantage=ProviderCredential(
-            configured=user.alpha_vantage_api_key is not None, hint=user.alpha_vantage_key_hint
-        ),
-        finnhub=ProviderCredential(
-            configured=user.finnhub_api_key is not None, hint=user.finnhub_key_hint
-        ),
+        anthropic=_sent(keys, "anthropic"),
+        fmp=_sent(keys, "fmp"),
+        alpha_vantage=_sent(keys, "alpha_vantage"),
+        finnhub=_sent(keys, "finnhub"),
         limits=user.limits,
         usage=await ai_usage(session, user.id),
         rate_limit_per_minute=get_settings().rate_limit_per_minute,
-        market_data_fallback=get_settings().yfinance_fallback
-        or (user.is_admin and user.yfinance_fallback),
+        market_data_fallback=server or everyone or mine,
         sec_filings=bool(get_settings().sec_user_agent),
         admin=(
-            AdminSettings(yfinance_fallback=user.yfinance_fallback).model_dump()
+            {
+                "yfinance_fallback": user.yfinance_fallback,
+                "yfinance_fallback_for_everyone": everyone,
+                "yfinance_fallback_from_server": server,
+            }
             if user.is_admin
             else None
         ),
@@ -92,34 +101,10 @@ async def _account(session: AsyncSession, user: User) -> Account:
 
 @router.get("", response_model=Account, summary="Your account")
 async def read_account(user: CurrentUser, session: Session) -> Account:
-    """Return the account: which provider keys are stored, AI limits and recent usage."""
+    """Return the account: which provider keys this request carried, AI limits and recent
+    usage."""
     try:
         return await _account(session, user)
-    except SQLAlchemyError as exc:
-        raise _database_error(exc) from exc
-
-
-@router.put("/credentials", response_model=Account, summary="Store your provider keys")
-async def store_credentials(
-    user: CurrentUser, session: Session, changes: Annotated[CredentialsUpdate, Body()]
-) -> Account:
-    """Store, replace or remove your Anthropic, Financial Modeling Prep, Alpha Vantage and
-    Finnhub keys.
-
-    Omitted fields are left as they are and ``null`` removes a key. Keys are encrypted at
-    rest, never returned, and used only for your own requests: analyses are billed to
-    your Anthropic account, market data to your FMP plan, the gaps Alpha Vantage
-    fills to your Alpha Vantage plan, and company news to your Finnhub plan.
-
-    Returns 503 when the server has no ``CREDENTIALS_ENCRYPTION_KEY``.
-    """
-    try:
-        updated = await update_credentials(session, user.id, changes)
-        return await _account(session, updated)
-    except CredentialsUnavailableError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
-        ) from exc
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
 
@@ -230,7 +215,9 @@ def _as_if_missing(request: Request) -> HTTPException:
 
 
 async def store_admin_settings(request: Request, session: Session) -> Account:
-    """Turn the yfinance fallback on or off for the admin's own requests, with ``PUT``.
+    """Turn the yfinance fallback on or off, with ``PUT``: for the admin's own requests
+    (``yfinance_fallback``), or for every account and the screener refresh
+    (``yfinance_fallback_for_everyone``). Omitted fields are left as they are.
 
     Only the account ``ADMIN_EMAIL`` names may. Everyone else, signed in or not, gets the
     answer a path that does not exist gets, and the route is left out of the API schema,
@@ -243,17 +230,16 @@ async def store_admin_settings(request: Request, session: Session) -> Account:
     if request.method != "PUT" or not user.is_admin:
         raise _as_if_missing(request)
     try:
-        settings = AdminSettings.model_validate_json(await request.body())
+        changes = AdminSettingsUpdate.model_validate_json(await request.body())
     except ValidationError as exc:
         raise RequestValidationError(exc.errors()) from exc
     try:
-        updated = await update_yfinance_fallback(session, user.id, settings.yfinance_fallback)
-        logger.info(
-            "Admin %s turned the yfinance fallback %s.",
-            user.id,
-            "on" if settings.yfinance_fallback else "off",
-        )
-        return await _account(session, updated)
+        if changes.yfinance_fallback is not None:
+            user = await update_yfinance_fallback(session, user.id, changes.yfinance_fallback)
+        if changes.yfinance_fallback_for_everyone is not None:
+            await set_yfinance_for_everyone(session, changes.yfinance_fallback_for_everyone)
+        logger.info("Admin %s changed admin settings: %s.", user.id, changes.model_dump())
+        return await _account(session, user)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
 

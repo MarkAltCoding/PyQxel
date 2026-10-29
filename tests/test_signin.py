@@ -420,7 +420,7 @@ def test_admin_settings_show_for_the_admin_email_through_either_sign_in(
     account = client.get("/api/v1/me", headers={"Authorization": f"Bearer {key}"}).json()
 
     assert account["email"] == "octo@example.com"
-    assert account["admin"] == {"yfinance_fallback": False}
+    assert account["admin"]["yfinance_fallback"] is False
 
 
 @pytest.mark.usefixtures("real_auth")

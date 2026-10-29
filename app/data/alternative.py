@@ -194,7 +194,7 @@ async def fetch_alternative(
     if finnhub_key() is None:
         raise ProviderNotConfiguredError(
             "Lobbying, government contract, patent and filing data come from Finnhub on "
-            "your own key: add it with PUT /api/v1/me/credentials."
+            "your own key: add it in Settings."
         )
     results = await asyncio.gather(
         fetch_lobbying(symbol, today, client),

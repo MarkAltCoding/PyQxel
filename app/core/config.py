@@ -36,8 +36,7 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = Field(
         default=None,
         description="The server owner's Anthropic key. Never used to serve requests: each "
-        "user's analyses run on the key stored in their account. Only the test suite and "
-        "``python -m app.jobs.users create --import-env-keys`` read it.",
+        "user's analyses run on the key their request carries. Only the test suite reads it.",
     )
     anthropic_model: str = "claude-opus-5-5"
     anthropic_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
@@ -56,12 +55,6 @@ class Settings(BaseSettings):
         default=None,
         description="The server owner's Finnhub key. Like ``anthropic_api_key``, never used to "
         "serve requests.",
-    )
-    credentials_encryption_key: SecretStr | None = Field(
-        default=None,
-        description="Fernet key that encrypts the provider keys users store; generate one "
-        "with ``python -m app.jobs.users generate-encryption-key``. Users cannot store "
-        "keys without it.",
     )
     github_client_id: str | None = Field(
         default=None,

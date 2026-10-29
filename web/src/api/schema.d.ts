@@ -204,7 +204,8 @@ export interface paths {
     }
     /**
      * Your account
-     * @description Return the account: which provider keys are stored, AI limits and recent usage.
+     * @description Return the account: which provider keys this request carried, AI limits and recent
+     *     usage.
      */
     get: operations['read_account_api_v1_me_get']
     put?: never
@@ -264,34 +265,6 @@ export interface paths {
      *     Returns 404 for keys that are not yours.
      */
     delete: operations['remove_api_key_api_v1_me_api_keys__key_id__delete']
-    options?: never
-    head?: never
-    patch?: never
-    trace?: never
-  }
-  '/api/v1/me/credentials': {
-    parameters: {
-      query?: never
-      header?: never
-      path?: never
-      cookie?: never
-    }
-    get?: never
-    /**
-     * Store your provider keys
-     * @description Store, replace or remove your Anthropic, Financial Modeling Prep, Alpha Vantage and
-     *     Finnhub keys.
-     *
-     *     Omitted fields are left as they are and ``null`` removes a key. Keys are encrypted at
-     *     rest, never returned, and used only for your own requests: analyses are billed to
-     *     your Anthropic account, market data to your FMP plan, the gaps Alpha Vantage
-     *     fills to your Alpha Vantage plan, and company news to your Finnhub plan.
-     *
-     *     Returns 503 when the server has no ``CREDENTIALS_ENCRYPTION_KEY``.
-     */
-    put: operations['store_credentials_api_v1_me_credentials_put']
-    post?: never
-    delete?: never
     options?: never
     head?: never
     patch?: never
@@ -625,7 +598,7 @@ export interface paths {
      *     are in ``patents``. ``filing_counts`` counts the last 90 days of SEC filings by form,
      *     and ``filings`` lists the newest.
      *
-     *     Fetched on your own Finnhub key (``PUT /api/v1/me/credentials``), whose free plan
+     *     Fetched on your own Finnhub key (``X-Finnhub-Key``), whose free plan
      *     covers US companies, and reused for a day. A part Finnhub cannot supply is left
      *     empty and named in ``notice``. Returns 403 without a valid Finnhub key.
      */
@@ -665,8 +638,8 @@ export interface paths {
      *     and any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of
      *     it cannot be fetched the report is written without it and ``context.notice`` says so.
      *
-     *     The report is written with, and billed to, your own Anthropic key (``PUT
-     *     /api/v1/me/credentials``), within the hourly and daily limits you set (``PUT
+     *     The report is written with, and billed to, your own Anthropic key, sent in the
+     *     ``X-Anthropic-Key`` header, within the hourly and daily limits you set (``PUT
      *     /api/v1/me/limits``). Every report is stored under your account. Your report for the
      *     same options, model and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by
      *     default) is returned again with ``cached`` set and no charge, unless ``refresh`` is
@@ -907,7 +880,7 @@ export interface paths {
      *     fundamentals built from SEC filings. Ratios are decimals and totals are in units.
      *     ``peers`` lists companies Finnhub places in the same industry.
      *
-     *     Fetched on your own Finnhub key (``PUT /api/v1/me/credentials``), whose free plan
+     *     Fetched on your own Finnhub key (``X-Finnhub-Key``), whose free plan
      *     covers US listings, and reused for six hours. Returns 403 without a valid Finnhub key,
      *     402 when your plan does not cover the company, 404 when Finnhub has no metrics for it,
      *     and 502 when Finnhub fails.
@@ -934,8 +907,8 @@ export interface paths {
      *
      *     ``overview`` counts every article in the window by day and by publisher, while
      *     ``articles`` holds the newest ``limit`` of them. Copies of a syndicated story under
-     *     the same headline count once. News is fetched on your own Finnhub key (``PUT
-     *     /api/v1/me/credentials``), whose free plan covers North American companies, and
+     *     the same headline count once. News is fetched on your own Finnhub key
+     *     (``X-Finnhub-Key``), whose free plan covers North American companies, and
      *     reused for ten minutes. When Finnhub cannot be reached, the last news fetched in the
      *     past day is returned with a ``notice``.
      *
@@ -968,7 +941,7 @@ export interface paths {
      *     and sales filed on Form 4, the newest of which are listed in ``insider_trades``, and
      *     ``insider_sentiment`` gives Finnhub's monthly share purchase ratio for the last year.
      *
-     *     Fetched on your own Finnhub key (``PUT /api/v1/me/credentials``), whose free plan
+     *     Fetched on your own Finnhub key (``X-Finnhub-Key``), whose free plan
      *     covers US companies, and reused for six hours. A part Finnhub cannot supply is left
      *     empty and named in ``notice``. Returns 403 without a valid Finnhub key.
      */
@@ -1080,7 +1053,7 @@ export interface components {
       limits: components['schemas']['AiLimits']
       /**
        * Market Data Fallback
-       * @description Whether your requests fall back to yfinance when no licensed provider answers, as in development.
+       * @description Whether your requests fall back to yfinance when no licensed provider answers.
        */
       market_data_fallback: boolean
       /**
@@ -1861,34 +1834,6 @@ export interface components {
       period?: '1y' | '2y' | '5y' | '10y'
       /** Symbols */
       symbols: string[]
-    }
-    /**
-     * CredentialsUpdate
-     * @description Provider keys to store. Omitted fields are left as they are; ``null`` removes a key.
-     *
-     *     Keys are encrypted at rest and only ever used for this account's own requests.
-     */
-    CredentialsUpdate: {
-      /**
-       * Alpha Vantage Api Key
-       * @description Alpha Vantage key, used for market data and financial statements the other sources leave out.
-       */
-      alpha_vantage_api_key?: string | null
-      /**
-       * Anthropic Api Key
-       * @description Anthropic API key, used for this account's analyses.
-       */
-      anthropic_api_key?: string | null
-      /**
-       * Finnhub Api Key
-       * @description Finnhub key, used for company news.
-       */
-      finnhub_api_key?: string | null
-      /**
-       * Fmp Api Key
-       * @description Financial Modeling Prep key, used for its market data.
-       */
-      fmp_api_key?: string | null
     }
     /**
      * CustomBacktestRequest
@@ -4203,7 +4148,8 @@ export interface components {
     }
     /**
      * ProviderCredential
-     * @description Whether a provider key is stored, and its last characters to recognize it by.
+     * @description Whether the request carried a provider's key, and its last characters to recognize
+     *     it by. PyQxel stores no provider keys.
      */
     ProviderCredential: {
       /** Configured */
@@ -5764,39 +5710,6 @@ export interface operations {
           [name: string]: unknown
         }
         content?: never
-      }
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown
-        }
-        content: {
-          'application/json': components['schemas']['HTTPValidationError']
-        }
-      }
-    }
-  }
-  store_credentials_api_v1_me_credentials_put: {
-    parameters: {
-      query?: never
-      header?: never
-      path?: never
-      cookie?: never
-    }
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CredentialsUpdate']
-      }
-    }
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown
-        }
-        content: {
-          'application/json': components['schemas']['Account']
-        }
       }
       /** @description Validation Error */
       422: {

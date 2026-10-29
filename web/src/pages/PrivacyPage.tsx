@@ -53,17 +53,19 @@ export function PrivacyPage() {
         <Section title="What your account holds">
           <ul>
             <li>
-              Keys you choose to add for Anthropic, Financial Modeling Prep, Alpha Vantage or
-              Finnhub. They are encrypted when stored, kept out of logs and error messages, never
-              shown again to anyone, you or whoever runs PyQxel, and used only for your own
-              requests, which those services bill to you.
-            </li>
-            <li>
               What you save: your portfolio holdings, backtests (with the code of custom
               strategies), simulations and AI research reports. Only your account can see them.
             </li>
             <li>Counts of your recent AI requests, to apply the limits you set.</li>
           </ul>
+          <p>
+            Keys you add for Anthropic, Financial Modeling Prep, Alpha Vantage or Finnhub are not
+            part of your account: they stay in your browser, and PyQxel never stores them. Each of
+            your requests carries them over an encrypted connection, and the server uses them for
+            that request only, keeps them out of its logs and error messages, and forgets them when
+            it answers. Those services bill your usage to you. Signing out removes them from your
+            browser.
+          </p>
           <p>
             Custom strategy code runs in your own browser. When you backtest it, its code and the
             positions it produced are sent to PyQxel to score and save.

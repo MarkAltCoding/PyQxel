@@ -217,8 +217,7 @@ async def fetch_company_news(symbol: str, client: httpx2.AsyncClient | None = No
     api_key = finnhub_key()
     if api_key is None:
         raise NewsNotConfiguredError(
-            "Company news comes from Finnhub on your own key: add it with PUT "
-            "/api/v1/me/credentials."
+            "Company news comes from Finnhub on your own key: add it in Settings."
         )
     now = _now()
     end = now.date()
