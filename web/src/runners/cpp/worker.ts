@@ -9,7 +9,7 @@ import { cutNetwork } from '../lockdown'
 import type { WorkerRequest, WorkerResponse } from '../workerRunner'
 import { compileStrategy } from './compile'
 import { createCppHandler } from './handler'
-import { runStrategy } from './execute'
+import { runStrategy, runUniverseStrategy } from './execute'
 
 /** The worker's global scope; the app is typed against the DOM, not WebWorker, library. */
 const scope = self as unknown as {
@@ -38,6 +38,7 @@ const handle = createCppHandler({
   compile: compileStrategy,
   instantiate: (wasm) => WebAssembly.compile(wasm as BufferSource),
   run: runStrategy,
+  runUniverse: runUniverseStrategy,
   post: (message) => scope.postMessage(message),
 })
 

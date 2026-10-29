@@ -19,6 +19,7 @@ import { BacktestPage } from './BacktestPage'
 const runner = vi.hoisted(() => ({
   language: 'python' as const,
   run: vi.fn(),
+  runUniverse: vi.fn(),
   warm: vi.fn(),
   dispose: vi.fn(),
   /** The languages the page asked for a runner in, in order. */
@@ -142,6 +143,7 @@ const marks = (view: EditorView) => {
 
 beforeEach(() => {
   runner.run.mockReset()
+  runner.runUniverse.mockReset()
   runner.warm.mockReset()
   runner.asked.length = 0
 })
@@ -555,5 +557,86 @@ describe('backtests across tickers', () => {
     await userEvent.type(universe, 'AAA BBB')
 
     expect(screen.getByRole('button', { name: 'Backtest 2 symbols' })).toBeDisabled()
+  })
+})
+
+describe('custom strategies across several symbols', () => {
+  const history = (symbol: string, bars: OHLCVBar[]) => () => ({
+    symbol,
+    period: '10y',
+    interval: '1d',
+    bars,
+    coverage: 'full',
+  })
+
+  it('runs the strategy on every symbol’s shared dates and posts its weights', async () => {
+    window.localStorage.clear()
+    const calls = serve({
+      ...NO_SAVED,
+      'GET /api/v1/stocks/GOOG/history': history('GOOG', BARS),
+      'GET /api/v1/stocks/UNH/history': history('UNH', BARS.slice(1)),
+      'POST /api/v1/backtests/custom': () =>
+        result({
+          symbol: 'GOOG',
+          symbols: ['GOOG', 'UNH'],
+          assets: [
+            { symbol: 'GOOG', average_weight: 0.5, exposure: 1, contribution: 0.05, trades: 1 },
+            { symbol: 'UNH', average_weight: 0.5, exposure: 1, contribution: 0.05, trades: 1 },
+          ],
+        }),
+    })
+    runner.runUniverse.mockImplementation(
+      async (_code: string, universe: { dates: string[] }, options?: RunOptions) => {
+        options?.onStart?.()
+        return {
+          ok: true,
+          dates: universe.dates,
+          weights: [
+            [0.5, 0.5],
+            [1, 0],
+          ],
+          output: '',
+        }
+      },
+    )
+    renderPage('/backtest?symbol=GOOG')
+
+    await userEvent.selectOptions(strategyMenu(), 'custom')
+    const view = await editor()
+    expect(view.state.doc.toString()).toBe(starterCode('python'))
+    await userEvent.type(screen.getByRole('combobox', { name: 'Also trade' }), 'unh{Enter}')
+
+    // A strategy across several symbols starts from its own template.
+    await waitFor(() => expect(view.state.doc.toString()).toBe(starterCode('python', true)))
+    await userEvent.click(screen.getByRole('button', { name: 'Run' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'GOOG + UNH: Custom Python strategy' }),
+    ).toBeInTheDocument()
+    const [, universe] = runner.runUniverse.mock.calls[0]!
+    expect(universe).toMatchObject({
+      symbols: ['GOOG', 'UNH'],
+      dates: ['2026-10-15', '2026-10-16'],
+    })
+    const posted = calls.find((call) => call.path === '/api/v1/backtests/custom')
+    expect(posted?.body).toEqual({
+      period: '10y',
+      interval: '1d',
+      cost_bps: 5,
+      cash_interest: true,
+      symbols: ['GOOG', 'UNH'],
+      code: starterCode('python', true),
+      language: 'python',
+      dates: ['2026-10-15', '2026-10-16'],
+      weights: [
+        [0.5, 0.5],
+        [1, 0],
+      ],
+    })
+    expect(screen.getByRole('heading', { name: 'Allocation' })).toBeInTheDocument()
+
+    // Back to one symbol, back to the one-symbol draft.
+    await userEvent.click(screen.getByRole('button', { name: 'Stop trading UNH' }))
+    await waitFor(() => expect(view.state.doc.toString()).toBe(starterCode('python')))
   })
 })

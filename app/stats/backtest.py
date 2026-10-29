@@ -19,7 +19,7 @@ bars, without costs, is the benchmark.
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
@@ -476,6 +476,52 @@ def replay_positions(
     return window, lambda bars_closes: held.reindex(bars_closes.index)
 
 
+def replay_weights(
+    closes: pd.DataFrame, dates: Sequence[date], weights: Sequence[Sequence[float]]
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Turn weights computed elsewhere for several symbols, as by a custom strategy in the
+    browser, into target positions on the bars every symbol traded.
+
+    Only dates from the first to the last are kept, so a bar published since the weights
+    were computed is left out. Dates that match no common bar are ignored.
+
+    Args:
+        closes: Adjusted closes, one column per symbol, indexed by calendar date; ``NaN``
+            where a symbol has no close.
+        dates: The dates the weights were set at, oldest first.
+        weights: One row per date, one weight per column of ``closes``.
+
+    Returns:
+        The closes on the common dates in that range, and the weights on the same index.
+
+    Raises:
+        MisalignedPositionsError: If no common date falls in that range, or one in it has
+            no weights.
+    """
+    prices = closes.where(np.isfinite(closes) & (closes > 0)).dropna()
+    targets = pd.DataFrame(
+        [list(row) for row in weights],
+        index=pd.DatetimeIndex(pd.to_datetime(list(dates))),
+        columns=closes.columns,
+    )
+    first, last = targets.index[0], targets.index[-1]
+    window = prices[(prices.index >= first) & (prices.index <= last)]
+    if window.empty:
+        raise MisalignedPositionsError(
+            f"The symbols share no bars between {first.date()} and {last.date()}, the weights' "
+            "first and last dates. Fetch the bars again and rerun the strategy."
+        )
+    held = targets.reindex(window.index)
+    missing = held.index[held.isna().any(axis=1).to_numpy()]
+    if len(missing):
+        raise MisalignedPositionsError(
+            f"{len(missing)} bars every symbol traded between {first.date()} and "
+            f"{last.date()} have no weights, the first on {missing[0].date()}. Fetch the bars "
+            "again and rerun the strategy."
+        )
+    return window, held
+
+
 def _calendar_dates(index: pd.Index) -> pd.DatetimeIndex:
     """Bar timestamps as calendar dates without time zone."""
     dates = pd.DatetimeIndex(index)
@@ -530,6 +576,7 @@ def run_portfolio_backtest(
     cost_bps: float = 0.0,
     risk_free_rate: float = 0.0,
     cash: pd.Series | None = None,
+    benchmark_weights: dict[str, float] | None = None,
 ) -> BacktestResult:
     """Backtest ``strategy`` on every holding of a portfolio and combine them by weight.
 
@@ -544,6 +591,7 @@ def run_portfolio_backtest(
         risk_free_rate: Annual risk-free rate for the Sharpe and Sortino ratios.
         cash: The risk-free return over each bar after the first, from
             :func:`cash_returns`; capital not invested earns it. Omit to earn nothing.
+        benchmark_weights: The weights the benchmark holds, if not ``weights``.
 
     Returns:
         Portfolio and benchmark returns, equity curves, each holding's part, and metrics.
@@ -569,7 +617,12 @@ def run_portfolio_backtest(
     if cash is not None:
         idle = 1.0 - held.mul(weight, axis=1).sum(axis=1)
         returns = returns + idle * cash.reindex(returns.index).fillna(0.0)
-    benchmark_returns = asset_returns.mul(weight, axis=1).sum(axis=1)
+    held_weights = (
+        weight
+        if benchmark_weights is None
+        else pd.Series(benchmark_weights).reindex(prices.columns).astype(float)
+    )
+    benchmark_returns = asset_returns.mul(held_weights, axis=1).sum(axis=1)
 
     inception = pd.Timestamp(prices.index[0])
     start = pd.Series([1.0], index=prices.index[:1])

@@ -4,9 +4,9 @@
 import { commands } from '@yowasp/clang'
 import { describe, expect, it } from 'vitest'
 import { starterCode } from '../../editor/starters'
-import type { BarColumns } from '../types'
-import type { WorkerOutcome } from '../workerRunner'
-import { checkPositions, runStrategy } from './execute'
+import type { BarColumns, UniverseColumns } from '../types'
+import type { PositionsOutcome, WeightsOutcome } from '../workerRunner'
+import { checkPositions, checkWeights, runStrategy, runUniverseStrategy } from './execute'
 import { compileError, compileStrategy } from './compile'
 
 const clang = commands['clang++']
@@ -27,7 +27,7 @@ function bars(count: number): BarColumns {
   }
 }
 
-async function run(code: string, data: BarColumns = bars(300)): Promise<WorkerOutcome> {
+async function run(code: string, data: BarColumns = bars(300)): Promise<PositionsOutcome> {
   const compiled = await compileStrategy(clang, code)
   if (!compiled.ok) return { ok: false, error: compiled.error, output: '' }
   return runStrategy(await WebAssembly.compile(compiled.wasm as BufferSource), data)
@@ -267,6 +267,106 @@ describe('checkPositions', () => {
     expect(checkPositions(new Float64Array([0, Infinity]), stamps)).toEqual({
       ok: false,
       message: 'Positions must be between -2 and 2; Infinity on 2026-10-15 is not.',
+    })
+  })
+})
+
+/** `count` dates on which GOOG climbs and UNH slides, with UNH's low missing on day 2. */
+function universe(count: number): UniverseColumns {
+  const dates = Array.from({ length: count }, (_, i) =>
+    new Date(Date.UTC(2025, 0, 2) + i * 86_400_000).toISOString().slice(0, 10),
+  )
+  const asset = (step: number, missingLow: number | null) => {
+    const close = Array.from({ length: count }, (_, i) => 100 + step * i)
+    return {
+      open: close,
+      high: close,
+      low: close.map((c, i) => (i === missingLow ? null : c)),
+      close,
+      volume: close.map(() => null),
+    }
+  }
+  return { symbols: ['GOOG', 'UNH'], dates, assets: [asset(0.5, null), asset(-0.2, 2)] }
+}
+
+async function runAcross(code: string, data: UniverseColumns): Promise<WeightsOutcome> {
+  const compiled = await compileStrategy(clang, code, true)
+  if (!compiled.ok) return { ok: false, error: compiled.error, output: '' }
+  return runUniverseStrategy(await WebAssembly.compile(compiled.wasm as BufferSource), data)
+}
+
+const across = (body: string) =>
+  `#include <pyqxel.h>\n#include <cstdio>\n\nvoid strategy(const pyqxel::Universe& universe, pyqxel::Weights weights) {\n${body}\n}\n`
+
+describe('C++ strategies across several symbols', () => {
+  it(
+    'runs the starter, holding the stronger symbol from its first month end with history',
+    async () => {
+      const outcome = await runAcross(starterCode('cpp', true), universe(300))
+
+      expect(outcome.ok).toBe(true)
+      if (!outcome.ok) return
+      expect(outcome.weights).toHaveLength(300)
+      expect(outcome.weights[0]).toEqual([0, 0])
+      expect(outcome.weights.at(-1)).toEqual([1, 0])
+      expect(outcome.weights.every((row) => row[1] === 0)).toBe(true)
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'passes each symbol’s name, bars and dates',
+    async () => {
+      const outcome = await runAcross(
+        across(`  std::printf("%zu %zu %s %s %.1f %d %lld\\n", universe.size, universe.count,
+      universe.symbols[0], universe.symbols[1], universe[1].close[1],
+      pyqxel::missing(universe[1].low[2]), static_cast<long long>(universe.timestamp[1]));
+  for (std::size_t i = 0; i < universe.size; ++i) weights(i, 1) = -0.5;`),
+        universe(3),
+      )
+
+      expect(outcome).toEqual({
+        ok: true,
+        weights: [
+          [0, -0.5],
+          [0, -0.5],
+          [0, -0.5],
+        ],
+        output: `3 2 GOOG UNH 99.8 1 ${Date.UTC(2025, 0, 3)}\n`,
+      })
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'names the signature to define when the single-symbol one is written instead',
+    async () => {
+      const outcome = await runAcross(starterCode('cpp'), universe(3))
+
+      expect(outcome).toMatchObject({
+        ok: false,
+        error: { kind: 'compile', message: expect.stringContaining('pyqxel::Universe') },
+      })
+    },
+    TIMEOUT,
+  )
+})
+
+describe('checkWeights', () => {
+  const data = universe(2)
+
+  it('rejects weights whose absolute sum is over 2, naming the date', () => {
+    expect(checkWeights(new Float64Array([1, 1, 1.5, -1]), data)).toEqual({
+      ok: false,
+      message:
+        'The absolute weights may add up to at most 2 on a bar; on 2025-01-03 they add up to 2.5.',
+    })
+  })
+
+  it('names the symbol and date of a NaN', () => {
+    expect(checkWeights(new Float64Array([0, 0, 0, NaN]), data)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('The weight of UNH on 2025-01-03 is NaN'),
     })
   })
 })

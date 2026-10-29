@@ -255,6 +255,42 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/backtests/custom': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Score a custom strategy's weights across several symbols
+     * @description Score the weights a custom strategy set across several ``symbols`` in the browser.
+     *
+     *     The code never runs on the server: it is stored with the result so the run can be
+     *     reproduced and edited. The server fetches every symbol's bars again, keeps the dates
+     *     all of them traded from the first of ``dates`` to the last, and holds each row of
+     *     ``weights`` over the bar after its date. Weights are shares of capital, reset every
+     *     bar; what they leave over is cash, which earns nothing or, with ``cash_interest``,
+     *     the risk-free rate, as do short sale proceeds. Each change of weight pays
+     *     ``cost_bps`` per unit traded. The benchmark holds the symbols in equal weights,
+     *     rebalanced every bar, without costs; ``assets`` gives each symbol's part.
+     *
+     *     The result is stored like a single-symbol backtest, under its first symbol, and its
+     *     ``id`` returned for ``GET /backtests/{id}``.
+     *
+     *     Returns 404 naming unknown symbols, 422 when a bar every symbol traded in that range
+     *     has no weights or the range has too few bars, and 502 when the data provider fails
+     *     or the risk-free rate cannot be fetched.
+     */
+    post: operations['create_multi_asset_custom_backtest_api_v1_backtests_custom_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/backtests/{backtest_id}': {
     parameters: {
       query?: never
@@ -1844,6 +1880,34 @@ export interface components {
       weight: number
     }
     /**
+     * AssetWeight
+     * @description One symbol's part in a multi-symbol custom backtest.
+     */
+    AssetWeight: {
+      /**
+       * Average Weight
+       * @description Mean weight held over the backtest, negative when mostly short.
+       */
+      average_weight: number
+      /**
+       * Contribution
+       * @description Sum of its weighted returns net of its trading costs: its share of the strategy's arithmetic return.
+       */
+      contribution: number
+      /**
+       * Exposure
+       * @description Share of bars it was held, long or short.
+       */
+      exposure: number
+      /** Symbol */
+      symbol: string
+      /**
+       * Trades
+       * @description Bars on which its weight changed.
+       */
+      trades: number
+    }
+    /**
      * AssistantImport
      * @description An answer Claude wrote outside the app to an exported coding assistant prompt.
      */
@@ -1899,6 +1963,11 @@ export interface components {
        * @description The symbol the strategy is backtested on.
        */
       symbol?: string | null
+      /**
+       * Symbols
+       * @description Every symbol, when the strategy allocates between several.
+       */
+      symbols?: string[] | null
     }
     /**
      * AssistantResponse
@@ -2000,9 +2069,14 @@ export interface components {
      * @description A strategy's performance, with buy-and-hold on the same bars as the benchmark.
      */
     BacktestResponse: {
+      /**
+       * Assets
+       * @description Each symbol's part, with several symbols; null for one.
+       */
+      assets?: components['schemas']['AssetWeight'][] | null
       /** @description The strategy's alpha and factor betas; null when skipped or not estimable, as for weekly bars. */
       attribution?: components['schemas']['FactorContext'] | null
-      /** @description Buy-and-hold over the same bars, no costs. */
+      /** @description Buy-and-hold over the same bars, no costs; with several symbols, holding them in equal weights, rebalanced every bar. */
       benchmark: components['schemas']['PerformanceMetrics']
       /**
        * Cash Interest
@@ -2068,8 +2142,16 @@ export interface components {
         | components['schemas']['VolatilityTargeting']
         | components['schemas']['Macd']
         | components['schemas']['CustomStrategy']
-      /** Symbol */
+      /**
+       * Symbol
+       * @description The symbol backtested; the first of ``symbols``.
+       */
       symbol: string
+      /**
+       * Symbols
+       * @description Every symbol a custom strategy allocated between; null for one symbol.
+       */
+      symbols?: string[] | null
       /**
        * Trades
        * @description Bars on which the position changed.
@@ -2114,6 +2196,11 @@ export interface components {
       strategy: string
       /** Symbol */
       symbol: string
+      /**
+       * Symbols
+       * @description Every symbol, for a strategy run on several; else null.
+       */
+      symbols?: string[] | null
       /** Total Return */
       total_return: number
     }
@@ -4214,6 +4301,79 @@ export interface components {
        * @default 20
        */
       window?: number
+    }
+    /**
+     * MultiAssetCustomBacktestRequest
+     * @description Weights a custom strategy set across several symbols in the browser, to be scored on
+     *     the server.
+     *
+     *     ``weights[i][j]`` is the share of capital in ``symbols[j]`` set at the close of
+     *     ``dates[i]``, held over the next bar; the rest is cash. The dates are those every
+     *     symbol traded, each exchange's own calendar date.
+     */
+    MultiAssetCustomBacktestRequest: {
+      /**
+       * Attribution
+       * @description Factor model to regress the strategy's daily returns on, separating alpha from factor exposure; null to skip.
+       * @default carhart4
+       */
+      attribution?: ('ff3' | 'carhart4' | 'ff5') | null
+      /**
+       * Cash Interest
+       * @description Let capital not invested in the asset earn the risk-free rate (the one-month T-bill, from Ken French's data library), as would short sale proceeds.
+       * @default false
+       */
+      cash_interest?: boolean
+      /**
+       * Code
+       * @description The strategy's source, stored with the result; never run.
+       */
+      code: string
+      /**
+       * Cost Bps
+       * @description Trading cost per unit of turnover, in basis points (5 = 0.05%).
+       * @default 5
+       */
+      cost_bps?: number
+      /**
+       * Dates
+       * @description Dates of the bars the weights were computed for, oldest first.
+       */
+      dates: string[]
+      /**
+       * Interval
+       * @description Bar size.
+       * @default 1d
+       * @enum {string}
+       */
+      interval?: '1d' | '1wk'
+      /**
+       * Language
+       * @description Language of ``code``.
+       * @default python
+       * @enum {string}
+       */
+      language?: 'python' | 'cpp'
+      /**
+       * Period
+       * @description Lookback window.
+       * @default 5y
+       * @enum {string}
+       */
+      period?: '1y' | '2y' | '5y' | '10y' | 'max'
+      /**
+       * Risk Free Rate
+       * @description Annual risk-free rate for Sharpe and Sortino, as a decimal (0.04 = 4%).
+       * @default 0
+       */
+      risk_free_rate?: number
+      /** Symbols */
+      symbols: string[]
+      /**
+       * Weights
+       * @description One row per date, one weight per symbol in the order of ``symbols``.
+       */
+      weights: number[][]
     }
     /**
      * NewApiKey
@@ -6830,6 +6990,39 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['CrossSectionalBacktestResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  create_multi_asset_custom_backtest_api_v1_backtests_custom_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['MultiAssetCustomBacktestRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BacktestResponse']
         }
       }
       /** @description Validation Error */

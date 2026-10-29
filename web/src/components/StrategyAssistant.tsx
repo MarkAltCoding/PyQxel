@@ -43,6 +43,7 @@ export function StrategyAssistant({
   language,
   code,
   symbol,
+  symbols = [],
   interval,
   lastRun,
   onApply,
@@ -50,6 +51,8 @@ export function StrategyAssistant({
   language: CodeLanguage
   code: string
   symbol: string
+  /** Every symbol, when the strategy allocates between several. */
+  symbols?: string[]
   interval: string
   /** How the code now in the editor fared when last run; null if it has not been run. */
   lastRun: LastRun | null
@@ -69,6 +72,7 @@ export function StrategyAssistant({
     message: text,
     history: turns.slice(-MAX_TURNS).map((turn) => toApiTurn(turn, language)),
     symbol: symbol || null,
+    symbols: symbols.length > 1 ? symbols : null,
     interval,
     last_run: lastRun,
   })
