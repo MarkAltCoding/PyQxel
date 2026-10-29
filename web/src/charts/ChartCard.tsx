@@ -1,8 +1,12 @@
 import { useState, type ReactNode } from 'react'
+import { InfoTip } from '../components/InfoTip'
 import { ErrorNotice } from '../components/Notice'
+import type { InfoKey } from '../lib/glossary'
 
 interface Props {
   title: string
+  /** The glossary entry explaining what the chart shows: every chart needs one. */
+  info: InfoKey
   subtitle?: ReactNode
   actions?: ReactNode
   /** The chart; omitted while there is nothing to draw yet. */
@@ -25,7 +29,10 @@ export function ChartCard(props: Props) {
     <section className="card" aria-busy={props.loading || props.refreshing}>
       <div className="card-header">
         <div>
-          <h2>{props.title}</h2>
+          <div className="heading-with-info">
+            <h2>{props.title}</h2>
+            <InfoTip topic={props.info} />
+          </div>
           {props.subtitle && <div className="subtitle">{props.subtitle}</div>}
         </div>
         <div className="filter-row">

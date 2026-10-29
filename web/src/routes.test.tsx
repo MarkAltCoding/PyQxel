@@ -233,6 +233,14 @@ describe('deleting the account', () => {
     expect(button).toBeEnabled()
     await userEvent.click(button)
 
+    // Nothing is deleted until the warning is confirmed.
+    const dialog = await screen.findByRole('alertdialog', { name: 'Delete your account?' })
+    expect(dialog).toHaveTextContent('cannot be undone')
+    expect(dialog).toHaveTextContent('Your saved backtests')
+    expect(calls.some((call) => call.method === 'DELETE')).toBe(false)
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete my account' }))
+
     await waitFor(() => expect(router.state.location.pathname).toBe('/signin'))
     const deletion = calls.find((call) => call.method === 'DELETE')
     expect(deletion).toEqual({
@@ -241,6 +249,25 @@ describe('deleting the account', () => {
       authorization: 'Bearer pq_mine',
     })
     expect(window.localStorage.getItem('pyqxel.apiKey')).toBeNull()
+  })
+
+  it('keeps the account when the warning is cancelled', async () => {
+    window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
+    const calls = serve({
+      '/api/v1/me': () => json(ACCOUNT),
+      '/api/v1/auth/providers': () => json([]),
+    })
+    renderAt('/settings')
+
+    const button = await screen.findByRole('button', { name: 'Delete account' })
+    await userEvent.type(screen.getByLabelText(/Type me@example.com to confirm/), 'me@example.com')
+    await userEvent.click(button)
+    await screen.findByRole('alertdialog')
+    await userEvent.keyboard('{Escape}')
+
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(calls.some((call) => call.method === 'DELETE')).toBe(false)
+    expect(window.localStorage.getItem('pyqxel.apiKey')).toBe('pq_mine')
   })
 })
 

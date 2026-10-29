@@ -203,7 +203,7 @@ class UniverseStatus(BaseModel):
 
 class SearchMatch(BaseModel):
     """A listing whose symbol or name matches a search: a stock in the screened universe,
-    or one Finnhub found."""
+    one Finnhub found, or one on the SEC's list of listed companies."""
 
     symbol: str
     name: str
@@ -213,7 +213,7 @@ class SearchMatch(BaseModel):
     kind: str | None = Field(
         default=None, description="Finnhub's type for its matches, e.g. Common Stock or ETP."
     )
-    source: Literal["universe", "finnhub"] = "universe"
+    source: Literal["universe", "finnhub", "sec"] = "universe"
 
 
 class SearchResponse(BaseModel):

@@ -125,7 +125,9 @@ class CompanyNotFoundError(FilingFetchError):
     """Raised when no SEC registrant uses the symbol, as for indices and many foreign listings."""
 
 
-_ticker_map: tuple[float, dict[str, int]] | None = None
+_ticker_map: tuple[float, dict[str, int], list[tuple[str, str]]] | None = None
+"""When the SEC's ticker list was read, each ticker's CIK, and every ``(ticker, company)``
+in the SEC's order, which is by market value, largest first."""
 _section_cache: "OrderedDict[tuple[str, int], list[FilingSection]]" = OrderedDict()
 
 
@@ -207,19 +209,65 @@ def edgar_errors(what: str) -> Iterator[None]:
         raise FilingFetchError(f"Could not fetch {what}.") from exc
 
 
-async def cik_for(symbol: str, client: httpx2.AsyncClient) -> int:
-    """Return the SEC CIK registered for ``symbol``."""
+async def _tickers(
+    client: httpx2.AsyncClient,
+) -> tuple[dict[str, int], list[tuple[str, str]]]:
+    """The SEC's list of listed companies: each ticker's CIK, and every ticker with its
+    company's name, largest companies first. Read once a day."""
     global _ticker_map
     if _ticker_map is None or time.monotonic() - _ticker_map[0] > TICKER_MAP_TTL_SECONDS:
         payload: Any = (await edgar_get(client, TICKERS_URL)).json()
-        mapping = {
-            str(entry["ticker"]).upper(): int(entry["cik_str"])
+        entries = [
+            entry
             for entry in payload.values()
             if isinstance(entry, dict) and "ticker" in entry and "cik_str" in entry
-        }
-        _ticker_map = (time.monotonic(), mapping)
+        ]
+        mapping = {str(entry["ticker"]).upper(): int(entry["cik_str"]) for entry in entries}
+        listed = [(str(entry["ticker"]).upper(), str(entry.get("title", ""))) for entry in entries]
+        _ticker_map = (time.monotonic(), mapping, listed)
+    return _ticker_map[1], _ticker_map[2]
+
+
+async def search_tickers(query: str, limit: int) -> list[tuple[str, str]]:
+    """Up to ``limit`` listed companies whose ticker starts with, or whose name contains,
+    ``query``, as ``(ticker, name)``: exact tickers first, then tickers starting with it,
+    then names containing it, largest companies first within each. Needs no API key.
+
+    Raises:
+        EdgarNotConfiguredError: If ``SEC_USER_AGENT`` is not set.
+        FilingFetchError: If the SEC's list cannot be fetched.
+    """
+    text = query.strip().upper()
+    if not text:
+        return []
+    async with edgar_client() as client:
+        with edgar_errors("the SEC's list of tickers"):
+            ciks, listed = await _tickers(client)
+    # A company's other share classes sit far down the list (GOOG long after GOOGL), so
+    # each ticker ranks by where its company first appears, then by length.
+    company_rank: dict[int, int] = {}
+    for position, (ticker, _) in enumerate(listed):
+        company_rank.setdefault(ciks[ticker], position)
+    ranked: list[tuple[int, int, int, str, str]] = []
+    for ticker, name in listed:
+        if ticker == text:
+            group = 0
+        elif ticker.startswith(text):
+            group = 1
+        elif text in name.upper():
+            group = 2
+        else:
+            continue
+        ranked.append((group, company_rank[ciks[ticker]], len(ticker), ticker, name))
+    ranked.sort()
+    return [(ticker, name) for *_, ticker, name in ranked[:limit]]
+
+
+async def cik_for(symbol: str, client: httpx2.AsyncClient) -> int:
+    """Return the SEC CIK registered for ``symbol``."""
+    mapping, _ = await _tickers(client)
     # EDGAR writes share classes with a dash (BRK-B); some sources use a dot (BRK.B).
-    cik = _ticker_map[1].get(symbol) or _ticker_map[1].get(symbol.replace(".", "-"))
+    cik = mapping.get(symbol) or mapping.get(symbol.replace(".", "-"))
     if cik is None:
         raise CompanyNotFoundError(f"SEC EDGAR has no registrant with ticker {symbol!r}.")
     return cik

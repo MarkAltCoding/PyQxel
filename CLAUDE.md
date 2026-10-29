@@ -16,3 +16,8 @@ When generating code and scaffolding this codebase, strictly adhere to the follo
 4. **Error Handling & Resilience**:
    * Implement graceful fallback mechanisms for rate limits or network issues with financial APIs.
    * Validate market data inputs to handle missing values or non-trading day gaps before passing data into quantitative models.
+
+5. **Explain Every Stat, Model and Graph**:
+   * Every stat, model, chart, metric row or table column added to the web app gets an information icon (`<InfoTip topic=... />`, the circled "i") with a beginner-friendly explanation: what it measures, a rule-of-thumb range of good and worrying values where one applies, and any caveat.
+   * Write the explanation as an entry in `web/src/lib/glossary.ts`, and reference it by key. `Stat` and `ChartCard` require an `info` prop, so the build fails until one is given.
+   * Keep the "i" beside a heading (in a `heading-with-info` wrapper), not inside it, so the heading's accessible name stays clean.

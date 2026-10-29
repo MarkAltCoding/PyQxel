@@ -1,4 +1,5 @@
 import type { FactorRegression } from '../api/types'
+import type { InfoKey } from './glossary'
 
 type Factor = FactorRegression['fit']['exposures'][number]['factor']
 
@@ -19,4 +20,14 @@ export const FACTOR_SHORT_NAMES: Record<Factor, string> = {
   RMW: 'Profitability',
   CMA: 'Investment',
   Mom: 'Momentum',
+}
+
+/** The glossary entry explaining each factor's beta. */
+export const FACTOR_INFO: Record<Factor, InfoKey> = {
+  'Mkt-RF': 'marketBeta',
+  SMB: 'sizeBeta',
+  HML: 'valueBeta',
+  RMW: 'profitabilityBeta',
+  CMA: 'investmentBeta',
+  Mom: 'momentumBeta',
 }

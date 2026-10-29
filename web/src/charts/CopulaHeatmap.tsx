@@ -3,6 +3,7 @@ import type { CopulaFitResponse } from '../api/types'
 import { number, percent } from '../lib/format'
 import { EChart } from './EChart'
 import { escapeHtml, tooltipStyle, useChartTheme } from './theme'
+import { InfoTip } from '../components/InfoTip'
 
 /** Largest matrix whose cells are labeled; beyond it values are in the tooltip and table. */
 const LABELED_UP_TO = 8
@@ -105,10 +106,22 @@ export function CopulaTable({ fit }: { fit: CopulaFitResponse }) {
       <thead>
         <tr>
           <th>Pair</th>
-          <th className="num">Kendall's tau</th>
-          <th className="num">Model tail dependence</th>
-          <th className="num">Observed lower tail</th>
-          <th className="num">Observed upper tail</th>
+          <th className="num">
+            Kendall's tau
+            <InfoTip topic="kendallTau" />
+          </th>
+          <th className="num">
+            Model tail dependence
+            <InfoTip topic="tailDependence" />
+          </th>
+          <th className="num">
+            Observed lower tail
+            <InfoTip topic="tailDependence" />
+          </th>
+          <th className="num">
+            Observed upper tail
+            <InfoTip topic="tailDependence" />
+          </th>
         </tr>
       </thead>
       <tbody>

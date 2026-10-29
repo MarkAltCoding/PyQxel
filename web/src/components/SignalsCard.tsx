@@ -88,6 +88,7 @@ function Signals({ signals, currency }: { signals: MarketSignals; currency: stri
       {signals.notice && <Notice tone="warning">{signals.notice}</Notice>}
       <div className="stats">
         <Stat
+          info="analystsAtBuy"
           label="Analysts at buy"
           value={percent(bullish, 0)}
           detail={
@@ -97,6 +98,7 @@ function Signals({ signals, currency }: { signals: MarketSignals; currency: stri
           }
         />
         <Stat
+          info="nextEarnings"
           label="Next earnings"
           value={next ? shortDate(next.date) : '—'}
           detail={
@@ -111,6 +113,7 @@ function Signals({ signals, currency }: { signals: MarketSignals; currency: stri
           }
         />
         <Stat
+          info="epsSurprise"
           label="Last EPS surprise"
           value={signedPercent(lastQuarter?.surprise_percent)}
           className={tone(lastQuarter?.surprise_percent)}
@@ -120,6 +123,7 @@ function Signals({ signals, currency }: { signals: MarketSignals; currency: stri
           }
         />
         <Stat
+          info="insiders"
           label="Insiders, 90 days"
           value={
             insiders
@@ -134,6 +138,7 @@ function Signals({ signals, currency }: { signals: MarketSignals; currency: stri
           }
         />
         <Stat
+          info="insiderSentiment"
           label="Insider sentiment"
           value={sentiment == null ? '—' : number(sentiment, 0)}
           className={tone(sentiment)}

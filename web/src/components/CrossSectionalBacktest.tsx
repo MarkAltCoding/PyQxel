@@ -15,6 +15,7 @@ import { number, percent, shortDate, signedPercent, tone } from '../lib/format'
 import { readStored, writeStored } from '../lib/storage'
 import { AttributionCard, MetricsTable, NumberField } from './BacktestParts'
 import { ErrorNotice, Notice } from './Notice'
+import { InfoTip } from './InfoTip'
 import { Stat } from './Stat'
 
 /** Most symbols the API ranks at once. */
@@ -441,6 +442,7 @@ function UniverseResult({
   return (
     <>
       <ChartCard
+        info="equityChart"
         title={`${result.symbols.length} symbols: ${describe(result)}`}
         subtitle={`${shortDate(m.start)} to ${shortDate(m.end)} · ${result.rebalances} rebalances · ${number(result.holdings_per_leg, 1)} stocks per leg · ${percent(result.turnover, 0)} traded per rebalance · ${result.cost_bps} bps per trade`}
         refreshing={refreshing}
@@ -464,27 +466,32 @@ function UniverseResult({
           <div className="stack" style={{ gap: 12, marginTop: 14 }}>
             <div className="stats">
               <Stat
+                info="totalReturn"
                 label="Total return"
                 value={signedPercent(m.total_return)}
                 className={tone(m.total_return)}
                 detail={`${BENCHMARK} ${signedPercent(b.total_return)}`}
               />
               <Stat
+                info="annualizedReturn"
                 label="Annualized"
                 value={signedPercent(m.annualized_return)}
                 detail={`${BENCHMARK} ${signedPercent(b.annualized_return)}`}
               />
               <Stat
+                info="sharpe"
                 label="Sharpe ratio"
                 value={number(m.sharpe_ratio)}
                 detail={`${BENCHMARK} ${number(b.sharpe_ratio)}`}
               />
               <Stat
+                info="maxDrawdown"
                 label="Max drawdown"
                 value={percent(m.max_drawdown)}
                 detail={`${BENCHMARK} ${percent(b.max_drawdown)}`}
               />
               <Stat
+                info="rankIc"
                 label="Rank IC"
                 value={ic ? number(ic.mean) : '—'}
                 detail={
@@ -502,7 +509,10 @@ function UniverseResult({
       <div className="grid-2">
         <section className="card">
           <div className="card-header">
-            <h2>Performance</h2>
+            <div className="heading-with-info">
+              <h2>Performance</h2>
+              <InfoTip topic="backtestPerformance" />
+            </div>
           </div>
           <MetricsTable strategy={m} benchmark={b} benchmarkLabel={BENCHMARK} />
         </section>
@@ -522,12 +532,32 @@ function UniverseResult({
             <thead>
               <tr>
                 <th>Symbol</th>
-                <th className="num">{SCORE_LABEL[result.signal.type]}</th>
-                <th className="num">Weight now</th>
-                <th className="num">Held long</th>
-                {result.long_short && <th className="num">Held short</th>}
-                <th className="num">Contribution</th>
-                <th>Ranked from</th>
+                <th className="num">
+                  {SCORE_LABEL[result.signal.type]}
+                  <InfoTip topic="rankingScore" />
+                </th>
+                <th className="num">
+                  Weight now
+                  <InfoTip topic="weightNow" />
+                </th>
+                <th className="num">
+                  Held long
+                  <InfoTip topic="heldLong" />
+                </th>
+                {result.long_short && (
+                  <th className="num">
+                    Held short
+                    <InfoTip topic="heldShort" />
+                  </th>
+                )}
+                <th className="num">
+                  Contribution
+                  <InfoTip topic="contribution" />
+                </th>
+                <th>
+                  Ranked from
+                  <InfoTip topic="rankedFrom" />
+                </th>
               </tr>
             </thead>
             <tbody>

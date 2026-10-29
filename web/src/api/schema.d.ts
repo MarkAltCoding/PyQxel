@@ -839,7 +839,10 @@ export interface paths {
      *     Searches the screened universe of US common stocks, which the screener refresh job
      *     builds, first. With a Finnhub key, Finnhub's search of US listings fills the rest of
      *     the ``limit``, finding ETFs, ADRs and stocks outside the universe (``source`` is
-     *     ``finnhub``, with their ``kind`` and no market cap). Every listing works on the
+     *     ``finnhub``, with their ``kind`` and no market cap). The SEC's list of listed
+     *     companies, which needs no key, fills any room left (``source`` ``sec``), so typing
+     *     the start of a ticker suggests it even when the universe is empty and there is no
+     *     Finnhub key. Every listing works on the
      *     ``/stocks/{symbol}`` routes whether it is found here or not.
      *
      *     Returns 503 when the database is unavailable and Finnhub finds nothing.
@@ -5936,7 +5939,7 @@ export interface components {
     /**
      * SearchMatch
      * @description A listing whose symbol or name matches a search: a stock in the screened universe,
-     *     or one Finnhub found.
+     *     one Finnhub found, or one on the SEC's list of listed companies.
      */
     SearchMatch: {
       /** Exchange */
@@ -5960,7 +5963,7 @@ export interface components {
        * @default universe
        * @enum {string}
        */
-      source?: 'universe' | 'finnhub'
+      source?: 'universe' | 'finnhub' | 'sec'
       /** Symbol */
       symbol: string
     }

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { deleteAccount, getAccount, updateAdminSettings, updateLimits } from '../api/endpoints'
 import type { Account, AdminSettings, AdminSettingsUpdate } from '../api/types'
 import { useAuth } from '../auth/useAuth'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { Stat } from '../components/Stat'
 import { shortDate } from '../lib/format'
@@ -313,9 +314,18 @@ function LimitsForm({ account, onSaved }: { account: Account; onSaved: (a: Accou
         </p>
       </div>
       <div className="stats">
-        <Stat label="AI requests in the last hour" value={account.usage.last_hour} />
-        <Stat label="AI requests in the last day" value={account.usage.last_day} />
         <Stat
+          info="aiRequestsHour"
+          label="AI requests in the last hour"
+          value={account.usage.last_hour}
+        />
+        <Stat
+          info="aiRequestsDay"
+          label="AI requests in the last day"
+          value={account.usage.last_day}
+        />
+        <Stat
+          info="requestsPerMinute"
           label="Requests per minute"
           value={account.rate_limit_per_minute}
           detail="Set by the server"
@@ -419,6 +429,7 @@ function AdminSwitch({
 function DeleteAccount({ email }: { email: string }) {
   const { signOut } = useAuth()
   const [typed, setTyped] = useState('')
+  const [asking, setAsking] = useState(false)
   const remove = useMutation({ mutationFn: deleteAccount, onSuccess: signOut })
   const confirmed = typed.trim().toLowerCase() === email.toLowerCase()
   return (
@@ -427,14 +438,14 @@ function DeleteAccount({ email }: { email: string }) {
       style={{ gap: 14 }}
       onSubmit={(event) => {
         event.preventDefault()
-        if (confirmed) remove.mutate()
+        if (confirmed) setAsking(true)
       }}
     >
       <div>
         <h2>Delete account</h2>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
-          Deletes your account at once and for good: your provider keys, API keys, holdings,
-          backtests, simulations and AI reports. Signing in again starts a new, empty account.
+          Deletes your account at once and for good: your API keys, holdings, backtests, simulations
+          and AI reports. Signing in again starts a new, empty account.
         </p>
       </div>
       <div className="filter-row">
@@ -452,6 +463,33 @@ function DeleteAccount({ email }: { email: string }) {
         </button>
       </div>
       {remove.error !== null && <ErrorNotice error={remove.error} />}
+      {asking && (
+        <ConfirmDialog
+          title="Delete your account?"
+          confirmLabel="Delete my account"
+          busy={remove.isPending}
+          onCancel={() => setAsking(false)}
+          onConfirm={() => remove.mutate(undefined, { onSettled: () => setAsking(false) })}
+        >
+          <p>
+            Are you sure? This deletes the account for <strong>{email}</strong> at once, and it
+            cannot be undone. You will lose:
+          </p>
+          <ul>
+            <li>Your saved portfolio holdings</li>
+            <li>Your saved backtests, including the code of your custom strategies</li>
+            <li>Your Monte Carlo simulations</li>
+            <li>Your AI research reports and portfolio reviews, including ones you pasted</li>
+            <li>Your PyQxel API keys: any script using them stops working</li>
+            <li>The link between this account and your GitHub or Google sign-in</li>
+            <li>
+              The provider keys kept in this browser (Anthropic, FMP, Alpha Vantage, Finnhub), which
+              are removed from it. The keys themselves stay valid with those services.
+            </li>
+          </ul>
+          <p>Signing in again later starts a new, empty account.</p>
+        </ConfirmDialog>
+      )}
     </form>
   )
 }

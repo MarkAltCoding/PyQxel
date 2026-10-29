@@ -5,12 +5,16 @@ import { getMetrics } from '../api/endpoints'
 import type { CompanyMetrics } from '../api/types'
 import { compact, money, number, percent, shortDate, signedPercent, tone } from '../lib/format'
 import { Notice } from './Notice'
+import type { InfoKey } from '../lib/glossary'
+import { InfoTip } from './InfoTip'
 import { Stat } from './Stat'
 
 type Metrics = CompanyMetrics['metrics']
 
 interface Row {
   label: string
+  /** The glossary entry explaining the metric. */
+  info: InfoKey
   value: (metrics: Metrics, currency: string) => string
 }
 
@@ -21,40 +25,80 @@ const GROUPS: { title: string; rows: Row[] }[] = [
   {
     title: 'Valuation',
     rows: [
-      { label: 'P/E (TTM)', value: (m) => ratio(m.pe_ttm) },
-      { label: 'Forward P/E', value: (m) => ratio(m.forward_pe) },
-      { label: 'PEG', value: (m) => number(m.peg_ttm) },
-      { label: 'Price / sales', value: (m) => ratio(m.ps_ttm) },
-      { label: 'Price / book', value: (m) => ratio(m.pb) },
-      { label: 'EV / EBITDA', value: (m) => ratio(m.ev_ebitda_ttm) },
-      { label: 'Price / free cash flow', value: (m) => ratio(m.price_to_fcf_ttm) },
-      { label: 'Enterprise value', value: (m) => compact(m.enterprise_value) },
+      { label: 'P/E (TTM)', info: 'pe', value: (m) => ratio(m.pe_ttm) },
+      { label: 'Forward P/E', info: 'forwardPe', value: (m) => ratio(m.forward_pe) },
+      { label: 'PEG', info: 'peg', value: (m) => number(m.peg_ttm) },
+      { label: 'Price / sales', info: 'priceSales', value: (m) => ratio(m.ps_ttm) },
+      { label: 'Price / book', info: 'priceBook', value: (m) => ratio(m.pb) },
+      { label: 'EV / EBITDA', info: 'evEbitda', value: (m) => ratio(m.ev_ebitda_ttm) },
+      {
+        label: 'Price / free cash flow',
+        info: 'priceFcf',
+        value: (m) => ratio(m.price_to_fcf_ttm),
+      },
+      {
+        label: 'Enterprise value',
+        info: 'enterpriseValue',
+        value: (m) => compact(m.enterprise_value),
+      },
     ],
   },
   {
     title: 'Profitability and growth',
     rows: [
-      { label: 'Gross margin', value: (m) => percent(m.gross_margin_ttm) },
-      { label: 'Operating margin', value: (m) => percent(m.operating_margin_ttm) },
-      { label: 'Net margin', value: (m) => percent(m.net_margin_ttm) },
-      { label: 'Return on equity', value: (m) => percent(m.roe_ttm) },
-      { label: 'Return on assets', value: (m) => percent(m.roa_ttm) },
-      { label: 'Revenue growth (TTM)', value: (m) => signedPercent(m.revenue_growth_ttm) },
-      { label: 'EPS growth (TTM)', value: (m) => signedPercent(m.eps_growth_ttm) },
-      { label: 'Revenue growth, 5Y a year', value: (m) => signedPercent(m.revenue_growth_5y) },
+      { label: 'Gross margin', info: 'grossMargin', value: (m) => percent(m.gross_margin_ttm) },
+      {
+        label: 'Operating margin',
+        info: 'operatingMargin',
+        value: (m) => percent(m.operating_margin_ttm),
+      },
+      { label: 'Net margin', info: 'netMargin', value: (m) => percent(m.net_margin_ttm) },
+      { label: 'Return on equity', info: 'roe', value: (m) => percent(m.roe_ttm) },
+      { label: 'Return on assets', info: 'roa', value: (m) => percent(m.roa_ttm) },
+      {
+        label: 'Revenue growth (TTM)',
+        info: 'revenueGrowth',
+        value: (m) => signedPercent(m.revenue_growth_ttm),
+      },
+      {
+        label: 'EPS growth (TTM)',
+        info: 'epsGrowth',
+        value: (m) => signedPercent(m.eps_growth_ttm),
+      },
+      {
+        label: 'Revenue growth, 5Y a year',
+        info: 'revenueGrowth5y',
+        value: (m) => signedPercent(m.revenue_growth_5y),
+      },
     ],
   },
   {
     title: 'Dividends and balance sheet',
     rows: [
-      { label: 'Dividend yield', value: (m) => percent(m.dividend_yield, 2) },
-      { label: 'Dividend (TTM)', value: (m, c) => money(m.dividend_per_share_ttm, c) },
-      { label: 'Payout ratio', value: (m) => percent(m.payout_ratio_ttm) },
-      { label: 'Dividend growth, 5Y a year', value: (m) => signedPercent(m.dividend_growth_5y) },
-      { label: 'Debt / equity', value: (m) => number(m.debt_to_equity) },
-      { label: 'Current ratio', value: (m) => number(m.current_ratio) },
-      { label: 'Quick ratio', value: (m) => number(m.quick_ratio) },
-      { label: 'Interest coverage', value: (m) => ratio(m.interest_coverage_ttm) },
+      {
+        label: 'Dividend yield',
+        info: 'dividendYield',
+        value: (m) => percent(m.dividend_yield, 2),
+      },
+      {
+        label: 'Dividend (TTM)',
+        info: 'dividendTtm',
+        value: (m, c) => money(m.dividend_per_share_ttm, c),
+      },
+      { label: 'Payout ratio', info: 'payoutRatio', value: (m) => percent(m.payout_ratio_ttm) },
+      {
+        label: 'Dividend growth, 5Y a year',
+        info: 'dividendGrowth5y',
+        value: (m) => signedPercent(m.dividend_growth_5y),
+      },
+      { label: 'Debt / equity', info: 'debtEquity', value: (m) => number(m.debt_to_equity) },
+      { label: 'Current ratio', info: 'currentRatio', value: (m) => number(m.current_ratio) },
+      { label: 'Quick ratio', info: 'quickRatio', value: (m) => number(m.quick_ratio) },
+      {
+        label: 'Interest coverage',
+        info: 'interestCoverage',
+        value: (m) => ratio(m.interest_coverage_ttm),
+      },
     ],
   },
 ]
@@ -105,6 +149,7 @@ function MetricsBody({ data, currency }: { data: CompanyMetrics; currency: strin
     <div className="stack" style={{ gap: 16 }}>
       <div className="stats">
         <Stat
+          info="week52Range"
           label="52-week range"
           value={
             m.week_52_low != null && m.week_52_high != null
@@ -114,6 +159,7 @@ function MetricsBody({ data, currency }: { data: CompanyMetrics; currency: strin
           detail={m.week_52_high_date ? `High on ${shortDate(m.week_52_high_date)}` : undefined}
         />
         <Stat
+          info="week52Return"
           label="52-week return"
           value={signedPercent(m.return_52_week)}
           className={tone(m.return_52_week)}
@@ -123,8 +169,9 @@ function MetricsBody({ data, currency }: { data: CompanyMetrics; currency: strin
               : undefined
           }
         />
-        <Stat label="Beta" value={number(m.beta)} detail="Against the market" />
+        <Stat info="beta" label="Beta" value={number(m.beta)} detail="Against the market" />
         <Stat
+          info="averageVolume"
           label="Average volume"
           value={compact(m.average_volume_3_month, '')}
           detail="Shares a day, 3 months"
@@ -137,7 +184,10 @@ function MetricsBody({ data, currency }: { data: CompanyMetrics; currency: strin
             <dl className="metric-list">
               {group.rows.map((row) => (
                 <div key={row.label}>
-                  <dt>{row.label}</dt>
+                  <dt>
+                    {row.label}
+                    <InfoTip topic={row.info} />
+                  </dt>
                   <dd>{row.value(m, currency)}</dd>
                 </div>
               ))}
