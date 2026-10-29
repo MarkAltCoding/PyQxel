@@ -43,9 +43,13 @@ def assistant_messages(request: AssistantRequest) -> list[BetaMessageParam]:
     # The API needs the conversation to open with a user turn.
     while turns and turns[0].role == "assistant":
         turns.pop(0)
-    messages: list[BetaMessageParam] = [
-        {"role": turn.role, "content": turn.content} for turn in turns
-    ]
+    messages: list[BetaMessageParam] = []
+    for turn in turns:
+        # Each role spelled out, so the SDK's per-role message types match.
+        if turn.role == "user":
+            messages.append({"role": "user", "content": turn.content})
+        else:
+            messages.append({"role": "assistant", "content": turn.content})
     about = [f'language="{LANGUAGE_NAMES[request.language]}"']
     if request.symbol:
         about.append(f'symbol="{request.symbol}"')
