@@ -1300,6 +1300,7 @@ def test_stored_backtests_are_listed_and_filtered(monkeypatch: pytest.MonkeyPatc
         "id": spy["id"],
         "saved_at": spy["saved_at"],
         "symbol": "SPY",
+        "symbols": None,
         "strategy": "sma_crossover",
         "period": "5y",
         "interval": "1d",

@@ -221,3 +221,87 @@ def test_the_editors_starter_strategy_runs() -> None:
     positions = result["positions"]
     assert positions[:199] == [0.0] * 199
     assert 0.0 < max(positions) <= 1.0
+
+
+UNIVERSE_STARTER = HARNESS.parents[2] / "editor" / "starters" / "universe.py"
+"""The code a new strategy across several symbols starts from."""
+
+DATES = [day.date().isoformat() for day in pd.bdate_range("2024-01-02", periods=300)]
+
+
+def _universe(symbols: tuple[str, ...] = ("GOOG", "UNH"), **assets: dict[str, Any]) -> str:
+    """300 bars of each symbol: GOOG rising, UNH falling, any in ``assets`` replaced."""
+    payload_assets = []
+    for number, symbol in enumerate(symbols):
+        step = 0.5 if number == 0 else -0.2
+        closes = [100.0 + step * bar for bar in range(len(DATES))]
+        columns = {
+            "open": closes,
+            "high": closes,
+            "low": closes,
+            "close": closes,
+            "volume": [None] * len(DATES),
+        }
+        payload_assets.append(columns | assets.get(symbol, {}))
+    return json.dumps({"symbols": list(symbols), "dates": DATES, "assets": payload_assets})
+
+
+def test_universe_bars_have_a_column_per_symbol_and_field() -> None:
+    result = _run(
+        "def strategy(bars):\n"
+        "    print(list(bars['Close'].columns), bars.index.name, len(bars))\n"
+        "    print(bars.xs('UNH', axis=1, level='symbol')['Close'].iloc[1])\n"
+        "    return bars['Close'] * 0 + 0.5\n",
+        _universe(),
+    )
+
+    assert result["ok"] is True
+    assert result["output"] == "['GOOG', 'UNH'] date 300\n99.8\n"
+    assert result["weights"] == [[0.5, 0.5]] * 300
+    assert "positions" not in result
+
+
+def test_universe_starter_holds_the_stronger_symbol() -> None:
+    result = _run(UNIVERSE_STARTER.read_text(encoding="utf-8"), _universe())
+
+    assert result["ok"] is True, result
+    weights = result["weights"]
+    assert weights[0] == [0.0, 0.0]
+    assert weights[-1] == [1.0, 0.0]  # GOOG rose, UNH fell: all in GOOG
+    assert all(row in ([0.0, 0.0], [1.0, 0.0]) for row in weights)
+
+
+def test_universe_weights_may_be_a_dict_of_series() -> None:
+    result = _run(
+        "def strategy(bars):\n"
+        "    close = bars['Close']\n"
+        "    return {'UNH': close['UNH'] * 0 - 0.5, 'GOOG': close['GOOG'] * 0 + 1.0}\n",
+        _universe(),
+    )
+
+    assert result["ok"] is True
+    assert result["weights"][0] == [1.0, -0.5]
+
+
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [
+        ("def strategy(bars):\n    return bars['Close']['GOOG'] * 0\n", "DataFrame of weights"),
+        (
+            "def strategy(bars):\n    return bars['Close'][['GOOG']] * 0\n",
+            "missing UNH",
+        ),
+        (
+            "def strategy(bars):\n    return bars['Close'].rolling(5).mean() * 0\n",
+            "weight of GOOG is NaN on 2024-01-02",
+        ),
+        ("def strategy(bars):\n    return bars['Close'] * 0 + 1.5\n", "sum to 3 on 2024-01-02"),
+        ("def strategy(bars):\n    return bars['Close'] * 0 + 2.5\n", "2.5 for GOOG"),
+    ],
+)
+def test_universe_weights_are_checked(code: str, message: str) -> None:
+    result = _run(code, _universe())
+
+    assert result["ok"] is False
+    assert result["error"]["kind"] == "result"
+    assert message in result["error"]["message"]

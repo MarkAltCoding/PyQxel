@@ -27,12 +27,18 @@ export const FLAGS = [
 export const MAX_DIAGNOSTICS = 20_000
 
 const SIGNATURE = 'void strategy(const pyqxel::Bars& bars, std::span<double> positions)'
+const UNIVERSE_SIGNATURE =
+  'void strategy(const pyqxel::Universe& universe, pyqxel::Weights weights)'
+
+/** Defined when the strategy allocates across several symbols, which pyqxel.h and the
+ * entry point switch on. */
+export const UNIVERSE_FLAG = '-DPYQXEL_UNIVERSE'
 
 export type CompileResult =
   { ok: true; wasm: Uint8Array; warnings: string } | { ok: false; error: RunError }
 
 /** The first error in Clang's output: its line in the user's code, when it is there. */
-export function compileError(diagnostics: string): RunError {
+export function compileError(diagnostics: string, universe = false): RunError {
   const traceback = diagnostics.trim().slice(0, MAX_DIAGNOSTICS)
   const own = new RegExp(`^${SOURCE.replace('.', '\\.')}:(\\d+):\\d+: (?:fatal )?error: (.*)$`, 'm')
   const located = own.exec(diagnostics)
@@ -42,7 +48,9 @@ export function compileError(diagnostics: string): RunError {
   if (/undefined symbol: strategy\(/.test(diagnostics)) {
     return {
       kind: 'compile',
-      message: `Define ${SIGNATURE}.`,
+      message: universe
+        ? `With several symbols, define ${UNIVERSE_SIGNATURE}.`
+        : `Define ${SIGNATURE}.`,
       line: null,
       traceback,
     }
@@ -59,11 +67,16 @@ export function compileError(diagnostics: string): RunError {
 const isExit = (error: unknown): boolean =>
   error instanceof Error && typeof (error as { code?: unknown }).code === 'number'
 
-/** Compiles `code`'s `strategy` with the entry point that calls it.
+/** Compiles `code`'s `strategy` with the entry point that calls it: across several
+ * symbols when `universe` is set, on one otherwise.
  *
  * Returns the module's bytes and any warnings, or the first error as a `compile`
  * RunError. Throws only when the compiler itself fails, not the code. */
-export async function compileStrategy(clang: Command, code: string): Promise<CompileResult> {
+export async function compileStrategy(
+  clang: Command,
+  code: string,
+  universe = false,
+): Promise<CompileResult> {
   let diagnostics = ''
   const decoder = new TextDecoder()
   const collect = (bytes: Uint8Array | null) => {
@@ -72,16 +85,18 @@ export async function compileStrategy(clang: Command, code: string): Promise<Com
   const files: Tree = { [SOURCE]: code, 'pyqxel.h': header, 'pyqxel_entry.cpp': entry }
   let output: Tree | undefined
   try {
-    output = await clang([...FLAGS, SOURCE, 'pyqxel_entry.cpp', '-o', 'strategy.wasm'], files, {
+    const flags = universe ? [...FLAGS, UNIVERSE_FLAG] : FLAGS
+    output = await clang([...flags, SOURCE, 'pyqxel_entry.cpp', '-o', 'strategy.wasm'], files, {
       stdout: collect,
       stderr: collect,
       fetchProgress: () => {},
     })
   } catch (error) {
-    if (isExit(error)) return { ok: false, error: compileError(diagnostics) }
+    if (isExit(error)) return { ok: false, error: compileError(diagnostics, universe) }
     throw error
   }
   const wasm = output?.['strategy.wasm']
-  if (!(wasm instanceof Uint8Array)) return { ok: false, error: compileError(diagnostics) }
+  if (!(wasm instanceof Uint8Array))
+    return { ok: false, error: compileError(diagnostics, universe) }
   return { ok: true, wasm, warnings: diagnostics.trim().slice(0, MAX_DIAGNOSTICS) }
 }

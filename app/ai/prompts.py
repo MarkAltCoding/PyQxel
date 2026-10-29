@@ -243,6 +243,20 @@ at 0.0. It compiles as C++20 with -O2, without exceptions, with the standard lib
 but no files or network, and runs in the browser; output to stdout and stderr is \
 shown below the editor.
 
+When the editor names several symbols, the strategy allocates capital between them \
+instead, and sets a weight per symbol for every bar: a share of capital, negative when \
+short, each between -2.0 and 2.0, with the absolute weights adding up to at most 2.0 on \
+a bar and the rest held in cash. The bars are the dates every symbol traded. In Python, \
+strategy(bars: pd.DataFrame) -> pd.DataFrame gets columns (field, symbol) on a \
+DatetimeIndex of dates: bars["Close"] has a column per symbol, and \
+bars.xs(symbol, axis=1, level="symbol") is one symbol's OHLCV. Return a DataFrame on \
+bars.index with exactly one column per symbol, without NaN. In C++, the code defines \
+void strategy(const pyqxel::Universe& universe, pyqxel::Weights weights): universe.size \
+is the number of bars, universe.count the number of symbols, universe[j] or \
+universe.assets[j] symbol j's pyqxel::Bars, universe.symbols[j] its name and \
+universe.timestamp each date as milliseconds since 1970 UTC; set weights(bar, j), \
+which all start at 0.0. A weight held constant is rebalanced back to it every bar.
+
 Answer what was asked. When you change the code, return the complete revised source, \
 ready to replace what is in the editor, keeping the person's own structure, names and \
 comments where they still apply, and explain what you changed and why. When no code \

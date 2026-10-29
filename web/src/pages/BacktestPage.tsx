@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { lazy, Suspense, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../api/client'
@@ -9,20 +9,21 @@ import {
   listBacktests,
   runBacktest,
   runCustomBacktest,
+  runMultiAssetCustomBacktest,
 } from '../api/endpoints'
 import type {
   BacktestRequest,
   BacktestResponse,
   CodeLanguage,
   LastRun,
-  PerformanceMetrics,
   Strategy,
   StrategyType,
 } from '../api/types'
 import { ChartCard, Legend } from '../charts/ChartCard'
 import { EquityChart, EquityTable } from '../charts/EquityChart'
-import { FACTOR_NAMES } from '../lib/factors'
 import { useChartTheme } from '../charts/theme'
+import { AttributionCard, MetricsTable, NumberField } from '../components/BacktestParts'
+import { CrossSectionalBacktest } from '../components/CrossSectionalBacktest'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { SearchBox } from '../components/SearchBox'
 import { Segmented } from '../components/Segmented'
@@ -35,6 +36,7 @@ import { starterCode } from '../editor/starters'
 import { dateTime, number, percent, shortDate, signedPercent, tone } from '../lib/format'
 import { readStored, writeStored } from '../lib/storage'
 import { runnerFor, StrategyRunError } from '../runners'
+import { alignUniverse } from '../runners/types'
 
 // CodeMirror loads only when someone opens a custom strategy.
 const StrategyEditor = lazy(() =>
@@ -118,7 +120,13 @@ type StrategyChoice = StrategyType | 'custom'
 const LANGUAGE_LABEL: Record<CodeLanguage, string> = { python: 'Python', cpp: 'C++' }
 
 const CUSTOM_ABOUT =
-  'Your own Python or C++, run in this browser. Only the positions it returns are sent to PyQxel, which backtests them like any built-in strategy.'
+  'Your own Python or C++, run in this browser. Only the positions it returns are sent to PyQxel, which backtests them like any built-in strategy. Add more symbols to allocate between them.'
+
+const UNIVERSE_ABOUT =
+  'Your own Python or C++, run in this browser, setting a weight for each symbol on every date they all traded. Only the weights are sent to PyQxel, which backtests them against holding the symbols equally.'
+
+/** Most symbols a custom strategy may allocate between, as the API allows. */
+const MAX_CUSTOM_SYMBOLS = 20
 
 /** What each language offers, and what a run says while it loads and runs. */
 const LANGUAGE_DETAILS: Record<
@@ -148,14 +156,21 @@ interface Viewing {
   savedAt: string | null
 }
 
-/** Where the code being written is kept between visits. */
-const draftKey = (language: EditorLanguage) => `pyqxel.strategyDraft.${language}`
+/** Where the code being written is kept between visits; a strategy across several
+ * symbols has a draft of its own, since its code has a different shape. */
+const draftKey = (language: EditorLanguage, universe: boolean) =>
+  `pyqxel.strategyDraft.${language}${universe ? '.universe' : ''}`
+
+/** The symbols a result was backtested on, as a title names them. */
+const symbolsOf = (result: BacktestResponse) => (result.symbols ?? [result.symbol]).join(' + ')
 
 /** Strategies that are long or flat only, so the short option does not apply. */
 const LONG_ONLY = new Set<StrategyType>(['buy_and_hold', 'dual_momentum', 'volatility_targeting'])
 
 interface Form {
   symbol: string
+  /** Further symbols a custom strategy allocates between, beside `symbol`. */
+  extraSymbols: string[]
   type: StrategyChoice
   code: string
   language: EditorLanguage
@@ -189,6 +204,7 @@ interface Form {
 
 const DEFAULTS: Form = {
   symbol: '',
+  extraSymbols: [],
   type: 'sma_crossover',
   code: '',
   language: 'python',
@@ -297,36 +313,90 @@ function strategyOf(form: Form): Strategy {
   }
 }
 
+type Mode = 'stock' | 'universe'
+
+const MODES: { value: Mode; label: string }[] = [
+  { value: 'stock', label: 'Single stock' },
+  { value: 'universe', label: 'Across tickers' },
+]
+
+const SUBTITLES: Record<Mode, string> = {
+  stock: 'Run a trading rule over history and compare it with buying and holding.',
+  universe:
+    'Rank a set of stocks against one another on a schedule, hold the best, and compare it with holding them all.',
+}
+
 export function BacktestPage() {
+  const [params, setParams] = useSearchParams()
+  const mode: Mode = params.get('mode') === 'universe' ? 'universe' : 'stock'
+  return (
+    <div className="stack">
+      <header className="page-header">
+        <div>
+          <h1>Backtest</h1>
+          <div className="subtitle">{SUBTITLES[mode]}</div>
+        </div>
+        <Segmented
+          label="What to backtest"
+          value={mode}
+          options={MODES}
+          onChange={(next) => setParams(next === 'universe' ? { mode: 'universe' } : {})}
+        />
+      </header>
+      {mode === 'universe' ? <CrossSectionalBacktest /> : <SingleStockBacktest />}
+    </div>
+  )
+}
+
+function SingleStockBacktest() {
   const queryClient = useQueryClient()
   const [params, setParams] = useSearchParams()
   const openId = params.get('id')
   const [form, setForm] = useState<Form>(() => ({
     ...DEFAULTS,
     symbol: params.get('symbol')?.toUpperCase() ?? '',
-    code: readStored(draftKey(DEFAULTS.language)) ?? starterCode(DEFAULTS.language),
+    code: readStored(draftKey(DEFAULTS.language, false)) ?? starterCode(DEFAULTS.language),
   }))
   const set = <K extends keyof Form>(key: K, value: Form[K]) =>
     setForm((current) => ({ ...current, [key]: value }))
   const custom = form.type === 'custom'
+  /** Whether the custom strategy allocates between several symbols. */
+  const universe = custom && form.extraSymbols.length > 0
+  const symbols = universe ? [form.symbol, ...form.extraSymbols] : [form.symbol]
   /** The stored backtest whose code is in the editor instead of the draft, if any. Its
    * code and edits to it are never saved over the draft unless the user asks. */
   const [viewing, setViewing] = useState<Viewing | null>(null)
-  const draftOf = (language: EditorLanguage) =>
-    readStored(draftKey(language)) ?? starterCode(language)
+  const draftOf = (language: EditorLanguage, across: boolean) =>
+    readStored(draftKey(language, across)) ?? starterCode(language, across)
   const setCode = (code: string) => {
     set('code', code)
-    if (viewing === null) writeStored(draftKey(form.language), code)
+    if (viewing === null) writeStored(draftKey(form.language, universe), code)
   }
   /** Puts the language's draft back in the editor, leaving the stored backtest's code. */
   const backToDraft = () => {
-    setForm((current) => ({ ...current, code: draftOf(current.language) }))
+    setForm((current) => ({
+      ...current,
+      code: draftOf(current.language, current.extraSymbols.length > 0),
+    }))
     setViewing(null)
   }
   /** Makes the code in the editor the draft, replacing the draft there was. */
   const keepAsDraft = () => {
-    writeStored(draftKey(form.language), form.code)
+    writeStored(draftKey(form.language, universe), form.code)
     setViewing(null)
+  }
+  /** Sets the symbols traded beside the first. Going from one symbol to several, or back,
+   * swaps in that kind of strategy's draft, unless a stored backtest's code is shown. */
+  const setExtraSymbols = (extraSymbols: string[]) => {
+    const across = extraSymbols.length > 0
+    setForm((current) => ({
+      ...current,
+      extraSymbols,
+      code:
+        viewing === null && across !== current.extraSymbols.length > 0
+          ? draftOf(current.language, across)
+          : current.code,
+    }))
   }
   /** Switches the custom strategy's language, to that language's own draft or starter. */
   const chooseLanguage = (language: EditorLanguage) => {
@@ -335,7 +405,7 @@ export function BacktestPage() {
     setForm((current) => ({
       ...current,
       language,
-      code: draftOf(language),
+      code: draftOf(language, current.extraSymbols.length > 0),
     }))
     // Its runtime starts downloading while the code is read and written.
     runnerFor(language).warm()
@@ -369,6 +439,7 @@ export function BacktestPage() {
       if (form.type !== 'custom') {
         return runBacktest(form.symbol, { strategy: strategyOf(form), ...options })
       }
+      if (universe) return runAcross(options)
       // The code runs here, in a worker; the server only sees and scores its positions.
       const controller = new AbortController()
       stopper.current = controller
@@ -405,13 +476,60 @@ export function BacktestPage() {
       if (result.id) {
         // A rerun of a stored backtest's code is what the editor now shows.
         if (viewing !== null)
-          setViewing({ symbol: result.symbol, savedAt: result.saved_at ?? null })
+          setViewing({ symbol: symbolsOf(result), savedAt: result.saved_at ?? null })
         setLoadedId(result.id)
         queryClient.setQueryData(['backtest', result.id], result)
         setParams({ id: result.id })
       }
     },
   })
+  /** Runs the custom strategy across every symbol in this browser, and has the server
+   * score the weights it set. */
+  async function runAcross(options: {
+    period: Form['period']
+    interval: Form['interval']
+    cost_bps: number
+    cash_interest: boolean
+  }): Promise<BacktestResponse> {
+    const controller = new AbortController()
+    stopper.current = controller
+    try {
+      setPrinted('')
+      setRanCode(form.code)
+      setPhase('Fetching prices…')
+      const histories = await Promise.all(
+        symbols.map(async (symbol) => ({
+          symbol,
+          bars: (await getHistory(symbol, form.period, form.interval)).bars,
+        })),
+      )
+      const empty = histories.find((history) => history.bars.length === 0)
+      if (empty) throw new ApiError(422, `${empty.symbol} has no prices in this window.`)
+      const aligned = alignUniverse(histories)
+      if (aligned.dates.length === 0) {
+        throw new ApiError(422, `${symbols.join(', ')} share no trading days in this window.`)
+      }
+      const details = LANGUAGE_DETAILS[form.language]
+      setPhase(details.loading)
+      const outcome = await runnerFor(form.language).runUniverse(form.code, aligned, {
+        signal: controller.signal,
+        onStart: () => setPhase(details.running),
+      })
+      setPrinted(outcome.output)
+      if (!outcome.ok) throw new StrategyRunError(outcome.error, outcome.output)
+      setPhase('Scoring…')
+      return await runMultiAssetCustomBacktest({
+        ...options,
+        symbols,
+        code: form.code,
+        language: form.language,
+        dates: outcome.dates,
+        weights: outcome.weights,
+      })
+    } finally {
+      stopper.current = null
+    }
+  }
   const remove = useMutation({
     mutationFn: deleteBacktest,
     onSuccess: (_, id) => {
@@ -430,17 +548,19 @@ export function BacktestPage() {
     const { strategy } = openedResult
     if (strategy.type === 'custom') {
       const language = strategy.language ?? 'python'
+      const [first, ...rest] = openedResult.symbols ?? [openedResult.symbol]
       setViewing(
-        strategy.code === draftOf(language)
+        strategy.code === draftOf(language, rest.length > 0)
           ? null
-          : { symbol: openedResult.symbol, savedAt: openedResult.saved_at ?? null },
+          : { symbol: symbolsOf(openedResult), savedAt: openedResult.saved_at ?? null },
       )
       setForm((current) => ({
         ...current,
         type: 'custom',
         language,
         code: strategy.code,
-        symbol: openedResult.symbol,
+        symbol: first ?? openedResult.symbol,
+        extraSymbols: rest,
         period: openedResult.period,
         interval: openedResult.interval,
         costBps: String(openedResult.cost_bps),
@@ -455,7 +575,7 @@ export function BacktestPage() {
     if (form.symbol) run.mutate()
   }
   const strategy = STRATEGIES.find((s) => s.value === form.type)
-  const about = custom ? CUSTOM_ABOUT : strategy?.about
+  const about = universe ? UNIVERSE_ABOUT : custom ? CUSTOM_ABOUT : strategy?.about
   // Failures in the browser are shown under the code; the rest, under the form.
   const runFailure = run.error instanceof StrategyRunError ? run.error.failure : null
   const editorError = useMemo<EditorError | null>(
@@ -482,21 +602,12 @@ export function BacktestPage() {
   }, [custom, ranCode, form.code, printed, runFailure, run.isSuccess])
   const resetCode = () => {
     if (window.confirm('Replace your code with the starting template?')) {
-      setCode(starterCode(form.language))
+      setCode(starterCode(form.language, universe))
     }
   }
 
   return (
-    <div className="stack">
-      <header className="page-header">
-        <div>
-          <h1>Backtest</h1>
-          <div className="subtitle">
-            Run a trading rule over history and compare it with buying and holding.
-          </div>
-        </div>
-      </header>
-
+    <>
       <form id="backtest-form" className="card stack" style={{ gap: 14 }} onSubmit={submit}>
         <div className="filter-row">
           <div className="field" style={{ width: 220 }}>
@@ -504,9 +615,37 @@ export function BacktestPage() {
             <SearchBox
               label="Symbol"
               placeholder={form.symbol || 'Ticker or company'}
-              onSelect={(symbol) => set('symbol', symbol)}
+              onSelect={(symbol) => {
+                set('symbol', symbol)
+                if (form.extraSymbols.includes(symbol)) {
+                  setExtraSymbols(form.extraSymbols.filter((extra) => extra !== symbol))
+                }
+              }}
             />
           </div>
+          {custom && (
+            <div className="field" style={{ width: 220 }}>
+              <span>Also trade</span>
+              <SearchBox
+                label="Also trade"
+                clearOnSelect
+                placeholder={
+                  form.extraSymbols.length + 1 >= MAX_CUSTOM_SYMBOLS
+                    ? `At most ${MAX_CUSTOM_SYMBOLS} symbols`
+                    : 'Add a symbol to allocate between'
+                }
+                onSelect={(symbol) => {
+                  if (
+                    symbol !== form.symbol &&
+                    !form.extraSymbols.includes(symbol) &&
+                    form.extraSymbols.length + 1 < MAX_CUSTOM_SYMBOLS
+                  ) {
+                    setExtraSymbols([...form.extraSymbols, symbol])
+                  }
+                }}
+              />
+            </div>
+          )}
           <label className="field">
             <span>Strategy</span>
             <select
@@ -798,10 +937,31 @@ export function BacktestPage() {
                 ? phase
                 : 'Running…'
               : form.symbol
-                ? `Backtest ${form.symbol}`
+                ? `Backtest ${symbols.join(' + ')}`
                 : 'Backtest'}
           </button>
         </div>
+        {universe && (
+          <div className="filter-row" aria-label="Symbols traded">
+            {symbols.map((symbol, index) => (
+              <span key={symbol} className="badge">
+                {symbol}
+                {index > 0 && (
+                  <button
+                    type="button"
+                    className="button ghost small"
+                    aria-label={`Stop trading ${symbol}`}
+                    onClick={() =>
+                      setExtraSymbols(form.extraSymbols.filter((extra) => extra !== symbol))
+                    }
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
         {about && <p className="disclaimer">{about}</p>}
         {run.error !== null && !(run.error instanceof StrategyRunError) && (
           <ErrorNotice error={run.error} />
@@ -827,7 +987,7 @@ export function BacktestPage() {
                 <button
                   type="button"
                   className="button ghost small"
-                  disabled={run.isPending || form.code === starterCode(form.language)}
+                  disabled={run.isPending || form.code === starterCode(form.language, universe)}
                   onClick={resetCode}
                 >
                   Reset to template
@@ -886,6 +1046,7 @@ export function BacktestPage() {
               language={form.language}
               code={form.code}
               symbol={form.symbol}
+              symbols={symbols}
               interval={form.interval}
               lastRun={lastRun}
               onApply={setCode}
@@ -896,8 +1057,8 @@ export function BacktestPage() {
           ) : (
             <section className="card">
               <div className="empty">
-                Choose a symbol and run your strategy to see its equity curve against buying and
-                holding.
+                Choose a symbol, or several to allocate between, and run your strategy to see its
+                equity curve against buying and holding.
               </div>
             </section>
           )}
@@ -924,7 +1085,7 @@ export function BacktestPage() {
                   <th>Strategy</th>
                   <th>History</th>
                   <th className="num">Return</th>
-                  <th className="num">Buy and hold</th>
+                  <th className="num">Benchmark</th>
                   <th className="num">Sharpe</th>
                   <th className="num">Max drawdown</th>
                   <th>Saved</th>
@@ -943,7 +1104,7 @@ export function BacktestPage() {
                   >
                     <td>
                       <Link to={`?id=${item.id}`} onClick={(event) => event.stopPropagation()}>
-                        {item.symbol}
+                        {(item.symbols ?? [item.symbol]).join(' + ')}
                       </Link>
                     </td>
                     <td>{STRATEGY_LABEL[item.strategy] ?? item.strategy}</td>
@@ -977,31 +1138,7 @@ export function BacktestPage() {
           </div>
         )}
       </section>
-    </div>
-  )
-}
-
-function NumberField(props: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  min: number
-  max: number
-  step?: number
-}) {
-  return (
-    <label className="field" style={{ width: 120 }}>
-      <span>{props.label}</span>
-      <input
-        type="number"
-        required
-        min={props.min}
-        max={props.max}
-        step={props.step ?? 1}
-        value={props.value}
-        onChange={(event) => props.onChange(event.target.value)}
-      />
-    </label>
+    </>
   )
 }
 
@@ -1036,21 +1173,28 @@ function ResultChart({ result, refreshing }: { result: BacktestResponse; refresh
   const theme = useChartTheme()
   const m = result.metrics
   const b = result.benchmark
+  const benchmark = benchmarkLabel(result)
   return (
     <ChartCard
-      title={`${result.symbol}: ${describe(result.strategy)}`}
+      title={`${symbolsOf(result)}: ${describe(result.strategy)}`}
       subtitle={`${shortDate(m.start)} to ${shortDate(m.end)} · ${result.trades} trades · average exposure ${percent(result.exposure, 0)} · ${result.cost_bps} bps per trade`}
       refreshing={refreshing}
       legend={
         <Legend
           items={[
             { label: 'Strategy', color: theme.series1 },
-            { label: 'Buy and hold', color: theme.series2 },
+            { label: benchmark, color: theme.series2 },
           ]}
         />
       }
-      chart={<EquityChart points={result.equity_curve} />}
-      table={<EquityTable points={result.equity_curve} />}
+      chart={
+        <EquityChart
+          points={result.equity_curve}
+          benchmarkLabel={benchmark}
+          benchmarkShort={result.symbols ? 'Equal' : 'Hold'}
+        />
+      }
+      table={<EquityTable points={result.equity_curve} benchmarkLabel={benchmark} />}
       footer={
         <div className="stack" style={{ gap: 12, marginTop: 14 }}>
           <div className="stats">
@@ -1058,22 +1202,22 @@ function ResultChart({ result, refreshing }: { result: BacktestResponse; refresh
               label="Total return"
               value={signedPercent(m.total_return)}
               className={tone(m.total_return)}
-              detail={`Buy and hold ${signedPercent(b.total_return)}`}
+              detail={`${benchmark} ${signedPercent(b.total_return)}`}
             />
             <Stat
               label="Annualized"
               value={signedPercent(m.annualized_return)}
-              detail={`Buy and hold ${signedPercent(b.annualized_return)}`}
+              detail={`${benchmark} ${signedPercent(b.annualized_return)}`}
             />
             <Stat
               label="Sharpe ratio"
               value={number(m.sharpe_ratio)}
-              detail={`Buy and hold ${number(b.sharpe_ratio)}`}
+              detail={`${benchmark} ${number(b.sharpe_ratio)}`}
             />
             <Stat
               label="Max drawdown"
               value={percent(m.max_drawdown)}
-              detail={`Buy and hold ${percent(b.max_drawdown)}`}
+              detail={`${benchmark} ${percent(b.max_drawdown)}`}
             />
           </div>
           {result.notice && <Notice tone="warning">{result.notice}</Notice>}
@@ -1084,94 +1228,63 @@ function ResultChart({ result, refreshing }: { result: BacktestResponse; refresh
   )
 }
 
+/** What a result is compared with: buying and holding its symbol, or holding several
+ * equally. */
+const benchmarkLabel = (result: BacktestResponse) =>
+  result.symbols ? 'Equal weight' : 'Buy and hold'
+
 function ResultDetails({ result }: { result: BacktestResponse }) {
-  const m = result.metrics
-  const b = result.benchmark
   return (
-    <div className="grid-2">
-      <section className="card">
-        <div className="card-header">
-          <h2>Performance</h2>
-        </div>
-        <MetricsTable strategy={m} benchmark={b} />
-      </section>
-      <section className="card">
-        <div className="card-header">
-          <div>
-            <h2>Return attribution</h2>
-            <div className="subtitle">The strategy's daily returns regressed on factor returns</div>
+    <>
+      <div className="grid-2">
+        <section className="card">
+          <div className="card-header">
+            <h2>Performance</h2>
           </div>
-        </div>
-        {result.attribution ? (
-          <table className="data">
-            <tbody>
-              <Row label="Alpha (annualized)">
-                {signedPercent(result.attribution.fit.alpha.estimate)} (t{' '}
-                {number(result.attribution.fit.alpha.t_stat)})
-              </Row>
-              {result.attribution.fit.exposures.map((exposure) => (
-                <Row key={exposure.factor} label={`${FACTOR_NAMES[exposure.factor]} beta`}>
-                  {number(exposure.estimate)}
-                </Row>
-              ))}
-              <Row label="R²">{percent(result.attribution.fit.r_squared, 0)}</Row>
-            </tbody>
-          </table>
-        ) : (
-          <div className="empty">No attribution for this backtest.</div>
-        )}
-      </section>
-    </div>
-  )
-}
-
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <tr>
-      <td>{label}</td>
-      <td className="num">{children}</td>
-    </tr>
-  )
-}
-
-function MetricsTable({
-  strategy,
-  benchmark,
-}: {
-  strategy: PerformanceMetrics
-  benchmark: PerformanceMetrics
-}) {
-  const rows: [string, (m: PerformanceMetrics) => string][] = [
-    ['Total return', (m) => signedPercent(m.total_return)],
-    ['Annualized return', (m) => signedPercent(m.annualized_return)],
-    ['Annualized volatility', (m) => percent(m.annualized_volatility)],
-    ['Sharpe ratio', (m) => number(m.sharpe_ratio)],
-    ['Sortino ratio', (m) => number(m.sortino_ratio)],
-    ['Max drawdown', (m) => percent(m.max_drawdown)],
-    ['Drawdown trough', (m) => shortDate(m.max_drawdown_trough)],
-    [
-      'Recovered',
-      (m) => (m.max_drawdown_recovery ? shortDate(m.max_drawdown_recovery) : 'Not yet'),
-    ],
-  ]
-  return (
-    <table className="data">
-      <thead>
-        <tr>
-          <th />
-          <th className="num">Strategy</th>
-          <th className="num">Buy and hold</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map(([label, format]) => (
-          <tr key={label}>
-            <td>{label}</td>
-            <td className="num">{format(strategy)}</td>
-            <td className="num">{format(benchmark)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+          <MetricsTable
+            strategy={result.metrics}
+            benchmark={result.benchmark}
+            benchmarkLabel={benchmarkLabel(result)}
+          />
+        </section>
+        <AttributionCard attribution={result.attribution} />
+      </div>
+      {result.assets && (
+        <section className="card">
+          <div className="card-header">
+            <div>
+              <h2>Allocation</h2>
+              <div className="subtitle">How the strategy held each symbol over the backtest</div>
+            </div>
+          </div>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th className="num">Average weight</th>
+                  <th className="num">Held</th>
+                  <th className="num">Trades</th>
+                  <th className="num">Contribution</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.assets.map((asset) => (
+                  <tr key={asset.symbol}>
+                    <td>{asset.symbol}</td>
+                    <td className="num">{signedPercent(asset.average_weight, 0)}</td>
+                    <td className="num">{percent(asset.exposure, 0)}</td>
+                    <td className="num">{asset.trades}</td>
+                    <td className={`num ${tone(asset.contribution) ?? ''}`}>
+                      {signedPercent(asset.contribution)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+    </>
   )
 }

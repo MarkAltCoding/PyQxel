@@ -5,7 +5,12 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 import { forEachDiagnostic } from '@codemirror/lint'
 import { EditorView } from '@codemirror/view'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { BacktestResponse, BacktestSummary, OHLCVBar } from '../api/types'
+import type {
+  BacktestResponse,
+  BacktestSummary,
+  CrossSectionalBacktestResponse,
+  OHLCVBar,
+} from '../api/types'
 import { starterCode } from '../editor/starters'
 import type { RunOptions, RunResult } from '../runners/types'
 import { BacktestPage } from './BacktestPage'
@@ -14,6 +19,7 @@ import { BacktestPage } from './BacktestPage'
 const runner = vi.hoisted(() => ({
   language: 'python' as const,
   run: vi.fn(),
+  runUniverse: vi.fn(),
   warm: vi.fn(),
   dispose: vi.fn(),
   /** The languages the page asked for a runner in, in order. */
@@ -137,6 +143,7 @@ const marks = (view: EditorView) => {
 
 beforeEach(() => {
   runner.run.mockReset()
+  runner.runUniverse.mockReset()
   runner.warm.mockReset()
   runner.asked.length = 0
 })
@@ -467,5 +474,169 @@ describe('custom strategies on the Backtest page', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Run' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The C++ compiler could not start')
+  })
+})
+
+describe('backtests across tickers', () => {
+  const universeResult = (overrides: Partial<CrossSectionalBacktestResponse> = {}) =>
+    ({
+      symbols: ['AAA', 'BBB', 'CCC'],
+      signal: { type: 'momentum', lookback: 252, skip: 21 },
+      rebalance: 'monthly',
+      quantile: 0.2,
+      top_n: 1,
+      long_short: false,
+      weighting: 'equal',
+      period: '10y',
+      cost_bps: 5,
+      risk_free_rate: 0,
+      cash_interest: true,
+      observations: 2,
+      rebalances: 1,
+      holdings_per_leg: 1,
+      turnover: 1,
+      exposure: 1,
+      metrics: METRICS,
+      benchmark: METRICS,
+      information_coefficient: null,
+      assets: [
+        { symbol: 'AAA', contribution: 0.1, long_share: 1, short_share: 0, score: 0.3, weight: 1 },
+        { symbol: 'BBB', contribution: 0, long_share: 0, short_share: 0, score: 0.1, weight: 0 },
+        { symbol: 'CCC', contribution: 0, long_share: 0, short_share: 0, score: null, weight: 0 },
+      ],
+      equity_curve: BARS.map((bar) => ({ timestamp: bar.timestamp, strategy: 1, benchmark: 1 })),
+      disclaimer: 'Survivorship.',
+      ...overrides,
+    }) as CrossSectionalBacktestResponse
+
+  it('ranks the tickers typed in and shows the latest ranking', async () => {
+    window.localStorage.removeItem('pyqxel.backtestUniverse')
+    const calls = serve({
+      'POST /api/v1/backtests/cross-sectional': () => universeResult(),
+    })
+    renderPage('/backtest')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Across tickers' }))
+    const universe = screen.getByRole('textbox', { name: /Universe/ })
+    await userEvent.clear(universe)
+    await userEvent.type(universe, 'aaa, bbb ccc;aaa')
+    expect(screen.getByText('Universe (3 symbols)')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Backtest 3 symbols' }))
+
+    expect(
+      await screen.findByRole('heading', { name: /3 symbols: Momentum \(252\/21 bars\)/ }),
+    ).toBeInTheDocument()
+    const posted = calls.find((call) => call.path === '/api/v1/backtests/cross-sectional')
+    expect(posted?.body).toEqual({
+      symbols: ['AAA', 'BBB', 'CCC'],
+      signal: { type: 'momentum', lookback: 252, skip: 21 },
+      rebalance: 'monthly',
+      top_n: 3,
+      long_short: false,
+      weighting: 'equal',
+      period: '10y',
+      cost_bps: 5,
+      cash_interest: true,
+    })
+    const stocks = screen.getByRole('heading', { name: 'Stocks' }).closest('section')!
+    const rows = within(stocks).getAllByRole('row').slice(1)
+    expect(rows.map((row) => within(row).getAllByRole('cell')[0]!.textContent)).toEqual([
+      'AAA',
+      'BBB',
+      'CCC',
+    ])
+    expect(within(rows[2]!).getByText('Never')).toBeInTheDocument()
+  })
+
+  it('holds back a universe too small to rank', async () => {
+    serve({})
+    renderPage('/backtest?mode=universe')
+
+    const universe = screen.getByRole('textbox', { name: /Universe/ })
+    await userEvent.clear(universe)
+    await userEvent.type(universe, 'AAA BBB')
+
+    expect(screen.getByRole('button', { name: 'Backtest 2 symbols' })).toBeDisabled()
+  })
+})
+
+describe('custom strategies across several symbols', () => {
+  const history = (symbol: string, bars: OHLCVBar[]) => () => ({
+    symbol,
+    period: '10y',
+    interval: '1d',
+    bars,
+    coverage: 'full',
+  })
+
+  it('runs the strategy on every symbol’s shared dates and posts its weights', async () => {
+    window.localStorage.clear()
+    const calls = serve({
+      ...NO_SAVED,
+      'GET /api/v1/stocks/GOOG/history': history('GOOG', BARS),
+      'GET /api/v1/stocks/UNH/history': history('UNH', BARS.slice(1)),
+      'POST /api/v1/backtests/custom': () =>
+        result({
+          symbol: 'GOOG',
+          symbols: ['GOOG', 'UNH'],
+          assets: [
+            { symbol: 'GOOG', average_weight: 0.5, exposure: 1, contribution: 0.05, trades: 1 },
+            { symbol: 'UNH', average_weight: 0.5, exposure: 1, contribution: 0.05, trades: 1 },
+          ],
+        }),
+    })
+    runner.runUniverse.mockImplementation(
+      async (_code: string, universe: { dates: string[] }, options?: RunOptions) => {
+        options?.onStart?.()
+        return {
+          ok: true,
+          dates: universe.dates,
+          weights: [
+            [0.5, 0.5],
+            [1, 0],
+          ],
+          output: '',
+        }
+      },
+    )
+    renderPage('/backtest?symbol=GOOG')
+
+    await userEvent.selectOptions(strategyMenu(), 'custom')
+    const view = await editor()
+    expect(view.state.doc.toString()).toBe(starterCode('python'))
+    await userEvent.type(screen.getByRole('combobox', { name: 'Also trade' }), 'unh{Enter}')
+
+    // A strategy across several symbols starts from its own template.
+    await waitFor(() => expect(view.state.doc.toString()).toBe(starterCode('python', true)))
+    await userEvent.click(screen.getByRole('button', { name: 'Run' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'GOOG + UNH: Custom Python strategy' }),
+    ).toBeInTheDocument()
+    const [, universe] = runner.runUniverse.mock.calls[0]!
+    expect(universe).toMatchObject({
+      symbols: ['GOOG', 'UNH'],
+      dates: ['2026-10-15', '2026-10-16'],
+    })
+    const posted = calls.find((call) => call.path === '/api/v1/backtests/custom')
+    expect(posted?.body).toEqual({
+      period: '10y',
+      interval: '1d',
+      cost_bps: 5,
+      cash_interest: true,
+      symbols: ['GOOG', 'UNH'],
+      code: starterCode('python', true),
+      language: 'python',
+      dates: ['2026-10-15', '2026-10-16'],
+      weights: [
+        [0.5, 0.5],
+        [1, 0],
+      ],
+    })
+    expect(screen.getByRole('heading', { name: 'Allocation' })).toBeInTheDocument()
+
+    // Back to one symbol, back to the one-symbol draft.
+    await userEvent.click(screen.getByRole('button', { name: 'Stop trading UNH' }))
+    await waitFor(() => expect(view.state.doc.toString()).toBe(starterCode('python')))
   })
 })

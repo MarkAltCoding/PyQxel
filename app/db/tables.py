@@ -130,6 +130,9 @@ class BacktestRecord(Base):
     """A custom strategy's source; null for built-in strategies."""
     language: Mapped[str | None] = mapped_column(String(16), nullable=True)
     """The language of ``code``; null for built-in strategies."""
+    symbols: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    """Every symbol a strategy run on several allocated between; null for one symbol,
+    which ``symbol`` holds alone."""
 
 
 class AnalysisRecord(Base):

@@ -1042,6 +1042,47 @@
         "title": "AssetRisk",
         "type": "object"
       },
+      "AssetWeight": {
+        "description": "One symbol's part in a multi-symbol custom backtest.",
+        "properties": {
+          "average_weight": {
+            "description": "Mean weight held over the backtest, negative when mostly short.",
+            "title": "Average Weight",
+            "type": "number"
+          },
+          "contribution": {
+            "description": "Sum of its weighted returns net of its trading costs: its share of the strategy's arithmetic return.",
+            "title": "Contribution",
+            "type": "number"
+          },
+          "exposure": {
+            "description": "Share of bars it was held, long or short.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Exposure",
+            "type": "number"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "trades": {
+            "description": "Bars on which its weight changed.",
+            "minimum": 0.0,
+            "title": "Trades",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "symbol",
+          "average_weight",
+          "exposure",
+          "contribution",
+          "trades"
+        ],
+        "title": "AssetWeight",
+        "type": "object"
+      },
       "AssistantImport": {
         "description": "An answer Claude wrote outside the app to an exported coding assistant prompt.",
         "properties": {
@@ -1154,6 +1195,23 @@
             ],
             "description": "The symbol the strategy is backtested on.",
             "title": "Symbol"
+          },
+          "symbols": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^[A-Za-z0-9.\\-^=]{1,15}$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every symbol, when the strategy allocates between several.",
+            "title": "Symbols"
           }
         },
         "required": [
@@ -1362,6 +1420,21 @@
       "BacktestResponse": {
         "description": "A strategy's performance, with buy-and-hold on the same bars as the benchmark.",
         "properties": {
+          "assets": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AssetWeight"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Each symbol's part, with several symbols; null for one.",
+            "title": "Assets"
+          },
           "attribution": {
             "anyOf": [
               {
@@ -1375,7 +1448,7 @@
           },
           "benchmark": {
             "$ref": "#/components/schemas/PerformanceMetrics",
-            "description": "Buy-and-hold over the same bars, no costs."
+            "description": "Buy-and-hold over the same bars, no costs; with several symbols, holding them in equal weights, rebalanced every bar."
           },
           "cash_interest": {
             "default": false,
@@ -1536,8 +1609,24 @@
             "title": "Strategy"
           },
           "symbol": {
+            "description": "The symbol backtested; the first of ``symbols``.",
             "title": "Symbol",
             "type": "string"
+          },
+          "symbols": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every symbol a custom strategy allocated between; null for one symbol.",
+            "title": "Symbols"
           },
           "trades": {
             "description": "Bars on which the position changed.",
@@ -1623,6 +1712,21 @@
           "symbol": {
             "title": "Symbol",
             "type": "string"
+          },
+          "symbols": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every symbol, for a strategy run on several; else null.",
+            "title": "Symbols"
           },
           "total_return": {
             "title": "Total Return",
@@ -1966,6 +2070,408 @@
         "title": "CopulaRequest",
         "type": "object"
       },
+      "CrossSectionalBacktestRequest": {
+        "description": "Rank a universe of stocks against one another on a schedule, and hold the best.",
+        "properties": {
+          "attribution": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ff3",
+                  "carhart4",
+                  "ff5"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "carhart4",
+            "description": "Factor model to regress the strategy's daily returns on; null to skip.",
+            "title": "Attribution"
+          },
+          "cash_interest": {
+            "default": false,
+            "description": "Let capital not invested, and short sale proceeds, earn the risk-free rate (the one-month T-bill).",
+            "title": "Cash Interest",
+            "type": "boolean"
+          },
+          "cost_bps": {
+            "default": 5.0,
+            "description": "Trading cost per unit of turnover, in basis points (5 = 0.05%).",
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "title": "Cost Bps",
+            "type": "number"
+          },
+          "long_short": {
+            "default": false,
+            "description": "Also short the same number of the worst-ranked stocks. Each leg is one unit of capital, so the portfolio is dollar-neutral and its gross exposure 2.",
+            "title": "Long Short",
+            "type": "boolean"
+          },
+          "period": {
+            "default": "10y",
+            "description": "Lookback window of daily bars.",
+            "enum": [
+              "1y",
+              "2y",
+              "5y",
+              "10y",
+              "max"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "quantile": {
+            "default": 0.2,
+            "description": "Share of the ranked stocks held in each leg (0.2 = the top fifth); at least one stock. Ignored when ``top_n`` is set.",
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Quantile",
+            "type": "number"
+          },
+          "rebalance": {
+            "default": "monthly",
+            "description": "How often the universe is ranked again, at the last close of each week, month or quarter.",
+            "enum": [
+              "weekly",
+              "monthly",
+              "quarterly"
+            ],
+            "title": "Rebalance",
+            "type": "string"
+          },
+          "risk_free_rate": {
+            "default": 0.0,
+            "description": "Annual risk-free rate for Sharpe and Sortino, as a decimal (0.04 = 4%).",
+            "maximum": 0.25,
+            "minimum": -0.05,
+            "title": "Risk Free Rate",
+            "type": "number"
+          },
+          "signal": {
+            "discriminator": {
+              "mapping": {
+                "low_volatility": "#/components/schemas/LowVolatility",
+                "momentum": "#/components/schemas/CrossSectionalMomentum",
+                "reversal": "#/components/schemas/ShortTermReversal",
+                "risk_adjusted_momentum": "#/components/schemas/RiskAdjustedMomentum",
+                "trend": "#/components/schemas/DistanceFromAverage"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CrossSectionalMomentum"
+              },
+              {
+                "$ref": "#/components/schemas/ShortTermReversal"
+              },
+              {
+                "$ref": "#/components/schemas/LowVolatility"
+              },
+              {
+                "$ref": "#/components/schemas/DistanceFromAverage"
+              },
+              {
+                "$ref": "#/components/schemas/RiskAdjustedMomentum"
+              }
+            ],
+            "title": "Signal"
+          },
+          "symbols": {
+            "items": {
+              "pattern": "^[A-Za-z0-9.\\-^=]{1,15}$",
+              "type": "string"
+            },
+            "maxItems": 60,
+            "minItems": 3,
+            "title": "Symbols",
+            "type": "array"
+          },
+          "top_n": {
+            "anyOf": [
+              {
+                "maximum": 60.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Number of stocks held in each leg, instead of ``quantile``.",
+            "title": "Top N"
+          },
+          "volatility_window": {
+            "default": 63,
+            "description": "Daily returns the inverse-volatility weights are measured over.",
+            "maximum": 252.0,
+            "minimum": 10.0,
+            "title": "Volatility Window",
+            "type": "integer"
+          },
+          "weighting": {
+            "default": "equal",
+            "description": "Split each leg equally, or in inverse proportion to each stock's volatility over ``volatility_window``.",
+            "enum": [
+              "equal",
+              "inverse_volatility"
+            ],
+            "title": "Weighting",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbols"
+        ],
+        "title": "CrossSectionalBacktestRequest",
+        "type": "object"
+      },
+      "CrossSectionalBacktestResponse": {
+        "description": "A ranking strategy's performance on a universe, against holding all of it equally.",
+        "properties": {
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/RankedAsset"
+            },
+            "title": "Assets",
+            "type": "array"
+          },
+          "attribution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FactorContext"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "benchmark": {
+            "$ref": "#/components/schemas/PerformanceMetrics",
+            "description": "Holding every stock in the universe equally, rebalanced daily, without costs."
+          },
+          "cash_interest": {
+            "title": "Cash Interest",
+            "type": "boolean"
+          },
+          "cost_bps": {
+            "title": "Cost Bps",
+            "type": "number"
+          },
+          "disclaimer": {
+            "default": "Backtested on historical adjusted prices of today's listings, so stocks that were delisted are missing: rankings look better than they would have at the time. Past performance does not predict future results.",
+            "title": "Disclaimer",
+            "type": "string"
+          },
+          "equity_curve": {
+            "items": {
+              "$ref": "#/components/schemas/EquityPoint"
+            },
+            "title": "Equity Curve",
+            "type": "array"
+          },
+          "exposure": {
+            "description": "Average gross exposure: 1 long-only, about 2 long-short, as the legs drift apart between rebalances.",
+            "minimum": 0.0,
+            "title": "Exposure",
+            "type": "number"
+          },
+          "holdings_per_leg": {
+            "description": "Average number of stocks in the long leg.",
+            "exclusiveMinimum": 0.0,
+            "title": "Holdings Per Leg",
+            "type": "number"
+          },
+          "information_coefficient": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InformationCoefficient"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when fewer than two rebalances could be scored."
+          },
+          "long_short": {
+            "title": "Long Short",
+            "type": "boolean"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/PerformanceMetrics"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice"
+          },
+          "observations": {
+            "description": "Daily returns from the first rebalance.",
+            "minimum": 1.0,
+            "title": "Observations",
+            "type": "integer"
+          },
+          "period": {
+            "enum": [
+              "1y",
+              "2y",
+              "5y",
+              "10y",
+              "max"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "quantile": {
+            "title": "Quantile",
+            "type": "number"
+          },
+          "rebalance": {
+            "enum": [
+              "weekly",
+              "monthly",
+              "quarterly"
+            ],
+            "title": "Rebalance",
+            "type": "string"
+          },
+          "rebalances": {
+            "description": "Times the universe was ranked and traded.",
+            "minimum": 1.0,
+            "title": "Rebalances",
+            "type": "integer"
+          },
+          "risk_free_rate": {
+            "title": "Risk Free Rate",
+            "type": "number"
+          },
+          "signal": {
+            "discriminator": {
+              "mapping": {
+                "low_volatility": "#/components/schemas/LowVolatility",
+                "momentum": "#/components/schemas/CrossSectionalMomentum",
+                "reversal": "#/components/schemas/ShortTermReversal",
+                "risk_adjusted_momentum": "#/components/schemas/RiskAdjustedMomentum",
+                "trend": "#/components/schemas/DistanceFromAverage"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CrossSectionalMomentum"
+              },
+              {
+                "$ref": "#/components/schemas/ShortTermReversal"
+              },
+              {
+                "$ref": "#/components/schemas/LowVolatility"
+              },
+              {
+                "$ref": "#/components/schemas/DistanceFromAverage"
+              },
+              {
+                "$ref": "#/components/schemas/RiskAdjustedMomentum"
+              }
+            ],
+            "title": "Signal"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbols",
+            "type": "array"
+          },
+          "top_n": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top N"
+          },
+          "turnover": {
+            "description": "Average share of capital traded per rebalance, buys and sells counted once each (2 replaces a whole long-only portfolio).",
+            "minimum": 0.0,
+            "title": "Turnover",
+            "type": "number"
+          },
+          "weighting": {
+            "enum": [
+              "equal",
+              "inverse_volatility"
+            ],
+            "title": "Weighting",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbols",
+          "signal",
+          "rebalance",
+          "quantile",
+          "top_n",
+          "long_short",
+          "weighting",
+          "period",
+          "cost_bps",
+          "risk_free_rate",
+          "cash_interest",
+          "observations",
+          "rebalances",
+          "holdings_per_leg",
+          "turnover",
+          "exposure",
+          "metrics",
+          "benchmark",
+          "assets",
+          "equity_curve"
+        ],
+        "title": "CrossSectionalBacktestResponse",
+        "type": "object"
+      },
+      "CrossSectionalMomentum": {
+        "description": "Rank by each stock's return from ``lookback`` bars ago to ``skip`` bars ago, highest\nfirst: the momentum of Jegadeesh and Titman, skipping the latest month by default to\nsidestep its short-term reversal.",
+        "properties": {
+          "lookback": {
+            "default": 252,
+            "description": "Bars back the return starts; 252 is a year.",
+            "maximum": 756.0,
+            "minimum": 20.0,
+            "title": "Lookback",
+            "type": "integer"
+          },
+          "skip": {
+            "default": 21,
+            "description": "Most recent bars left out of the return.",
+            "maximum": 126.0,
+            "minimum": 0.0,
+            "title": "Skip",
+            "type": "integer"
+          },
+          "type": {
+            "const": "momentum",
+            "default": "momentum",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "CrossSectionalMomentum",
+        "type": "object"
+      },
       "CustomBacktestRequest": {
         "description": "Positions a custom strategy produced in the browser, to be scored on the server.\n\n``positions[i]`` is the target set at the close of the bar at ``timestamps[i]``; the\nengine holds it over the next bar, as for built-in strategies.",
         "properties": {
@@ -2110,6 +2616,27 @@
           "code"
         ],
         "title": "CustomStrategy",
+        "type": "object"
+      },
+      "DistanceFromAverage": {
+        "description": "Rank by how far the close is above its ``window``-bar moving average, highest first:\nthe strongest trends.",
+        "properties": {
+          "type": {
+            "const": "trend",
+            "default": "trend",
+            "title": "Type",
+            "type": "string"
+          },
+          "window": {
+            "default": 200,
+            "description": "Moving-average window, in bars.",
+            "maximum": 500.0,
+            "minimum": 5.0,
+            "title": "Window",
+            "type": "integer"
+          }
+        },
+        "title": "DistanceFromAverage",
         "type": "object"
       },
       "Distribution": {
@@ -3963,6 +4490,49 @@
         "title": "HoldingsUpdate",
         "type": "object"
       },
+      "InformationCoefficient": {
+        "description": "How well the signal ranked the next period's returns: the Spearman correlation of\neach rebalance's ranking with the returns to the next rebalance.",
+        "properties": {
+          "hit_rate": {
+            "description": "Share of rebalances with a positive one.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Hit Rate",
+            "type": "number"
+          },
+          "mean": {
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "Mean",
+            "type": "number"
+          },
+          "observations": {
+            "description": "Rebalances it was measured over.",
+            "minimum": 1.0,
+            "title": "Observations",
+            "type": "integer"
+          },
+          "t_stat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mean over its standard error; null when it never varies.",
+            "title": "T Stat"
+          }
+        },
+        "required": [
+          "mean",
+          "hit_rate",
+          "observations"
+        ],
+        "title": "InformationCoefficient",
+        "type": "object"
+      },
       "InsiderSentimentMonth": {
         "description": "Finnhub's monthly insider sentiment for a company.",
         "properties": {
@@ -4974,6 +5544,27 @@
         "title": "LobbyingYear",
         "type": "object"
       },
+      "LowVolatility": {
+        "description": "Rank by the standard deviation of the last ``window`` daily returns, lowest first:\nthe low-volatility anomaly.",
+        "properties": {
+          "type": {
+            "const": "low_volatility",
+            "default": "low_volatility",
+            "title": "Type",
+            "type": "string"
+          },
+          "window": {
+            "default": 126,
+            "description": "Returns the volatility is measured over.",
+            "maximum": 504.0,
+            "minimum": 10.0,
+            "title": "Window",
+            "type": "integer"
+          }
+        },
+        "title": "LowVolatility",
+        "type": "object"
+      },
       "Macd": {
         "description": "Hold the asset while the MACD line is above its signal line.\n\nThe MACD line is the ``fast``-bar exponential average of closes minus the ``slow``-bar\none, and the signal line is its ``signal``-bar exponential average. Below it the\nstrategy is flat, or short when ``allow_short`` is set.",
         "properties": {
@@ -5447,6 +6038,134 @@
         "title": "MeanReversion",
         "type": "object"
       },
+      "MultiAssetCustomBacktestRequest": {
+        "description": "Weights a custom strategy set across several symbols in the browser, to be scored on\nthe server.\n\n``weights[i][j]`` is the share of capital in ``symbols[j]`` set at the close of\n``dates[i]``, held over the next bar; the rest is cash. The dates are those every\nsymbol traded, each exchange's own calendar date.",
+        "properties": {
+          "attribution": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ff3",
+                  "carhart4",
+                  "ff5"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "carhart4",
+            "description": "Factor model to regress the strategy's daily returns on, separating alpha from factor exposure; null to skip.",
+            "title": "Attribution"
+          },
+          "cash_interest": {
+            "default": false,
+            "description": "Let capital not invested in the asset earn the risk-free rate (the one-month T-bill, from Ken French's data library), as would short sale proceeds.",
+            "title": "Cash Interest",
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The strategy's source, stored with the result; never run.",
+            "maxLength": 50000,
+            "title": "Code",
+            "type": "string"
+          },
+          "cost_bps": {
+            "default": 5.0,
+            "description": "Trading cost per unit of turnover, in basis points (5 = 0.05%).",
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "title": "Cost Bps",
+            "type": "number"
+          },
+          "dates": {
+            "description": "Dates of the bars the weights were computed for, oldest first.",
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "maxItems": 20000,
+            "minItems": 1,
+            "title": "Dates",
+            "type": "array"
+          },
+          "interval": {
+            "default": "1d",
+            "description": "Bar size.",
+            "enum": [
+              "1d",
+              "1wk"
+            ],
+            "title": "Interval",
+            "type": "string"
+          },
+          "language": {
+            "default": "python",
+            "description": "Language of ``code``.",
+            "enum": [
+              "python",
+              "cpp"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
+          "period": {
+            "default": "5y",
+            "description": "Lookback window.",
+            "enum": [
+              "1y",
+              "2y",
+              "5y",
+              "10y",
+              "max"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "risk_free_rate": {
+            "default": 0.0,
+            "description": "Annual risk-free rate for Sharpe and Sortino, as a decimal (0.04 = 4%).",
+            "maximum": 0.25,
+            "minimum": -0.05,
+            "title": "Risk Free Rate",
+            "type": "number"
+          },
+          "symbols": {
+            "items": {
+              "pattern": "^[A-Za-z0-9.\\-^=]{1,15}$",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 2,
+            "title": "Symbols",
+            "type": "array"
+          },
+          "weights": {
+            "description": "One row per date, one weight per symbol in the order of ``symbols``.",
+            "items": {
+              "items": {
+                "maximum": 2.0,
+                "minimum": -2.0,
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "maxItems": 20000,
+            "minItems": 1,
+            "title": "Weights",
+            "type": "array"
+          }
+        },
+        "required": [
+          "symbols",
+          "code",
+          "dates",
+          "weights"
+        ],
+        "title": "MultiAssetCustomBacktestRequest",
+        "type": "object"
+      },
       "NewApiKey": {
         "description": "A newly created API key. ``key`` is shown this once and cannot be retrieved later.",
         "properties": {
@@ -5539,6 +6258,20 @@
           "headline": {
             "title": "Headline",
             "type": "string"
+          },
+          "importance": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How market-moving the headline looks, from 0 to 1: its publisher, the topics it names and how recent it is; null where not scored.",
+            "title": "Importance"
           },
           "published_at": {
             "description": "When the article was published, in UTC.",
@@ -7411,6 +8144,75 @@
         "title": "ProviderCredential",
         "type": "object"
       },
+      "RankedAsset": {
+        "description": "One stock's part in a cross-sectional backtest.",
+        "properties": {
+          "contribution": {
+            "description": "Sum of its weighted daily returns, before costs: its share of the strategy's arithmetic return.",
+            "title": "Contribution",
+            "type": "number"
+          },
+          "first_ranked": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First rebalance it could be ranked at; null if it never had enough history.",
+            "title": "First Ranked"
+          },
+          "long_share": {
+            "description": "Share of rebalances that put it in the long leg.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Long Share",
+            "type": "number"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its signal at the last rebalance; null if not ranked.",
+            "title": "Score"
+          },
+          "short_share": {
+            "description": "Share of rebalances that put it in the short leg.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Short Share",
+            "type": "number"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "weight": {
+            "description": "Weight set at the last rebalance: positive long, negative short.",
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "symbol",
+          "contribution",
+          "long_share",
+          "short_share",
+          "weight"
+        ],
+        "title": "RankedAsset",
+        "type": "object"
+      },
       "RankedStock": {
         "description": "A stock matching a screen, with its position in the sorted results.",
         "properties": {
@@ -7906,6 +8708,35 @@
           "strong_sell"
         ],
         "title": "RecommendationMonth",
+        "type": "object"
+      },
+      "RiskAdjustedMomentum": {
+        "description": "Rank by the return from ``lookback`` to ``skip`` bars ago divided by the volatility\nof daily returns over the same bars, highest first: steady winners over erratic ones.",
+        "properties": {
+          "lookback": {
+            "default": 252,
+            "description": "Bars back the return starts; 252 is a year.",
+            "maximum": 756.0,
+            "minimum": 20.0,
+            "title": "Lookback",
+            "type": "integer"
+          },
+          "skip": {
+            "default": 21,
+            "description": "Most recent bars left out of the return.",
+            "maximum": 126.0,
+            "minimum": 0.0,
+            "title": "Skip",
+            "type": "integer"
+          },
+          "type": {
+            "const": "risk_adjusted_momentum",
+            "default": "risk_adjusted_momentum",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "RiskAdjustedMomentum",
         "type": "object"
       },
       "RiskFactor": {
@@ -8416,6 +9247,27 @@
           "filed"
         ],
         "title": "SecFiling",
+        "type": "object"
+      },
+      "ShortTermReversal": {
+        "description": "Rank by the return over the last ``lookback`` bars, lowest first: last month's\nlosers tend to bounce back against its winners.",
+        "properties": {
+          "lookback": {
+            "default": 21,
+            "description": "Bars the return spans.",
+            "maximum": 126.0,
+            "minimum": 2.0,
+            "title": "Lookback",
+            "type": "integer"
+          },
+          "type": {
+            "const": "reversal",
+            "default": "reversal",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "ShortTermReversal",
         "type": "object"
       },
       "SignInProvider": {
@@ -10254,6 +11106,90 @@
         ]
       }
     },
+    "/api/v1/backtests/cross-sectional": {
+      "post": {
+        "description": "Rank ``symbols`` by ``signal`` at the last close of every week, month or quarter, and\nhold the best of them until the next ranking.\n\nSignals: ``momentum`` (the return from ``lookback`` to ``skip`` bars ago, highest\nfirst), ``reversal`` (the last ``lookback`` bars' return, lowest first),\n``low_volatility`` (the volatility of daily returns, lowest first), ``trend`` (the\ndistance above the moving average, highest first) and ``risk_adjusted_momentum``\n(momentum over its volatility). The top ``quantile`` of the stocks ranked, or the top\n``top_n``, are bought; with ``long_short`` as many of the bottom ones are shorted, each\nleg one unit of capital. Legs are split equally or by inverse volatility.\n\nStocks are ranked once they have the signal's full window, so recent listings join\nlater rather than shortening the window for all. Weights drift between rebalances;\neach rebalance pays ``cost_bps`` per unit of capital traded. Capital not invested and\nshort sale proceeds earn nothing, or the risk-free rate with ``cash_interest``. The\nbenchmark holds every stock equally, rebalanced daily, without costs.\n\n``information_coefficient`` is the average Spearman correlation of each ranking with\nthe returns to the next one, and ``attribution`` regresses the daily returns on a\nfactor model. Results are not stored.\n\nReturns 404 naming unknown symbols, 422 when no rebalance has enough stocks with the\nsignal's history, and 502 when the price provider fails or the risk-free rate cannot\nbe fetched.",
+        "operationId": "create_cross_sectional_backtest_api_v1_backtests_cross_sectional_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrossSectionalBacktestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrossSectionalBacktestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Backtest ranking a universe of stocks against one another",
+        "tags": [
+          "backtest"
+        ]
+      }
+    },
+    "/api/v1/backtests/custom": {
+      "post": {
+        "description": "Score the weights a custom strategy set across several ``symbols`` in the browser.\n\nThe code never runs on the server: it is stored with the result so the run can be\nreproduced and edited. The server fetches every symbol's bars again, keeps the dates\nall of them traded from the first of ``dates`` to the last, and holds each row of\n``weights`` over the bar after its date. Weights are shares of capital, reset every\nbar; what they leave over is cash, which earns nothing or, with ``cash_interest``,\nthe risk-free rate, as do short sale proceeds. Each change of weight pays\n``cost_bps`` per unit traded. The benchmark holds the symbols in equal weights,\nrebalanced every bar, without costs; ``assets`` gives each symbol's part.\n\nThe result is stored like a single-symbol backtest, under its first symbol, and its\n``id`` returned for ``GET /backtests/{id}``.\n\nReturns 404 naming unknown symbols, 422 when a bar every symbol traded in that range\nhas no weights or the range has too few bars, and 502 when the data provider fails\nor the risk-free rate cannot be fetched.",
+        "operationId": "create_multi_asset_custom_backtest_api_v1_backtests_custom_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MultiAssetCustomBacktestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Score a custom strategy's weights across several symbols",
+        "tags": [
+          "backtest"
+        ]
+      }
+    },
     "/api/v1/backtests/{backtest_id}": {
       "delete": {
         "description": "Delete a stored backtest.\n\nReturns 404 for unknown IDs and other users' backtests, and 503 when the database is\nunavailable.",
@@ -10346,7 +11282,7 @@
             "schema": {
               "default": 30,
               "description": "Days ahead, today included.",
-              "maximum": 60,
+              "maximum": 90,
               "minimum": 1,
               "title": "Days",
               "type": "integer"
@@ -10360,6 +11296,7 @@
             "schema": {
               "default": 10000000000.0,
               "description": "Smallest market cap, in US dollars, of companies listed.",
+              "maximum": 5000000000000.0,
               "minimum": 1000000000.0,
               "title": "Min Market Cap",
               "type": "number"
@@ -10396,7 +11333,7 @@
     },
     "/api/v1/markets/news": {
       "get": {
-        "description": "Return the latest market-wide news in ``category``, newest first, from Finnhub.\n\n``general`` is business and markets news, ``forex`` currencies, ``crypto``\ncryptocurrencies, and ``merger`` mergers and acquisitions. Reused for five minutes.\nReturns 403 without a valid Finnhub key, and 502 when Finnhub fails.",
+        "description": "Return the latest market-wide news in ``category``, newest first, from Finnhub.\n\n``general`` is business and markets news, ``forex`` currencies, ``crypto``\ncryptocurrencies, and ``merger`` mergers and acquisitions. Each article's\n``importance``, from 0 to 1, scores how market-moving it looks: the topics its\nheadline names, its publisher and its age. Reused for five minutes. Returns 403\nwithout a valid Finnhub key, and 502 when Finnhub fails.",
         "operationId": "get_market_news_api_v1_markets_news_get",
         "parameters": [
           {

@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Command } from '@yowasp/clang'
-import type { BarColumns } from '../types'
-import type { WorkerOutcome, WorkerRequest, WorkerResponse } from '../workerRunner'
+import type { BarColumns, UniverseColumns } from '../types'
+import type {
+  PositionsOutcome,
+  WeightsOutcome,
+  WorkerOutcome,
+  WorkerRequest,
+  WorkerResponse,
+} from '../workerRunner'
 import type { CompileResult } from './compile'
 import { COMPILED_KEPT, createCppHandler, type CppWorkerParts } from './handler'
 import { createCppRunner } from '.'
@@ -30,9 +36,13 @@ function setUp(overrides: Partial<CppWorkerParts> = {}) {
       return { ok: true, wasm: new Uint8Array([0, 97, 115, 109]), warnings: '' }
     }),
     instantiate: vi.fn(async () => ({}) as WebAssembly.Module),
-    run: vi.fn(async (): Promise<WorkerOutcome> => {
+    run: vi.fn(async (): Promise<PositionsOutcome> => {
       events.push('run')
       return { ok: true, positions: [1, 0], output: 'printed\n' }
+    }),
+    runUniverse: vi.fn(async (): Promise<WeightsOutcome> => {
+      events.push('run universe')
+      return { ok: true, weights: [[0.5, 0.5]], output: '' }
     }),
     post: (message) => {
       events.push(message.type === 'started' ? 'started' : 'result')
@@ -42,8 +52,8 @@ function setUp(overrides: Partial<CppWorkerParts> = {}) {
   }
   const handle = createCppHandler(parts)
   let id = 0
-  const run = (code: string) => {
-    const request: WorkerRequest = { type: 'run', id: ++id, code, bars: BARS }
+  const run = (code: string, bars: BarColumns | UniverseColumns = BARS) => {
+    const request: WorkerRequest = { type: 'run', id: ++id, code, bars }
     return handle(request).then(() => posted.at(-1))
   }
   return { parts, events, posted, handle, run }
@@ -55,6 +65,24 @@ const outcomeOf = (message: WorkerResponse | undefined): WorkerOutcome => {
 }
 
 describe('the C++ worker’s message handling', () => {
+  it('compiles across several symbols apart from one, and runs it on their bars', async () => {
+    const { parts, run } = setUp()
+    const universe: UniverseColumns = {
+      symbols: ['GOOG', 'UNH'],
+      dates: ['2026-10-16'],
+      assets: [BARS, BARS].map(({ timestamps: _timestamps, ...columns }) => columns),
+    }
+
+    const single = outcomeOf(await run('int x;'))
+    const across = outcomeOf(await run('int x;', universe))
+    await run('int x;', universe)
+
+    expect(single).toMatchObject({ ok: true, positions: [1, 0] })
+    expect(across).toMatchObject({ ok: true, weights: [[0.5, 0.5]] })
+    expect(vi.mocked(parts.compile).mock.calls.map((call) => call[2])).toEqual([false, true])
+    expect(parts.runUniverse).toHaveBeenCalledWith(expect.anything(), universe)
+  })
+
   it('loads the compiler once, on warming, for every later run', async () => {
     const { parts, handle, run } = setUp()
 

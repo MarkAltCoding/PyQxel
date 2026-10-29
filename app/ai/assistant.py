@@ -51,7 +51,9 @@ def assistant_messages(request: AssistantRequest) -> list[BetaMessageParam]:
         else:
             messages.append({"role": "assistant", "content": turn.content})
     about = [f'language="{LANGUAGE_NAMES[request.language]}"']
-    if request.symbol:
+    if request.symbols and len(request.symbols) > 1:
+        about.append(f'symbols="{",".join(request.symbols)}"')
+    elif request.symbol:
         about.append(f'symbol="{request.symbol}"')
     if request.interval:
         about.append(f'interval="{request.interval}"')
