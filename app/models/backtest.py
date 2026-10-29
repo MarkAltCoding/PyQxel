@@ -1,6 +1,7 @@
 """Schemas for strategy backtests and their performance metrics."""
 
-from datetime import datetime
+import math
+from datetime import date, datetime
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
@@ -19,6 +20,7 @@ from app.models.portfolio import (
     Portfolio,
     PortfolioPeriod,
     PortfolioSymbol,
+    SymbolList,
     _unique as unique_symbols,
 )
 from app.models.stock import SYMBOL_PATTERN, HistoryCoverage
@@ -404,6 +406,79 @@ class CustomBacktestRequest(BacktestOptions):
         return self
 
 
+MAX_WEIGHT_CELLS = 100_000
+"""Most weights a multi-symbol custom backtest may send: bars times symbols."""
+
+MAX_GROSS_WEIGHT = 2.0
+"""Largest sum of absolute weights on any bar: twice capital, as for one symbol."""
+
+Weight = Annotated[float, Field(ge=-2.0, le=2.0, allow_inf_nan=False)]
+"""One symbol's target weight: a share of capital, negative when short."""
+
+
+class MultiAssetCustomBacktestRequest(BacktestOptions):
+    """Weights a custom strategy set across several symbols in the browser, to be scored on
+    the server.
+
+    ``weights[i][j]`` is the share of capital in ``symbols[j]`` set at the close of
+    ``dates[i]``, held over the next bar; the rest is cash. The dates are those every
+    symbol traded, each exchange's own calendar date.
+    """
+
+    symbols: SymbolList
+    language: CodeLanguage = Field(default="python", description="Language of ``code``.")
+    code: str = Field(
+        max_length=MAX_CODE_LENGTH,
+        description="The strategy's source, stored with the result; never run.",
+    )
+    dates: list[date] = Field(
+        min_length=1,
+        max_length=MAX_POSITIONS,
+        description="Dates of the bars the weights were computed for, oldest first.",
+    )
+    weights: list[list[Weight]] = Field(
+        min_length=1,
+        max_length=MAX_POSITIONS,
+        description="One row per date, one weight per symbol in the order of ``symbols``.",
+    )
+
+    @model_validator(mode="after")
+    def _one_row_per_date(self) -> Self:
+        """Reject weights that do not form one row per date and one column per symbol."""
+        if len(self.weights) != len(self.dates):
+            raise ValueError("weights and dates must have the same length")
+        if len(self.weights) * len(self.symbols) > MAX_WEIGHT_CELLS:
+            raise ValueError(
+                f"At most {MAX_WEIGHT_CELLS} weights may be sent; request a shorter period, "
+                "weekly bars or fewer symbols"
+            )
+        if any(later <= earlier for earlier, later in zip(self.dates, self.dates[1:])):
+            raise ValueError("dates must be strictly increasing")
+        for day, row in zip(self.dates, self.weights):
+            if len(row) != len(self.symbols):
+                raise ValueError(f"the weights on {day} do not have one per symbol")
+            if math.fsum(abs(weight) for weight in row) > MAX_GROSS_WEIGHT + 1e-9:
+                raise ValueError(
+                    f"the absolute weights on {day} sum to more than {MAX_GROSS_WEIGHT:g}"
+                )
+        return self
+
+
+class AssetWeight(BaseModel):
+    """One symbol's part in a multi-symbol custom backtest."""
+
+    symbol: str
+    average_weight: float = Field(
+        description="Mean weight held over the backtest, negative when mostly short."
+    )
+    exposure: float = Field(ge=0, le=1, description="Share of bars it was held, long or short.")
+    contribution: float = Field(
+        description="Sum of its weighted returns net of its trading costs: its share of the "
+        "strategy's arithmetic return."
+    )
+    trades: int = Field(ge=0, description="Bars on which its weight changed.")
+
+
 class PerformanceMetrics(BaseModel):
     """Return, risk and drawdown statistics of a periodic return series.
 
@@ -462,7 +537,11 @@ class BacktestResponse(BaseModel):
         "be saved.",
     )
     saved_at: datetime | None = Field(default=None, description="When the result was stored.")
-    symbol: str
+    symbol: str = Field(description="The symbol backtested; the first of ``symbols``.")
+    symbols: list[str] | None = Field(
+        default=None,
+        description="Every symbol a custom strategy allocated between; null for one symbol.",
+    )
     period: BacktestPeriod
     interval: BacktestInterval
     periods_per_year: int
@@ -470,7 +549,10 @@ class BacktestResponse(BaseModel):
     cost_bps: float
     risk_free_rate: float
     metrics: PerformanceMetrics
-    benchmark: PerformanceMetrics = Field(description="Buy-and-hold over the same bars, no costs.")
+    benchmark: PerformanceMetrics = Field(
+        description="Buy-and-hold over the same bars, no costs; with several symbols, "
+        "holding them in equal weights, rebalanced every bar."
+    )
     trades: int = Field(ge=0, description="Bars on which the position changed.")
     exposure: float = Field(
         ge=0,
@@ -483,6 +565,9 @@ class BacktestResponse(BaseModel):
         default=None,
         description="The strategy's alpha and factor betas; null when skipped or not "
         "estimable, as for weekly bars.",
+    )
+    assets: list[AssetWeight] | None = Field(
+        default=None, description="Each symbol's part, with several symbols; null for one."
     )
     equity_curve: list[EquityPoint]
     coverage: HistoryCoverage
@@ -499,6 +584,9 @@ class BacktestSummary(BaseModel):
     id: UUID
     saved_at: datetime
     symbol: str
+    symbols: list[str] | None = Field(
+        default=None, description="Every symbol, for a strategy run on several; else null."
+    )
     strategy: str = Field(description="Strategy ``type``; the full spec is on the result.")
     period: BacktestPeriod
     interval: BacktestInterval

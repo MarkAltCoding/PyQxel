@@ -23,6 +23,18 @@ FILENAME = "<strategy>"
 MAX_POSITION = 2.0
 """Largest position, long or short, as a multiple of capital; the server checks it too."""
 
+MAX_GROSS = 2.0
+"""Largest sum of absolute weights across symbols on one bar; the server checks it too."""
+
+FIELDS = (
+    ("Open", "open"),
+    ("High", "high"),
+    ("Low", "low"),
+    ("Close", "close"),
+    ("Volume", "volume"),
+)
+"""Each bar column's name in the DataFrame, and its key in the payload."""
+
 MAX_OUTPUT = 20_000
 """Most characters of printed output passed back."""
 
@@ -34,17 +46,98 @@ class StrategyError(Exception):
 def _bars(payload: dict[str, Any]) -> pd.DataFrame:
     """The bars as a DataFrame on a time-zone aware (UTC) index, oldest first."""
     index = pd.DatetimeIndex(pd.to_datetime(payload["timestamps"], utc=True), name="timestamp")
-    columns = {
-        name: pd.to_numeric(pd.Series(payload[key], index=index, dtype="object")).astype(float)
-        for name, key in (
-            ("Open", "open"),
-            ("High", "high"),
-            ("Low", "low"),
-            ("Close", "close"),
-            ("Volume", "volume"),
-        )
+    return pd.DataFrame({name: _column(payload[key], index) for name, key in FIELDS}, index=index)
+
+
+def _column(values: list[float | None], index: pd.Index) -> pd.Series:
+    """One column of bar values as floats, NaN where missing."""
+    return pd.to_numeric(pd.Series(values, index=index, dtype="object")).astype(float)
+
+
+def _universe(payload: dict[str, Any]) -> pd.DataFrame:
+    """Several symbols' bars on the dates they all traded, as one DataFrame whose columns
+    are (field, symbol): ``bars["Close"]`` has a column per symbol."""
+    index = pd.DatetimeIndex(pd.to_datetime(payload["dates"]), name="date")
+    columns = pd.MultiIndex.from_product(
+        [[name for name, _ in FIELDS], payload["symbols"]], names=["field", "symbol"]
+    )
+    data = {
+        (name, symbol): _column(asset[key], index)
+        for name, key in FIELDS
+        for symbol, asset in zip(payload["symbols"], payload["assets"])
     }
-    return pd.DataFrame(columns, index=index)
+    return pd.DataFrame(data, index=index, columns=columns)
+
+
+def _weights(result: object, bars: pd.DataFrame, symbols: list[str]) -> list[list[float]]:
+    """The weights in ``result``, one row per bar and one column per symbol, as floats.
+
+    Raises:
+        StrategyError: If ``result`` is not a finite weight per symbol and bar within range.
+    """
+    if isinstance(result, dict):
+        result = pd.DataFrame(result)
+    if not isinstance(result, pd.DataFrame):
+        raise StrategyError(
+            f"strategy() returned {type(result).__name__}; with several symbols, return a "
+            "DataFrame of weights with one column per symbol, such as bars['Close'] * 0 + 0.5."
+        )
+    names = [str(column) for column in result.columns]
+    missing = [symbol for symbol in symbols if symbol not in names]
+    extra = [name for name in names if name not in symbols]
+    if missing or extra:
+        details = "; ".join(
+            part
+            for part in (
+                f"missing {', '.join(missing)}" if missing else "",
+                f"not traded: {', '.join(extra)}" if extra else "",
+            )
+            if part
+        )
+        raise StrategyError(
+            f"strategy() must return one column per symbol, {', '.join(symbols)}: {details}."
+        )
+    frame = result.set_axis(names, axis=1)[symbols]
+    if isinstance(frame.index, pd.DatetimeIndex):
+        frame = frame.reindex(bars.index)
+    elif len(frame) == len(bars):
+        frame = frame.set_axis(bars.index, axis=0)
+    else:
+        raise StrategyError(
+            f"strategy() returned {len(frame)} rows of weights for {len(bars)} bars. Return "
+            "a DataFrame on bars.index."
+        )
+    try:
+        values = frame.apply(lambda column: pd.to_numeric(column.astype(object))).astype(float)
+    except (TypeError, ValueError) as exc:
+        raise StrategyError(f"Weights must be numbers: {exc}") from exc
+    blank = values.isna()
+    if blank.any().any():
+        day = values.index[blank.any(axis=1).to_numpy()][0]
+        symbol = blank.columns[blank.loc[day].to_numpy()][0]
+        raise StrategyError(
+            f"The weight of {symbol} is NaN on {day.date()}, and on {int(blank.sum().sum())} "
+            "symbol-bars in all. Rolling windows are NaN until they fill: end with "
+            ".fillna(0.0) to stay in cash until then."
+        )
+    numbers = values.to_numpy()
+    outside = np.argwhere(~np.isfinite(numbers) | (np.abs(numbers) > MAX_POSITION))
+    if len(outside):
+        row, column = outside[0]
+        raise StrategyError(
+            f"Weights must be between -{MAX_POSITION:g} and {MAX_POSITION:g}; "
+            f"{numbers[row, column]:g} for {symbols[column]} on {values.index[row].date()} "
+            "is not."
+        )
+    gross = np.abs(numbers).sum(axis=1)
+    over = np.flatnonzero(gross > MAX_GROSS + 1e-9)
+    if len(over):
+        raise StrategyError(
+            f"The absolute weights may sum to at most {MAX_GROSS:g} on a bar; they sum to "
+            f"{gross[over[0]]:g} on {values.index[over[0]].date()}. Divide by the number "
+            "of symbols held to share capital between them."
+        )
+    return [[float(value) for value in row] for row in numbers]
 
 
 def _positions(result: object, bars: pd.DataFrame) -> list[float]:
@@ -145,17 +238,23 @@ def run_strategy(code: str, payload_json: str) -> str:
     """Run ``code``'s ``strategy(bars)`` on the bars in ``payload_json``.
 
     Args:
-        code: Python source defining ``strategy(bars: pd.DataFrame) -> pd.Series``.
-        payload_json: ``{"timestamps", "open", "high", "low", "close", "volume"}``, one
-            list entry per bar, oldest first; missing values are null.
+        code: Python source defining ``strategy(bars: pd.DataFrame)``, returning a Series
+            of positions for one symbol or a DataFrame of weights for several.
+        payload_json: For one symbol, ``{"timestamps", "open", "high", "low", "close",
+            "volume"}``, one list entry per bar, oldest first; missing values are null.
+            For several, ``{"symbols", "dates", "assets"}``, with one such set of columns
+            per symbol in ``assets``, on the dates they all traded.
 
     Returns:
-        JSON of ``{"ok": true, "positions", "output"}``, or ``{"ok": false, "error",
+        JSON of ``{"ok": true, "positions", "output"}``, with ``weights`` (a row per bar)
+        in place of ``positions`` for several symbols, or ``{"ok": false, "error",
         "output"}`` where ``error`` has ``kind`` (``syntax``, ``runtime`` or ``result``),
         ``message``, ``line`` and ``traceback``.
     """
     linecache.cache[FILENAME] = (len(code), None, code.splitlines(keepends=True), FILENAME)
-    bars = _bars(json.loads(payload_json))
+    payload = json.loads(payload_json)
+    symbols: list[str] | None = payload.get("symbols")
+    bars = _bars(payload) if symbols is None else _universe(payload)
     printed = io.StringIO()
     namespace: dict[str, Any] = {"__name__": "strategy", "np": np, "pd": pd, "math": math}
     with contextlib.redirect_stdout(printed), contextlib.redirect_stderr(printed):
@@ -168,17 +267,20 @@ def run_strategy(code: str, payload_json: str) -> str:
             strategy = namespace.get("strategy")
             if not callable(strategy):
                 raise StrategyError(
-                    "Define a function named strategy(bars) that returns a Series of positions."
+                    "Define a function named strategy(bars) that returns a Series of positions, "
+                    "or with several symbols a DataFrame of weights."
                 )
             result = strategy(bars.copy())
         except StrategyError as exc:
             return json.dumps(_failure("result", exc, printed.getvalue()))
         except BaseException as exc:  # SystemExit too: exit() in user code is an error here.
             return json.dumps(_failure("runtime", exc, printed.getvalue()))
+    output = printed.getvalue()[-MAX_OUTPUT:]
     try:
+        if symbols is not None:
+            weights = _weights(result, bars, symbols)
+            return json.dumps({"ok": True, "weights": weights, "output": output})
         positions = _positions(result, bars)
     except StrategyError as exc:
         return json.dumps(_failure("result", exc, printed.getvalue()))
-    return json.dumps(
-        {"ok": True, "positions": positions, "output": printed.getvalue()[-MAX_OUTPUT:]}
-    )
+    return json.dumps({"ok": True, "positions": positions, "output": output})

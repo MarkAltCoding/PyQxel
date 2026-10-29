@@ -11,13 +11,24 @@ import {
   type RunResult,
   RUNTIME_NAMES,
   type StrategyRunner,
+  type UniverseColumns,
+  type UniverseRunResult,
 } from './types'
 
 export type WorkerRequest =
-  { type: 'warm' } | { type: 'run'; id: number; code: string; bars: BarColumns }
+  | { type: 'warm' }
+  /** `bars` is one symbol's, or several symbols' as `UniverseColumns`. */
+  | { type: 'run'; id: number; code: string; bars: BarColumns | UniverseColumns }
 
-export type WorkerOutcome =
-  { ok: true; positions: number[]; output: string } | { ok: false; error: RunError; output: string }
+type Failure = { ok: false; error: RunError; output: string }
+
+/** What a run on one symbol's bars comes to. */
+export type PositionsOutcome = { ok: true; positions: number[]; output: string } | Failure
+
+/** What a run across several symbols comes to: one row of weights per date. */
+export type WeightsOutcome = { ok: true; weights: number[][]; output: string } | Failure
+
+export type WorkerOutcome = PositionsOutcome | WeightsOutcome
 
 export type WorkerResponse =
   /** The runtime is loaded and the user's code is starting; the run timeout starts now. */
@@ -32,7 +43,7 @@ export interface RunnerTimeouts {
 
 export const DEFAULT_TIMEOUTS: RunnerTimeouts = { runMs: 30_000, loadMs: 180_000 }
 
-const failure = (kind: RunError['kind'], message: string): RunResult => ({
+const failure = (kind: RunError['kind'], message: string): Failure => ({
   ok: false,
   error: { kind, message, line: null, traceback: '' },
   output: '',
@@ -57,7 +68,50 @@ export class WorkerRunner implements StrategyRunner {
   }
 
   run(code: string, bars: OHLCVBar[], options: RunOptions = {}): Promise<RunResult> {
-    const job = this.queue.then(() => this.execute(code, bars, options))
+    const columns = barColumns(bars)
+    return this.enqueue(code, columns, options, (outcome): RunResult => {
+      if (!('positions' in outcome)) {
+        return failure('result', 'The runner returned weights for a single symbol.')
+      }
+      if (outcome.positions.length !== columns.timestamps.length) {
+        return failure(
+          'result',
+          `The runner returned ${outcome.positions.length} positions for ` +
+            `${columns.timestamps.length} bars.`,
+        )
+      }
+      return { ...outcome, timestamps: columns.timestamps }
+    })
+  }
+
+  runUniverse(
+    code: string,
+    universe: UniverseColumns,
+    options: RunOptions = {},
+  ): Promise<UniverseRunResult> {
+    return this.enqueue(code, universe, options, (outcome): UniverseRunResult => {
+      const size = universe.symbols.length
+      if (
+        !('weights' in outcome) ||
+        outcome.weights.length !== universe.dates.length ||
+        outcome.weights.some((row) => row.length !== size)
+      ) {
+        return failure(
+          'result',
+          `The runner did not return ${size} weights for each of ${universe.dates.length} bars.`,
+        )
+      }
+      return { ...outcome, dates: universe.dates }
+    })
+  }
+
+  private enqueue<T>(
+    code: string,
+    bars: BarColumns | UniverseColumns,
+    options: RunOptions,
+    accept: (outcome: Exclude<WorkerOutcome, Failure>) => T,
+  ): Promise<T | Failure> {
+    const job = this.queue.then(() => this.execute(code, bars, options, accept))
     this.queue = job
     return job
   }
@@ -72,16 +126,20 @@ export class WorkerRunner implements StrategyRunner {
     return this.worker
   }
 
-  private execute(code: string, bars: OHLCVBar[], options: RunOptions): Promise<RunResult> {
+  private execute<T>(
+    code: string,
+    bars: BarColumns | UniverseColumns,
+    options: RunOptions,
+    accept: (outcome: Exclude<WorkerOutcome, Failure>) => T,
+  ): Promise<T | Failure> {
     const { signal, onStart } = options
     if (signal?.aborted) return Promise.resolve(failure('cancelled', 'The run was cancelled.'))
     const worker = this.ensure()
     const id = ++this.nextId
-    const columns = barColumns(bars)
     const seconds = (ms: number) => Math.round(ms / 1000)
 
-    return new Promise<RunResult>((resolve) => {
-      const finish = (result: RunResult) => {
+    return new Promise<T | Failure>((resolve) => {
+      const finish = (result: T | Failure) => {
         clearTimeout(timer)
         worker.removeEventListener('message', onMessage)
         worker.removeEventListener('error', onError)
@@ -111,26 +169,7 @@ export class WorkerRunner implements StrategyRunner {
           return
         }
         const { outcome } = message
-        if (outcome.ok && outcome.positions.length !== columns.timestamps.length) {
-          finish(
-            failure(
-              'result',
-              `The runner returned ${outcome.positions.length} positions for ` +
-                `${columns.timestamps.length} bars.`,
-            ),
-          )
-          return
-        }
-        finish(
-          outcome.ok
-            ? {
-                ok: true,
-                timestamps: columns.timestamps,
-                positions: outcome.positions,
-                output: outcome.output,
-              }
-            : outcome,
-        )
+        finish(outcome.ok ? accept(outcome) : outcome)
       }
       const onError = (event: ErrorEvent) =>
         stop('load', event.message || `${RUNTIME_NAMES[this.language]} failed to start.`)
@@ -148,7 +187,7 @@ export class WorkerRunner implements StrategyRunner {
       worker.addEventListener('message', onMessage)
       worker.addEventListener('error', onError)
       signal?.addEventListener('abort', onAbort)
-      worker.postMessage({ type: 'run', id, code, bars: columns } satisfies WorkerRequest)
+      worker.postMessage({ type: 'run', id, code, bars } satisfies WorkerRequest)
     })
   }
 }

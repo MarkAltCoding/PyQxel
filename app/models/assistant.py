@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field, StringConstraints
 
 from app.models.backtest import MAX_CODE_LENGTH, CodeLanguage
+from app.models.portfolio import PortfolioSymbol
 
 MAX_MESSAGE_LENGTH: int = 4_000
 """Longest question the user may send."""
@@ -58,6 +59,11 @@ class AssistantRequest(BaseModel):
     history: list[AssistantTurn] = Field(default_factory=list, max_length=MAX_TURNS)
     symbol: str | None = Field(
         default=None, max_length=16, description="The symbol the strategy is backtested on."
+    )
+    symbols: list[PortfolioSymbol] | None = Field(
+        default=None,
+        max_length=20,
+        description="Every symbol, when the strategy allocates between several.",
     )
     interval: str | None = Field(default=None, max_length=8, description="Bar size, e.g. 1d.")
     last_run: LastRun | None = None

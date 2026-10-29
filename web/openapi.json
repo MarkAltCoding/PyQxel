@@ -1042,6 +1042,47 @@
         "title": "AssetRisk",
         "type": "object"
       },
+      "AssetWeight": {
+        "description": "One symbol's part in a multi-symbol custom backtest.",
+        "properties": {
+          "average_weight": {
+            "description": "Mean weight held over the backtest, negative when mostly short.",
+            "title": "Average Weight",
+            "type": "number"
+          },
+          "contribution": {
+            "description": "Sum of its weighted returns net of its trading costs: its share of the strategy's arithmetic return.",
+            "title": "Contribution",
+            "type": "number"
+          },
+          "exposure": {
+            "description": "Share of bars it was held, long or short.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Exposure",
+            "type": "number"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "trades": {
+            "description": "Bars on which its weight changed.",
+            "minimum": 0.0,
+            "title": "Trades",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "symbol",
+          "average_weight",
+          "exposure",
+          "contribution",
+          "trades"
+        ],
+        "title": "AssetWeight",
+        "type": "object"
+      },
       "AssistantImport": {
         "description": "An answer Claude wrote outside the app to an exported coding assistant prompt.",
         "properties": {
@@ -1154,6 +1195,23 @@
             ],
             "description": "The symbol the strategy is backtested on.",
             "title": "Symbol"
+          },
+          "symbols": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^[A-Za-z0-9.\\-^=]{1,15}$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every symbol, when the strategy allocates between several.",
+            "title": "Symbols"
           }
         },
         "required": [
@@ -1362,6 +1420,21 @@
       "BacktestResponse": {
         "description": "A strategy's performance, with buy-and-hold on the same bars as the benchmark.",
         "properties": {
+          "assets": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AssetWeight"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Each symbol's part, with several symbols; null for one.",
+            "title": "Assets"
+          },
           "attribution": {
             "anyOf": [
               {
@@ -1375,7 +1448,7 @@
           },
           "benchmark": {
             "$ref": "#/components/schemas/PerformanceMetrics",
-            "description": "Buy-and-hold over the same bars, no costs."
+            "description": "Buy-and-hold over the same bars, no costs; with several symbols, holding them in equal weights, rebalanced every bar."
           },
           "cash_interest": {
             "default": false,
@@ -1536,8 +1609,24 @@
             "title": "Strategy"
           },
           "symbol": {
+            "description": "The symbol backtested; the first of ``symbols``.",
             "title": "Symbol",
             "type": "string"
+          },
+          "symbols": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every symbol a custom strategy allocated between; null for one symbol.",
+            "title": "Symbols"
           },
           "trades": {
             "description": "Bars on which the position changed.",
@@ -1623,6 +1712,21 @@
           "symbol": {
             "title": "Symbol",
             "type": "string"
+          },
+          "symbols": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every symbol, for a strategy run on several; else null.",
+            "title": "Symbols"
           },
           "total_return": {
             "title": "Total Return",
@@ -5932,6 +6036,134 @@
           }
         },
         "title": "MeanReversion",
+        "type": "object"
+      },
+      "MultiAssetCustomBacktestRequest": {
+        "description": "Weights a custom strategy set across several symbols in the browser, to be scored on\nthe server.\n\n``weights[i][j]`` is the share of capital in ``symbols[j]`` set at the close of\n``dates[i]``, held over the next bar; the rest is cash. The dates are those every\nsymbol traded, each exchange's own calendar date.",
+        "properties": {
+          "attribution": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ff3",
+                  "carhart4",
+                  "ff5"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "carhart4",
+            "description": "Factor model to regress the strategy's daily returns on, separating alpha from factor exposure; null to skip.",
+            "title": "Attribution"
+          },
+          "cash_interest": {
+            "default": false,
+            "description": "Let capital not invested in the asset earn the risk-free rate (the one-month T-bill, from Ken French's data library), as would short sale proceeds.",
+            "title": "Cash Interest",
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The strategy's source, stored with the result; never run.",
+            "maxLength": 50000,
+            "title": "Code",
+            "type": "string"
+          },
+          "cost_bps": {
+            "default": 5.0,
+            "description": "Trading cost per unit of turnover, in basis points (5 = 0.05%).",
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "title": "Cost Bps",
+            "type": "number"
+          },
+          "dates": {
+            "description": "Dates of the bars the weights were computed for, oldest first.",
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "maxItems": 20000,
+            "minItems": 1,
+            "title": "Dates",
+            "type": "array"
+          },
+          "interval": {
+            "default": "1d",
+            "description": "Bar size.",
+            "enum": [
+              "1d",
+              "1wk"
+            ],
+            "title": "Interval",
+            "type": "string"
+          },
+          "language": {
+            "default": "python",
+            "description": "Language of ``code``.",
+            "enum": [
+              "python",
+              "cpp"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
+          "period": {
+            "default": "5y",
+            "description": "Lookback window.",
+            "enum": [
+              "1y",
+              "2y",
+              "5y",
+              "10y",
+              "max"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "risk_free_rate": {
+            "default": 0.0,
+            "description": "Annual risk-free rate for Sharpe and Sortino, as a decimal (0.04 = 4%).",
+            "maximum": 0.25,
+            "minimum": -0.05,
+            "title": "Risk Free Rate",
+            "type": "number"
+          },
+          "symbols": {
+            "items": {
+              "pattern": "^[A-Za-z0-9.\\-^=]{1,15}$",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 2,
+            "title": "Symbols",
+            "type": "array"
+          },
+          "weights": {
+            "description": "One row per date, one weight per symbol in the order of ``symbols``.",
+            "items": {
+              "items": {
+                "maximum": 2.0,
+                "minimum": -2.0,
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "maxItems": 20000,
+            "minItems": 1,
+            "title": "Weights",
+            "type": "array"
+          }
+        },
+        "required": [
+          "symbols",
+          "code",
+          "dates",
+          "weights"
+        ],
+        "title": "MultiAssetCustomBacktestRequest",
         "type": "object"
       },
       "NewApiKey": {
@@ -10897,6 +11129,48 @@
           }
         },
         "summary": "Backtest ranking a universe of stocks against one another",
+        "tags": [
+          "backtest"
+        ]
+      }
+    },
+    "/api/v1/backtests/custom": {
+      "post": {
+        "description": "Score the weights a custom strategy set across several ``symbols`` in the browser.\n\nThe code never runs on the server: it is stored with the result so the run can be\nreproduced and edited. The server fetches every symbol's bars again, keeps the dates\nall of them traded from the first of ``dates`` to the last, and holds each row of\n``weights`` over the bar after its date. Weights are shares of capital, reset every\nbar; what they leave over is cash, which earns nothing or, with ``cash_interest``,\nthe risk-free rate, as do short sale proceeds. Each change of weight pays\n``cost_bps`` per unit traded. The benchmark holds the symbols in equal weights,\nrebalanced every bar, without costs; ``assets`` gives each symbol's part.\n\nThe result is stored like a single-symbol backtest, under its first symbol, and its\n``id`` returned for ``GET /backtests/{id}``.\n\nReturns 404 naming unknown symbols, 422 when a bar every symbol traded in that range\nhas no weights or the range has too few bars, and 502 when the data provider fails\nor the risk-free rate cannot be fetched.",
+        "operationId": "create_multi_asset_custom_backtest_api_v1_backtests_custom_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MultiAssetCustomBacktestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Score a custom strategy's weights across several symbols",
         "tags": [
           "backtest"
         ]
