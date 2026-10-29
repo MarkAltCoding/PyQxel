@@ -28,10 +28,12 @@ const PROVIDERS: ProviderInfo[] = [
   {
     name: 'Anthropic',
     account: 'anthropic',
-    about: 'Writes AI research reports. Each report is billed to this key.',
+    about:
+      'Writes AI research reports and portfolio reviews, and answers the strategy coding assistant. Each is billed to this key.',
     signUp: 'https://console.anthropic.com/settings/keys',
     free: 'Pay as you go; a report costs a few cents to a few tens of cents.',
-    without: () => 'No AI research reports. Everything else works.',
+    without: () =>
+      'No AI research reports, portfolio reviews or coding assistant. Everything else works.',
   },
   {
     name: 'Financial Modeling Prep',
@@ -94,9 +96,14 @@ const FEATURES: Feature[] = [
     needs: 'a Finnhub, Financial Modeling Prep or Alpha Vantage key',
   },
   {
-    name: 'AI research reports',
+    name: 'AI research reports and portfolio reviews',
     works: (account) => has(account, 'anthropic') && hasPrices(account),
     needs: 'an Anthropic key, and a price source (Financial Modeling Prep or Alpha Vantage)',
+  },
+  {
+    name: 'AI coding assistant for custom strategies',
+    works: (account) => has(account, 'anthropic'),
+    needs: 'an Anthropic key',
   },
   {
     name: 'News, analyst ratings, earnings, insider trades and key metrics',
@@ -301,12 +308,13 @@ function LimitsForm({ account, onSaved }: { account: Account; onSaved: (a: Accou
       <div>
         <h2>AI spending limits</h2>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
-          Caps on new AI reports; leave blank for no cap. Reused reports are free and not counted.
+          Caps on new AI requests: reports, portfolio reviews and assistant answers. Leave blank for
+          no cap; reused reports are free and not counted.
         </p>
       </div>
       <div className="stats">
-        <Stat label="Reports in the last hour" value={account.usage.last_hour} />
-        <Stat label="Reports in the last day" value={account.usage.last_day} />
+        <Stat label="AI requests in the last hour" value={account.usage.last_hour} />
+        <Stat label="AI requests in the last day" value={account.usage.last_day} />
         <Stat
           label="Requests per minute"
           value={account.rate_limit_per_minute}

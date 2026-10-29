@@ -14,6 +14,7 @@ import type {
   BacktestRequest,
   BacktestResponse,
   CodeLanguage,
+  LastRun,
   PerformanceMetrics,
   Strategy,
   StrategyType,
@@ -26,6 +27,7 @@ import { ErrorNotice, Notice } from '../components/Notice'
 import { SearchBox } from '../components/SearchBox'
 import { Segmented } from '../components/Segmented'
 import { Stat } from '../components/Stat'
+import { StrategyAssistant } from '../components/StrategyAssistant'
 import { StrategyRunOutput } from '../components/StrategyRunOutput'
 import type { EditorError } from '../editor/StrategyEditor'
 import type { EditorLanguage } from '../editor/languages'
@@ -342,6 +344,9 @@ export function BacktestPage() {
   const [phase, setPhase] = useState('')
   /** What the last custom run printed. */
   const [printed, setPrinted] = useState('')
+  /** The code the last custom run ran, so its outcome is told to Claude only while the
+   * editor still holds that code. */
+  const [ranCode, setRanCode] = useState<string | null>(null)
   const stopper = useRef<AbortController | null>(null)
   /** The stored backtest whose settings are in the form, so they are loaded only once. */
   const [loadedId, setLoadedId] = useState<string | null>(null)
@@ -369,6 +374,7 @@ export function BacktestPage() {
       stopper.current = controller
       try {
         setPrinted('')
+        setRanCode(form.code)
         setPhase('Fetching prices…')
         const history = await getHistory(form.symbol, form.period, form.interval)
         if (history.bars.length === 0) {
@@ -459,6 +465,21 @@ export function BacktestPage() {
         : null,
     [runFailure],
   )
+  const lastRun = useMemo<LastRun | null>(() => {
+    if (!custom || ranCode !== form.code) return null
+    const output = printed.slice(-4_000) || null
+    if (runFailure) {
+      if (runFailure.kind === 'cancelled' || runFailure.kind === 'load') return null
+      return {
+        error_kind: runFailure.kind,
+        message: runFailure.message.slice(0, 4_000),
+        line: runFailure.line,
+        traceback: runFailure.traceback.slice(-4_000) || null,
+        output,
+      }
+    }
+    return run.isSuccess ? { error_kind: null, output } : null
+  }, [custom, ranCode, form.code, printed, runFailure, run.isSuccess])
   const resetCode = () => {
     if (window.confirm('Replace your code with the starting template?')) {
       setCode(starterCode(form.language))
@@ -860,6 +881,15 @@ export function BacktestPage() {
               />
             </Suspense>
             <StrategyRunOutput error={runFailure} output={printed} language={form.language} />
+            <StrategyAssistant
+              key={form.language}
+              language={form.language}
+              code={form.code}
+              symbol={form.symbol}
+              interval={form.interval}
+              lastRun={lastRun}
+              onApply={setCode}
+            />
           </section>
           {result ? (
             <ResultChart result={result} refreshing={run.isPending} />

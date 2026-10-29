@@ -16,6 +16,17 @@ export type AdminSettingsUpdate = Partial<
   Pick<AdminSettings, 'yfinance_fallback' | 'yfinance_fallback_for_everyone'>
 >
 export type Account = Schemas['Account'] & { admin?: AdminSettings }
+export type AssistantReply = Schemas['AssistantReply']
+export type AssistantRequest = Schemas['AssistantRequest']
+export type AssistantResponse = Schemas['AssistantResponse']
+export type AssistantTurn = Schemas['AssistantTurn']
+export type LastRun = Schemas['LastRun']
+export type PortfolioAnalysisRequest = Schemas['PortfolioAnalysisRequest']
+export type PortfolioAnalysisResponse = Schemas['PortfolioAnalysisResponse']
+export type PortfolioReview = Schemas['PortfolioReview']
+export type InvestorProfile = Schemas['InvestorProfile']
+export type PlannedTrade = Schemas['PlannedTrade']
+export type RebalancePlan = Schemas['RebalancePlan']
 export type AnalysisList = Schemas['AnalysisList']
 export type AnalysisRequest = Schemas['AnalysisRequest']
 export type AnalysisResponse = Schemas['AnalysisResponse']

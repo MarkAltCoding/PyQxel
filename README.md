@@ -293,6 +293,10 @@ The result gives the distribution of final value and return, expected return, pr
 
 Runs are limited to 2.6 million path-days and 15 million draws (paths × horizon × assets), and at most two compute at once. Results are stored: list them with `GET /api/v1/portfolio/simulations` (filter by `symbol`), fetch one with `GET /api/v1/portfolio/simulations/{id}`, and remove it with `DELETE`.
 
+### AI portfolio review
+
+`POST /api/v1/portfolio/analysis` (or `/analysis/stream`, as Server-Sent Events) has Claude review the saved holdings: concentration by holding and sector, each holding's share of the portfolio's risk, how well the holdings diversify one another, and how today's weights would have behaved over `period` (`1y`, `2y` or `5y` of daily returns). The statistics it is given are in `context`: each holding's return, volatility, drawdown, risk contribution and correlation with the rest, the portfolio's volatility, drawdowns, diversification ratio and effective number of holdings, and the most and least correlated pairs. It then recommends a specific plan: a `target_allocation` for every holding and any investment it suggests adding, with an order type for each, tailored to the optional `profile` (risk tolerance, horizon, new cash to invest, and notes such as a taxable account). The server turns the targets into `plan.trades`, exact whole-share buys and sells with limit prices, sized at the latest prices, so the arithmetic does not rest on the model. The review says it comes from an AI, not a licensed adviser. Reviews are billed to the account's Anthropic key, count toward its AI limits, and are stored: a review of the same holdings and period is reused for `ANALYSIS_CACHE_TTL_SECONDS` unless `refresh` is true, and `GET /api/v1/portfolio/analysis` returns the latest. The Portfolio page shows it under the simulation and copula cards.
+
 ### Backtesting
 
 `POST /api/v1/stocks/{symbol}/backtest` scores a strategy on one stock against buy-and-hold, and `POST /api/v1/portfolio/backtest` runs it on every holding of a portfolio against holding the same weights. Strategies (`strategy.type`):
@@ -313,6 +317,8 @@ Every strategy needs only adjusted closes, so it runs on any symbol; when the wi
 In a portfolio, each holding is traded on its own prices on the days every holding traded, its position is scaled by its weight, and weights are reset daily. `assets` gives each holding's contribution, exposure and trades.
 
 Both return `attribution` for daily bars: a regression of the strategy's daily excess returns on `carhart4` factors (or `ff3`, `ff5`, or `null` to skip). `attribution.fit.alpha` is the annualized return the factors leave unexplained, with a Newey-West t-statistic, and the betas show how much of the result was simply market, size, value or momentum exposure. Single-stock backtests are stored as described above; portfolio backtests are not.
+
+**Coding assistant.** Beside the custom strategy editor, Claude answers questions about the strategy and can rewrite it: `POST /api/v1/backtests/assistant` (or `/stream`) takes the editor's `code` and `language`, the question, the conversation so far in `history`, and `last_run`, the error or printed output of the last run, and returns an `explanation` and, when it changed the code, the complete revised `code`, which the page applies to the editor on request. It knows each language's strategy contract and the sandbox's limits (NumPy and pandas only in Python), and points out look-ahead bias. The conversation stays in the browser and is never stored; only a count of answers is kept, against the account's AI limits.
 
 ## License
 

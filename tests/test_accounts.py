@@ -8,13 +8,12 @@ import asyncio
 import json
 from collections.abc import Iterator
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import pytest
 from anthropic import AsyncAnthropic
 from fastapi.testclient import TestClient
-from pydantic import SecretStr
 from sqlalchemy import select
 from starlette.websockets import WebSocketDisconnect
 
@@ -29,13 +28,11 @@ from app.data.news import NewsNotConfiguredError
 from app.data.sec_edgar import FilingFetchError
 from app.db.session import get_sessionmaker
 from app.db.tables import (
-    AnalysisRecord,
-    ApiKeyRecord,
+    AssistantRequestRecord,
     Base,
-    BacktestRecord,
     HoldingRecord,
     IdentityRecord,
-    SimulationRecord,
+    PortfolioAnalysisRecord,
     UserRecord,
 )
 from app.db.users import User, create_api_key
@@ -134,7 +131,8 @@ def test_quote_stream_takes_the_key_as_a_subprotocol(alice: tuple[User, str]) ->
     _, key = alice
 
     with client.websocket_connect("/api/v1/ws/quotes", subprotocols=["pyqxel", key]) as socket:
-        assert socket.accepted_subprotocol == "pyqxel"
+        # Starlette's test client declares the attribute as None, whatever it is set to.
+        assert cast(str | None, socket.accepted_subprotocol) == "pyqxel"
         socket.send_text("not json")
         assert socket.receive_json()["type"] == "error"
 
@@ -484,19 +482,17 @@ def test_command_line_refuses_a_taken_email(monkeypatch: pytest.MonkeyPatch, use
         users_cli.main()
 
 
-USER_TABLES: list[Any] = [
-    ApiKeyRecord,
-    IdentityRecord,
-    HoldingRecord,
-    BacktestRecord,
-    AnalysisRecord,
-    SimulationRecord,
-]
-"""Every table holding rows that belong to an account."""
+USER_TABLES: list[Any] = sorted(
+    (mapper.class_ for mapper in Base.registry.mappers if "user_id" in mapper.columns),
+    key=lambda table: table.__tablename__,
+)
+"""Every table holding rows that belong to an account: any with a ``user_id`` column, so
+a new one cannot be forgotten."""
 
 
 def _give_data(user: User) -> None:
-    """Give ``user`` a sign-in identity and a holding, beside the rows tests make."""
+    """Give ``user`` a sign-in identity, a holding, a portfolio review and an assistant
+    answer, beside the rows tests make."""
 
     async def add() -> None:
         async with get_sessionmaker()() as session:
@@ -511,6 +507,26 @@ def _give_data(user: User) -> None:
                 )
             )
             session.add(HoldingRecord(user_id=user.id, symbol="SPY", shares=10.0, position=0))
+            now = pd.Timestamp.now(tz="UTC").to_pydatetime()
+            session.add(
+                PortfolioAnalysisRecord(
+                    id=f"review-{user.id}",
+                    user_id=user.id,
+                    created_at=now,
+                    period="1y",
+                    holdings_key="k",
+                    requested_model="m",
+                    effort="medium",
+                    model="m",
+                    headline="h",
+                    result={},
+                )
+            )
+            session.add(
+                AssistantRequestRecord(
+                    id=f"answer-{user.id}", user_id=user.id, created_at=now, model="m"
+                )
+            )
             await session.commit()
 
     asyncio.run(add())
@@ -562,6 +578,8 @@ def test_deleting_an_account_removes_everything_it_holds(
         "holdings": 1,
         "backtests": 1,
         "analyses": 0,
+        "portfolio_analyses": 1,
+        "assistant_requests": 1,
         "simulations": 0,
         "users": 1,
     }

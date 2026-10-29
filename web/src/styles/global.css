@@ -835,6 +835,32 @@ table.data .muted {
   white-space: pre-wrap;
 }
 
+/* ── Strategy coding assistant ── */
+.assistant-turn {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--surface-raised);
+}
+
+.assistant-turn.user {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--surface-sunken);
+  white-space: pre-wrap;
+}
+
+.assistant-code {
+  max-height: 320px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-small);
+  background: var(--surface-sunken);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
 /* ── Sign-in ── */
 .signin {
   max-width: 440px;

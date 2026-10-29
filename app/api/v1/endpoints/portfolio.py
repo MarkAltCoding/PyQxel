@@ -1,24 +1,39 @@
-"""Multi-asset routes: how a set of assets moves together, and simulated portfolio outcomes."""
+"""Multi-asset routes: how a set of assets moves together, simulated portfolio outcomes,
+and Claude's review of the saved portfolio."""
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID
 
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
+from fastapi.sse import EventSourceResponse, ServerSentEvent
+from pydantic import SecretStr
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.agent import AIRateLimitError, AnalysisError, Written, anthropic_client
+from app.ai.portfolio import stream_portfolio_review, write_portfolio_review
 from app.api.auth import CurrentUser
+from app.api.v1.endpoints.research import ai_error, anthropic_key, check_ai_limits
+from app.core.config import get_settings
 from app.api.v1.endpoints.backtest import attribute, equity_points, load_benchmark, load_factors
 from app.api.v1.endpoints.stocks import COVERAGE_TOLERANCE, PERIOD_OFFSETS, upstream_error
 from app.data.fetcher import DataFetchError, fetch_ticker_info
 from app.data.panel import fetch_close_panel
 from app.db.holdings import get_holdings, replace_holdings
-from app.db.session import get_session
+from app.db.portfolio_analyses import (
+    find_recent_portfolio_analysis,
+    holdings_key,
+    latest_portfolio_analysis,
+    save_portfolio_analysis,
+)
+from app.db.session import get_session, get_sessionmaker
 from app.db.simulations import (
     delete_simulation,
     get_simulation,
@@ -44,12 +59,27 @@ from app.models.backtest import (
     PortfolioBacktestResponse,
 )
 from app.models.factors import RISK_FREE
+from app.models.portfolio_analysis import (
+    AssetRisk,
+    InvestorProfile,
+    PairCorrelation,
+    PlannedTrade,
+    PortfolioAnalysisRequest,
+    PortfolioAnalysisResponse,
+    PortfolioContext,
+    PortfolioReview,
+    PortfolioRiskStats,
+    RebalancePlan,
+)
+from app.models.research import AnalysisDelta, AnalysisStreamError
 from app.models.simulation import SimulationList, SimulationRequest, SimulationResponse
 from app.models.stock import SYMBOL_PATTERN
 from app.stats.backtest import cash_returns, run_portfolio_backtest, strategy_for
 from app.stats.copulas import CopulaFit, asynchronous_trading_warning, fit_copulas
 from app.stats.monte_carlo import SimulationError, simulate_portfolio
 from app.stats.panel import ReturnPanel, first_date, return_panel
+from app.stats.portfolio_risk import portfolio_stats, ranked_pairs
+from app.stats.rebalance import CASH, Target, plan_trades
 from app.stats.volatility import InsufficientDataError
 
 logger = logging.getLogger(__name__)
@@ -464,6 +494,8 @@ async def _value_holdings(holdings: list[HoldingShares]) -> HoldingsResponse:
                 symbol=holding.symbol,
                 shares=holding.shares,
                 name=result.name,
+                sector=result.sector,
+                industry=result.industry,
                 price=result.price,
                 value=value,
             )
@@ -508,3 +540,314 @@ async def store_holdings(
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
     return await _value_holdings(update.holdings)
+
+
+# Claude's review of the saved portfolio.
+
+CORRELATED_PAIRS: int = 5
+"""Most and least correlated pairs listed in a review's data."""
+
+
+async def _portfolio_context(
+    holdings: list[HoldingShares], period: PortfolioPeriod, profile: InvestorProfile
+) -> PortfolioContext:
+    """Value the holdings and compute the statistics a review is written from.
+
+    Raises:
+        HTTPException: 422 when no holding can be priced or the window is too short, and
+            the statuses of :func:`upstream_error` when prices cannot be fetched.
+    """
+    valued = await _value_holdings(holdings)
+    priced = [h for h in valued.holdings if h.value is not None and h.value > 0]
+    left_out = [h.symbol for h in valued.holdings if h not in priced]
+    if not priced:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"None of your holdings could be priced. {valued.notice or ''}".strip(),
+        )
+    symbols = [h.symbol for h in priced]
+    panel, closes, _ = await _load_returns(symbols, period)
+    total = sum(h.value for h in priced if h.value is not None)
+    weights = pd.Series({h.symbol: (h.value or 0.0) / total for h in priced})
+    stats = portfolio_stats(panel.returns, weights)
+    most, least = ranked_pairs(stats.correlations, CORRELATED_PAIRS)
+    sectors: dict[str, float] = {}
+    for h in priced:
+        sector = h.sector or "Unclassified"
+        sectors[sector] = sectors.get(sector, 0.0) + float(weights[h.symbol])
+    notices = [
+        notice
+        for notice in (
+            _window_notice(panel, closes, period),
+            f"Left out of the review: {valued.notice}" if left_out else None,
+        )
+        if notice
+    ]
+    return PortfolioContext(
+        profile=profile,
+        period=period,
+        total_value=total,
+        holdings=[
+            AssetRisk(
+                symbol=h.symbol,
+                name=h.name,
+                sector=h.sector,
+                industry=h.industry,
+                shares=h.shares,
+                price=h.price or 0.0,
+                value=h.value or 0.0,
+                weight=float(weights[h.symbol]),
+                **vars(stats.assets[h.symbol]),
+            )
+            for h in priced
+        ],
+        sectors=dict(sorted(sectors.items(), key=lambda item: -item[1])),
+        portfolio=PortfolioRiskStats(
+            start=stats.start.to_pydatetime(),
+            end=stats.end.to_pydatetime(),
+            observations=stats.observations,
+            annualized_return=stats.annualized_return,
+            volatility=stats.volatility,
+            max_drawdown=stats.max_drawdown,
+            current_drawdown=stats.current_drawdown,
+            return_to_volatility=(
+                stats.annualized_return / stats.volatility if stats.volatility > 0 else None
+            ),
+            diversification_ratio=stats.diversification_ratio,
+            effective_holdings=stats.effective_holdings,
+            largest_weight=float(weights.max()),
+            average_correlation=stats.average_correlation,
+        ),
+        most_correlated=[PairCorrelation(first=a, second=b, correlation=c) for a, b, c in most],
+        least_correlated=[PairCorrelation(first=a, second=b, correlation=c) for a, b, c in least],
+        left_out=left_out,
+        notice=" ".join(notices) or None,
+    )
+
+
+@dataclass(frozen=True)
+class PreparedReview:
+    """What a portfolio review needs before Claude is asked: or a recent one to reuse."""
+
+    user_id: str
+    request: PortfolioAnalysisRequest
+    key: str
+    context: PortfolioContext | None = None
+    api_key: SecretStr | None = None
+    cached: PortfolioAnalysisResponse | None = None
+
+    def response(
+        self, report: PortfolioReview, model: str, plan: RebalancePlan | None
+    ) -> PortfolioAnalysisResponse:
+        assert self.context is not None
+        return PortfolioAnalysisResponse(
+            period=self.request.period,
+            report=report,
+            plan=plan,
+            context=self.context,
+            model=model,
+            generated_at=datetime.now(timezone.utc),
+        )
+
+
+async def prepare_portfolio_review(
+    user: CurrentUser,
+    request: Annotated[PortfolioAnalysisRequest, Body()] = PortfolioAnalysisRequest(),
+) -> PreparedReview:
+    """Load the saved holdings, then reuse a recent review of them or gather the data for
+    a new one. Runs as a dependency, so a streamed review fails with an HTTP status before
+    its stream opens."""
+    settings = get_settings()
+    try:
+        async with get_sessionmaker()() as session:
+            holdings = await get_holdings(session, user.id)
+            key = holdings_key(holdings, request.profile.model_dump_json())
+            cached = None
+            if holdings and not request.refresh and settings.analysis_cache_ttl_seconds > 0:
+                cached = await find_recent_portfolio_analysis(
+                    session,
+                    user.id,
+                    request.period,
+                    key,
+                    settings.anthropic_model,
+                    settings.anthropic_effort,
+                    datetime.now(timezone.utc)
+                    - timedelta(seconds=settings.analysis_cache_ttl_seconds),
+                )
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    if not holdings:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Save your holdings first; the review is of your saved portfolio.",
+        )
+    if cached is not None:
+        return PreparedReview(
+            user_id=user.id,
+            request=request,
+            key=key,
+            cached=cached.model_copy(update={"cached": True}),
+        )
+    api_key = anthropic_key()
+    await check_ai_limits(user)
+    context = await _portfolio_context(holdings, request.period, request.profile)
+    return PreparedReview(
+        user_id=user.id, request=request, key=key, context=context, api_key=api_key
+    )
+
+
+PreparedPortfolioReview = Annotated[PreparedReview, Depends(prepare_portfolio_review)]
+
+
+async def _plan(context: PortfolioContext, report: PortfolioReview) -> RebalancePlan | None:
+    """The orders that carry out the review's target allocation, sized at latest prices.
+
+    New symbols are priced here; one that cannot be is planned by value alone. Returns
+    ``None`` when the review gives no targets.
+    """
+    if not report.target_allocation:
+        return None
+    targets = {
+        position.symbol.strip().upper(): Target(
+            position.target_weight,
+            position.order_type,
+            position.limit_offset_percent,
+            position.rationale,
+        )
+        for position in report.target_allocation
+    }
+    held = {h.symbol: (h.shares, h.price) for h in context.holdings if h.price > 0}
+    new = [s for s in targets if s not in held and s != CASH]
+    found = await asyncio.gather(*(fetch_ticker_info(s) for s in new), return_exceptions=True)
+    prices = {
+        symbol: None if isinstance(info, BaseException) else info.price
+        for symbol, info in zip(new, found, strict=True)
+    }
+    plan = plan_trades(held, targets, prices, context.profile.cash_to_invest)
+    return RebalancePlan(
+        total_value=plan.total_value,
+        trades=[PlannedTrade(**vars(trade)) for trade in plan.trades],
+        cash_after=plan.cash_after,
+        notes=plan.notes,
+    )
+
+
+async def _remember(
+    prepared: PreparedReview, response: PortfolioAnalysisResponse
+) -> PortfolioAnalysisResponse:
+    """Store a new review; if the database fails, return it unsaved rather than lose it."""
+    settings = get_settings()
+    try:
+        async with get_sessionmaker()() as session:
+            return await save_portfolio_analysis(
+                session,
+                prepared.user_id,
+                prepared.key,
+                response,
+                settings.anthropic_model,
+                settings.anthropic_effort,
+            )
+    except SQLAlchemyError as exc:
+        logger.error("Could not store a portfolio review: %s", exc)
+        return response
+
+
+@router.post(
+    "/analysis",
+    response_model=PortfolioAnalysisResponse,
+    summary="AI-written review of your saved portfolio",
+)
+async def create_portfolio_review(prepared: PreparedPortfolioReview) -> PortfolioAnalysisResponse:
+    """Have Claude review your saved portfolio's construction and risk.
+
+    The review is grounded in your holdings valued at the latest prices, their sectors,
+    and statistics of today's weights over ``period`` of daily returns: each holding's
+    return, volatility, drawdown and share of the portfolio's risk, the portfolio's
+    volatility, drawdowns and diversification, and the most and least correlated pairs.
+    All of it is in ``context``.
+
+    It is written with, and billed to, your own Anthropic key (the ``X-Anthropic-Key``
+    header), within your AI limits, and stored under your account. A review of the same
+    holdings and period within ``ANALYSIS_CACHE_TTL_SECONDS`` is returned again with
+    ``cached`` set and no charge, unless ``refresh`` is true.
+
+    Returns 403 without a valid Anthropic key, 422 with no saved holdings, a window too
+    short, or when the model declines, 429 beyond your AI limits, 502 when a provider
+    fails, and 503 when Anthropic rate limits your account.
+    """
+    if prepared.cached is not None:
+        return prepared.cached
+    assert prepared.api_key is not None and prepared.context is not None
+    try:
+        async with anthropic_client(prepared.api_key) as client:
+            report, model = await write_portfolio_review(prepared.context, client=client)
+    except AnalysisError as exc:
+        raise ai_error(exc) from exc
+    plan = await _plan(prepared.context, report)
+    return await _remember(prepared, prepared.response(report, model, plan))
+
+
+@router.post(
+    "/analysis/stream",
+    response_class=EventSourceResponse,
+    summary="Stream an AI-written review of your saved portfolio as Server-Sent Events",
+)
+async def stream_portfolio_review_events(
+    prepared: PreparedPortfolioReview,
+) -> AsyncIterator[ServerSentEvent]:
+    """Stream the review of ``create_portfolio_review`` as Claude writes it.
+
+    The same failures return the same statuses before the stream opens. Then it sends
+    ``context`` (the :class:`PortfolioContext`), ``thinking`` and ``report`` fragments,
+    ``fallback`` when a model declines part-way and another continues, and ``result``
+    (the :class:`PortfolioAnalysisResponse`) or ``error``, as the stock analysis stream
+    does. A reused review is sent as ``context`` then ``result`` alone.
+    """
+    if prepared.cached is not None:
+        yield ServerSentEvent(event="context", data=prepared.cached.context)
+        yield ServerSentEvent(event="result", data=prepared.cached)
+        return
+    assert prepared.api_key is not None and prepared.context is not None
+    yield ServerSentEvent(event="context", data=prepared.context)
+    try:
+        async with anthropic_client(prepared.api_key) as client:
+            async for item in stream_portfolio_review(prepared.context, client=client):
+                if isinstance(item, Written):
+                    plan = await _plan(prepared.context, item.output)
+                    response = await _remember(
+                        prepared, prepared.response(item.output, item.model, plan)
+                    )
+                    yield ServerSentEvent(event="result", data=response)
+                elif isinstance(item, AnalysisDelta):
+                    yield ServerSentEvent(event=item.channel, data=item)
+                else:
+                    yield ServerSentEvent(event="fallback", data=item)
+    except AnalysisError as exc:
+        error = ai_error(exc)
+        yield ServerSentEvent(
+            event="error",
+            data=AnalysisStreamError(
+                status=error.status_code,
+                detail=str(error.detail),
+                retry_after=exc.retry_after if isinstance(exc, AIRateLimitError) else None,
+            ),
+        )
+
+
+@router.get(
+    "/analysis",
+    response_model=PortfolioAnalysisResponse,
+    summary="Your latest portfolio review",
+)
+async def read_portfolio_review(session: Session, user: CurrentUser) -> PortfolioAnalysisResponse:
+    """Return your newest stored portfolio review, whatever it was written for, so it can
+    be shown again without a charge. Returns 404 when you have none."""
+    try:
+        review = await latest_portfolio_analysis(session, user.id)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    if review is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No portfolio review yet."
+        )
+    return review.model_copy(update={"cached": True})

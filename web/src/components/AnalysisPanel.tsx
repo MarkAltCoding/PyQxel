@@ -5,6 +5,7 @@ import { getAnalysis, listAnalyses, streamAnalysis } from '../api/endpoints'
 import { readEvents } from '../api/sse'
 import type { AnalysisKind, AnalysisResponse, InvestmentThesis, RiskSummary } from '../api/types'
 import { dateTime } from '../lib/format'
+import { LEVEL_TONE } from '../lib/tones'
 import { ErrorNotice } from './Notice'
 import { Segmented } from './Segmented'
 
@@ -166,7 +167,6 @@ function Report({ response }: { response: AnalysisResponse }) {
 }
 
 const STANCE_TONE = { bullish: 'good', neutral: '', bearish: 'critical' } as const
-const LEVEL_TONE = { low: 'good', moderate: '', elevated: 'warning', high: 'critical' } as const
 
 function Thesis({ report }: { report: InvestmentThesis }) {
   return (
@@ -216,7 +216,7 @@ function Risk({ report }: { report: RiskSummary }) {
   )
 }
 
-function Points({ title, items }: { title: string; items: string[] }) {
+export function Points({ title, items }: { title: string; items: string[] }) {
   if (items.length === 0) return null
   return (
     <div>

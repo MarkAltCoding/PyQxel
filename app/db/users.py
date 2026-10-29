@@ -15,9 +15,11 @@ from app.core.security import API_KEY_DISPLAY_LENGTH, generate_api_key, hash_api
 from app.db.tables import (
     AnalysisRecord,
     ApiKeyRecord,
+    AssistantRequestRecord,
     BacktestRecord,
     HoldingRecord,
     IdentityRecord,
+    PortfolioAnalysisRecord,
     SimulationRecord,
     UserRecord,
     as_utc,
@@ -254,16 +256,20 @@ async def update_yfinance_fallback(session: AsyncSession, user_id: str, enabled:
 
 
 async def ai_usage(session: AsyncSession, user_id: str) -> AiUsage:
-    """New analyses written for the account in the last hour and day."""
+    """New AI requests made for the account in the last hour and day: stock analyses,
+    portfolio reviews and coding assistant answers."""
     now = datetime.now(timezone.utc)
 
     async def since(window: timedelta) -> int:
-        count = await session.scalar(
-            select(func.count())
-            .select_from(AnalysisRecord)
-            .where(AnalysisRecord.user_id == user_id, AnalysisRecord.created_at >= now - window)
-        )
-        return count or 0
+        total = 0
+        for table in (AnalysisRecord, PortfolioAnalysisRecord, AssistantRequestRecord):
+            count = await session.scalar(
+                select(func.count())
+                .select_from(table)
+                .where(table.user_id == user_id, table.created_at >= now - window)
+            )
+            total += count or 0
+        return total
 
     return AiUsage(
         last_hour=await since(timedelta(hours=1)), last_day=await since(timedelta(days=1))
@@ -285,9 +291,10 @@ async def claim_unowned(session: AsyncSession, user_id: str) -> dict[str, int]:
 async def delete_user(session: AsyncSession, user_id: str) -> bool:
     """Delete the account and everything it holds; return whether it existed.
 
-    Its API keys, sign-in identities, holdings and stored backtests, analyses and
-    simulations go with it. Rows are deleted explicitly rather than left to the foreign
-    keys' cascades, which SQLite does not enforce by default.
+    Its API keys, sign-in identities, holdings, stored backtests, analyses, portfolio
+    reviews and simulations, and its count of assistant answers go with it. Rows are
+    deleted explicitly rather than left to the foreign keys' cascades, which SQLite does
+    not enforce by default.
     """
     record = await session.get(UserRecord, user_id)
     if record is None:
@@ -298,6 +305,8 @@ async def delete_user(session: AsyncSession, user_id: str) -> bool:
         HoldingRecord,
         BacktestRecord,
         AnalysisRecord,
+        PortfolioAnalysisRecord,
+        AssistantRequestRecord,
         SimulationRecord,
     ):
         await session.execute(delete(table).where(table.user_id == user_id))
