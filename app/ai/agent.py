@@ -120,7 +120,7 @@ def _retry_after(error: anthropic.RateLimitError) -> int | None:
         return None
 
 
-def _user_content(
+def analysis_content(
     context: AnalysisContext, kind: AnalysisKind, filings: list[Filing]
 ) -> str | list[BetaTextBlockParam]:
     """Build the user turn: filings first, then the task and snapshot.
@@ -298,7 +298,7 @@ async def write_analysis(
         InvestmentThesis if kind == "thesis" else RiskSummary
     )
     messages: list[BetaMessageParam] = [
-        {"role": "user", "content": _user_content(context, kind, filings or [])}
+        {"role": "user", "content": analysis_content(context, kind, filings or [])}
     ]
     return await write_structured(SYSTEM_PROMPT, messages, schema, client=client)
 
@@ -324,7 +324,7 @@ async def stream_analysis(
         InvestmentThesis if kind == "thesis" else RiskSummary
     )
     messages: list[BetaMessageParam] = [
-        {"role": "user", "content": _user_content(context, kind, filings or [])}
+        {"role": "user", "content": analysis_content(context, kind, filings or [])}
     ]
     async for item in stream_structured(SYSTEM_PROMPT, messages, schema, client=client):
         if isinstance(item, Written):

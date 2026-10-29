@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from anthropic.types.beta import BetaMessageParam
 
 
-def _messages(context: PortfolioContext) -> list[BetaMessageParam]:
+def review_messages(context: PortfolioContext) -> list[BetaMessageParam]:
     snapshot = context.model_dump_json(indent=2)
     return [{"role": "user", "content": f"{PORTFOLIO_TASK}\n\n<snapshot>\n{snapshot}\n</snapshot>"}]
 
@@ -26,7 +26,7 @@ async def write_portfolio_review(
     Errors are as for :func:`app.ai.agent.write_analysis`.
     """
     return await write_structured(
-        PORTFOLIO_SYSTEM_PROMPT, _messages(context), PortfolioReview, client=client
+        PORTFOLIO_SYSTEM_PROMPT, review_messages(context), PortfolioReview, client=client
     )
 
 
@@ -35,6 +35,6 @@ async def stream_portfolio_review(
 ) -> AsyncIterator[AnalysisDelta | ModelFallback | Written[PortfolioReview]]:
     """Stream :func:`write_portfolio_review`, as :func:`app.ai.agent.stream_structured` does."""
     async for item in stream_structured(
-        PORTFOLIO_SYSTEM_PROMPT, _messages(context), PortfolioReview, client=client
+        PORTFOLIO_SYSTEM_PROMPT, review_messages(context), PortfolioReview, client=client
     ):
         yield item

@@ -99,6 +99,37 @@ describe('PortfolioReviewCard', () => {
     ])
   })
 
+  it('saves a review pasted from Claude outside the app with its exported data', async () => {
+    const bodies: Record<string, unknown>[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const path = new URL(String(input), 'http://localhost').pathname
+      if (path.endsWith('/prompt')) {
+        return new Response(
+          JSON.stringify({ prompt: '## Request', filename: 'p.md', context: { period: '1y' } }),
+        )
+      }
+      if (path.endsWith('/import')) {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return new Response(JSON.stringify({ ...review('Pasted review.'), cached: false }))
+      }
+      return new Response('{}', { status: 404 })
+    })
+    renderCard({ hasHoldings: true, stale: false })
+
+    await userEvent.click(await screen.findByText(/Use Claude outside the app/))
+    await userEvent.click(screen.getByRole('button', { name: 'Get the prompt' }))
+    await screen.findByRole('button', { name: 'Copy prompt' })
+    await userEvent.type(screen.getByLabelText('Claude’s answer'), 'the answer')
+    await userEvent.click(screen.getByRole('button', { name: 'Save answer' }))
+
+    expect(await screen.findByText('Pasted review.')).toBeInTheDocument()
+    expect(bodies[0]).toMatchObject({
+      context: { period: '1y' },
+      request: { period: '1y' },
+      response: 'the answer',
+    })
+  })
+
   it('waits for saved holdings before reviewing', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 404 }))
     renderCard({ hasHoldings: true, stale: true })

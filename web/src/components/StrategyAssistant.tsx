@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { readAiStream, type AiProgress } from '../api/aiStream'
-import { streamAssistant } from '../api/endpoints'
-import type { AssistantResponse, AssistantTurn, CodeLanguage, LastRun } from '../api/types'
+import { exportAssistantPrompt, importAssistantReply, streamAssistant } from '../api/endpoints'
+import type {
+  AssistantReply,
+  AssistantRequest,
+  AssistantResponse,
+  AssistantTurn,
+  CodeLanguage,
+  LastRun,
+} from '../api/types'
+import { ExternalClaude } from './ExternalClaude'
 import { ErrorNotice } from './Notice'
 
 /** Earlier turns sent with each question; the server takes at most 20. */
@@ -54,39 +62,60 @@ export function StrategyAssistant({
   const abort = useRef<AbortController | null>(null)
   useEffect(() => () => abort.current?.abort(), [])
 
+  /** The question as the API takes it, with the code, its last run and the conversation. */
+  const requestFor = (text: string): AssistantRequest => ({
+    language,
+    code,
+    message: text,
+    history: turns.slice(-MAX_TURNS).map((turn) => toApiTurn(turn, language)),
+    symbol: symbol || null,
+    interval,
+    last_run: lastRun,
+  })
+  const answer = (reply: AssistantReply) =>
+    setTurns((current) => [
+      ...current,
+      {
+        role: 'assistant',
+        explanation: reply.explanation,
+        code: reply.code ?? null,
+        applied: false,
+      },
+    ])
+
+  // Outside the app: the question the prompt was made for joins the conversation with
+  // the pasted answer.
+  const [exportedQuestion, setExportedQuestion] = useState<string | null>(null)
+  const getPrompt = async () => {
+    const text = message.trim().slice(0, MAX_MESSAGE_LENGTH)
+    if (!text) throw new Error('Type your question in the box above first.')
+    const exported = await exportAssistantPrompt(requestFor(text))
+    setExportedQuestion(text)
+    return exported
+  }
+  const pasteAnswer = async (response: string) => {
+    if (!exportedQuestion) throw new Error('Get the prompt first, for the question to go with.')
+    const { reply } = await importAssistantReply(response)
+    setTurns((current) => [...current, { role: 'user', text: exportedQuestion }])
+    answer(reply)
+    setExportedQuestion(null)
+    setMessage('')
+  }
+
   const ask = async (question: string) => {
     const text = question.trim().slice(0, MAX_MESSAGE_LENGTH)
     if (!text) return
     const controller = new AbortController()
     abort.current = controller
-    const history = turns.slice(-MAX_TURNS).map((turn) => toApiTurn(turn, language))
+    const request = requestFor(text)
     setTurns((current) => [...current, { role: 'user', text }])
     setMessage('')
     setError(null)
     setProgress({ thinking: '', characters: 0 })
     try {
-      const response = await streamAssistant(
-        {
-          language,
-          code,
-          message: text,
-          history,
-          symbol: symbol || null,
-          interval,
-          last_run: lastRun,
-        },
-        controller.signal,
-      )
+      const response = await streamAssistant(request, controller.signal)
       const { reply } = await readAiStream<AssistantResponse>(response, setProgress)
-      setTurns((current) => [
-        ...current,
-        {
-          role: 'assistant',
-          explanation: reply.explanation,
-          code: reply.code ?? null,
-          applied: false,
-        },
-      ])
+      answer(reply)
     } catch (failure) {
       if (!controller.signal.aborted) setError(failure)
     } finally {
@@ -218,6 +247,12 @@ export function StrategyAssistant({
           Ask
         </button>
       </form>
+      <ExternalClaude
+        getPrompt={getPrompt}
+        onPaste={pasteAnswer}
+        saveLabel="Add answer"
+        disabled={asking}
+      />
     </div>
   )
 }

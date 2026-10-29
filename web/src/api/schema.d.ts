@@ -142,6 +142,50 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/backtests/assistant/import': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Read an answer Claude wrote outside the app
+     * @description Check Claude's answer to an exported prompt and return it as the assistant's
+     *     reply, with any revised code. Nothing is stored. Returns 422 when the answer does
+     *     not match the reply's format.
+     */
+    post: operations['import_assistant_reply_api_v1_backtests_assistant_import_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/backtests/assistant/prompt': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * The coding assistant prompt, to paste into Claude outside the app
+     * @description Return exactly what this question would send Claude, conversation and code
+     *     included. No Anthropic key is needed and nothing counts against your AI limits;
+     *     send Claude's answer to ``/import`` to read it as the assistant's reply.
+     */
+    post: operations['export_assistant_prompt_api_v1_backtests_assistant_prompt_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/backtests/assistant/stream': {
     parameters: {
       query?: never
@@ -383,6 +427,54 @@ export interface paths {
      *     fails, and 503 when Anthropic rate limits your account.
      */
     post: operations['create_portfolio_review_api_v1_portfolio_analysis_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/portfolio/analysis/import': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Save a portfolio review Claude wrote outside the app
+     * @description Check Claude's answer to an exported prompt and store it as your latest review.
+     *
+     *     Its target allocation is turned into orders at the latest prices, as for reviews the
+     *     app writes. It is marked as pasted and never reused in place of a new review.
+     *     Returns 422 when the answer does not match the review's format.
+     */
+    post: operations['import_portfolio_review_api_v1_portfolio_analysis_import_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/portfolio/analysis/prompt': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * The portfolio review prompt, to paste into Claude outside the app
+     * @description Return exactly what a review of your saved portfolio would send Claude.
+     *
+     *     No Anthropic key is needed and nothing counts against your AI limits. Paste
+     *     ``prompt`` into Claude, then send its answer to ``/analysis/import`` with the
+     *     ``context`` returned here.
+     */
+    post: operations['export_portfolio_prompt_api_v1_portfolio_analysis_prompt_post']
     delete?: never
     options?: never
     head?: never
@@ -772,6 +864,56 @@ export interface paths {
      *     provider fails, and 503 when Anthropic rate limits your account.
      */
     post: operations['create_analysis_api_v1_stocks__symbol__analysis_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/stocks/{symbol}/analysis/import': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Save an analysis Claude wrote outside the app
+     * @description Check Claude's answer to an exported prompt and store it as an analysis.
+     *
+     *     The answer must be the JSON the prompt asked for; it may arrive in a code fence or
+     *     with text around it. It is stored with the context it was written from, marked as
+     *     pasted, and never reused in place of a new analysis. Returns 422 when the answer does
+     *     not match the report's format or the context is of another symbol.
+     */
+    post: operations['import_analysis_api_v1_stocks__symbol__analysis_import_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/stocks/{symbol}/analysis/prompt': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * The analysis prompt, to paste into Claude outside the app
+     * @description Return exactly what an analysis would send Claude, as one Markdown document.
+     *
+     *     The same data is gathered as for ``/analysis``, filings included, but nothing is sent
+     *     to Claude: no Anthropic key is needed and nothing counts against your AI limits.
+     *     Paste ``prompt`` into Claude, then send its answer to ``/analysis/import`` with the
+     *     ``context`` returned here. Fails as ``/analysis`` does when the data cannot be had.
+     */
+    post: operations['export_analysis_prompt_api_v1_stocks__symbol__analysis_prompt_post']
     delete?: never
     options?: never
     head?: never
@@ -1370,6 +1512,18 @@ export interface components {
       volatility_forecast?: components['schemas']['GarchContext'] | null
     }
     /**
+     * AnalysisImport
+     * @description An answer Claude wrote outside the app to an exported stock analysis prompt.
+     */
+    AnalysisImport: {
+      /** @description The context the export returned. */
+      context: components['schemas']['AnalysisContext']
+      /** @description The options the prompt was exported with. */
+      request: components['schemas']['AnalysisRequest']
+      /** Response */
+      response: string
+    }
+    /**
      * AnalysisList
      * @description One page of stored analyses, newest first.
      */
@@ -1385,6 +1539,23 @@ export interface components {
        * @description Stored analyses matching the filters, on any page.
        */
       total: number
+    }
+    /**
+     * AnalysisPromptExport
+     * @description A stock analysis prompt and the data it holds; send ``context`` back with the answer.
+     */
+    AnalysisPromptExport: {
+      context: components['schemas']['AnalysisContext']
+      /**
+       * Filename
+       * @description A name to save the prompt under.
+       */
+      filename: string
+      /**
+       * Prompt
+       * @description Markdown to paste into one message to Claude.
+       */
+      prompt: string
     }
     /**
      * AnalysisRequest
@@ -1628,6 +1799,14 @@ export interface components {
        * @description Share of the portfolio's value.
        */
       weight: number
+    }
+    /**
+     * AssistantImport
+     * @description An answer Claude wrote outside the app to an exported coding assistant prompt.
+     */
+    AssistantImport: {
+      /** Response */
+      response: string
     }
     /**
      * AssistantReply
@@ -4468,6 +4647,23 @@ export interface components {
       total_value: number
     }
     /**
+     * PortfolioPromptExport
+     * @description A portfolio review prompt and the data it holds; send ``context`` back with the answer.
+     */
+    PortfolioPromptExport: {
+      context: components['schemas']['PortfolioContext']
+      /**
+       * Filename
+       * @description A name to save the prompt under.
+       */
+      filename: string
+      /**
+       * Prompt
+       * @description Markdown to paste into one message to Claude.
+       */
+      prompt: string
+    }
+    /**
      * PortfolioReview
      * @description Claude's data-grounded review of a portfolio, with a concrete plan to act on.
      */
@@ -4519,6 +4715,18 @@ export interface components {
        * @description Every current holding and any new investment with its target weight; a holding to sell entirely gets 0. Weights sum to 1.
        */
       target_allocation: components['schemas']['TargetPosition'][]
+    }
+    /**
+     * PortfolioReviewImport
+     * @description An answer Claude wrote outside the app to an exported portfolio review prompt.
+     */
+    PortfolioReviewImport: {
+      /** @description The context the export returned. */
+      context: components['schemas']['PortfolioContext']
+      /** @description The options the prompt was exported with. */
+      request?: components['schemas']['PortfolioAnalysisRequest']
+      /** Response */
+      response: string
     }
     /**
      * PortfolioRiskStats
@@ -4696,6 +4904,22 @@ export interface components {
        * @description Largest single-bar loss.
        */
       worst_return: number
+    }
+    /**
+     * PromptExport
+     * @description The request the app would send Claude, as one document to paste outside the app.
+     */
+    PromptExport: {
+      /**
+       * Filename
+       * @description A name to save the prompt under.
+       */
+      filename: string
+      /**
+       * Prompt
+       * @description Markdown to paste into one message to Claude.
+       */
+      prompt: string
     }
     /**
      * ProviderCredential
@@ -6112,6 +6336,72 @@ export interface operations {
       }
     }
   }
+  import_assistant_reply_api_v1_backtests_assistant_import_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AssistantImport']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['AssistantResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  export_assistant_prompt_api_v1_backtests_assistant_prompt_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AssistantRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PromptExport']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
   stream_assistant_api_v1_backtests_assistant_stream_post: {
     parameters: {
       query?: never
@@ -6464,6 +6754,72 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['PortfolioAnalysisResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  import_portfolio_review_api_v1_portfolio_analysis_import_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PortfolioReviewImport']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PortfolioAnalysisResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  export_portfolio_prompt_api_v1_portfolio_analysis_prompt_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        'application/json': components['schemas']['PortfolioAnalysisRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PortfolioPromptExport']
         }
       }
       /** @description Validation Error */
@@ -6929,6 +7285,78 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['AnalysisResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  import_analysis_api_v1_stocks__symbol__analysis_import_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Ticker symbol, e.g. AAPL, BRK-B or ^GSPC. */
+        symbol: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AnalysisImport']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['AnalysisResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  export_analysis_prompt_api_v1_stocks__symbol__analysis_prompt_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Ticker symbol, e.g. AAPL, BRK-B or ^GSPC. */
+        symbol: string
+      }
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        'application/json': components['schemas']['AnalysisRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['AnalysisPromptExport']
         }
       }
       /** @description Validation Error */
