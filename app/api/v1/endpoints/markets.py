@@ -7,7 +7,7 @@ the user's own key. :func:`market_context` gathers the same data for AI analyses
 
 import asyncio
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Query
@@ -43,6 +43,7 @@ from app.stats.markets import (
     MAJOR_MARKET_CAP,
     major_earnings,
     market_context,
+    score_headlines,
 )
 
 logger = logging.getLogger(__name__)
@@ -102,12 +103,25 @@ async def _finnhub_parts(
     return parts, missing
 
 
+MAX_CALENDAR_DAYS: int = 90
+"""Longest calendar window, in days; a quarter covers a full earnings season."""
+
+MAX_MIN_MARKET_CAP: float = 5e12
+"""Largest market cap threshold, in US dollars, above every listed company."""
+
+
 @router.get("/calendar", response_model=MarketCalendar, summary="Market calendar")
 async def get_calendar(
-    days: Annotated[int, Query(ge=1, le=60, description="Days ahead, today included.")] = 30,
+    days: Annotated[
+        int, Query(ge=1, le=MAX_CALENDAR_DAYS, description="Days ahead, today included.")
+    ] = 30,
     min_market_cap: Annotated[
         float,
-        Query(ge=1e9, description="Smallest market cap, in US dollars, of companies listed."),
+        Query(
+            ge=1e9,
+            le=MAX_MIN_MARKET_CAP,
+            description="Smallest market cap, in US dollars, of companies listed.",
+        ),
     ] = MAJOR_MARKET_CAP,
 ) -> MarketCalendar:
     """Return the market-moving dates of the next ``days`` days.
@@ -154,13 +168,16 @@ async def get_market_news(
     """Return the latest market-wide news in ``category``, newest first, from Finnhub.
 
     ``general`` is business and markets news, ``forex`` currencies, ``crypto``
-    cryptocurrencies, and ``merger`` mergers and acquisitions. Reused for five minutes.
-    Returns 403 without a valid Finnhub key, and 502 when Finnhub fails.
+    cryptocurrencies, and ``merger`` mergers and acquisitions. Each article's
+    ``importance``, from 0 to 1, scores how market-moving it looks: the topics its
+    headline names, its publisher and its age. Reused for five minutes. Returns 403
+    without a valid Finnhub key, and 502 when Finnhub fails.
     """
     try:
-        return await fetch_market_news(category)
+        news = await fetch_market_news(category)
     except DataFetchError as exc:
         raise upstream_error(exc) from exc
+    return score_headlines(news, datetime.now(timezone.utc))
 
 
 async def _general_news() -> MarketNews | None:

@@ -10,6 +10,7 @@ import { FanChart, FanTable } from '../charts/FanChart'
 import { useChartTheme } from '../charts/theme'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { SearchBox } from '../components/SearchBox'
+import { PresetOrCustom } from '../components/PresetOrCustom'
 import { Segmented } from '../components/Segmented'
 import { Stat } from '../components/Stat'
 import { money, number, percent, signedPercent, tone } from '../lib/format'
@@ -22,11 +23,14 @@ interface Row {
 }
 
 const HORIZONS = [
-  { value: '21', label: '1M' },
-  { value: '63', label: '3M' },
-  { value: '126', label: '6M' },
-  { value: '252', label: '1Y' },
+  { value: 21, label: '1M' },
+  { value: 63, label: '3M' },
+  { value: 126, label: '6M' },
+  { value: 252, label: '1Y' },
 ] as const
+
+/** Longest horizon a simulation may run, in trading days, as the API allows. */
+const MAX_HORIZON_DAYS = 1260
 
 const DEPENDENCE = [
   { value: 'student_t', label: 'Student t' },
@@ -257,7 +261,7 @@ function SimulationCard({
   stale: boolean
 }) {
   const theme = useChartTheme()
-  const [horizon, setHorizon] = useState<(typeof HORIZONS)[number]['value']>('63')
+  const [horizon, setHorizon] = useState(63)
   const [dependence, setDependence] = useState<(typeof DEPENDENCE)[number]['value']>('student_t')
   const run = useMutation({
     mutationFn: (request: SimulationRequest) => simulate(request),
@@ -280,7 +284,15 @@ function SimulationCard({
       }
       actions={
         <>
-          <Segmented label="Horizon" value={horizon} options={HORIZONS} onChange={setHorizon} />
+          <PresetOrCustom
+            label="Horizon"
+            presets={HORIZONS}
+            value={horizon}
+            onChange={setHorizon}
+            min={1}
+            max={MAX_HORIZON_DAYS}
+            unit="trading days"
+          />
           <Segmented
             label="Dependence"
             value={dependence}
@@ -294,7 +306,7 @@ function SimulationCard({
             onClick={() =>
               run.mutate({
                 holdings: normalized(holdings),
-                horizon: Number(horizon),
+                horizon,
                 dependence,
                 paths: 10_000,
                 initial_value: start,

@@ -1,7 +1,8 @@
 """Choosing the market-moving events of a calendar, and the market backdrop given to Claude."""
 
+import math
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from app.models.markets import (
     EarningsEvent,
@@ -12,7 +13,7 @@ from app.models.markets import (
     MarketNews,
     MarketStatus,
 )
-from app.models.news import NewsHeadline
+from app.models.news import NewsArticle, NewsHeadline
 
 MAJOR_MARKET_CAP: float = 10e9
 """Market cap, in US dollars, from which a company's earnings report is listed by default."""
@@ -124,4 +125,85 @@ def market_context(
             )
             for article in (news.articles if news else [])[:CONTEXT_HEADLINES]
         ],
+    )
+
+
+MAJOR_PUBLISHERS: frozenset[str] = frozenset(
+    {
+        "reuters",
+        "bloomberg",
+        "the wall street journal",
+        "wsj",
+        "dow jones",
+        "financial times",
+        "ft",
+        "associated press",
+        "ap",
+        "cnbc",
+        "marketwatch",
+        "barron's",
+        "the economist",
+        "new york times",
+    }
+)
+"""Publishers whose market headlines weigh more, lower case."""
+
+HEADLINE_TOPICS: tuple[tuple[re.Pattern[str], float], ...] = tuple(
+    (re.compile(pattern, re.IGNORECASE), weight)
+    for pattern, weight in (
+        # Monetary policy and the economy move every market at once.
+        (r"\b(fed|fomc|federal reserve|powell|central bank|ecb|boj|bank of england)\b", 1.5),
+        (r"\b(rate (cut|hike)s?|interest rates?|yields?|treasur(y|ies)|bond market)\b", 1.2),
+        (r"\b(inflation|cpi|ppi|pce|jobs report|payrolls?|unemployment|gdp|recession)\b", 1.2),
+        (r"\b(tariffs?|trade war|sanctions?|shutdown|debt ceiling|stimulus)\b", 1.0),
+        (r"\b(oil|opec|crude|gold|dollar)\b", 0.6),
+        # Broad market moves.
+        (r"\b(s&p 500|dow|nasdaq|wall street|stocks?|markets?)\b", 0.6),
+        (r"\b(sell-?off|rally|record|plunge|crash|surge|tumble|soar|slump|rout)\w*", 0.8),
+        # Large corporate events.
+        (r"\b(earnings|guidance|forecast|profit warning|revenue)\b", 0.6),
+        (r"\b(merger|acquisition|acquires?|buyout|takeover|ipo|bankruptcy|layoffs?)\b", 0.8),
+        (r"\b(antitrust|sec|lawsuit|probe|regulators?)\b", 0.5),
+        (
+            r"\b(apple|microsoft|nvidia|amazon|alphabet|google|meta|tesla|berkshire|jpmorgan)"
+            r"\b",
+            0.5,
+        ),
+        (r"\$\s?\d[\d,.]*\s?(billion|bn|trillion|tn)\b", 0.6),
+    )
+)
+"""Topics that make a market headline matter more, with how much each adds."""
+
+TOPIC_SATURATION: float = 3.0
+"""Topic weight at which a headline counts as fully on topic."""
+
+IMPORTANCE_HALF_LIFE_HOURS: float = 24.0
+"""Hours after which a headline's recency counts half."""
+
+
+def headline_importance(article: NewsArticle, now: datetime) -> float:
+    """Score how market-moving ``article`` looks, from 0 to 1.
+
+    A heuristic, not a model: the topics its headline names (monetary policy and the
+    economy most, then market-wide moves and large corporate events), whether a major
+    publisher ran it, and how recent it is, halving every
+    :data:`IMPORTANCE_HALF_LIFE_HOURS` hours.
+    """
+    topics = sum(weight for pattern, weight in HEADLINE_TOPICS if pattern.search(article.headline))
+    relevance = min(topics / TOPIC_SATURATION, 1.0)
+    publisher = 1.0 if article.source.strip().lower() in MAJOR_PUBLISHERS else 0.4
+    hours = max((now - article.published_at).total_seconds() / 3600.0, 0.0)
+    recency = math.pow(0.5, hours / IMPORTANCE_HALF_LIFE_HOURS)
+    return round((0.6 * relevance + 0.4 * publisher) * (0.4 + 0.6 * recency), 4)
+
+
+def score_headlines(news: MarketNews, now: datetime) -> MarketNews:
+    """``news`` with every article's :func:`headline_importance`, still newest first."""
+    return news.model_copy(
+        update={
+            "articles": [
+                article.model_copy(update={"importance": headline_importance(article, now)})
+                for article in news.articles
+            ]
+        }
     )

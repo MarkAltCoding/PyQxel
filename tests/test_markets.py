@@ -29,7 +29,12 @@ from app.data.markets import (
 from app.main import app
 from app.models.markets import EarningsEvent, IpoEvent, MarketHoliday, MarketNews
 from app.models.news import NewsArticle
-from app.stats.markets import major_earnings, market_context
+from app.stats.markets import (
+    headline_importance,
+    major_earnings,
+    market_context,
+    score_headlines,
+)
 
 KEY = "fh-user-key"
 TODAY = date(2026, 10, 25)
@@ -334,3 +339,65 @@ def test_calendar_without_finnhub_key_has_fomc_only(user: object) -> None:
 def test_market_news_route_needs_a_key(user: object) -> None:
     """Market news without a Finnhub key is a 403."""
     assert client.get("/api/v1/markets/news").status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("params", "status"),
+    [
+        ({"days": 90}, 200),
+        ({"days": 91}, 422),
+        ({"min_market_cap": 5e11}, 200),
+        ({"min_market_cap": 6e12}, 422),
+    ],
+)
+def test_calendar_accepts_custom_windows_and_market_caps(
+    user: object, params: dict[str, float], status: int
+) -> None:
+    """Any window up to 90 days and any market cap up to $5 trillion may be asked for."""
+    assert client.get("/api/v1/markets/calendar", params=params).status_code == status
+
+
+NOW = datetime(2026, 10, 25, 15, tzinfo=timezone.utc)
+
+
+def _article(headline: str, source: str = "Reuters", hours_old: float = 1.0) -> NewsArticle:
+    return NewsArticle(
+        published_at=NOW - timedelta(hours=hours_old),
+        headline=headline,
+        source=source,
+        url=f"https://example.com/{abs(hash((headline, source, hours_old)))}",
+    )
+
+
+def test_policy_news_from_major_publishers_ranks_first() -> None:
+    fed = headline_importance(_article("Fed signals rate cut as inflation cools"), NOW)
+    stocks = headline_importance(_article("Stocks rally to a record on Wall Street"), NOW)
+    obscure = headline_importance(
+        _article("Fed signals rate cut as inflation cools", source="Some Blog"), NOW
+    )
+    fluff = headline_importance(_article("Ten gadgets to buy this holiday"), NOW)
+
+    assert 0 <= fluff < obscure < fed <= 1
+    assert fluff < stocks
+    assert fed > obscure  # the same story counts more from a major publisher
+
+
+def test_older_headlines_count_less() -> None:
+    fresh = headline_importance(_article("Fed holds rates", hours_old=1), NOW)
+    stale = headline_importance(_article("Fed holds rates", hours_old=72), NOW)
+
+    assert stale < fresh
+
+
+def test_scored_news_keeps_its_order() -> None:
+    news = MarketNews(
+        category="general",
+        articles=[_article("Ten gadgets", hours_old=1), _article("Fed hikes rates", hours_old=2)],
+        fetched_at=NOW,
+    )
+
+    scored = score_headlines(news, NOW)
+
+    assert [article.headline for article in scored.articles] == ["Ten gadgets", "Fed hikes rates"]
+    assert all(article.importance is not None for article in scored.articles)
+    assert scored.articles[1].importance > scored.articles[0].importance  # type: ignore[operator]
