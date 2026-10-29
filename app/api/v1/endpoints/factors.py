@@ -7,6 +7,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.v1.endpoints.stocks import Symbol, history_coverage, upstream_error
+from app.data.cash import is_money_market, money_market_message
 from app.data.factors import fetch_factors
 from app.data.fetcher import DataFetchError, fetch_price_history
 from app.models.factors import FactorModel, FactorPeriod, FactorRegression
@@ -73,8 +74,9 @@ async def get_factor_exposures(
     try:
         fit = fit_factor_model(prices_result["Close"], factors_result, model)
     except InsufficientDataError as exc:
+        detail = money_market_message(symbol) if is_money_market(symbol) else str(exc)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail
         ) from exc
 
     factor_end = pd.Timestamp(factors_result.index[-1])

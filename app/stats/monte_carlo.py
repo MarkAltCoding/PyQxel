@@ -13,7 +13,8 @@ Each simulated day is drawn in two parts:
    With empirical marginals no day is worse than the worst on record; the t can be.
 
 Days are independent. With ``daily`` rebalancing the portfolio is reset to its target
-weights every day, so its daily return is the weighted sum of its assets'. With
+weights every day, so its daily return is the weighted sum of its assets'. Holdings
+given as ``cash``, such as money-market funds, keep their value and earn nothing. With
 ``none`` (buy-and-hold) it is bought once at the target weights and each holding then
 grows on its own, so weights drift toward whatever has done well. Paths are simulated
 in batches to bound memory, and a seed reproduces them exactly.
@@ -69,6 +70,9 @@ FAN_PERCENTILES: tuple[float, ...] = (5, 25, 50, 75, 95)
 
 MIN_TAIL_GAP: float = 0.1
 """Smallest shortfall in joint tail frequency flagged, whatever the sampling noise."""
+
+MAX_PAIR_WARNINGS: int = 3
+"""Pairs warned about one by one; beyond this, one warning sums them up."""
 
 
 class SimulationError(ValueError):
@@ -214,14 +218,47 @@ def _tail_checks(symbols: list[str], history: np.ndarray, simulated: np.ndarray)
     return checks
 
 
+def _tail_warnings(checks: list[TailCheck]) -> list[str]:
+    """Warn about pairs whose joint crashes the simulation understates: each one when
+    there are few, or a summary naming the worst when a large portfolio has many."""
+    understated = [check for check in checks if check.understated]
+    advice = "The empirical dependence model keeps each pair's history."
+    if len(understated) <= MAX_PAIR_WARNINGS:
+        return [
+            f"The simulation has {check.symbols[0]} and {check.symbols[1]} in their worst 5% "
+            f"of days together {check.simulated_lower_tail:.0%} of the time, against "
+            f"{check.historical_lower_tail:.0%} historically, so it understates how often "
+            f"they crash together. {advice}"
+            for check in understated
+        ]
+    worst = sorted(understated, key=lambda c: c.simulated_lower_tail - c.historical_lower_tail)[
+        :MAX_PAIR_WARNINGS
+    ]
+    examples = "; ".join(
+        f"{c.symbols[0]} and {c.symbols[1]}, {c.simulated_lower_tail:.0%} against "
+        f"{c.historical_lower_tail:.0%}"
+        for c in worst
+    )
+    return [
+        f"For {len(understated)} of {len(checks)} pairs of holdings, the simulation has both "
+        "in their worst 5% of days together clearly less often than history, so it "
+        f"understates how often they crash together. The largest gaps: {examples}. {advice}"
+    ]
+
+
 def _validate(
-    returns: pd.DataFrame, weights: np.ndarray, horizon: int, paths: int, initial_value: float
+    returns: pd.DataFrame,
+    weights: np.ndarray,
+    cash: float,
+    horizon: int,
+    paths: int,
+    initial_value: float,
 ) -> None:
     """Reject inconsistent or oversized settings."""
     if returns.empty or returns.isna().any().any():
         raise SimulationError("Returns must be a non-empty table without missing values.")
-    if not math.isclose(float(weights.sum()), 1.0, abs_tol=1e-6):
-        raise SimulationError("Weights must sum to 1.")
+    if cash < 0 or not math.isclose(float(weights.sum()) + cash, 1.0, abs_tol=1e-6):
+        raise SimulationError("Weights, with cash, must sum to 1.")
     if horizon < 1 or paths < 2 or initial_value <= 0:
         raise SimulationError(
             "horizon must be at least 1, paths at least 2, initial_value positive."
@@ -249,13 +286,14 @@ def simulate_portfolio(
     seed: int | None = None,
     copula: CopulaFit | None = None,
     rebalancing: Rebalancing = "daily",
+    cash: dict[str, float] | None = None,
 ) -> SimulationSummary:
     """Simulate a portfolio's value ``horizon`` trading days ahead.
 
     Args:
         returns: Aligned simple daily returns, one column per asset, as built by
             :func:`app.stats.panel.return_panel`.
-        weights: Target weight of each column, summing to one.
+        weights: Target weight of each column; with ``cash``, summing to one.
         horizon: Trading days to simulate.
         paths: Number of simulated paths.
         dependence: ``"gaussian"``, ``"student_t"`` or ``"empirical"``.
@@ -265,6 +303,7 @@ def simulate_portfolio(
         copula: Copulas already fitted to ``returns``; fitted here when omitted.
         rebalancing: ``"daily"`` to reset to the target weights every day, or ``"none"``
             to buy once and hold, letting weights drift.
+        cash: Weights of holdings kept as cash, by symbol, which neither gain nor lose.
 
     Returns:
         The distribution of terminal value and return, expected return, probability of
@@ -291,7 +330,9 @@ def simulate_portfolio(
             + "."
         )
     weight_vector = np.array([weights[symbol] for symbol in symbols], dtype=float)
-    _validate(returns, weight_vector, horizon, paths, initial_value)
+    cash = cash or {}
+    cash_weight = math.fsum(cash.values())
+    _validate(returns, weight_vector, cash_weight, horizon, paths, initial_value)
 
     dimension = len(symbols)
     values = returns.to_numpy(dtype=float)
@@ -306,6 +347,7 @@ def simulate_portfolio(
 
     growth = np.empty((paths, horizon))
     final_weights = np.zeros(dimension)
+    final_cash = 0.0
     tail_sample: list[np.ndarray] = []
     kept = 0
     batch = max(1, BATCH_DRAWS // (horizon * dimension))
@@ -320,10 +362,10 @@ def simulate_portfolio(
             growth[start : start + size] = np.cumprod(1.0 + assets @ weight_vector, axis=1)
         else:
             holdings = np.cumprod(1.0 + assets, axis=1) * weight_vector
-            growth[start : start + size] = holdings.sum(axis=2)
-            final_weights += (holdings[:, -1] / holdings[:, -1].sum(axis=1, keepdims=True)).sum(
-                axis=0
-            )
+            growth[start : start + size] = holdings.sum(axis=2) + cash_weight
+            final = holdings[:, -1].sum(axis=1, keepdims=True) + cash_weight
+            final_weights += (holdings[:, -1] / final).sum(axis=0)
+            final_cash += float((cash_weight / final).sum())
         if kept < TAIL_SAMPLE_DAYS:
             tail_sample.append(draws[: TAIL_SAMPLE_DAYS - kept])
             kept += len(tail_sample[-1])
@@ -336,14 +378,7 @@ def simulate_portfolio(
     fan = np.percentile(path_values, FAN_PERCENTILES, axis=0)
 
     checks = _tail_checks(symbols, history, np.vstack(tail_sample)) if dimension > 1 else []
-    warnings = [
-        f"The simulation has {check.symbols[0]} and {check.symbols[1]} in their worst 5% "
-        f"of days together {check.simulated_lower_tail:.0%} of the time, against "
-        f"{check.historical_lower_tail:.0%} historically, so it understates how often they "
-        "crash together. The empirical dependence model keeps each pair's history."
-        for check in checks
-        if check.understated
-    ]
+    warnings = _tail_warnings(checks)
 
     scale = math.sqrt(TRADING_DAYS)
     return SimulationSummary(
@@ -359,6 +394,11 @@ def simulate_portfolio(
             else [
                 FinalWeight(symbol=symbol, weight=float(weight / paths))
                 for symbol, weight in zip(symbols, final_weights)
+            ]
+            + [
+                FinalWeight(symbol=symbol, weight=final_cash / paths * weight / cash_weight)
+                for symbol, weight in cash.items()
+                if cash_weight > 0
             ]
         ),
         copula_degrees_of_freedom=(

@@ -20,6 +20,7 @@ from app.db.tables import (
     HoldingRecord,
     IdentityRecord,
     PortfolioAnalysisRecord,
+    PortfolioRecord,
     SimulationRecord,
     UserRecord,
     as_utc,
@@ -291,10 +292,10 @@ async def claim_unowned(session: AsyncSession, user_id: str) -> dict[str, int]:
 async def delete_user(session: AsyncSession, user_id: str) -> bool:
     """Delete the account and everything it holds; return whether it existed.
 
-    Its API keys, sign-in identities, holdings, stored backtests, analyses, portfolio
-    reviews and simulations, and its count of assistant answers go with it. Rows are
-    deleted explicitly rather than left to the foreign keys' cascades, which SQLite does
-    not enforce by default.
+    Its API keys, sign-in identities, portfolios and their holdings, stored backtests,
+    analyses, portfolio reviews and simulations, and its count of assistant answers go
+    with it. Rows are deleted explicitly rather than left to the foreign keys' cascades,
+    which SQLite does not enforce by default.
     """
     record = await session.get(UserRecord, user_id)
     if record is None:
@@ -303,6 +304,7 @@ async def delete_user(session: AsyncSession, user_id: str) -> bool:
         ApiKeyRecord,
         IdentityRecord,
         HoldingRecord,
+        PortfolioRecord,
         BacktestRecord,
         AnalysisRecord,
         PortfolioAnalysisRecord,

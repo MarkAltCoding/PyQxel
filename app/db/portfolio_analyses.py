@@ -30,8 +30,10 @@ async def save_portfolio_analysis(
     response: PortfolioAnalysisResponse,
     requested_model: str,
     effort: str,
+    portfolio: int = 1,
 ) -> PortfolioAnalysisResponse:
-    """Store ``response``, written for ``user_id``'s holdings ``key``; return it with its ID.
+    """Store ``response``, written for the holdings ``key`` of ``user_id``'s
+    ``portfolio``; return it with its ID.
 
     Raises:
         sqlalchemy.exc.SQLAlchemyError: If the database cannot be written.
@@ -42,6 +44,7 @@ async def save_portfolio_analysis(
             id=str(saved.id),
             user_id=user_id,
             created_at=saved.generated_at,
+            portfolio=portfolio,
             period=saved.period,
             holdings_key=key,
             requested_model=requested_model,
@@ -63,12 +66,15 @@ async def find_recent_portfolio_analysis(
     requested_model: str,
     effort: str,
     since: datetime,
+    portfolio: int = 1,
 ) -> PortfolioAnalysisResponse | None:
-    """The account's newest review since ``since`` for the same holdings and options."""
+    """The account's newest review since ``since`` of ``portfolio`` with the same
+    holdings and options."""
     record = await session.scalar(
         select(PortfolioAnalysisRecord)
         .where(
             PortfolioAnalysisRecord.user_id == user_id,
+            PortfolioAnalysisRecord.portfolio == portfolio,
             PortfolioAnalysisRecord.period == period,
             PortfolioAnalysisRecord.holdings_key == key,
             PortfolioAnalysisRecord.requested_model == requested_model,
@@ -82,12 +88,15 @@ async def find_recent_portfolio_analysis(
 
 
 async def latest_portfolio_analysis(
-    session: AsyncSession, user_id: str
+    session: AsyncSession, user_id: str, portfolio: int = 1
 ) -> PortfolioAnalysisResponse | None:
-    """The account's newest review, whatever it was written for."""
+    """The account's newest review of ``portfolio``, whatever it was written for."""
     record = await session.scalar(
         select(PortfolioAnalysisRecord)
-        .where(PortfolioAnalysisRecord.user_id == user_id)
+        .where(
+            PortfolioAnalysisRecord.user_id == user_id,
+            PortfolioAnalysisRecord.portfolio == portfolio,
+        )
         .order_by(PortfolioAnalysisRecord.created_at.desc())
         .limit(1)
     )

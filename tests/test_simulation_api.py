@@ -17,6 +17,7 @@ from app.api.v1.endpoints import portfolio
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
 from app.data.panel import ClosePanel
 from app.main import app
+from app.models.stock import TickerInfo
 
 client = TestClient(app)
 
@@ -39,7 +40,9 @@ def _serve(
     """Fake the panel download, by default closes for whatever is asked; return the requests."""
     calls: list[list[str]] = []
 
-    async def fake_panel(symbols: list[str], period: str, interval: str) -> ClosePanel:
+    async def fake_panel(
+        symbols: list[str], period: str, interval: str, tolerate_failures: bool = False
+    ) -> ClosePanel:
         calls.append(symbols)
         if isinstance(result, Exception):
             raise result
@@ -307,6 +310,80 @@ def test_too_little_history_is_422(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert response.status_code == 422
     assert "daily closes" in response.json()["detail"]
+
+
+def _no_quote_types(monkeypatch: pytest.MonkeyPatch, money_market: set[str] = set()) -> None:
+    """Fake ticker info: ``money_market`` symbols are money-market funds, others stocks."""
+
+    async def info(symbol: str) -> TickerInfo:
+        quote_type = "MONEYMARKET" if symbol in money_market else "EQUITY"
+        return TickerInfo(symbol=symbol, quote_type=quote_type, source="test")
+
+    monkeypatch.setattr(portfolio, "fetch_ticker_info", info)
+
+
+def test_money_market_funds_are_cash_and_short_listings_are_left_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SPAXX is held as cash without a download; a recent listing is left out, and the
+    rest are scaled up to the whole portfolio."""
+    closes = _closes(["SPY", "TLT", "NEW"])
+    closes.loc[closes.index[:-120], "NEW"] = np.nan
+    calls = _serve(monkeypatch, closes)
+    _no_quote_types(monkeypatch)
+    holdings = [
+        {"symbol": "SPY", "weight": 0.4},
+        {"symbol": "SPAXX", "weight": 0.2},
+        {"symbol": "TLT", "weight": 0.2},
+        {"symbol": "NEW", "weight": 0.2},
+    ]
+
+    body = _simulate(holdings=holdings, rebalancing="none")
+
+    assert calls == [["SPY", "TLT", "NEW"]]
+    assert body["holdings"] == holdings
+    assert body["cash"] == ["SPAXX"]
+    assert [(h["symbol"], h["reason"]) for h in body["left_out"]] == [("NEW", "short_history")]
+    assert "120 daily closes" in body["left_out"][0]["detail"]
+    assert body["simulated"] == [
+        {"symbol": "SPY", "weight": pytest.approx(0.5)},
+        {"symbol": "SPAXX", "weight": pytest.approx(0.25)},
+        {"symbol": "TLT", "weight": pytest.approx(0.25)},
+    ]
+    final = {w["symbol"]: w["weight"] for w in body["simulation"]["mean_final_weights"]}
+    assert set(final) == {"SPY", "TLT", "SPAXX"}
+    assert sum(final.values()) == pytest.approx(1.0)
+
+
+def test_a_fund_the_provider_calls_money_market_is_cash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A holding with no usable history that the provider classes as money market is cash."""
+    closes = _closes(["SPY", "TLT", "FUND"])
+    closes.loc[closes.index[:-1], "FUND"] = np.nan
+    _serve(monkeypatch, closes)
+    _no_quote_types(monkeypatch, {"FUND"})
+
+    body = _simulate(
+        holdings=[
+            {"symbol": "SPY", "weight": 0.5},
+            {"symbol": "TLT", "weight": 0.3},
+            {"symbol": "FUND", "weight": 0.2},
+        ]
+    )
+
+    assert body["cash"] == ["FUND"] and body["left_out"] == []
+
+
+def test_only_cash_left_is_422(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With nothing but cash to simulate, the reason is given."""
+    _serve(monkeypatch)
+
+    response = client.post(
+        "/api/v1/portfolio/simulate",
+        json={"holdings": [{"symbol": "SPAXX", "weight": 0.5}, {"symbol": "VMFXX", "weight": 0.5}]},
+    )
+
+    assert response.status_code == 422
+    assert "money-market" in response.json()["detail"]
 
 
 @pytest.mark.parametrize(

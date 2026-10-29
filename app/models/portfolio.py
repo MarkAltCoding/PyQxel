@@ -9,8 +9,17 @@ from pydantic import AfterValidator, BaseModel, Field, StringConstraints, model_
 
 from app.models.stock import SYMBOL_PATTERN
 
-MAX_SYMBOLS: int = 20
+MAX_SYMBOLS: int = 40
 """Most symbols one request may name; each is a separate price download."""
+
+MAX_PORTFOLIOS: int = 2
+"""Portfolios an account may save, numbered from 1."""
+
+PortfolioNumber = Annotated[int, Field(ge=1, le=MAX_PORTFOLIOS)]
+"""Which of the account's saved portfolios: 1 or 2."""
+
+MAX_PORTFOLIO_NAME: int = 40
+"""Longest name a saved portfolio may be given."""
 
 WEIGHT_TOLERANCE: float = 1e-6
 """How far portfolio weights may sum from one, absorbing rounding in clients."""
@@ -129,6 +138,21 @@ class PairDependence(BaseModel):
     empirical_upper_tail: float = Field(ge=0, le=1, description="The same for the best 5% of days.")
 
 
+LeftOutReason = Literal["cash", "short_history", "late_start", "no_data"]
+"""Why a holding was left out of a multi-asset model: ``cash`` for a money-market fund
+or other holding whose price does not move; ``short_history`` for too few daily closes
+in the window; ``late_start`` for history starting so late that keeping it would leave
+the rest too few common days; ``no_data`` when its prices could not be fetched."""
+
+
+class LeftOutHolding(BaseModel):
+    """A holding a multi-asset model could not use, and why."""
+
+    symbol: str
+    reason: LeftOutReason
+    detail: str = Field(description="The reason in words, e.g. how much history it has.")
+
+
 class CopulaFitResponse(BaseModel):
     """Gaussian and Student t copulas fitted to several assets' daily returns, and compared."""
 
@@ -152,6 +176,10 @@ class CopulaFitResponse(BaseModel):
         "evidence for it.",
     )
     pairs: list[PairDependence]
+    left_out: list[LeftOutHolding] = Field(
+        default_factory=list,
+        description="Requested symbols the fit does not include; ``symbols`` are the rest.",
+    )
     warnings: list[str] = Field(default_factory=list)
     notice: str | None = Field(
         default=None, description="Explains any part of the window without data."
@@ -165,10 +193,19 @@ class HoldingShares(BaseModel):
     shares: float = Field(gt=0, allow_inf_nan=False)
 
 
+PortfolioName = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_PORTFOLIO_NAME)
+]
+"""A saved portfolio's name, stripped."""
+
+
 class HoldingsUpdate(BaseModel):
-    """The account's whole portfolio, replacing what was saved; empty clears it."""
+    """One of the account's portfolios in full, replacing what was saved; empty clears it."""
 
     holdings: list[HoldingShares] = Field(default_factory=list, max_length=MAX_SYMBOLS)
+    name: PortfolioName | None = Field(
+        default=None, description="A new name for the portfolio; null keeps its name."
+    )
 
     @model_validator(mode="after")
     def _check_distinct(self) -> Self:
@@ -191,14 +228,40 @@ class HoldingValue(BaseModel):
         description="Share of the priced holdings' total value, as a decimal; null when "
         "the price is unavailable.",
     )
+    cash: bool = Field(
+        default=False,
+        description="A money-market fund, held at a steady $1 a share: simulations hold it "
+        "as cash, and it is left out of how the holdings move together.",
+    )
+
+
+def default_portfolio_name(portfolio: int) -> str:
+    """The name of a portfolio never given one."""
+    return f"Portfolio {portfolio}"
 
 
 class HoldingsResponse(BaseModel):
-    """The account's saved portfolio, valued now, in the order it was saved."""
+    """One of the account's saved portfolios, valued now, in the order it was saved."""
 
+    portfolio: PortfolioNumber = 1
+    name: str = Field(default_factory=lambda: default_portfolio_name(1))
     holdings: list[HoldingValue]
     total_value: float = Field(description="Sum of the priced holdings' values.")
     priced_at: datetime
     notice: str | None = Field(
         default=None, description="Which holdings could not be priced, and why."
     )
+
+
+class PortfolioSummary(BaseModel):
+    """One of the account's portfolio slots, without prices."""
+
+    portfolio: PortfolioNumber
+    name: str
+    holdings: int = Field(ge=0, description="How many holdings it has saved.")
+
+
+class PortfolioList(BaseModel):
+    """Every portfolio the account may save, saved or still empty, in order."""
+
+    portfolios: list[PortfolioSummary]

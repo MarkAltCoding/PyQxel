@@ -52,9 +52,12 @@ const DIVERSIFICATION_TONE = {
  * billed to the account's own Anthropic key, so one is only written when asked for.
  */
 export function PortfolioReviewCard({
+  portfolio,
   hasHoldings,
   stale,
 }: {
+  /** Which saved portfolio to review. */
+  portfolio: number
   hasHoldings: boolean
   stale: boolean
 }) {
@@ -69,7 +72,10 @@ export function PortfolioReviewCard({
   const abort = useRef<AbortController | null>(null)
   useEffect(() => () => abort.current?.abort(), [])
 
-  const latest = useQuery({ queryKey: ['portfolio-review'], queryFn: getPortfolioReview })
+  const latest = useQuery({
+    queryKey: ['portfolio-review', portfolio],
+    queryFn: () => getPortfolioReview(portfolio),
+  })
   const review = latest.data ?? null
 
   const profile = (): InvestorProfile => ({
@@ -81,18 +87,18 @@ export function PortfolioReviewCard({
 
   // Outside the app: the prompt's data is kept so the pasted answer is saved with it.
   const getPrompt = async () => {
-    const request: PortfolioAnalysisRequest = { period, profile: profile() }
+    const request: PortfolioAnalysisRequest = { portfolio, period, profile: profile() }
     const exported = await exportPortfolioPrompt(request)
-    keepExport('portfolio', { request, context: exported.context })
+    keepExport(`portfolio-${portfolio}`, { request, context: exported.context })
     return exported
   }
   const pasteAnswer = async (response: string) => {
     const kept = keptExport<{ request: PortfolioAnalysisRequest; context: PortfolioContext }>(
-      'portfolio',
+      `portfolio-${portfolio}`,
     )
     if (!kept) throw new Error('Get the prompt first: the answer is saved with its data.')
     queryClient.setQueryData(
-      ['portfolio-review'],
+      ['portfolio-review', portfolio],
       await importPortfolioReview({ ...kept, response }),
     )
   }
@@ -104,11 +110,11 @@ export function PortfolioReviewCard({
     setProgress({ thinking: '', characters: 0 })
     try {
       const response = await streamPortfolioReview(
-        { period, profile: profile(), refresh: review?.period === period },
+        { portfolio, period, profile: profile(), refresh: review?.period === period },
         controller.signal,
       )
       const result = await readAiStream<PortfolioAnalysisResponse>(response, setProgress)
-      queryClient.setQueryData(['portfolio-review'], result)
+      queryClient.setQueryData(['portfolio-review', portfolio], result)
     } catch (failure) {
       if (!controller.signal.aborted) setError(failure)
     } finally {

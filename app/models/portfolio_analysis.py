@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.portfolio import MAX_SYMBOLS, PortfolioPeriod
+from app.models.portfolio import MAX_SYMBOLS, PortfolioNumber, PortfolioPeriod
 from app.models.research import RiskFactor
 
 
@@ -33,8 +33,9 @@ class InvestorProfile(BaseModel):
 
 
 class PortfolioAnalysisRequest(BaseModel):
-    """Options for a review of the saved portfolio."""
+    """Options for a review of one of the saved portfolios."""
 
+    portfolio: PortfolioNumber = Field(default=1, description="Which saved portfolio to review.")
     profile: InvestorProfile = Field(default_factory=InvestorProfile)
     period: PortfolioPeriod = Field(
         default="1y", description="Window of daily returns the statistics are computed on."
@@ -71,7 +72,12 @@ class AssetRisk(BaseModel):
     correlation_to_rest: float | None = Field(
         default=None,
         description="Correlation of its daily returns with the rest of the portfolio's; "
-        "null for a portfolio of one holding.",
+        "null for a portfolio of one holding, and for cash.",
+    )
+    cash: bool = Field(
+        default=False,
+        description="A money-market fund, counted as cash: its price stays at $1, so its "
+        "statistics are zero.",
     )
 
 
@@ -134,7 +140,8 @@ class PortfolioContext(BaseModel):
     least_correlated: list[PairCorrelation] = Field(default_factory=list)
     left_out: list[str] = Field(
         default_factory=list,
-        description="Holdings left out of the review because they could not be priced.",
+        description="Holdings left out of the review because they could not be priced or "
+        "have too little history; ``notice`` says which and why.",
     )
     notice: str | None = Field(
         default=None, description="Explains anything left out of the window or the holdings."

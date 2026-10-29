@@ -509,6 +509,20 @@ def test_volatility_ewma_maps_short_history_to_422(monkeypatch: pytest.MonkeyPat
     assert response.json() == {"detail": "EWMA needs at least 30 returns"}
 
 
+def test_a_money_market_fund_has_no_volatility_to_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A money-market fund's 422 says why, rather than asking for more history."""
+    _serve_volatility(monkeypatch, _garch_fit())
+
+    def short_ewma(closes: pd.Series, periods_per_year: int, horizon: int, decay: float) -> EwmaFit:
+        raise InsufficientDataError("EWMA needs at least 30 returns")
+
+    monkeypatch.setattr(stocks, "fit_ewma", short_ewma)
+    response = client.get("/api/v1/stocks/spaxx/volatility", params={"model": "ewma"})
+
+    assert response.status_code == 422
+    assert response.json()["detail"].startswith("SPAXX is a money-market fund")
+
+
 AnalysisCall = tuple[AnalysisContext, str, list[Filing]]
 
 
