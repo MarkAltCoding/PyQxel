@@ -16,7 +16,7 @@ import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 import pandas as pd
@@ -27,6 +27,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.agent import (
+    analysis_content,
     anthropic_client,
     AINotConfiguredError,
     AIRateLimitError,
@@ -37,6 +38,8 @@ from app.ai.agent import (
     write_analysis,
 )
 from app.ai.cache import analysis_slot, cached_analysis, remember_analysis
+from app.ai.external import PASTED_MODEL, ExternalResponseError, parse_response, render_prompt
+from app.ai.prompts import SYSTEM_PROMPT
 from app.api.auth import CurrentUser
 from app.core.credentials import current_provider_keys
 from app.api.v1.endpoints.fundamentals import (
@@ -76,7 +79,7 @@ from app.data.sec_edgar import (
     FilingFetchError,
     fetch_latest_filings,
 )
-from app.db.analyses import get_analysis, list_analyses
+from app.db.analyses import get_analysis, list_analyses, save_analysis
 from app.db.screener import PeerGroup, peer_group
 from app.db.session import get_session, get_sessionmaker
 from app.db.users import User, ai_usage
@@ -86,7 +89,9 @@ from app.models.markets import MarketContext
 from app.models.metrics import CompanyMetrics
 from app.models.news import CompanyNews, NewsContext
 from app.models.signals import MarketSignals, SignalsContext
+from app.models.external import AnalysisImport, AnalysisPromptExport
 from app.models.research import (
+    ANALYSIS_CONTEXT_VERSION,
     AnalysisContext,
     AnalysisDelta,
     AnalysisKind,
@@ -489,7 +494,23 @@ async def prepare_analysis(
         )
     api_key = anthropic_key()
     await check_ai_limits(user)
+    symbol, context, filings = await gather_analysis_data(symbol, request)
+    return PreparedAnalysis(
+        symbol=symbol,
+        user_id=user.id,
+        request=request,
+        context=context,
+        filings=filings,
+        api_key=api_key,
+    )
 
+
+async def gather_analysis_data(
+    symbol: str, request: AnalysisRequest
+) -> tuple[str, AnalysisContext, list[Filing]]:
+    """The normalized symbol, and the context and filings an analysis of it is written
+    from; failures as for :func:`prepare_analysis`, except that no Anthropic key or AI
+    limit is checked."""
     # Groups run together, since asyncio.gather is typed for at most six awaitables.
     today = datetime.now(timezone.utc).date()
     (
@@ -596,14 +617,7 @@ async def prepare_analysis(
         market=market,
         notice=" ".join(notices) or None,
     )
-    return PreparedAnalysis(
-        symbol=symbol,
-        user_id=user.id,
-        request=request,
-        context=context,
-        filings=filings,
-        api_key=api_key,
-    )
+    return symbol, context, filings
 
 
 Prepared = Annotated[PreparedAnalysis, Depends(prepare_analysis)]
@@ -775,3 +789,88 @@ async def read_analysis(analysis_id: UUID, session: Session, user: CurrentUser) 
             status_code=status.HTTP_404_NOT_FOUND, detail=f"No analysis with ID {analysis_id}."
         )
     return result
+
+
+# Claude outside the app: the prompt to paste there, and the answer brought back.
+
+
+@router.post(
+    "/{symbol}/analysis/prompt",
+    response_model=AnalysisPromptExport,
+    summary="The analysis prompt, to paste into Claude outside the app",
+)
+async def export_analysis_prompt(
+    symbol: Symbol,
+    user: CurrentUser,
+    request: Annotated[AnalysisRequest, Body()] = AnalysisRequest(),
+) -> AnalysisPromptExport:
+    """Return exactly what an analysis would send Claude, as one Markdown document.
+
+    The same data is gathered as for ``/analysis``, filings included, but nothing is sent
+    to Claude: no Anthropic key is needed and nothing counts against your AI limits.
+    Paste ``prompt`` into Claude, then send its answer to ``/analysis/import`` with the
+    ``context`` returned here. Fails as ``/analysis`` does when the data cannot be had.
+    """
+    symbol, context, filings = await gather_analysis_data(symbol, request)
+    messages: list[Any] = [
+        {"role": "user", "content": analysis_content(context, request.kind, filings)}
+    ]
+    schema = InvestmentThesis if request.kind == "thesis" else RiskSummary
+    return AnalysisPromptExport(
+        prompt=render_prompt(SYSTEM_PROMPT, messages, schema),
+        filename=f"pyqxel-{symbol}-{request.kind}-{request.period}-prompt.md",
+        context=context,
+    )
+
+
+@router.post(
+    "/{symbol}/analysis/import",
+    response_model=AnalysisResponse,
+    summary="Save an analysis Claude wrote outside the app",
+)
+async def import_analysis(
+    symbol: Symbol, user: CurrentUser, body: Annotated[AnalysisImport, Body()]
+) -> AnalysisResponse:
+    """Check Claude's answer to an exported prompt and store it as an analysis.
+
+    The answer must be the JSON the prompt asked for; it may arrive in a code fence or
+    with text around it. It is stored with the context it was written from, marked as
+    pasted, and never reused in place of a new analysis. Returns 422 when the answer does
+    not match the report's format or the context is of another symbol.
+    """
+    symbol = symbol.upper()
+    if body.context.ticker.symbol.upper() != symbol:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"The context is of {body.context.ticker.symbol}, not {symbol}.",
+        )
+    schema: type[InvestmentThesis | RiskSummary] = (
+        InvestmentThesis if body.request.kind == "thesis" else RiskSummary
+    )
+    try:
+        report = parse_response(body.response, schema)
+    except ExternalResponseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    response = AnalysisResponse(
+        symbol=symbol,
+        kind=body.request.kind,
+        report=report,
+        context=body.context,
+        model=PASTED_MODEL,
+        generated_at=datetime.now(timezone.utc),
+    )
+    try:
+        async with get_sessionmaker()() as session:
+            return await save_analysis(
+                session,
+                user.id,
+                body.request,
+                response,
+                requested_model=PASTED_MODEL,
+                effort=PASTED_MODEL,
+                context_version=ANALYSIS_CONTEXT_VERSION,
+            )
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc

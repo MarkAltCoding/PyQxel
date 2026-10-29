@@ -18,7 +18,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.agent import AIRateLimitError, AnalysisError, Written, anthropic_client
-from app.ai.portfolio import stream_portfolio_review, write_portfolio_review
+from app.ai.external import PASTED_MODEL, ExternalResponseError, parse_response, render_prompt
+from app.ai.portfolio import review_messages, stream_portfolio_review, write_portfolio_review
+from app.ai.prompts import PORTFOLIO_SYSTEM_PROMPT
 from app.api.auth import CurrentUser
 from app.api.v1.endpoints.research import ai_error, anthropic_key, check_ai_limits
 from app.core.config import get_settings
@@ -58,6 +60,7 @@ from app.models.backtest import (
     PortfolioBacktestRequest,
     PortfolioBacktestResponse,
 )
+from app.models.external import PortfolioPromptExport, PortfolioReviewImport
 from app.models.factors import RISK_FREE
 from app.models.portfolio_analysis import (
     AssetRisk,
@@ -851,3 +854,85 @@ async def read_portfolio_review(session: Session, user: CurrentUser) -> Portfoli
             status_code=status.HTTP_404_NOT_FOUND, detail="No portfolio review yet."
         )
     return review.model_copy(update={"cached": True})
+
+
+async def _saved_holdings(session: AsyncSession, user_id: str) -> list[HoldingShares]:
+    """The account's saved holdings; 422 when there are none, 503 when unreadable."""
+    try:
+        holdings = await get_holdings(session, user_id)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    if not holdings:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Save your holdings first; the review is of your saved portfolio.",
+        )
+    return holdings
+
+
+@router.post(
+    "/analysis/prompt",
+    response_model=PortfolioPromptExport,
+    summary="The portfolio review prompt, to paste into Claude outside the app",
+)
+async def export_portfolio_prompt(
+    session: Session,
+    user: CurrentUser,
+    request: Annotated[PortfolioAnalysisRequest, Body()] = PortfolioAnalysisRequest(),
+) -> PortfolioPromptExport:
+    """Return exactly what a review of your saved portfolio would send Claude.
+
+    No Anthropic key is needed and nothing counts against your AI limits. Paste
+    ``prompt`` into Claude, then send its answer to ``/analysis/import`` with the
+    ``context`` returned here.
+    """
+    holdings = await _saved_holdings(session, user.id)
+    context = await _portfolio_context(holdings, request.period, request.profile)
+    return PortfolioPromptExport(
+        prompt=render_prompt(PORTFOLIO_SYSTEM_PROMPT, review_messages(context), PortfolioReview),
+        filename=f"pyqxel-portfolio-review-{request.period}-prompt.md",
+        context=context,
+    )
+
+
+@router.post(
+    "/analysis/import",
+    response_model=PortfolioAnalysisResponse,
+    summary="Save a portfolio review Claude wrote outside the app",
+)
+async def import_portfolio_review(
+    session: Session, user: CurrentUser, body: Annotated[PortfolioReviewImport, Body()]
+) -> PortfolioAnalysisResponse:
+    """Check Claude's answer to an exported prompt and store it as your latest review.
+
+    Its target allocation is turned into orders at the latest prices, as for reviews the
+    app writes. It is marked as pasted and never reused in place of a new review.
+    Returns 422 when the answer does not match the review's format.
+    """
+    try:
+        report = parse_response(body.response, PortfolioReview)
+    except ExternalResponseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    holdings = await _saved_holdings(session, user.id)
+    plan = await _plan(body.context, report)
+    response = PortfolioAnalysisResponse(
+        period=body.context.period,
+        report=report,
+        plan=plan,
+        context=body.context,
+        model=PASTED_MODEL,
+        generated_at=datetime.now(timezone.utc),
+    )
+    try:
+        return await save_portfolio_analysis(
+            session,
+            user.id,
+            holdings_key(holdings, body.request.profile.model_dump_json()),
+            response,
+            PASTED_MODEL,
+            PASTED_MODEL,
+        )
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc

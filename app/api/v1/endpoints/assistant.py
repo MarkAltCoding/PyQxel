@@ -10,18 +10,21 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import SecretStr
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.ai.agent import AIRateLimitError, AnalysisError, Written, anthropic_client
-from app.ai.assistant import stream_assistant_reply, write_assistant_reply
+from app.ai.assistant import assistant_messages, stream_assistant_reply, write_assistant_reply
+from app.ai.external import PASTED_MODEL, ExternalResponseError, parse_response, render_prompt
+from app.ai.prompts import ASSISTANT_SYSTEM_PROMPT
 from app.api.auth import CurrentUser
 from app.api.v1.endpoints.research import ai_error, anthropic_key, check_ai_limits
 from app.db.portfolio_analyses import record_assistant_request
 from app.db.session import get_sessionmaker
-from app.models.assistant import AssistantRequest, AssistantResponse
+from app.models.assistant import AssistantReply, AssistantRequest, AssistantResponse
+from app.models.external import AssistantImport, PromptExport
 from app.models.research import AnalysisDelta, AnalysisStreamError
 
 logger = logging.getLogger(__name__)
@@ -120,3 +123,40 @@ async def stream_assistant(prepared: Prepared) -> AsyncIterator[ServerSentEvent]
                 retry_after=exc.retry_after if isinstance(exc, AIRateLimitError) else None,
             ),
         )
+
+
+@router.post(
+    "/prompt",
+    response_model=PromptExport,
+    summary="The coding assistant prompt, to paste into Claude outside the app",
+)
+async def export_assistant_prompt(
+    user: CurrentUser, request: Annotated[AssistantRequest, Body()]
+) -> PromptExport:
+    """Return exactly what this question would send Claude, conversation and code
+    included. No Anthropic key is needed and nothing counts against your AI limits;
+    send Claude's answer to ``/import`` to read it as the assistant's reply."""
+    return PromptExport(
+        prompt=render_prompt(ASSISTANT_SYSTEM_PROMPT, assistant_messages(request), AssistantReply),
+        filename=f"pyqxel-strategy-{request.language}-prompt.md",
+    )
+
+
+@router.post(
+    "/import",
+    response_model=AssistantResponse,
+    summary="Read an answer Claude wrote outside the app",
+)
+async def import_assistant_reply(
+    user: CurrentUser, body: Annotated[AssistantImport, Body()]
+) -> AssistantResponse:
+    """Check Claude's answer to an exported prompt and return it as the assistant's
+    reply, with any revised code. Nothing is stored. Returns 422 when the answer does
+    not match the reply's format."""
+    try:
+        reply = parse_response(body.response, AssistantReply)
+    except ExternalResponseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    return AssistantResponse(reply=reply, model=PASTED_MODEL)

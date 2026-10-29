@@ -54,8 +54,9 @@ export function PrivacyPage() {
           <ul>
             <li>
               What you save: your portfolio holdings, backtests (with the code of custom
-              strategies), simulations, AI research reports and AI reviews of your portfolio. Only
-              your account can see them.
+              strategies), simulations, AI research reports and AI reviews of your portfolio,
+              including answers you paste from Claude outside the app. Only your account can see
+              them.
             </li>
             <li>
               Counts of your recent AI requests, to apply the limits you set. Your conversations

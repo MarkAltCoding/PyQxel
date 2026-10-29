@@ -2,8 +2,11 @@
 import { api, ApiError, send } from './client'
 import type {
   Account,
+  AnalysisImport,
+  AnalysisPromptExport,
   AdminSettingsUpdate,
   AssistantRequest,
+  AssistantResponse,
   AnalysisList,
   AnalysisRequest,
   AnalysisResponse,
@@ -25,6 +28,9 @@ import type {
   NewsResponse,
   PortfolioAnalysisRequest,
   PortfolioAnalysisResponse,
+  PortfolioPromptExport,
+  PortfolioReviewImport,
+  PromptExport,
   PriceHistory,
   ScreenRequest,
   ScreenResponse,
@@ -79,6 +85,11 @@ export const listAnalyses = (symbol: string) =>
 export const getAnalysis = (id: string) => api<AnalysisResponse>(`${V1}/analyses/${id}`)
 export const streamAnalysis = (symbol: string, body: AnalysisRequest, signal: AbortSignal) =>
   send(`${path(symbol)}/analysis/stream`, { method: 'POST', body, signal })
+// Claude outside the app: the prompt to paste there, and the answer brought back.
+export const exportAnalysisPrompt = (symbol: string, body: AnalysisRequest) =>
+  api<AnalysisPromptExport>(`${path(symbol)}/analysis/prompt`, { method: 'POST', body })
+export const importAnalysis = (symbol: string, body: AnalysisImport) =>
+  api<AnalysisResponse>(`${path(symbol)}/analysis/import`, { method: 'POST', body })
 
 export const runBacktest = (symbol: string, body: BacktestRequest) =>
   api<BacktestResponse>(`${path(symbol)}/backtest`, { method: 'POST', body })
@@ -102,6 +113,17 @@ export const getPortfolioReview = async (): Promise<PortfolioAnalysisResponse | 
 }
 export const streamPortfolioReview = (body: PortfolioAnalysisRequest, signal: AbortSignal) =>
   send(`${V1}/portfolio/analysis/stream`, { method: 'POST', body, signal })
+export const exportPortfolioPrompt = (body: PortfolioAnalysisRequest) =>
+  api<PortfolioPromptExport>(`${V1}/portfolio/analysis/prompt`, { method: 'POST', body })
+export const importPortfolioReview = (body: PortfolioReviewImport) =>
+  api<PortfolioAnalysisResponse>(`${V1}/portfolio/analysis/import`, { method: 'POST', body })
+export const exportAssistantPrompt = (body: AssistantRequest) =>
+  api<PromptExport>(`${V1}/backtests/assistant/prompt`, { method: 'POST', body })
+export const importAssistantReply = (response: string) =>
+  api<AssistantResponse>(`${V1}/backtests/assistant/import`, {
+    method: 'POST',
+    body: { response },
+  })
 /** Asks the strategy coding assistant; the conversation is sent each time, never stored. */
 export const streamAssistant = (body: AssistantRequest, signal: AbortSignal) =>
   send(`${V1}/backtests/assistant/stream`, { method: 'POST', body, signal })

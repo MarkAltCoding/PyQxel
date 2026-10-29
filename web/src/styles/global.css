@@ -861,6 +861,23 @@ table.data .muted {
   font-size: 0.8rem;
 }
 
+/* ── Claude outside the app ── */
+.external-claude {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.external-claude summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.prompt-preview {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
 /* ── Sign-in ── */
 .signin {
   max-width: 440px;

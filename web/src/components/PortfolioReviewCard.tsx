@@ -1,15 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { readAiStream, type AiProgress } from '../api/aiStream'
-import { getPortfolioReview, streamPortfolioReview } from '../api/endpoints'
+import {
+  exportPortfolioPrompt,
+  getPortfolioReview,
+  importPortfolioReview,
+  streamPortfolioReview,
+} from '../api/endpoints'
 import type {
   InvestorProfile,
+  PortfolioContext,
   PortfolioAnalysisRequest,
   PortfolioAnalysisResponse,
   RebalancePlan,
 } from '../api/types'
 import { dateTime, money, number, percent } from '../lib/format'
+import { keepExport, keptExport } from '../lib/exportedPrompts'
 import { LEVEL_TONE } from '../lib/tones'
+import { ExternalClaude } from './ExternalClaude'
 import { Points } from './AnalysisPanel'
 import { ErrorNotice } from './Notice'
 import { Segmented } from './Segmented'
@@ -63,20 +71,39 @@ export function PortfolioReviewCard({
   const latest = useQuery({ queryKey: ['portfolio-review'], queryFn: getPortfolioReview })
   const review = latest.data ?? null
 
+  const profile = (): InvestorProfile => ({
+    risk_tolerance: risk === 'unset' ? null : risk,
+    horizon_years: horizon.trim() ? Number(horizon) : null,
+    cash_to_invest: cash.trim() ? Number(cash) : 0,
+    notes: notes.trim() || null,
+  })
+
+  // Outside the app: the prompt's data is kept so the pasted answer is saved with it.
+  const getPrompt = async () => {
+    const request: PortfolioAnalysisRequest = { period, profile: profile() }
+    const exported = await exportPortfolioPrompt(request)
+    keepExport('portfolio', { request, context: exported.context })
+    return exported
+  }
+  const pasteAnswer = async (response: string) => {
+    const kept = keptExport<{ request: PortfolioAnalysisRequest; context: PortfolioContext }>(
+      'portfolio',
+    )
+    if (!kept) throw new Error('Get the prompt first: the answer is saved with its data.')
+    queryClient.setQueryData(
+      ['portfolio-review'],
+      await importPortfolioReview({ ...kept, response }),
+    )
+  }
+
   const write = async () => {
     const controller = new AbortController()
     abort.current = controller
     setError(null)
     setProgress({ thinking: '', characters: 0 })
     try {
-      const profile: InvestorProfile = {
-        risk_tolerance: risk === 'unset' ? null : risk,
-        horizon_years: horizon.trim() ? Number(horizon) : null,
-        cash_to_invest: cash.trim() ? Number(cash) : 0,
-        notes: notes.trim() || null,
-      }
       const response = await streamPortfolioReview(
-        { period, profile, refresh: review?.period === period },
+        { period, profile: profile(), refresh: review?.period === period },
         controller.signal,
       )
       const result = await readAiStream<PortfolioAnalysisResponse>(response, setProgress)
@@ -182,6 +209,7 @@ export function PortfolioReviewCard({
               : 'No review yet.'}
         </div>
       )}
+      <ExternalClaude getPrompt={getPrompt} onPaste={pasteAnswer} disabled={writing || blocked} />
     </section>
   )
 }

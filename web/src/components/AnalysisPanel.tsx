@@ -1,11 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../api/client'
-import { getAnalysis, listAnalyses, streamAnalysis } from '../api/endpoints'
+import {
+  exportAnalysisPrompt,
+  getAnalysis,
+  importAnalysis,
+  listAnalyses,
+  streamAnalysis,
+} from '../api/endpoints'
 import { readEvents } from '../api/sse'
-import type { AnalysisKind, AnalysisResponse, InvestmentThesis, RiskSummary } from '../api/types'
+import type {
+  AnalysisContext,
+  AnalysisKind,
+  AnalysisRequest,
+  AnalysisResponse,
+  InvestmentThesis,
+  RiskSummary,
+} from '../api/types'
+import { keepExport, keptExport } from '../lib/exportedPrompts'
 import { dateTime } from '../lib/format'
 import { LEVEL_TONE } from '../lib/tones'
+import { ExternalClaude } from './ExternalClaude'
 import { ErrorNotice } from './Notice'
 import { Segmented } from './Segmented'
 
@@ -93,6 +108,22 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
     }
   }
 
+  // Outside the app: the prompt's data is kept so the pasted answer is saved with it.
+  const exportName = `stock.${symbol}.${kind}`
+  const getPrompt = async () => {
+    const request: AnalysisRequest = { kind, period: '1y', include_filings: true }
+    const exported = await exportAnalysisPrompt(symbol, request)
+    keepExport(exportName, { request, context: exported.context })
+    return exported
+  }
+  const pasteAnswer = async (response: string) => {
+    const kept = keptExport<{ request: AnalysisRequest; context: AnalysisContext }>(exportName)
+    if (!kept) throw new Error('Get the prompt first: the answer is saved with its data.')
+    const result = await importAnalysis(symbol, { ...kept, response })
+    setWritten((current) => ({ ...current, [result.kind]: result }))
+    void queryClient.invalidateQueries({ queryKey: ['analyses', symbol] })
+  }
+
   const writing = progress !== null
   return (
     <section className="card">
@@ -146,6 +177,7 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
           No {kind === 'thesis' ? 'thesis' : 'risk summary'} for {symbol} yet.
         </div>
       )}
+      <ExternalClaude getPrompt={getPrompt} onPaste={pasteAnswer} disabled={writing} />
     </section>
   )
 }

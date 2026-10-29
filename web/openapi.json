@@ -507,6 +507,32 @@
         "title": "AnalysisContext",
         "type": "object"
       },
+      "AnalysisImport": {
+        "description": "An answer Claude wrote outside the app to an exported stock analysis prompt.",
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/AnalysisContext",
+            "description": "The context the export returned."
+          },
+          "request": {
+            "$ref": "#/components/schemas/AnalysisRequest",
+            "description": "The options the prompt was exported with."
+          },
+          "response": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Response",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "context",
+          "response"
+        ],
+        "title": "AnalysisImport",
+        "type": "object"
+      },
       "AnalysisList": {
         "description": "One page of stored analyses, newest first.",
         "properties": {
@@ -539,6 +565,31 @@
           "offset"
         ],
         "title": "AnalysisList",
+        "type": "object"
+      },
+      "AnalysisPromptExport": {
+        "description": "A stock analysis prompt and the data it holds; send ``context`` back with the answer.",
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/AnalysisContext"
+          },
+          "filename": {
+            "description": "A name to save the prompt under.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "Markdown to paste into one message to Claude.",
+            "title": "Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt",
+          "filename",
+          "context"
+        ],
+        "title": "AnalysisPromptExport",
         "type": "object"
       },
       "AnalysisRequest": {
@@ -984,6 +1035,22 @@
           "risk_contribution"
         ],
         "title": "AssetRisk",
+        "type": "object"
+      },
+      "AssistantImport": {
+        "description": "An answer Claude wrote outside the app to an exported coding assistant prompt.",
+        "properties": {
+          "response": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Response",
+            "type": "string"
+          }
+        },
+        "required": [
+          "response"
+        ],
+        "title": "AssistantImport",
         "type": "object"
       },
       "AssistantReply": {
@@ -6852,6 +6919,31 @@
         "title": "PortfolioContext",
         "type": "object"
       },
+      "PortfolioPromptExport": {
+        "description": "A portfolio review prompt and the data it holds; send ``context`` back with the answer.",
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/PortfolioContext"
+          },
+          "filename": {
+            "description": "A name to save the prompt under.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "Markdown to paste into one message to Claude.",
+            "title": "Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt",
+          "filename",
+          "context"
+        ],
+        "title": "PortfolioPromptExport",
+        "type": "object"
+      },
       "PortfolioReview": {
         "description": "Claude's data-grounded review of a portfolio, with a concrete plan to act on.",
         "properties": {
@@ -6943,6 +7035,31 @@
           "data_limitations"
         ],
         "title": "PortfolioReview",
+        "type": "object"
+      },
+      "PortfolioReviewImport": {
+        "description": "An answer Claude wrote outside the app to an exported portfolio review prompt.",
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/PortfolioContext",
+            "description": "The context the export returned."
+          },
+          "request": {
+            "$ref": "#/components/schemas/PortfolioAnalysisRequest",
+            "description": "The options the prompt was exported with."
+          },
+          "response": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Response",
+            "type": "string"
+          }
+        },
+        "required": [
+          "context",
+          "response"
+        ],
+        "title": "PortfolioReviewImport",
         "type": "object"
       },
       "PortfolioRiskStats": {
@@ -7237,6 +7354,27 @@
           "worst_return"
         ],
         "title": "PriceSummary",
+        "type": "object"
+      },
+      "PromptExport": {
+        "description": "The request the app would send Claude, as one document to paste outside the app.",
+        "properties": {
+          "filename": {
+            "description": "A name to save the prompt under.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "Markdown to paste into one message to Claude.",
+            "title": "Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt",
+          "filename"
+        ],
+        "title": "PromptExport",
         "type": "object"
       },
       "ProviderCredential": {
@@ -9967,6 +10105,90 @@
         ]
       }
     },
+    "/api/v1/backtests/assistant/import": {
+      "post": {
+        "description": "Check Claude's answer to an exported prompt and return it as the assistant's\nreply, with any revised code. Nothing is stored. Returns 422 when the answer does\nnot match the reply's format.",
+        "operationId": "import_assistant_reply_api_v1_backtests_assistant_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantImport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read an answer Claude wrote outside the app",
+        "tags": [
+          "backtest"
+        ]
+      }
+    },
+    "/api/v1/backtests/assistant/prompt": {
+      "post": {
+        "description": "Return exactly what this question would send Claude, conversation and code\nincluded. No Anthropic key is needed and nothing counts against your AI limits;\nsend Claude's answer to ``/import`` to read it as the assistant's reply.",
+        "operationId": "export_assistant_prompt_api_v1_backtests_assistant_prompt_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptExport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The coding assistant prompt, to paste into Claude outside the app",
+        "tags": [
+          "backtest"
+        ]
+      }
+    },
     "/api/v1/backtests/assistant/stream": {
       "post": {
         "description": "Stream the answer of ``ask_assistant`` as Claude writes it.\n\nSends ``thinking`` fragments summarizing the model's reasoning, ``report`` fragments\nof the reply's JSON, ``fallback`` when a model declines part-way and another\ncontinues, then ``result`` (the :class:`AssistantResponse`) or ``error`` (an\n:class:`AnalysisStreamError`). Failures before the stream opens return the same\nstatuses as ``ask_assistant``.",
@@ -10459,6 +10681,96 @@
           }
         },
         "summary": "AI-written review of your saved portfolio",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/v1/portfolio/analysis/import": {
+      "post": {
+        "description": "Check Claude's answer to an exported prompt and store it as your latest review.\n\nIts target allocation is turned into orders at the latest prices, as for reviews the\napp writes. It is marked as pasted and never reused in place of a new review.\nReturns 422 when the answer does not match the review's format.",
+        "operationId": "import_portfolio_review_api_v1_portfolio_analysis_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortfolioReviewImport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioAnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save a portfolio review Claude wrote outside the app",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/v1/portfolio/analysis/prompt": {
+      "post": {
+        "description": "Return exactly what a review of your saved portfolio would send Claude.\n\nNo Anthropic key is needed and nothing counts against your AI limits. Paste\n``prompt`` into Claude, then send its answer to ``/analysis/import`` with the\n``context`` returned here.",
+        "operationId": "export_portfolio_prompt_api_v1_portfolio_analysis_prompt_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortfolioAnalysisRequest",
+                "default": {
+                  "period": "1y",
+                  "profile": {
+                    "cash_to_invest": 0.0
+                  },
+                  "refresh": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioPromptExport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The portfolio review prompt, to paste into Claude outside the app",
         "tags": [
           "portfolio"
         ]
@@ -11152,6 +11464,123 @@
           }
         },
         "summary": "AI-written investment thesis or risk summary",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/v1/stocks/{symbol}/analysis/import": {
+      "post": {
+        "description": "Check Claude's answer to an exported prompt and store it as an analysis.\n\nThe answer must be the JSON the prompt asked for; it may arrive in a code fence or\nwith text around it. It is stored with the context it was written from, marked as\npasted, and never reused in place of a new analysis. Returns 422 when the answer does\nnot match the report's format or the context is of another symbol.",
+        "operationId": "import_analysis_api_v1_stocks__symbol__analysis_import_post",
+        "parameters": [
+          {
+            "description": "Ticker symbol, e.g. AAPL, BRK-B or ^GSPC.",
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "description": "Ticker symbol, e.g. AAPL, BRK-B or ^GSPC.",
+              "pattern": "^[A-Za-z0-9.\\-^=]{1,15}$",
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalysisImport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save an analysis Claude wrote outside the app",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/v1/stocks/{symbol}/analysis/prompt": {
+      "post": {
+        "description": "Return exactly what an analysis would send Claude, as one Markdown document.\n\nThe same data is gathered as for ``/analysis``, filings included, but nothing is sent\nto Claude: no Anthropic key is needed and nothing counts against your AI limits.\nPaste ``prompt`` into Claude, then send its answer to ``/analysis/import`` with the\n``context`` returned here. Fails as ``/analysis`` does when the data cannot be had.",
+        "operationId": "export_analysis_prompt_api_v1_stocks__symbol__analysis_prompt_post",
+        "parameters": [
+          {
+            "description": "Ticker symbol, e.g. AAPL, BRK-B or ^GSPC.",
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "description": "Ticker symbol, e.g. AAPL, BRK-B or ^GSPC.",
+              "pattern": "^[A-Za-z0-9.\\-^=]{1,15}$",
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalysisRequest",
+                "default": {
+                  "include_filings": true,
+                  "kind": "thesis",
+                  "period": "1y",
+                  "refresh": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisPromptExport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The analysis prompt, to paste into Claude outside the app",
         "tags": [
           "research"
         ]

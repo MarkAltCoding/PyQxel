@@ -320,6 +320,10 @@ Both return `attribution` for daily bars: a regression of the strategy's daily e
 
 **Coding assistant.** Beside the custom strategy editor, Claude answers questions about the strategy and can rewrite it: `POST /api/v1/backtests/assistant` (or `/stream`) takes the editor's `code` and `language`, the question, the conversation so far in `history`, and `last_run`, the error or printed output of the last run, and returns an `explanation` and, when it changed the code, the complete revised `code`, which the page applies to the editor on request. It knows each language's strategy contract and the sandbox's limits (NumPy and pandas only in Python), and points out look-ahead bias. The conversation stays in the browser and is never stored; only a count of answers is kept, against the account's AI limits.
 
+### Claude outside the app
+
+Every place Claude writes for you can instead hand over its exact prompt, so you can use Claude yourself (for example on claude.ai) without spending on your API key: `POST /api/v1/stocks/{symbol}/analysis/prompt`, `POST /api/v1/portfolio/analysis/prompt` and `POST /api/v1/backtests/assistant/prompt` take the same body as the request they mirror, gather the same data, filings included, and return `prompt`, one Markdown document holding the instructions, the request and the JSON Schema the answer must follow. They need no Anthropic key and do not count toward the AI limits. Paste Claude's answer back to the matching `/import` route (with the `context` the stock and portfolio exports return): it is checked against the same schema, in or out of a code fence, and stored like any other report, marked `claude (pasted)` and never reused in place of a new one. Portfolio reviews get their orders computed as usual; assistant answers join the conversation with their code ready to apply. Each section's page has this under *Use Claude outside the app*.
+
 ## License
 
 Copyright (c) 2026 Mark Altreuter. All rights reserved. See [`LICENSE`](LICENSE).

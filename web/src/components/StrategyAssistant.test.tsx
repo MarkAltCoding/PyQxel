@@ -89,6 +89,50 @@ describe('StrategyAssistant', () => {
     expect(assistant?.content).toContain(FIXED)
   })
 
+  it('adds an answer pasted from Claude outside the app to the conversation', async () => {
+    const paths: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const path = new URL(String(input), 'http://localhost').pathname
+      paths.push(path)
+      if (path.endsWith('/prompt')) {
+        return new Response(JSON.stringify({ prompt: '## Request', filename: 'p.md' }))
+      }
+      return new Response(
+        JSON.stringify({
+          reply: { explanation: 'Pasted explanation.', code: FIXED },
+          model: 'claude (pasted)',
+        }),
+      )
+    })
+    const onApply = vi.fn()
+    render(
+      <StrategyAssistant
+        language="python"
+        code={CODE}
+        symbol="SPY"
+        interval="1d"
+        lastRun={null}
+        onApply={onApply}
+      />,
+    )
+
+    await userEvent.type(screen.getByLabelText('Question for Claude'), 'Add a stop.')
+    await userEvent.click(screen.getByText(/Use Claude outside the app/))
+    await userEvent.click(screen.getByRole('button', { name: 'Get the prompt' }))
+    await screen.findByRole('button', { name: 'Copy prompt' })
+    await userEvent.type(screen.getByLabelText('Claude’s answer'), 'the answer')
+    await userEvent.click(screen.getByRole('button', { name: 'Add answer' }))
+
+    expect(await screen.findByText('Pasted explanation.')).toBeInTheDocument()
+    expect(screen.getByText('Add a stop.')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Apply to editor' }))
+    expect(onApply).toHaveBeenCalledWith(FIXED)
+    expect(paths).toEqual([
+      '/api/v1/backtests/assistant/prompt',
+      '/api/v1/backtests/assistant/import',
+    ])
+  })
+
   it('shows the error the stream reports', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       sse(['error', { status: 503, detail: 'The AI service is rate limited.', retry_after: 9 }]),
