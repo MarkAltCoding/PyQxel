@@ -21,7 +21,8 @@ import { keepExport, keptExport } from '../lib/exportedPrompts'
 import { useReportView } from '../lib/reportView'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
 import { ExternalClaude } from './ExternalClaude'
-import { ErrorNotice } from './Notice'
+import { ErrorNotice, Notice } from './Notice'
+import { PresetOrCustom } from './PresetOrCustom'
 import {
   FinePrint,
   FullText,
@@ -42,11 +43,35 @@ import { InfoTip } from './InfoTip'
 
 type Period = NonNullable<PortfolioAnalysisRequest['period']>
 
-const PERIODS: { value: Period; label: string }[] = [
-  { value: '1y', label: '1 year' },
-  { value: '2y', label: '2 years' },
-  { value: '5y', label: '5 years' },
-]
+/** The usual windows of price history, in months, and the period each is asked for as. */
+const HISTORY_PRESETS = [
+  { value: 12, label: '1 year' },
+  { value: 24, label: '2 years' },
+  { value: 60, label: '5 years' },
+] as const
+const PRESET_PERIOD: Record<number, Period> = { 12: '1y', 24: '2y', 60: '5y' }
+const PERIOD_MONTHS: Record<Period, number> = { '1y': 12, '2y': 24, '5y': 60, '10y': 120 }
+
+/** A custom window's limits in months, as the API allows. */
+const MIN_HISTORY_MONTHS = 12
+const MAX_HISTORY_MONTHS = 120
+
+/** The window a request covers: a preset period, or a custom number of months. */
+const historyRequest = (
+  months: number,
+): Pick<PortfolioAnalysisRequest, 'period' | 'history_months'> =>
+  PRESET_PERIOD[months] ? { period: PRESET_PERIOD[months] } : { history_months: months }
+
+/** How much price history a review was written from, in words. */
+function historyLabel(response: { period: Period; history_months?: number | null }): string {
+  const months = response.history_months ?? PERIOD_MONTHS[response.period]
+  if (months % 12 === 0) return `${months / 12} year${months === 12 ? '' : 's'}`
+  return `${months} months`
+}
+
+/** A share count: whole numbers as they are, fractions to four places. */
+const shareCount = (shares: number) =>
+  Number.isInteger(shares) ? number(shares, 0) : String(Number(shares.toFixed(4)))
 
 type Risk = NonNullable<InvestorProfile['risk_tolerance']> | 'unset'
 
@@ -72,7 +97,7 @@ export function PortfolioReviewCard({
   stale: boolean
 }) {
   const queryClient = useQueryClient()
-  const [period, setPeriod] = useState<Period>('1y')
+  const [months, setMonths] = useState(12)
   const [risk, setRisk] = useState<Risk>('unset')
   const [horizon, setHorizon] = useState('')
   const [cash, setCash] = useState('')
@@ -97,7 +122,11 @@ export function PortfolioReviewCard({
 
   // Outside the app: the prompt's data is kept so the pasted answer is saved with it.
   const getPrompt = async () => {
-    const request: PortfolioAnalysisRequest = { portfolio, period, profile: profile() }
+    const request: PortfolioAnalysisRequest = {
+      portfolio,
+      ...historyRequest(months),
+      profile: profile(),
+    }
     const exported = await exportPortfolioPrompt(request)
     keepExport(`portfolio-${portfolio}`, { request, context: exported.context })
     return exported
@@ -120,7 +149,13 @@ export function PortfolioReviewCard({
     setProgress({ thinking: '', characters: 0 })
     try {
       const response = await streamPortfolioReview(
-        { portfolio, period, profile: profile(), refresh: review?.period === period },
+        {
+          portfolio,
+          ...historyRequest(months),
+          profile: profile(),
+          refresh:
+            review !== null && (review.history_months ?? PERIOD_MONTHS[review.period]) === months,
+        },
         controller.signal,
       )
       const result = await readAiStream<PortfolioAnalysisResponse>(response, setProgress)
@@ -150,7 +185,21 @@ export function PortfolioReviewCard({
           </div>
         </div>
         <div className="filter-row">
-          <Segmented label="History" value={period} options={PERIODS} onChange={setPeriod} />
+          <div className="field">
+            <span className="heading-with-info">
+              Price history to measure
+              <InfoTip topic="reviewHistory" />
+            </span>
+            <PresetOrCustom
+              label="Price history to measure"
+              presets={HISTORY_PRESETS}
+              value={months}
+              onChange={setMonths}
+              min={MIN_HISTORY_MONTHS}
+              max={MAX_HISTORY_MONTHS}
+              unit="months of daily prices"
+            />
+          </div>
           {writing ? (
             <button type="button" className="button" onClick={() => abort.current?.abort()}>
               Cancel
@@ -249,7 +298,8 @@ function Review({ response }: { response: PortfolioAnalysisResponse }) {
       <ReportViewToggle view={view} onChange={setView} />
       {view === 'text' ? <TextReview response={response} /> : <VisualReview response={response} />}
       <p className="disclaimer" style={{ marginTop: 16 }}>
-        {response.model} · {dateTime(response.generated_at)} · {response.period} of history
+        {response.model} · {dateTime(response.generated_at)} · {historyLabel(response)} of price
+        history
         {response.cached && ' · reused, not billed again'} · {response.disclaimer}
       </p>
     </article>
@@ -524,17 +574,25 @@ function Orders({ plan }: { plan: RebalancePlan }) {
               {plan.trades.map((trade) => (
                 <tr key={`${trade.action}-${trade.symbol}`}>
                   <td>
-                    <span className={`badge ${trade.action === 'buy' ? 'good' : 'warning'}`}>
-                      {trade.action === 'buy' ? 'Buy' : 'Sell'}
+                    <span className="heading-with-info" style={{ gap: 6 }}>
+                      <span className={`badge ${trade.action === 'buy' ? 'good' : 'warning'}`}>
+                        {trade.action === 'buy' ? 'Buy' : 'Sell'}
+                      </span>
+                      {trade.fractional && (
+                        <>
+                          <span className="badge">Fractional</span>
+                          <InfoTip topic="fractionalShares" />
+                        </>
+                      )}
                     </span>
                   </td>
                   <td>{trade.symbol}</td>
-                  <td className="num">{trade.shares == null ? '—' : number(trade.shares, 0)}</td>
+                  <td className="num">{trade.shares == null ? '—' : shareCount(trade.shares)}</td>
                   <td className="num">{money(trade.price)}</td>
                   <td className="num">{money(trade.value)}</td>
                   <td>
                     {trade.order_type === 'limit'
-                      ? `Limit at ${money(trade.limit_price)}`
+                      ? `Limit at ${money(trade.limit_price)}${trade.fractional ? ', day order' : ''}`
                       : 'Market'}
                   </td>
                 </tr>
@@ -549,9 +607,9 @@ function Orders({ plan }: { plan: RebalancePlan }) {
         before buys.
       </p>
       {(plan.notes ?? []).map((note) => (
-        <p key={note} className="disclaimer">
-          {note}
-        </p>
+        <div key={note} style={{ marginTop: 8 }}>
+          <Notice tone="warning">{note}</Notice>
+        </div>
       ))}
     </div>
   )

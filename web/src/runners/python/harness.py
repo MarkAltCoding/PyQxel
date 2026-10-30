@@ -70,7 +70,8 @@ def _universe(payload: dict[str, Any]) -> pd.DataFrame:
 
 
 def _weights(result: object, bars: pd.DataFrame, symbols: list[str]) -> list[list[float]]:
-    """The weights in ``result``, one row per bar and one column per symbol, as floats.
+    """The weights in ``result``, one row per bar and one column per symbol, as floats;
+    a symbol ``result`` has no column for gets a weight of zero.
 
     Raises:
         StrategyError: If ``result`` is not a finite weight per symbol and bar within range.
@@ -83,21 +84,14 @@ def _weights(result: object, bars: pd.DataFrame, symbols: list[str]) -> list[lis
             "DataFrame of weights with one column per symbol, such as bars['Close'] * 0 + 0.5."
         )
     names = [str(column) for column in result.columns]
-    missing = [symbol for symbol in symbols if symbol not in names]
     extra = [name for name in names if name not in symbols]
-    if missing or extra:
-        details = "; ".join(
-            part
-            for part in (
-                f"missing {', '.join(missing)}" if missing else "",
-                f"not traded: {', '.join(extra)}" if extra else "",
-            )
-            if part
-        )
+    if extra:
         raise StrategyError(
-            f"strategy() must return one column per symbol, {', '.join(symbols)}: {details}."
+            f"strategy() returned weights for {', '.join(extra)}, which it was not given; "
+            f"its symbols are {', '.join(symbols)}."
         )
-    frame = result.set_axis(names, axis=1)[symbols]
+    # A symbol without a column is never held: its prices may be there only as a signal.
+    frame = result.set_axis(names, axis=1).reindex(columns=symbols, fill_value=0.0)
     if isinstance(frame.index, pd.DatetimeIndex):
         frame = frame.reindex(bars.index)
     elif len(frame) == len(bars):

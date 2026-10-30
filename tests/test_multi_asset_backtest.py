@@ -116,6 +116,19 @@ def test_reallocating_between_symbols(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["exposure"] == pytest.approx(2.0, abs=0.01)
 
 
+def test_the_benchmark_holds_only_the_symbols_traded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A symbol read only as a signal, never held, is left out of the equal-weight
+    benchmark: here it is all GOOG."""
+    closes = _closes()
+    _serve(monkeypatch, closes)
+    weights = [[1.0, 0.0]] * len(closes)
+
+    body = client.post(ROUTE, json=_body(closes.index, weights)).json()
+
+    gain = 1.002 ** (len(closes) - 1) - 1
+    assert body["benchmark"]["total_return"] == pytest.approx(gain, rel=1e-6)
+
+
 def test_multi_asset_results_are_stored_and_listed(monkeypatch: pytest.MonkeyPatch) -> None:
     closes = _closes()
     _serve(monkeypatch, closes)

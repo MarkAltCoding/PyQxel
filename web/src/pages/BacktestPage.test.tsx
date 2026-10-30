@@ -607,7 +607,7 @@ describe('custom strategies across several symbols', () => {
     await userEvent.type(screen.getByRole('combobox', { name: 'Also trade' }), 'unh{Enter}')
 
     // A strategy across several symbols starts from its own template.
-    await waitFor(() => expect(view.state.doc.toString()).toBe(starterCode('python', true)))
+    await waitFor(() => expect(view.state.doc.toString()).toBe(starterCode('python', 'several')))
     await userEvent.click(screen.getByRole('button', { name: 'Run' }))
 
     expect(
@@ -625,7 +625,7 @@ describe('custom strategies across several symbols', () => {
       cost_bps: 5,
       cash_interest: true,
       symbols: ['GOOG', 'UNH'],
-      code: starterCode('python', true),
+      code: starterCode('python', 'several'),
       language: 'python',
       dates: ['2026-10-15', '2026-10-16'],
       weights: [
@@ -638,5 +638,76 @@ describe('custom strategies across several symbols', () => {
     // Back to one symbol, back to the one-symbol draft.
     await userEvent.click(screen.getByRole('button', { name: 'Stop trading UNH' }))
     await waitFor(() => expect(view.state.doc.toString()).toBe(starterCode('python')))
+  })
+})
+
+describe('custom code across tickers', () => {
+  const history = (symbol: string) => () => ({
+    symbol,
+    period: '10y',
+    interval: '1d',
+    bars: BARS,
+    coverage: 'full',
+  })
+
+  it('needs no symbol first, and fetches the tickers the code names', async () => {
+    window.localStorage.clear()
+    const calls = serve({
+      ...NO_SAVED,
+      'GET /api/v1/stocks/AAA/history': history('AAA'),
+      'GET /api/v1/stocks/BBB/history': history('BBB'),
+      'GET /api/v1/stocks/CCC/history': history('CCC'),
+      'POST /api/v1/backtests/custom': () =>
+        result({ id: 'run-9', symbol: 'AAA', symbols: ['AAA', 'CCC'] }),
+    })
+    runner.runUniverse.mockImplementation(async (_code: string, universe: { dates: string[] }) => ({
+      ok: true,
+      dates: universe.dates,
+      weights: universe.dates.map(() => [0.5, 0.5]),
+      output: '',
+    }))
+    renderPage('/backtest?mode=universe&view=code')
+
+    const view = await editor()
+    expect(view.state.doc.toString()).toBe(starterCode('python', 'across'))
+    expect(screen.queryByRole('combobox', { name: 'Symbol' })).not.toBeInTheDocument()
+    const fetched = screen.getByRole('generic', { name: 'Tickers fetched' })
+    expect(within(fetched).getByText('^VIX')).toBeInTheDocument()
+
+    view.dispatch({
+      changes: {
+        from: 0,
+        to: view.state.doc.length,
+        insert:
+          'SYMBOLS = ["AAA", "BBB"]\nhedge = "CCC"\ndef strategy(bars):\n    return bars["Close"] * 0\n',
+      },
+    })
+    await userEvent.click(await screen.findByRole('button', { name: 'Leave out BBB' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Run' }))
+
+    await waitFor(() => expect(runner.runUniverse).toHaveBeenCalled())
+    const [, universe] = runner.runUniverse.mock.calls.at(-1)!
+    expect(universe).toMatchObject({ symbols: ['AAA', 'CCC'] })
+    await waitFor(() =>
+      expect(calls.find((call) => call.path === '/api/v1/backtests/custom')?.body).toMatchObject({
+        symbols: ['AAA', 'CCC'],
+      }),
+    )
+    expect(calls.some((call) => call.path === '/api/v1/stocks/BBB/history')).toBe(false)
+    expect(screen.getByRole('button', { name: 'Bring back BBB' })).toBeInTheDocument()
+  })
+
+  it('asks for two tickers before it can run', async () => {
+    window.localStorage.clear()
+    serve(NO_SAVED)
+    renderPage('/backtest?mode=universe&view=code')
+    const view = await editor()
+
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: 'SYMBOLS = ["AAA"]\n' },
+    })
+
+    expect(await screen.findByText(/Name at least two tickers/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Run' })).toBeDisabled()
   })
 })

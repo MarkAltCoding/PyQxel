@@ -27,6 +27,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <span>
 
 namespace pyqxel {
@@ -51,6 +52,15 @@ struct Universe {
     const std::int64_t* timestamp;   // Each bar's date, as milliseconds since 1970-01-01 UTC.
 
     const Bars& operator[](std::size_t asset) const { return assets[asset]; }
+
+    // The index of the symbol with this ticker, e.g. find("AAPL"), or count when the
+    // strategy was not given it: universe[universe.find("AAPL")].close[i].
+    std::size_t find(const char* ticker) const {
+        for (std::size_t j = 0; j < count; ++j) {
+            if (std::strcmp(symbols[j], ticker) == 0) return j;
+        }
+        return count;
+    }
 };
 
 // The weight of every symbol on every bar, written as weights(bar, asset).

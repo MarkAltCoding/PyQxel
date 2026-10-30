@@ -13,6 +13,23 @@ CASH: str = "CASH"
 MIN_TRADE_VALUE: float = 1.0
 """Trades worth less than this are left out as noise."""
 
+SHARE_DECIMALS: int = 4
+"""Decimals a fractional share count is given to, as brokers that trade fractions take."""
+
+FRACTIONAL_NOTE: str = (
+    "Fractional orders ({symbols}): not every broker trades fractions of every security, "
+    "and many take them only as market orders. Stop and trailing-stop orders are not "
+    "available for fractional shares at some brokers, including Fidelity. If yours does not "
+    "take the fraction, sell it at market, or round the order to whole shares."
+)
+
+FRACTIONAL_LIMIT_NOTE: str = (
+    "Fractional limit orders ({symbols}): some brokers, including Fidelity, accept them only "
+    "as day orders (time in force: day), so an unfilled limit expires at the close and must "
+    "be placed again; others do not accept them, and a market order is the way to trade "
+    "the fraction."
+)
+
 
 @dataclass(frozen=True)
 class Target:
@@ -36,6 +53,9 @@ class Trade:
     order_type: str
     limit_price: float | None
     rationale: str
+    fractional: bool = False
+    """Whether ``shares`` is not a whole number, which not every broker or order type
+    takes."""
 
 
 @dataclass(frozen=True)
@@ -85,9 +105,11 @@ def plan_trades(
         cash: New cash to invest.
 
     Returns:
-        Sells first, then buys, in whole shares: buys round down so the plan never
-        spends more than it has, and sells round to the nearest share, or sell the whole
-        holding when the target is zero.
+        Sells first, then buys, in whole shares where it can: buys round down so the plan
+        never spends more than it has, sells round to the nearest share, and a target of
+        zero sells the whole holding, fraction and all. A trade that whole shares would
+        round away, such as one of under a share, is sized in fractional shares instead,
+        and flagged, with notes on what brokers allow for fractions.
     """
     total = math.fsum(shares * price for shares, price in holdings.values()) + cash
     if total <= 0:
@@ -114,16 +136,21 @@ def plan_trades(
                 )
             )
             continue
+        ideal = abs(difference) / price
         if difference < 0:
-            shares = (
-                held_shares if target.weight == 0 else min(held_shares, round(-difference / price))
-            )
             action = "sell"
+            whole = float(round(ideal))
+            shares = held_shares if target.weight == 0 else min(held_shares, whole)
         else:
-            shares = math.floor(difference / price)
             action = "buy"
+            shares = float(math.floor(ideal))
         if shares <= 0:
-            continue
+            # Whole shares round this trade away; a fraction of a share carries it out.
+            factor = 10**SHARE_DECIMALS
+            shares = math.floor(min(ideal, held_shares if action == "sell" else ideal) * factor)
+            shares /= factor
+            if shares * price < MIN_TRADE_VALUE:
+                continue
         limit = None
         if target.order_type == "limit":
             offset = target.limit_offset_percent or 0.0
@@ -137,6 +164,7 @@ def plan_trades(
             target.order_type,
             limit,
             target.rationale,
+            fractional=not float(shares).is_integer(),
         )
         if action == "sell":
             sells.append(trade)
@@ -148,4 +176,11 @@ def plan_trades(
     cash_after = cash + raised - spent
     if invested + cash > 0 and cash_after < -MIN_TRADE_VALUE:
         notes.append("The buys cost more than the sells and new cash raise; trim them to fit.")
-    return Plan(total_value=total, trades=sells + buys, cash_after=cash_after, notes=notes)
+    trades = sells + buys
+    fractional = [trade.symbol for trade in trades if trade.fractional]
+    if fractional:
+        notes.append(FRACTIONAL_NOTE.format(symbols=", ".join(fractional)))
+    limits = [t.symbol for t in trades if t.fractional and t.order_type == "limit"]
+    if limits:
+        notes.append(FRACTIONAL_LIMIT_NOTE.format(symbols=", ".join(limits)))
+    return Plan(total_value=total, trades=trades, cash_after=cash_after, notes=notes)

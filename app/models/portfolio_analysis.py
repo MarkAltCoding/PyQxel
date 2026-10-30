@@ -32,6 +32,16 @@ class InvestorProfile(BaseModel):
     )
 
 
+MIN_HISTORY_MONTHS: int = 12
+"""Shortest custom window a review's statistics are computed on: about 250 daily returns."""
+
+MAX_HISTORY_MONTHS: int = 120
+"""Longest custom window, ten years of daily returns."""
+
+PERIOD_MONTHS: dict[PortfolioPeriod, int] = {"1y": 12, "2y": 24, "5y": 60, "10y": 120}
+"""Months each standard window spans."""
+
+
 class PortfolioAnalysisRequest(BaseModel):
     """Options for a review of one of the saved portfolios."""
 
@@ -40,11 +50,25 @@ class PortfolioAnalysisRequest(BaseModel):
     period: PortfolioPeriod = Field(
         default="1y", description="Window of daily returns the statistics are computed on."
     )
+    history_months: int | None = Field(
+        default=None,
+        ge=MIN_HISTORY_MONTHS,
+        le=MAX_HISTORY_MONTHS,
+        description="A custom window of daily returns, in months, used instead of ``period``.",
+    )
     refresh: bool = Field(
         default=False,
         description="Write a new review even when one for the same holdings and period "
         "is recent enough to reuse.",
     )
+
+    @property
+    def window(self) -> PortfolioPeriod:
+        """The standard window the prices are fetched over: ``period``, or the shortest
+        that covers ``history_months``, which the returns are then trimmed to."""
+        if self.history_months is None:
+            return self.period
+        return next(p for p, months in PERIOD_MONTHS.items() if self.history_months <= months)
 
 
 class AssetRisk(BaseModel):
@@ -127,6 +151,11 @@ class PortfolioContext(BaseModel):
 
     profile: InvestorProfile = Field(default_factory=InvestorProfile)
     period: PortfolioPeriod
+    history_months: int | None = Field(
+        default=None,
+        description="The custom window, in months, the statistics cover; null when they "
+        "cover ``period``.",
+    )
     total_value: float = Field(
         gt=0, allow_inf_nan=False, description="Value of the priced holdings, at latest prices."
     )
@@ -202,13 +231,20 @@ class PlannedTrade(BaseModel):
     symbol: str
     action: Literal["buy", "sell"]
     shares: float | None = Field(
-        description="Whole shares to trade; null when the symbol could not be priced."
+        description="Shares to trade: whole where they can be, fractional where whole shares "
+        "would round the trade away or a fractional holding is sold in full; null when the "
+        "symbol could not be priced."
     )
     price: float | None = Field(description="Latest price the trade was sized at.")
     value: float = Field(description="Approximate value of the trade.")
     order_type: OrderType
     limit_price: float | None = None
     rationale: str
+    fractional: bool = Field(
+        default=False,
+        description="Whether ``shares`` is a fraction, which some brokers take only as a "
+        "market or day limit order, and not as a stop or trailing stop.",
+    )
 
 
 class RebalancePlan(BaseModel):
@@ -227,6 +263,9 @@ class PortfolioAnalysisResponse(BaseModel):
         default=None, description="ID of the stored review; null if it could not be saved."
     )
     period: PortfolioPeriod
+    history_months: int | None = Field(
+        default=None, description="The custom window in months, when one was asked for."
+    )
     report: PortfolioReview
     plan: RebalancePlan | None = Field(
         default=None, description="Orders computed from the review's target allocation."
