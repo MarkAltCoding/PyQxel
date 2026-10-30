@@ -940,6 +940,12 @@
             "title": "Annualized Return",
             "type": "number"
           },
+          "cash": {
+            "default": false,
+            "description": "A money-market fund, counted as cash: its price stays at $1, so its statistics are zero.",
+            "title": "Cash",
+            "type": "boolean"
+          },
           "correlation_to_rest": {
             "anyOf": [
               {
@@ -949,7 +955,7 @@
                 "type": "null"
               }
             ],
-            "description": "Correlation of its daily returns with the rest of the portfolio's; null for a portfolio of one holding.",
+            "description": "Correlation of its daily returns with the rest of the portfolio's; null for a portfolio of one holding, and for cash.",
             "title": "Correlation To Rest"
           },
           "industry": {
@@ -1953,6 +1959,14 @@
             "title": "Kendall Tau",
             "type": "array"
           },
+          "left_out": {
+            "description": "Requested symbols the fit does not include; ``symbols`` are the rest.",
+            "items": {
+              "$ref": "#/components/schemas/LeftOutHolding"
+            },
+            "title": "Left Out",
+            "type": "array"
+          },
           "notice": {
             "anyOf": [
               {
@@ -2058,7 +2072,7 @@
               "pattern": "^[A-Za-z0-9.\\-^=]{1,15}$",
               "type": "string"
             },
-            "maxItems": 20,
+            "maxItems": 40,
             "minItems": 2,
             "title": "Symbols",
             "type": "array"
@@ -4349,6 +4363,12 @@
       "HoldingValue": {
         "description": "A saved position valued at the latest price.",
         "properties": {
+          "cash": {
+            "default": false,
+            "description": "A money-market fund, held at a steady $1 a share: simulations hold it as cash, and it is left out of how the holdings move together.",
+            "title": "Cash",
+            "type": "boolean"
+          },
           "industry": {
             "anyOf": [
               {
@@ -4435,7 +4455,7 @@
         "type": "object"
       },
       "HoldingsResponse": {
-        "description": "The account's saved portfolio, valued now, in the order it was saved.",
+        "description": "One of the account's saved portfolios, valued now, in the order it was saved.",
         "properties": {
           "holdings": {
             "items": {
@@ -4443,6 +4463,10 @@
             },
             "title": "Holdings",
             "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
           },
           "notice": {
             "anyOf": [
@@ -4455,6 +4479,13 @@
             ],
             "description": "Which holdings could not be priced, and why.",
             "title": "Notice"
+          },
+          "portfolio": {
+            "default": 1,
+            "maximum": 2.0,
+            "minimum": 1.0,
+            "title": "Portfolio",
+            "type": "integer"
           },
           "priced_at": {
             "format": "date-time",
@@ -4476,15 +4507,29 @@
         "type": "object"
       },
       "HoldingsUpdate": {
-        "description": "The account's whole portfolio, replacing what was saved; empty clears it.",
+        "description": "One of the account's portfolios in full, replacing what was saved; empty clears it.",
         "properties": {
           "holdings": {
             "items": {
               "$ref": "#/components/schemas/HoldingShares"
             },
-            "maxItems": 20,
+            "maxItems": 40,
             "title": "Holdings",
             "type": "array"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A new name for the portfolio; null keeps its name.",
+            "title": "Name"
           }
         },
         "title": "HoldingsUpdate",
@@ -5463,6 +5508,37 @@
         "title": "LastRun",
         "type": "object"
       },
+      "LeftOutHolding": {
+        "description": "A holding a multi-asset model could not use, and why.",
+        "properties": {
+          "detail": {
+            "description": "The reason in words, e.g. how much history it has.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "cash",
+              "short_history",
+              "late_start",
+              "no_data"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "reason",
+          "detail"
+        ],
+        "title": "LeftOutHolding",
+        "type": "object"
+      },
       "LobbyingFiling": {
         "description": "One quarterly lobbying disclosure filed with the Senate or House.",
         "properties": {
@@ -6136,7 +6212,7 @@
               "pattern": "^[A-Za-z0-9.\\-^=]{1,15}$",
               "type": "string"
             },
-            "maxItems": 20,
+            "maxItems": 40,
             "minItems": 2,
             "title": "Symbols",
             "type": "array"
@@ -7176,7 +7252,7 @@
         "type": "object"
       },
       "PortfolioAnalysisRequest": {
-        "description": "Options for a review of the saved portfolio.",
+        "description": "Options for a review of one of the saved portfolios.",
         "properties": {
           "period": {
             "default": "1y",
@@ -7189,6 +7265,14 @@
             ],
             "title": "Period",
             "type": "string"
+          },
+          "portfolio": {
+            "default": 1,
+            "description": "Which saved portfolio to review.",
+            "maximum": 2.0,
+            "minimum": 1.0,
+            "title": "Portfolio",
+            "type": "integer"
           },
           "profile": {
             "$ref": "#/components/schemas/InvestorProfile"
@@ -7317,7 +7401,7 @@
             "items": {
               "$ref": "#/components/schemas/Holding"
             },
-            "maxItems": 20,
+            "maxItems": 40,
             "minItems": 1,
             "title": "Holdings",
             "type": "array"
@@ -7580,7 +7664,7 @@
             "items": {
               "$ref": "#/components/schemas/AssetRisk"
             },
-            "maxItems": 20,
+            "maxItems": 40,
             "minItems": 1,
             "title": "Holdings",
             "type": "array"
@@ -7593,7 +7677,7 @@
             "type": "array"
           },
           "left_out": {
-            "description": "Holdings left out of the review because they could not be priced.",
+            "description": "Holdings left out of the review because they could not be priced or have too little history; ``notice`` says which and why.",
             "items": {
               "type": "string"
             },
@@ -7658,6 +7742,23 @@
           "portfolio"
         ],
         "title": "PortfolioContext",
+        "type": "object"
+      },
+      "PortfolioList": {
+        "description": "Every portfolio the account may save, saved or still empty, in order.",
+        "properties": {
+          "portfolios": {
+            "items": {
+              "$ref": "#/components/schemas/PortfolioSummary"
+            },
+            "title": "Portfolios",
+            "type": "array"
+          }
+        },
+        "required": [
+          "portfolios"
+        ],
+        "title": "PortfolioList",
         "type": "object"
       },
       "PortfolioPromptExport": {
@@ -7892,6 +7993,34 @@
           "largest_weight"
         ],
         "title": "PortfolioRiskStats",
+        "type": "object"
+      },
+      "PortfolioSummary": {
+        "description": "One of the account's portfolio slots, without prices.",
+        "properties": {
+          "holdings": {
+            "description": "How many holdings it has saved.",
+            "minimum": 0.0,
+            "title": "Holdings",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "portfolio": {
+            "maximum": 2.0,
+            "minimum": 1.0,
+            "title": "Portfolio",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "portfolio",
+          "name",
+          "holdings"
+        ],
+        "title": "PortfolioSummary",
         "type": "object"
       },
       "PriceHistory": {
@@ -9487,7 +9616,7 @@
             "items": {
               "$ref": "#/components/schemas/Holding"
             },
-            "maxItems": 20,
+            "maxItems": 40,
             "minItems": 1,
             "title": "Holdings",
             "type": "array"
@@ -9570,6 +9699,14 @@
       "SimulationResponse": {
         "description": "A portfolio simulation, the history it was fitted on, and where it is stored.",
         "properties": {
+          "cash": {
+            "description": "Holdings simulated as cash, keeping their value with no return: money-market funds, whose price stays at $1.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Cash",
+            "type": "array"
+          },
           "disclaimer": {
             "default": "Simulated from historical returns, which assume the future resembles the fitted window. Not investment advice.",
             "title": "Disclaimer",
@@ -9606,6 +9743,14 @@
             ],
             "description": "ID of the stored result, for GET /portfolio/simulations/{id}; null if it could not be saved.",
             "title": "Id"
+          },
+          "left_out": {
+            "description": "Holdings without enough history to simulate, and why; the rest are reweighted to make up the whole portfolio.",
+            "items": {
+              "$ref": "#/components/schemas/LeftOutHolding"
+            },
+            "title": "Left Out",
+            "type": "array"
           },
           "notice": {
             "anyOf": [
@@ -9645,6 +9790,14 @@
               }
             ],
             "title": "Saved At"
+          },
+          "simulated": {
+            "description": "The weights simulated: ``holdings`` without those left out, scaled back up to sum to one. Empty in results stored before holdings could be left out.",
+            "items": {
+              "$ref": "#/components/schemas/Holding"
+            },
+            "title": "Simulated",
+            "type": "array"
           },
           "simulation": {
             "$ref": "#/components/schemas/SimulationSummary"
@@ -10091,6 +10244,18 @@
               }
             ],
             "title": "Price"
+          },
+          "quote_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kind of security as the provider classes it, e.g. EQUITY, ETF or MONEYMARKET; null when it does not say.",
+            "title": "Quote Type"
           },
           "sector": {
             "anyOf": [
@@ -11566,8 +11731,24 @@
     },
     "/api/v1/portfolio/analysis": {
       "get": {
-        "description": "Return your newest stored portfolio review, whatever it was written for, so it can\nbe shown again without a charge. Returns 404 when you have none.",
+        "description": "Return your newest stored review of ``portfolio``, whatever it was written for, so\nit can be shown again without a charge. Returns 404 when you have none.",
         "operationId": "read_portfolio_review_api_v1_portfolio_analysis_get",
+        "parameters": [
+          {
+            "description": "Which of your saved portfolios: 1 or 2.",
+            "in": "query",
+            "name": "portfolio",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "Which of your saved portfolios: 1 or 2.",
+              "maximum": 2,
+              "minimum": 1,
+              "title": "Portfolio",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -11578,6 +11759,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Your latest portfolio review",
@@ -11595,6 +11786,7 @@
                 "$ref": "#/components/schemas/PortfolioAnalysisRequest",
                 "default": {
                   "period": "1y",
+                  "portfolio": 1,
                   "profile": {
                     "cash_to_invest": 0.0
                   },
@@ -11685,6 +11877,7 @@
                 "$ref": "#/components/schemas/PortfolioAnalysisRequest",
                 "default": {
                   "period": "1y",
+                  "portfolio": 1,
                   "profile": {
                     "cash_to_invest": 0.0
                   },
@@ -11733,6 +11926,7 @@
                 "$ref": "#/components/schemas/PortfolioAnalysisRequest",
                 "default": {
                   "period": "1y",
+                  "portfolio": 1,
                   "profile": {
                     "cash_to_invest": 0.0
                   },
@@ -11829,7 +12023,7 @@
     },
     "/api/v1/portfolio/copula": {
       "post": {
-        "description": "Model how ``symbols`` move together, separately from how each moves alone.\n\nDaily returns over ``period`` are aligned on the days every asset traded and turned\ninto ranks. A Gaussian copula and a Student t copula are fitted to them and compared\nby AIC. The t copula's degrees of freedom measure how much more often the assets\nhave extreme days together than a Gaussian copula allows; ``pairs`` gives each pair's\nimplied tail dependence alongside how often it was observed.\n\nMatrices are rows in the order of ``symbols``. Returns 404 naming unknown symbols, 422\nwhen the assets share too little history, and 502 when the price provider fails.",
+        "description": "Model how ``symbols`` move together, separately from how each moves alone.\n\nDaily returns over ``period`` are aligned on the days every asset traded and turned\ninto ranks. A Gaussian copula and a Student t copula are fitted to them and compared\nby AIC. The t copula's degrees of freedom measure how much more often the assets\nhave extreme days together than a Gaussian copula allows; ``pairs`` gives each pair's\nimplied tail dependence alongside how often it was observed.\n\nAssets the fit cannot use are left out and listed in ``left_out``: money-market\nfunds, whose price holds at $1; those with too little history or whose history\nstarts too late; and those whose prices cannot be fetched. Matrices are rows in the\norder of the response's ``symbols``, the assets kept. Returns 422 when fewer than two\nassets can be kept, and 502 when the price provider fails for every one.",
         "operationId": "create_copula_fit_api_v1_portfolio_copula_post",
         "requestBody": {
           "content": {
@@ -11871,8 +12065,24 @@
     },
     "/api/v1/portfolio/holdings": {
       "get": {
-        "description": "Return your saved holdings valued at the latest prices, with their weights.\n\nHoldings that cannot be priced are listed without a value or weight and named in\n``notice``. Returns 503 when the database is unavailable.",
+        "description": "Return a saved portfolio's holdings valued at the latest prices, with their weights.\n\nHoldings that cannot be priced are listed without a value or weight and named in\n``notice``. Returns 503 when the database is unavailable.",
         "operationId": "read_holdings_api_v1_portfolio_holdings_get",
+        "parameters": [
+          {
+            "description": "Which of your saved portfolios: 1 or 2.",
+            "in": "query",
+            "name": "portfolio",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "Which of your saved portfolios: 1 or 2.",
+              "maximum": 2,
+              "minimum": 1,
+              "title": "Portfolio",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -11883,16 +12093,42 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
-        "summary": "Your saved portfolio",
+        "summary": "One of your saved portfolios",
         "tags": [
           "portfolio"
         ]
       },
       "put": {
-        "description": "Replace your saved holdings (up to 20 symbols) and return them valued.\n\nSimulate or fit a copula to them by sending their ``weight`` values to\n``/portfolio/simulate`` or their symbols to ``/portfolio/copula``.",
+        "description": "Replace a saved portfolio's holdings (up to 40 symbols), and its name when\n``name`` is given, and return them valued.\n\nSimulate or fit a copula to them by sending their ``weight`` values to\n``/portfolio/simulate`` or their symbols to ``/portfolio/copula``.",
         "operationId": "store_holdings_api_v1_portfolio_holdings_put",
+        "parameters": [
+          {
+            "description": "Which of your saved portfolios: 1 or 2.",
+            "in": "query",
+            "name": "portfolio",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "Which of your saved portfolios: 1 or 2.",
+              "maximum": 2,
+              "minimum": 1,
+              "title": "Portfolio",
+              "type": "integer"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -11925,7 +12161,29 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Save your portfolio",
+        "summary": "Save one of your portfolios",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/v1/portfolio/portfolios": {
+      "get": {
+        "description": "List both of the portfolios you can save, with their names and how many holdings\neach has; one never saved has none. Returns 503 when the database is unavailable.",
+        "operationId": "read_portfolios_api_v1_portfolio_portfolios_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Your saved portfolios",
         "tags": [
           "portfolio"
         ]
@@ -11933,7 +12191,7 @@
     },
     "/api/v1/portfolio/simulate": {
       "post": {
-        "description": "Simulate a portfolio ``horizon`` trading days ahead.\n\nDaily returns over ``period`` are aligned on the days every holding traded. Each\nsimulated day draws how the holdings move together from a ``student_t`` or\n``gaussian`` copula fitted to them, or from resampled historical days\n(``empirical``), and each holding's own return from its history or a fitted Student\nt. With ``rebalancing`` ``daily`` the weights are reset every day; with ``none`` the\nportfolio is bought once and held, so weights drift. Returns the distribution of\nfinal value, expected return, probability of loss, VaR and CVaR at 95% and 99%,\nmaximum drawdowns, daily percentiles for a fan chart, and ``tail_checks`` comparing\nhow often holdings crash together in the simulation with history. Pass ``seed`` from\na previous result to reproduce it.\n\nThe result is stored and its ``id`` returned for ``GET /portfolio/simulations/{id}``;\nif the database is unavailable it is still returned, with a null ``id``.\n\nReturns 404 naming unknown symbols, 422 for invalid or oversized settings or too\nlittle shared history, 502 when the price provider fails, and 503 when the server is\nbusy with other simulations.",
+        "description": "Simulate a portfolio ``horizon`` trading days ahead.\n\nDaily returns over ``period`` are aligned on the days every holding traded. Each\nsimulated day draws how the holdings move together from a ``student_t`` or\n``gaussian`` copula fitted to them, or from resampled historical days\n(``empirical``), and each holding's own return from its history or a fitted Student\nt. With ``rebalancing`` ``daily`` the weights are reset every day; with ``none`` the\nportfolio is bought once and held, so weights drift. Returns the distribution of\nfinal value, expected return, probability of loss, VaR and CVaR at 95% and 99%,\nmaximum drawdowns, daily percentiles for a fan chart, and ``tail_checks`` comparing\nhow often holdings crash together in the simulation with history. Pass ``seed`` from\na previous result to reproduce it.\n\nMoney-market funds are simulated as cash, keeping their value, and listed in\n``cash``. Holdings with too little history are left out and listed in ``left_out``;\nthe rest are scaled up to make the whole portfolio, as ``simulated`` shows.\n\nThe result is stored and its ``id`` returned for ``GET /portfolio/simulations/{id}``;\nif the database is unavailable it is still returned, with a null ``id``.\n\nReturns 422 for invalid or oversized settings or when no holding but cash has enough\nhistory, 502 when the price provider fails for every holding, and 503 when the\nserver is busy with other simulations.",
         "operationId": "create_simulation_api_v1_portfolio_simulate_post",
         "requestBody": {
           "content": {

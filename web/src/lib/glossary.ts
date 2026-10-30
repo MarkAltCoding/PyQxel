@@ -538,6 +538,18 @@ const entries = {
     what: 'The holding’s share of the portfolio’s value at the latest prices.',
     bad: 'One holding above about 20–25% concentrates a lot of risk in a single company.',
   },
+  moneyMarketCash: {
+    title: 'Cash (money-market fund)',
+    what: 'A money-market fund, such as SPAXX or VMFXX, holds short-term government debt and keeps its price at $1 a share; its return comes as interest paid out. PyQxel treats it as cash: valued at $1 a share, held at a steady value in simulations, and left out of how the holdings move together, since its price never moves.',
+    note: 'The fund’s interest, recently about 3–5% a year, is not included in the simulation, so the cash share slightly understates what the portfolio would earn.',
+  },
+  leftOutHoldings: {
+    title: 'Holdings left out',
+    what: 'Holdings this analysis could not use, and why: usually a recent listing with less than about ten months (201 trading days) of prices in the window, or one whose prices could not be fetched. The figures describe the rest of the portfolio.',
+    good: 'Nothing left out, or only a small share of the portfolio.',
+    bad: 'A large share left out: the results then say little about the portfolio as a whole.',
+    note: 'In the simulation, the holdings kept are scaled up in proportion to stand in for those left out. Choosing a longer history does not help a recent listing; it only becomes usable once it has traded long enough.',
+  },
   monteCarlo: {
     title: 'Simulated outcomes (Monte Carlo)',
     what: 'Thousands of possible future paths for the portfolio, drawn from how the holdings’ returns behaved and moved together in the past. The bands show the range of outcomes.',

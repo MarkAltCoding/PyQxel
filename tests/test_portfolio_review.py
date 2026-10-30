@@ -116,6 +116,23 @@ def test_a_single_holding_has_no_correlations() -> None:
     assert stats.assets["XOM"].risk_contribution == pytest.approx(1.0)
 
 
+def test_cash_is_held_without_correlations() -> None:
+    returns = _returns()[["AAPL", "XOM"]].assign(SPAXX=0.0)
+    weights = pd.Series({"AAPL": 0.4, "XOM": 0.4, "SPAXX": 0.2})
+
+    stats = portfolio_stats(returns, weights)
+
+    assert list(stats.correlations.columns) == ["AAPL", "XOM"]
+    assert stats.average_correlation is not None
+    cash = stats.assets["SPAXX"]
+    assert cash.correlation_to_rest is None
+    assert (cash.volatility, cash.risk_contribution, cash.max_drawdown) == (0.0, 0.0, 0.0)
+    assert (
+        stats.volatility
+        < portfolio_stats(returns[["AAPL", "XOM"]], pd.Series({"AAPL": 0.5, "XOM": 0.5})).volatility
+    )
+
+
 def test_pairs_are_ranked_without_repeating() -> None:
     most, least = ranked_pairs(_returns().corr(), 1)
 
@@ -173,9 +190,13 @@ def market(monkeypatch: pytest.MonkeyPatch) -> list[PortfolioContext]:
     """Fake prices and Claude; return the contexts Claude was asked about."""
 
     async def info(symbol: str, client: Any = None) -> TickerInfo:
+        if symbol == "SPAXX":
+            return TickerInfo(symbol=symbol, price=1.0, quote_type="MONEYMARKET", source="test")
         return TickerInfo(symbol=symbol, price=PRICES[symbol], sector=SECTORS[symbol], source="fmp")
 
-    async def closes(symbols: list[str], period: str, interval: str) -> ClosePanel:
+    async def closes(
+        symbols: list[str], period: str, interval: str, tolerate_failures: bool = False
+    ) -> ClosePanel:
         prices = 100 * (1 + _returns()[symbols]).cumprod()
         return ClosePanel(closes=prices, timezones={s: "America/New_York" for s in symbols})
 
@@ -256,6 +277,28 @@ def test_a_recent_review_of_the_same_holdings_is_reused(
     assert latest["id"] == first["id"]
     assert changed["cached"] is False
     assert len(market) == 2
+
+
+def test_the_second_portfolio_is_reviewed_with_its_cash(
+    market: list[PortfolioContext],
+) -> None:
+    _save({"AAPL": 10})
+    body = {"holdings": [{"symbol": "XOM", "shares": 20}, {"symbol": "SPAXX", "shares": 2000}]}
+    client.put("/api/v1/portfolio/holdings", params={"portfolio": 2}, json=body)
+
+    second = client.post("/api/v1/portfolio/analysis", json={"portfolio": 2}).json()
+    first = client.get("/api/v1/portfolio/analysis")
+    latest = client.get("/api/v1/portfolio/analysis", params={"portfolio": 2}).json()
+
+    context = market[0]
+    assert {h.symbol: (round(h.weight, 6), h.cash) for h in context.holdings} == {
+        "XOM": (0.5, False),
+        "SPAXX": (0.5, True),
+    }
+    assert context.sectors == pytest.approx({"Energy": 0.5, "Cash": 0.5})
+    assert context.notice is not None and "Counted as cash: SPAXX" in context.notice
+    assert first.status_code == 404
+    assert latest["id"] == second["id"]
 
 
 def test_review_needs_saved_holdings(market: list[PortfolioContext]) -> None:

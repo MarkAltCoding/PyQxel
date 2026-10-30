@@ -14,7 +14,7 @@ from app.data import panel as panel_data
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
 from app.data.panel import fetch_close_panel
 from app.models.portfolio import MAX_SYMBOLS, Portfolio, SymbolList
-from app.stats.panel import return_panel
+from app.stats.panel import return_panel, usable_return_panel
 from app.stats.volatility import InsufficientDataError
 
 symbol_list = TypeAdapter(SymbolList)
@@ -283,3 +283,68 @@ def test_flat_prices_are_rejected_by_name() -> None:
 
     with pytest.raises(InsufficientDataError, match="never change over the window for CASH"):
         return_panel(closes)
+
+
+# --- Leaving out what a fit cannot use ---
+
+
+def test_short_and_flat_assets_are_left_out_and_the_rest_kept() -> None:
+    """Too few closes and a price that never moves are reasons to leave an asset out."""
+    closes = _dated_closes(
+        {"A": _walk(300, 1), "B": _walk(300, 2), "NEW": _walk(120, 3), "CASH": [1.0] * 300}
+    )
+
+    panel, dropped = usable_return_panel(closes)
+
+    assert list(panel.returns.columns) == ["A", "B"]
+    assert panel.observations == 299
+    assert [(d.symbol, d.reason) for d in dropped] == [
+        ("NEW", "short_history"),
+        ("CASH", "cash"),
+    ]
+    assert dropped[0].detail.startswith("120 daily closes, from ")
+
+
+def test_a_late_start_is_left_out_when_it_leaves_the_rest_too_few_days() -> None:
+    """A listing with enough closes of its own, but too few in common with one whose data
+    stops early, is left out so the others keep their history."""
+    closes = _dated_closes({"OLD": _walk(400, 1), "ALL": _walk(400, 2), "LATE": _walk(230, 3)})
+    closes.loc[closes.index[-40:], "OLD"] = np.nan
+
+    panel, dropped = usable_return_panel(closes)
+
+    assert list(panel.returns.columns) == ["OLD", "ALL"]
+    assert panel.observations == 359
+    assert [(d.symbol, d.reason) for d in dropped] == [("LATE", "late_start")]
+    assert "leaving the others only 189 common days" in dropped[0].detail
+
+
+def test_nothing_usable_is_an_error_naming_every_asset() -> None:
+    """When every asset is left out, the error says why for each."""
+    closes = _dated_closes({"NEW": _walk(50, 1), "CASH": [1.0] * 300})
+
+    with pytest.raises(InsufficientDataError, match="NEW: 50 daily closes.*CASH: its price"):
+        usable_return_panel(closes)
+
+
+@pytest.mark.asyncio
+async def test_failed_downloads_can_be_left_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tolerating failures, the symbols that failed are named and the rest returned."""
+    _serve(
+        monkeypatch,
+        {"AAPL": _bars([1, 2]), "ZZZZ": SymbolNotFoundError("nope"), "MSFT": _bars([3, 4])},
+    )
+
+    panel = await fetch_close_panel(["AAPL", "ZZZZ", "MSFT"], tolerate_failures=True)
+
+    assert list(panel.closes.columns) == ["AAPL", "MSFT"]
+    assert panel.failed == {"ZZZZ": "unknown symbol"}
+
+
+@pytest.mark.asyncio
+async def test_every_download_failing_still_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With nothing downloaded, tolerating failures still raises."""
+    _serve(monkeypatch, {"ZZZZ": SymbolNotFoundError("nope"), "YYYY": SymbolNotFoundError("no")})
+
+    with pytest.raises(SymbolNotFoundError):
+        await fetch_close_panel(["ZZZZ", "YYYY"], tolerate_failures=True)

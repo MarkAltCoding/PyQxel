@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.models.portfolio import Holding, Portfolio, PortfolioPeriod
+from app.models.portfolio import Holding, LeftOutHolding, Portfolio, PortfolioPeriod
 
 MAX_HORIZON_DAYS: int = 1_260
 """Longest horizon, five years of trading days."""
@@ -215,6 +215,21 @@ class SimulationResponse(BaseModel):
         ge=0, description="Dates some assets traded but not all, left out of the history."
     )
     simulation: SimulationSummary
+    simulated: list[Holding] = Field(
+        default_factory=list,
+        description="The weights simulated: ``holdings`` without those left out, scaled "
+        "back up to sum to one. Empty in results stored before holdings could be left out.",
+    )
+    cash: list[str] = Field(
+        default_factory=list,
+        description="Holdings simulated as cash, keeping their value with no return: "
+        "money-market funds, whose price stays at $1.",
+    )
+    left_out: list[LeftOutHolding] = Field(
+        default_factory=list,
+        description="Holdings without enough history to simulate, and why; the rest are "
+        "reweighted to make up the whole portfolio.",
+    )
     notice: str | None = None
     disclaimer: str = (
         "Simulated from historical returns, which assume the future resembles the fitted "

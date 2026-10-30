@@ -31,6 +31,11 @@ class TickerInfo(BaseModel):
     industry: str | None = None
     market_cap: float | None = Field(default=None, ge=0)
     price: float | None = Field(default=None, ge=0)
+    quote_type: str | None = Field(
+        default=None,
+        description="Kind of security as the provider classes it, e.g. EQUITY, ETF or "
+        "MONEYMARKET; null when it does not say.",
+    )
     source: str = Field(description="Data provider that produced this record.")
     filled_fields: list[str] = Field(
         default_factory=list,

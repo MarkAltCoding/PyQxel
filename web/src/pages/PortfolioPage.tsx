@@ -1,9 +1,14 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { fitCopula, getHoldings, saveHoldings, simulate } from '../api/endpoints'
+import { fitCopula, getHoldings, getPortfolios, saveHoldings, simulate } from '../api/endpoints'
 import { PortfolioReviewCard } from '../components/PortfolioReviewCard'
-import type { HoldingsResponse, SimulationRequest, SimulationResponse } from '../api/types'
+import type {
+  HoldingsResponse,
+  LeftOutHolding,
+  SimulationRequest,
+  SimulationResponse,
+} from '../api/types'
 import { ChartCard, Legend } from '../charts/ChartCard'
 import { CopulaHeatmap, CopulaTable } from '../charts/CopulaHeatmap'
 import { FanChart, FanTable } from '../charts/FanChart'
@@ -14,13 +19,34 @@ import { PresetOrCustom } from '../components/PresetOrCustom'
 import { Segmented } from '../components/Segmented'
 import { Stat } from '../components/Stat'
 import { money, number, percent, signedPercent, tone } from '../lib/format'
+import { readStored, writeStored } from '../lib/storage'
 import { InfoTip } from '../components/InfoTip'
 
-const MAX_HOLDINGS = 20
+const MAX_HOLDINGS = 40
+
+/** Portfolios an account may save, as the API allows. */
+const PORTFOLIOS = ['1', '2'] as const
+type PortfolioNumber = (typeof PORTFOLIOS)[number]
+
+const PORTFOLIO_KEY = 'pyqxel.portfolio'
+
+/** The portfolio this viewer had open last, or the first. */
+function storedPortfolio(): PortfolioNumber {
+  const stored = readStored(PORTFOLIO_KEY)
+  return PORTFOLIOS.find((value) => value === stored) ?? '1'
+}
+
+const MAX_NAME_LENGTH = 40
 
 interface Row {
   symbol: string
   shares: string
+}
+
+/** Unsaved edits to one portfolio. */
+interface Draft {
+  rows: Row[]
+  name: string
 }
 
 const HORIZONS = [
@@ -32,6 +58,18 @@ const HORIZONS = [
 
 /** Longest horizon a simulation may run, in trading days, as the API allows. */
 const MAX_HORIZON_DAYS = 1260
+
+/** Paths simulated when the run is small enough, and the API's limits on a run's size:
+ * paths x days, and paths x days x holdings. */
+const DEFAULT_PATHS = 10_000
+const MAX_PATH_DAYS = 2_600_000
+const MAX_DRAWS = 15_000_000
+
+/** The most paths, in hundreds and up to the default, a run of this size may have. */
+function pathsFor(horizon: number, holdings: number): number {
+  const fits = Math.min(MAX_PATH_DAYS / horizon, MAX_DRAWS / (horizon * Math.max(1, holdings)))
+  return Math.max(100, Math.min(DEFAULT_PATHS, Math.floor(fits / 100) * 100))
+}
 
 const DEPENDENCE = [
   { value: 'student_t', label: 'Student t' },
@@ -53,28 +91,56 @@ const toRows = (data: HoldingsResponse | undefined): Row[] =>
 
 export function PortfolioPage() {
   const queryClient = useQueryClient()
-  const holdings = useQuery({ queryKey: ['holdings'], queryFn: getHoldings })
-  // Unsaved edits; null shows the saved holdings.
-  const [draft, setDraft] = useState<Row[] | null>(null)
-  const dirty = draft !== null
-  const rows = draft ?? toRows(holdings.data)
+  const [selected, setSelected] = useState<PortfolioNumber>(storedPortfolio)
+  const portfolio = Number(selected)
+  const portfolios = useQuery({ queryKey: ['portfolios'], queryFn: getPortfolios })
+  const holdings = useQuery({
+    queryKey: ['holdings', portfolio],
+    queryFn: () => getHoldings(portfolio),
+    placeholderData: keepPreviousData,
+  })
+  const loaded = holdings.isPlaceholderData ? undefined : holdings.data
+  // Unsaved edits of each portfolio, kept while switching between them.
+  const [drafts, setDrafts] = useState<Partial<Record<PortfolioNumber, Draft>>>({})
+  const draft = drafts[selected]
+  const dirty = draft !== undefined
+  const savedName = loaded?.name ?? `Portfolio ${portfolio}`
+  const rows = draft?.rows ?? toRows(loaded)
+  const name = draft?.name ?? savedName
 
   const save = useMutation({
     mutationFn: () =>
-      saveHoldings(rows.map((row) => ({ symbol: row.symbol, shares: Number(row.shares) }))),
+      saveHoldings(
+        portfolio,
+        rows.map((row) => ({ symbol: row.symbol, shares: Number(row.shares) })),
+        name.trim() && name.trim() !== savedName ? name.trim() : undefined,
+      ),
     onSuccess: (data) => {
-      queryClient.setQueryData(['holdings'], data)
-      setDraft(null)
+      queryClient.setQueryData(['holdings', portfolio], data)
+      void queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+      discard()
     },
   })
 
-  const edit = (next: Row[]) => setDraft(next)
-  const invalid = rows.some((row) => !(Number(row.shares) > 0))
-  const valued = new Map((holdings.data?.holdings ?? []).map((h) => [h.symbol, h]))
+  const edit = (next: Partial<Draft>) =>
+    setDrafts((current) => ({ ...current, [selected]: { rows, name, ...next } }))
+  const discard = () =>
+    setDrafts((current) => {
+      const next = { ...current }
+      delete next[selected]
+      return next
+    })
+  const invalid = rows.some((row) => !(Number(row.shares) > 0)) || !name.trim()
+  const valued = new Map((loaded?.holdings ?? []).map((h) => [h.symbol, h]))
 
-  const priced = (holdings.data?.holdings ?? []).filter(
+  const priced = (loaded?.holdings ?? []).filter(
     (holding) => holding.weight !== null && holding.weight !== undefined && holding.weight > 0,
   )
+  const options = PORTFOLIOS.map((value) => {
+    const summary = portfolios.data?.portfolios.find((p) => String(p.portfolio) === value)
+    const unsaved = drafts[value] !== undefined ? ' •' : ''
+    return { value, label: `${summary?.name ?? `Portfolio ${value}`}${unsaved}` }
+  })
 
   return (
     <div className="stack">
@@ -82,22 +148,42 @@ export function PortfolioPage() {
         <div>
           <h1>Portfolio</h1>
           <div className="subtitle">
-            Your holdings, how they could fare, and how they move together.
+            Your holdings, how they could fare, and how they move together. Save up to two
+            portfolios.
           </div>
         </div>
+        <Segmented
+          label="Portfolio"
+          value={selected}
+          options={options}
+          onChange={(next) => {
+            writeStored(PORTFOLIO_KEY, next)
+            save.reset()
+            setSelected(next)
+          }}
+        />
       </header>
 
-      <section className="card">
+      <section className="card" aria-busy={holdings.isPlaceholderData}>
         <div className="card-header">
           <div>
-            <h2>Holdings</h2>
+            <h2>{savedName}</h2>
             <div className="subtitle">
-              Valued at the latest prices · {money(holdings.data?.total_value)} in total
+              Valued at the latest prices · {money(loaded?.total_value)} in total
             </div>
           </div>
           <div className="filter-row">
+            <input
+              type="text"
+              aria-label="Portfolio name"
+              maxLength={MAX_NAME_LENGTH}
+              style={{ width: 180 }}
+              value={name}
+              aria-invalid={!name.trim()}
+              onChange={(event) => edit({ name: event.target.value })}
+            />
             {dirty && (
-              <button type="button" className="button ghost" onClick={() => setDraft(null)}>
+              <button type="button" className="button ghost" onClick={discard}>
                 Discard
               </button>
             )}
@@ -133,13 +219,22 @@ export function PortfolioPage() {
             </thead>
             <tbody>
               {rows.map((row, index) => {
-                const value = dirty ? undefined : valued.get(row.symbol)
+                const known = valued.get(row.symbol)
+                const value = dirty ? undefined : known
                 return (
                   <tr key={row.symbol}>
                     <td>
                       <Link to={`/stocks/${encodeURIComponent(row.symbol)}`}>{row.symbol}</Link>
                     </td>
-                    <td className="muted">{valued.get(row.symbol)?.name ?? ''}</td>
+                    <td className="muted">
+                      {known?.name ?? ''}
+                      {known?.cash && (
+                        <span className="heading-with-info" style={{ marginLeft: 6 }}>
+                          <span className="badge">Cash</span>
+                          <InfoTip topic="moneyMarketCash" />
+                        </span>
+                      )}
+                    </td>
                     <td className="num">
                       <input
                         type="number"
@@ -150,15 +245,15 @@ export function PortfolioPage() {
                         value={row.shares}
                         aria-invalid={!(Number(row.shares) > 0)}
                         onChange={(event) =>
-                          edit(
-                            rows.map((r, i) =>
+                          edit({
+                            rows: rows.map((r, i) =>
                               i === index ? { ...r, shares: event.target.value } : r,
                             ),
-                          )
+                          })
                         }
                       />
                     </td>
-                    <td className="num">{money(valued.get(row.symbol)?.price)}</td>
+                    <td className="num">{money(known?.price)}</td>
                     <td className="num">{money(value?.value)}</td>
                     <td className="num">
                       <WeightBar weight={value?.weight} />
@@ -167,7 +262,7 @@ export function PortfolioPage() {
                       <button
                         type="button"
                         className="button ghost small danger"
-                        onClick={() => edit(rows.filter((_, i) => i !== index))}
+                        onClick={() => edit({ rows: rows.filter((_, i) => i !== index) })}
                       >
                         Remove
                       </button>
@@ -193,26 +288,38 @@ export function PortfolioPage() {
                 if (rows.length >= MAX_HOLDINGS || rows.some((row) => row.symbol === symbol)) {
                   return
                 }
-                edit([...rows, { symbol, shares: '' }])
+                edit({ rows: [...rows, { symbol, shares: '' }] })
               }}
             />
           </div>
-          {dirty && <span className="muted">Enter share counts, then save.</span>}
+          <span className="muted">
+            {rows.length} of {MAX_HOLDINGS} holdings
+            {dirty ? ' · Enter share counts, then save.' : ''}
+          </span>
         </div>
-        {holdings.data?.notice && !dirty && (
+        {loaded?.notice && !dirty && (
           <div style={{ marginTop: 12 }}>
-            <Notice tone="warning">{holdings.data.notice}</Notice>
+            <Notice tone="warning">{loaded.notice}</Notice>
           </div>
         )}
       </section>
 
       <SimulationCard
+        key={`simulation-${portfolio}`}
         holdings={priced.map((h) => ({ symbol: h.symbol, weight: h.weight! }))}
-        initialValue={holdings.data?.total_value ?? 0}
-        stale={dirty}
+        initialValue={loaded?.total_value ?? 0}
+        stale={dirty || holdings.isPlaceholderData}
       />
-      <CopulaCard symbols={priced.map((h) => h.symbol)} stale={dirty} />
-      <PortfolioReviewCard hasHoldings={priced.length > 0} stale={dirty} />
+      <CopulaCard
+        symbols={priced.map((h) => h.symbol)}
+        stale={dirty || holdings.isPlaceholderData}
+      />
+      <PortfolioReviewCard
+        key={`review-${portfolio}`}
+        portfolio={portfolio}
+        hasHoldings={priced.length > 0}
+        stale={dirty || holdings.isPlaceholderData}
+      />
     </div>
   )
 }
@@ -247,6 +354,48 @@ function WeightBar({ weight }: { weight: number | null | undefined }) {
   )
 }
 
+/** "A, B and C". */
+function listed(items: string[]): string {
+  return items.length < 2
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+}
+
+/** Says which holdings an analysis could not use, and why, so its figures are read as
+ * covering only the rest. */
+function LeftOutNotice({
+  leftOut,
+  share,
+  rest,
+}: {
+  leftOut: LeftOutHolding[]
+  /** Share of the portfolio's value they hold, when known. */
+  share?: number
+  /** What became of the holdings kept. */
+  rest: string
+}) {
+  if (leftOut.length === 0) return null
+  return (
+    <Notice tone="warning">
+      <div className="heading-with-info">
+        <strong>
+          Left out: {listed(leftOut.map((h) => h.symbol))}
+          {share !== undefined && ` (${percent(share, 0)} of the portfolio)`}
+        </strong>
+        <InfoTip topic="leftOutHoldings" />
+      </div>
+      <ul style={{ margin: '4px 0', paddingLeft: 18 }}>
+        {leftOut.map((holding) => (
+          <li key={holding.symbol}>
+            {holding.symbol}: {holding.detail}
+          </li>
+        ))}
+      </ul>
+      {rest}
+    </Notice>
+  )
+}
+
 /** Normalizes rounding so weights sum to exactly one, as the API requires. */
 function normalized(holdings: { symbol: string; weight: number }[]) {
   const total = holdings.reduce((sum, h) => sum + h.weight, 0)
@@ -275,6 +424,12 @@ function SimulationCard({
 
   const start = initialValue > 0 ? initialValue : 10_000
   const disabled = holdings.length === 0 || stale || run.isPending
+  const weightOf = new Map(result?.holdings.map((h) => [h.symbol, h.weight]))
+  const leftOutShare = (result?.left_out ?? []).reduce(
+    (sum, h) => sum + (weightOf.get(h.symbol) ?? 0),
+    0,
+  )
+  const cash = result?.cash ?? []
 
   return (
     <ChartCard
@@ -311,7 +466,7 @@ function SimulationCard({
                 holdings: normalized(holdings),
                 horizon,
                 dependence,
-                paths: 10_000,
+                paths: pathsFor(horizon, holdings.length),
                 initial_value: start,
                 period: '5y',
               })
@@ -385,6 +540,24 @@ function SimulationCard({
                 }
               />
             </div>
+            <LeftOutNotice
+              leftOut={result.left_out ?? []}
+              share={leftOutShare}
+              rest="The simulation covers the other holdings, scaled up in proportion to make up the whole portfolio."
+            />
+            {cash.length > 0 && (
+              <Notice>
+                <span className="heading-with-info">
+                  <span>
+                    {listed(cash)}{' '}
+                    {cash.length > 1 ? 'are money-market funds' : 'is a money-market fund'},
+                    simulated as cash: {cash.length > 1 ? 'they keep their' : 'it keeps its'} value,
+                    with no gains, losses or interest.
+                  </span>
+                  <InfoTip topic="moneyMarketCash" />
+                </span>
+              </Notice>
+            )}
             {(summary.warnings ?? []).map((warning) => (
               <Notice key={warning} tone="warning">
                 {warning}
@@ -439,6 +612,10 @@ function CopulaCard({ symbols, stale }: { symbols: string[]; stale: boolean }) {
               Tail dependence is the chance two holdings crash together, beyond what their
               correlation implies; the Student t copula captures it and the Gaussian does not.
             </p>
+            <LeftOutNotice
+              leftOut={data.left_out ?? []}
+              rest={`The matrix compares the other ${data.symbols.length} holdings.`}
+            />
             {[...(data.warnings ?? []), ...(data.notice ? [data.notice] : [])].map((warning) => (
               <Notice key={warning} tone="warning">
                 {warning}

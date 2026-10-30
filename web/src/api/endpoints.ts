@@ -27,6 +27,7 @@ import type {
   FactorRegression,
   HoldingShares,
   HoldingsResponse,
+  PortfolioList,
   MarketSignals,
   NewsResponse,
   PortfolioAnalysisRequest,
@@ -81,7 +82,7 @@ export const getMarketNews = (category: MarketNewsCategory) =>
 export const getMetrics = (symbol: string) => api<CompanyMetrics>(`${path(symbol)}/metrics`)
 export const getSignals = (symbol: string) => api<MarketSignals>(`${path(symbol)}/signals`)
 export const getNews = (symbol: string) =>
-  api<NewsResponse>(`${path(symbol)}/news`, { query: { limit: 50 } })
+  api<NewsResponse>(`${path(symbol)}/news`, { query: { limit: 200 } })
 
 export const listAnalyses = (symbol: string) =>
   api<AnalysisList>(`${V1}/analyses`, { query: { symbol, limit: 10 } })
@@ -110,11 +111,17 @@ export const getBacktest = (id: string) => api<BacktestResponse>(`${V1}/backtest
 export const deleteBacktest = (id: string) =>
   api<void>(`${V1}/backtests/${id}`, { method: 'DELETE' })
 
-export const getHoldings = () => api<HoldingsResponse>(`${V1}/portfolio/holdings`)
-/** The latest stored portfolio review, or null when there is none yet. */
-export const getPortfolioReview = async (): Promise<PortfolioAnalysisResponse | null> => {
+export const getPortfolios = () => api<PortfolioList>(`${V1}/portfolio/portfolios`)
+export const getHoldings = (portfolio: number) =>
+  api<HoldingsResponse>(`${V1}/portfolio/holdings`, { query: { portfolio } })
+/** The latest stored review of a portfolio, or null when there is none yet. */
+export const getPortfolioReview = async (
+  portfolio: number,
+): Promise<PortfolioAnalysisResponse | null> => {
   try {
-    return await api<PortfolioAnalysisResponse>(`${V1}/portfolio/analysis`)
+    return await api<PortfolioAnalysisResponse>(`${V1}/portfolio/analysis`, {
+      query: { portfolio },
+    })
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null
     throw error
@@ -136,8 +143,12 @@ export const importAssistantReply = (response: string) =>
 /** Asks the strategy coding assistant; the conversation is sent each time, never stored. */
 export const streamAssistant = (body: AssistantRequest, signal: AbortSignal) =>
   send(`${V1}/backtests/assistant/stream`, { method: 'POST', body, signal })
-export const saveHoldings = (holdings: HoldingShares[]) =>
-  api<HoldingsResponse>(`${V1}/portfolio/holdings`, { method: 'PUT', body: { holdings } })
+export const saveHoldings = (portfolio: number, holdings: HoldingShares[], name?: string) =>
+  api<HoldingsResponse>(`${V1}/portfolio/holdings`, {
+    method: 'PUT',
+    query: { portfolio },
+    body: { holdings, name: name ?? null },
+  })
 export const simulate = (body: SimulationRequest) =>
   api<SimulationResponse>(`${V1}/portfolio/simulate`, { method: 'POST', body })
 export const fitCopula = (symbols: string[], period: string) =>
