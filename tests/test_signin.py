@@ -155,9 +155,10 @@ def test_github_sign_in_creates_an_account_and_issues_a_key(
     a working API key and the page to go back to."""
     requests = _providers(monkeypatch)
 
-    fragment = _sign_in(client, "github", next_page="/backtest?symbol=SPY")
+    page = "/backtest?mode=universe&view=code&id=run-1#backtest-form"
+    fragment = _sign_in(client, "github", next_page=page)
 
-    assert fragment["next"] == "/backtest?symbol=SPY"
+    assert fragment["next"] == page
     assert fragment["key"].startswith("pq_")
     assert asyncio.run(_email_for(fragment["key"])) == "octo@example.com"
     token_request = parse_qs(requests[0].content.decode())

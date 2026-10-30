@@ -1,11 +1,13 @@
 import { Link, NavLink, Outlet, useNavigate } from 'react-router'
 import { useAuth } from '../auth/useAuth'
+import { useScrollToHash } from '../lib/scrollToHash'
 import { SearchBox } from './SearchBox'
 import { ThemeToggle } from './ThemeToggle'
 
 export function Layout() {
   const navigate = useNavigate()
   const { signOut } = useAuth()
+  useScrollToHash()
   return (
     <div className="shell">
       <header className="topbar">

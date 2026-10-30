@@ -61,6 +61,21 @@ describe('sign-in', () => {
     expect(window.localStorage.getItem('pyqxel.apiKey')).toBe('pq_good')
   })
 
+  it('keeps the query and section of the page they were going to', async () => {
+    serve({
+      '/api/v1/auth/providers': () => json([]),
+      '/api/v1/me': () => json({ email: 'a@b.c' }),
+    })
+    const router = renderAt('/backtest?mode=universe&view=code#backtest-form')
+
+    expect(router.state.location.pathname).toBe('/signin')
+    await userEvent.type(screen.getByLabelText('API key'), 'pq_good')
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    const { pathname, search, hash } = router.state.location
+    expect(`${pathname}${search}${hash}`).toBe('/backtest?mode=universe&view=code#backtest-form')
+  })
+
   it('explains a rejected key and stays on the sign-in page', async () => {
     serve({
       '/api/v1/auth/providers': () => json([]),
@@ -78,13 +93,14 @@ describe('sign-in', () => {
 
   it('offers GitHub and Google, returning to the page the visitor wanted', async () => {
     serve({ '/api/v1/auth/providers': () => json(PROVIDERS) })
-    renderAt('/backtest')
+    renderAt('/backtest?symbol=SPY#code')
 
     const github = await screen.findByRole('link', { name: 'Continue with GitHub' })
     const google = screen.getByRole('link', { name: 'Continue with Google' })
 
-    expect(github).toHaveAttribute('href', '/api/v1/auth/github/start?next=%2Fbacktest')
-    expect(google).toHaveAttribute('href', '/api/v1/auth/google/start?next=%2Fbacktest')
+    const next = new URLSearchParams({ next: '/backtest?symbol=SPY#code' })
+    expect(github).toHaveAttribute('href', `/api/v1/auth/github/start?${next}`)
+    expect(google).toHaveAttribute('href', `/api/v1/auth/google/start?${next}`)
     expect(screen.getByText('New here? Signing in creates your account.')).toBeInTheDocument()
   })
 
