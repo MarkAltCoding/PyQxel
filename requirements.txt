@@ -32,5 +32,9 @@ rpy2>=3.6.8
 anthropic>=2.3.0
 beautifulsoup4>=4.15.0
 
+# --- Security floors for indirect dependencies (pip-audit, 2026-10-30) ---
+certifi>=2026.10.19  # drops a CA root with compromised intermediates (PYSEC-2026-4320)
+opentelemetry-api>=1.45.1  # via fastapi and anthropic; slow tracestate parsing (CVE-2026-114603)
+
 # --- Planned (not used yet; uncomment when the feature lands) ---
 # scikit-learn>=1.9.1  # machine-learning models
