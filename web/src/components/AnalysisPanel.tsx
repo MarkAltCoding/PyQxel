@@ -15,14 +15,32 @@ import type {
   AnalysisRequest,
   AnalysisResponse,
   InvestmentThesis,
+  PriceSummary,
   RiskSummary,
 } from '../api/types'
 import { keepExport, keptExport } from '../lib/exportedPrompts'
-import { dateTime } from '../lib/format'
-import { LEVEL_TONE } from '../lib/tones'
+import { dateTime, percent, signedPercent, tone } from '../lib/format'
+import { useReportView } from '../lib/reportView'
+import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
 import { ExternalClaude } from './ExternalClaude'
 import { ErrorNotice } from './Notice'
+import {
+  FinePrint,
+  FullText,
+  LevelMeter,
+  PointColumn,
+  ReportTabs,
+  ReportViewToggle,
+  RiskCards,
+  StanceMeter,
+  Summary,
+  TextPoints,
+  TextRisks,
+  Verdict,
+  type Tab,
+} from './ReportParts'
 import { Segmented } from './Segmented'
+import { Stat } from './Stat'
 import { InfoTip } from './InfoTip'
 
 const KINDS = [
@@ -187,13 +205,21 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
 }
 
 function Report({ response }: { response: AnalysisResponse }) {
+  const [view, setView] = useReportView()
+  const prices = response.context.prices
+  const thesis = response.kind === 'thesis' ? (response.report as InvestmentThesis) : null
+  const risk = response.kind === 'thesis' ? null : (response.report as RiskSummary)
   return (
     <article className="report">
-      {response.kind === 'thesis' ? (
-        <Thesis report={response.report as InvestmentThesis} />
-      ) : (
-        <Risk report={response.report as RiskSummary} />
-      )}
+      <ReportViewToggle view={view} onChange={setView} />
+      {thesis &&
+        (view === 'text' ? (
+          <TextThesis report={thesis} />
+        ) : (
+          <Thesis report={thesis} prices={prices} />
+        ))}
+      {risk &&
+        (view === 'text' ? <TextRisk report={risk} /> : <Risk report={risk} prices={prices} />)}
       <p className="disclaimer" style={{ marginTop: 16 }}>
         {response.model} · {dateTime(response.generated_at)}
         {response.cached && ' · reused, not billed again'} · {response.disclaimer}
@@ -202,66 +228,219 @@ function Report({ response }: { response: AnalysisResponse }) {
   )
 }
 
-const STANCE_TONE = { bullish: 'good', neutral: '', bearish: 'critical' } as const
+/** The price figures the report was written from, so its claims can be checked at a
+ * glance. */
+function PriceFacts({ prices }: { prices: PriceSummary }) {
+  return (
+    <div className="stats">
+      <Stat
+        info="annualizedReturn"
+        label="Return, annualized"
+        value={signedPercent(prices.annualized_return)}
+        className={tone(prices.annualized_return)}
+      />
+      <Stat
+        info="realizedVolatility"
+        label="Volatility"
+        value={percent(prices.realized_volatility)}
+      />
+      <Stat info="maxDrawdown" label="Max drawdown" value={percent(prices.max_drawdown)} />
+      <Stat
+        info="currentDrawdown"
+        label="Below its high"
+        value={percent(prices.current_drawdown)}
+      />
+    </div>
+  )
+}
 
-function Thesis({ report }: { report: InvestmentThesis }) {
+function Thesis({ report, prices }: { report: InvestmentThesis; prices: PriceSummary }) {
+  const tabs: Tab[] = [
+    {
+      id: 'overview',
+      label: 'Overview',
+      content: (
+        <div className="stack" style={{ gap: 14 }}>
+          <PriceFacts prices={prices} />
+          <Summary text={report.summary} />
+        </div>
+      ),
+    },
+    {
+      id: 'case',
+      label: 'Bull vs. bear',
+      count: report.supporting_points.length + report.counterpoints.length,
+      content: (
+        <div className="stack" style={{ gap: 14 }}>
+          <EvidenceBalance
+            support={report.supporting_points.length}
+            against={report.counterpoints.length}
+          />
+          <div className="grid-2">
+            <PointColumn title="Supporting" items={report.supporting_points} tone="good" />
+            <PointColumn title="Against" items={report.counterpoints} tone="critical" />
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'watch',
+      label: 'What would change it',
+      count: report.what_would_change_the_view.length,
+      content: (
+        <PointColumn title="Watch for" items={report.what_would_change_the_view} tone="warning" />
+      ),
+    },
+    {
+      id: 'limits',
+      label: 'Limits',
+      count: report.data_limitations.length,
+      content: <FinePrint title="What the data cannot show" items={report.data_limitations} />,
+    },
+  ]
   return (
     <>
-      <div className="filter-row" style={{ alignItems: 'center', marginBottom: 8 }}>
-        <span className={`badge ${STANCE_TONE[report.stance]}`}>Stance: {report.stance}</span>
-        <span className="badge">Conviction: {report.conviction}</span>
-      </div>
-      <p className="headline">{report.headline}</p>
-      <p style={{ marginTop: 8 }}>{report.summary}</p>
-      <div className="grid-2">
-        <Points title="Supporting points" items={report.supporting_points} />
-        <Points title="Counterpoints" items={report.counterpoints} />
-      </div>
-      <Points title="What would change the view" items={report.what_would_change_the_view} />
-      <Points title="Data limitations" items={report.data_limitations} />
+      <Verdict headline={report.headline}>
+        <StanceMeter value={report.stance} info="stance" />
+        <LevelMeter
+          label="Conviction"
+          info="conviction"
+          steps={['low', 'medium', 'high']}
+          value={report.conviction}
+          tone="neutral"
+        />
+      </Verdict>
+      <ReportTabs label="Parts of the thesis" tabs={tabs} />
     </>
   )
 }
 
-function Risk({ report }: { report: RiskSummary }) {
+/** How many points Claude found for the stance and against it, as one split bar. */
+function EvidenceBalance({ support, against }: { support: number; against: number }) {
+  const total = support + against
+  if (total === 0) return null
+  return (
+    <div className="evidence-balance">
+      <div
+        className="evidence-bar"
+        role="img"
+        aria-label={`${support} points for, ${against} against`}
+      >
+        <span className="tone-good" style={{ flexGrow: support }} />
+        <span className="tone-critical" style={{ flexGrow: against }} />
+      </div>
+      <div className="evidence-legend">
+        <span className="up">{support} for</span>
+        <span className="down">{against} against</span>
+      </div>
+    </div>
+  )
+}
+
+function Risk({ report, prices }: { report: RiskSummary; prices: PriceSummary }) {
+  const tabs: Tab[] = [
+    {
+      id: 'overview',
+      label: 'Overview',
+      content: (
+        <div className="stack" style={{ gap: 14 }}>
+          <PriceFacts prices={prices} />
+          <Summary text={report.summary} />
+        </div>
+      ),
+    },
+    {
+      id: 'risks',
+      label: 'Key risks',
+      count: report.key_risks.length,
+      content: <RiskCards risks={report.key_risks} />,
+    },
+    {
+      id: 'swings',
+      label: 'Swings and falls',
+      content: (
+        <div className="grid-2">
+          <div className="assessment">
+            <h3>Volatility</h3>
+            <p>{report.volatility_assessment}</p>
+          </div>
+          <div className="assessment">
+            <h3>Drawdowns</h3>
+            <p>{report.drawdown_assessment}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'limits',
+      label: 'Limits',
+      count: report.data_limitations.length,
+      content: <FinePrint title="What the data cannot show" items={report.data_limitations} />,
+    },
+  ]
+  return (
+    <>
+      <Verdict headline={report.headline}>
+        <LevelMeter
+          label="Risk level"
+          info="riskLevel"
+          steps={SEVERITY_ORDER}
+          value={report.risk_level}
+          tone={SEVERITY_TONE[report.risk_level]}
+        />
+      </Verdict>
+      <ReportTabs label="Parts of the risk summary" tabs={tabs} />
+    </>
+  )
+}
+
+// The full-text view: the whole report on one page.
+
+const STANCE_TONE = { bullish: 'good', neutral: '', bearish: 'critical' } as const
+
+function TextThesis({ report }: { report: InvestmentThesis }) {
   return (
     <>
       <div className="filter-row" style={{ alignItems: 'center', marginBottom: 8 }}>
-        <span className={`badge ${LEVEL_TONE[report.risk_level]}`}>
-          Risk level: {report.risk_level}
+        <span className={`badge ${STANCE_TONE[report.stance]}`}>
+          Stance: {report.stance}
+          <InfoTip topic="stance" />
+        </span>
+        <span className="badge">
+          Conviction: {report.conviction}
+          <InfoTip topic="conviction" />
         </span>
       </div>
       <p className="headline">{report.headline}</p>
-      <p style={{ marginTop: 8 }}>{report.summary}</p>
+      <FullText text={report.summary} />
+      <div className="grid-2">
+        <TextPoints title="Supporting points" items={report.supporting_points} />
+        <TextPoints title="Counterpoints" items={report.counterpoints} />
+      </div>
+      <TextPoints title="What would change the view" items={report.what_would_change_the_view} />
+      <TextPoints title="Data limitations" items={report.data_limitations} />
+    </>
+  )
+}
+
+function TextRisk({ report }: { report: RiskSummary }) {
+  return (
+    <>
+      <div className="filter-row" style={{ alignItems: 'center', marginBottom: 8 }}>
+        <span className={`badge ${badgeTone(SEVERITY_TONE[report.risk_level])}`}>
+          Risk level: {report.risk_level}
+          <InfoTip topic="riskLevel" />
+        </span>
+      </div>
+      <p className="headline">{report.headline}</p>
+      <FullText text={report.summary} />
       <h3>Volatility</h3>
       <p>{report.volatility_assessment}</p>
       <h3>Drawdowns</h3>
       <p>{report.drawdown_assessment}</p>
       <h3>Key risks</h3>
-      <ul>
-        {report.key_risks.map((risk) => (
-          <li key={risk.name}>
-            <strong>{risk.name}</strong>{' '}
-            <span className={`badge ${LEVEL_TONE[risk.severity]}`}>{risk.severity}</span>
-            <div style={{ color: 'var(--text-secondary)' }}>{risk.evidence}</div>
-          </li>
-        ))}
-      </ul>
-      <Points title="Data limitations" items={report.data_limitations} />
+      <TextRisks risks={report.key_risks} />
+      <TextPoints title="Data limitations" items={report.data_limitations} />
     </>
-  )
-}
-
-export function Points({ title, items }: { title: string; items: string[] }) {
-  if (items.length === 0) return null
-  return (
-    <div>
-      <h3>{title}</h3>
-      <ul>
-        {items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-    </div>
   )
 }

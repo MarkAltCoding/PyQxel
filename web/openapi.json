@@ -2055,6 +2055,20 @@
       "CopulaRequest": {
         "description": "Assets whose dependence to model.",
         "properties": {
+          "max_history_cut": {
+            "anyOf": [
+              {
+                "exclusiveMaximum": 1.0,
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Leave out any holding whose data starts so late that keeping it would cut more than this fraction (0.5 = half) off the history the others have, since the fit starts when every holding has data. Null keeps every holding with enough history of its own, however short the shared window.",
+            "title": "Max History Cut"
+          },
           "period": {
             "default": "5y",
             "description": "Lookback window of daily bars.",
@@ -6756,6 +6770,33 @@
             "title": "Kendall Tau",
             "type": "number"
           },
+          "own_kendall_tau": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": -1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rank correlation over every day the two share, which can be longer than the window every holding shares; null when they share too few days.",
+            "title": "Own Kendall Tau"
+          },
+          "own_observations": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days ``own_kendall_tau`` is computed on.",
+            "title": "Own Observations"
+          },
           "symbols": {
             "maxItems": 2,
             "minItems": 2,
@@ -9646,6 +9687,20 @@
             "title": "Marginals",
             "type": "string"
           },
+          "max_history_cut": {
+            "anyOf": [
+              {
+                "exclusiveMaximum": 1.0,
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Leave out any holding whose data starts so late that keeping it would cut more than this fraction (0.5 = half) off the history the others have, since the fit starts when every holding has data. Null keeps every holding with enough history of its own, however short the shared window.",
+            "title": "Max History Cut"
+          },
           "paths": {
             "default": 10000,
             "maximum": 100000.0,
@@ -12023,7 +12078,7 @@
     },
     "/api/v1/portfolio/copula": {
       "post": {
-        "description": "Model how ``symbols`` move together, separately from how each moves alone.\n\nDaily returns over ``period`` are aligned on the days every asset traded and turned\ninto ranks. A Gaussian copula and a Student t copula are fitted to them and compared\nby AIC. The t copula's degrees of freedom measure how much more often the assets\nhave extreme days together than a Gaussian copula allows; ``pairs`` gives each pair's\nimplied tail dependence alongside how often it was observed.\n\nAssets the fit cannot use are left out and listed in ``left_out``: money-market\nfunds, whose price holds at $1; those with too little history or whose history\nstarts too late; and those whose prices cannot be fetched. Matrices are rows in the\norder of the response's ``symbols``, the assets kept. Returns 422 when fewer than two\nassets can be kept, and 502 when the price provider fails for every one.",
+        "description": "Model how ``symbols`` move together, separately from how each moves alone.\n\nDaily returns over ``period`` are aligned on the days every asset traded and turned\ninto ranks. A Gaussian copula and a Student t copula are fitted to them and compared\nby AIC. The t copula's degrees of freedom measure how much more often the assets\nhave extreme days together than a Gaussian copula allows; ``pairs`` gives each pair's\nimplied tail dependence alongside how often it was observed.\n\nAssets the fit cannot use are left out and listed in ``left_out``: money-market\nfunds, whose price holds at $1; those with too little history or whose history\nstarts too late, or later than ``max_history_cut`` allows; and those whose prices\ncannot be fetched. Matrices are rows in the order of the response's ``symbols``, the\nassets kept. Each pair also has ``own_kendall_tau``, over all the history the two\nshare. Returns 422 when fewer than two assets can be kept, and 502 when the price\nprovider fails for every one.",
         "operationId": "create_copula_fit_api_v1_portfolio_copula_post",
         "requestBody": {
           "content": {
@@ -12191,7 +12246,7 @@
     },
     "/api/v1/portfolio/simulate": {
       "post": {
-        "description": "Simulate a portfolio ``horizon`` trading days ahead.\n\nDaily returns over ``period`` are aligned on the days every holding traded. Each\nsimulated day draws how the holdings move together from a ``student_t`` or\n``gaussian`` copula fitted to them, or from resampled historical days\n(``empirical``), and each holding's own return from its history or a fitted Student\nt. With ``rebalancing`` ``daily`` the weights are reset every day; with ``none`` the\nportfolio is bought once and held, so weights drift. Returns the distribution of\nfinal value, expected return, probability of loss, VaR and CVaR at 95% and 99%,\nmaximum drawdowns, daily percentiles for a fan chart, and ``tail_checks`` comparing\nhow often holdings crash together in the simulation with history. Pass ``seed`` from\na previous result to reproduce it.\n\nMoney-market funds are simulated as cash, keeping their value, and listed in\n``cash``. Holdings with too little history are left out and listed in ``left_out``;\nthe rest are scaled up to make the whole portfolio, as ``simulated`` shows.\n\nThe result is stored and its ``id`` returned for ``GET /portfolio/simulations/{id}``;\nif the database is unavailable it is still returned, with a null ``id``.\n\nReturns 422 for invalid or oversized settings or when no holding but cash has enough\nhistory, 502 when the price provider fails for every holding, and 503 when the\nserver is busy with other simulations.",
+        "description": "Simulate a portfolio ``horizon`` trading days ahead.\n\nDaily returns over ``period`` are aligned on the days every holding traded. Each\nsimulated day draws how the holdings move together from a ``student_t`` or\n``gaussian`` copula fitted to them, or from resampled historical days\n(``empirical``), and each holding's own return from its history or a fitted Student\nt. With ``rebalancing`` ``daily`` the weights are reset every day; with ``none`` the\nportfolio is bought once and held, so weights drift. Returns the distribution of\nfinal value, expected return, probability of loss, VaR and CVaR at 95% and 99%,\nmaximum drawdowns, daily percentiles for a fan chart, and ``tail_checks`` comparing\nhow often holdings crash together in the simulation with history. Pass ``seed`` from\na previous result to reproduce it.\n\nMoney-market funds are simulated as cash, keeping their value, and listed in\n``cash``. Holdings with too little history, or whose data starts later than\n``max_history_cut`` allows, are left out and listed in ``left_out``;\nthe rest are scaled up to make the whole portfolio, as ``simulated`` shows.\n\nThe result is stored and its ``id`` returned for ``GET /portfolio/simulations/{id}``;\nif the database is unavailable it is still returned, with a null ``id``.\n\nReturns 422 for invalid or oversized settings or when no holding but cash has enough\nhistory, 502 when the price provider fails for every holding, and 503 when the\nserver is busy with other simulations.",
         "operationId": "create_simulation_api_v1_portfolio_simulate_post",
         "requestBody": {
           "content": {

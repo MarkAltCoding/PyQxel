@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.models.portfolio import Holding, LeftOutHolding, Portfolio, PortfolioPeriod
+from app.models.portfolio import HistoryCut, Holding, LeftOutHolding, Portfolio, PortfolioPeriod
 
 MAX_HORIZON_DAYS: int = 1_260
 """Longest horizon, five years of trading days."""
@@ -157,6 +157,7 @@ class SimulationRequest(Portfolio):
     period: PortfolioPeriod = Field(
         default="5y", description="History of daily returns the simulation is fitted on."
     )
+    max_history_cut: HistoryCut = None
     horizon: int = Field(
         default=21, ge=1, le=MAX_HORIZON_DAYS, description="Trading days ahead to simulate."
     )

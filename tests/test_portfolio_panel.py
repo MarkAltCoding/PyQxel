@@ -14,6 +14,7 @@ from app.data import panel as panel_data
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
 from app.data.panel import fetch_close_panel
 from app.models.portfolio import MAX_SYMBOLS, Portfolio, SymbolList
+from app.stats.copulas import pairwise_kendall
 from app.stats.panel import return_panel, usable_return_panel
 from app.stats.volatility import InsufficientDataError
 
@@ -348,3 +349,39 @@ async def test_every_download_failing_still_raises(monkeypatch: pytest.MonkeyPat
 
     with pytest.raises(SymbolNotFoundError):
         await fetch_close_panel(["ZZZZ", "YYYY"], tolerate_failures=True)
+
+
+def test_a_cutoff_leaves_out_starts_that_cost_too_much_history() -> None:
+    """A late start cutting more than the allowed share off the others' history is left
+    out; one within it is kept, and the window starts with it."""
+    closes = _dated_closes({"OLD": _walk(1000, 1), "MID": _walk(800, 2), "NEW": _walk(300, 3)})
+
+    panel, dropped = usable_return_panel(closes, max_history_cut=0.5)
+
+    assert list(panel.returns.columns) == ["OLD", "MID"]
+    assert panel.observations == 799
+    assert [(d.symbol, d.reason) for d in dropped] == [("NEW", "late_start")]
+    assert "cut 70% off the others' history, more than the 50% allowed" in dropped[0].detail
+
+
+def test_without_a_cutoff_every_late_start_with_enough_history_is_kept() -> None:
+    """The default keeps every holding that has enough closes of its own."""
+    closes = _dated_closes({"OLD": _walk(1000, 1), "NEW": _walk(300, 3)})
+
+    panel, dropped = usable_return_panel(closes)
+
+    assert list(panel.returns.columns) == ["OLD", "NEW"] and dropped == []
+    assert panel.observations == 299
+
+
+def test_pairs_are_measured_over_the_history_they_share() -> None:
+    """Each pair's own tau uses every day both traded, not just the panel's window."""
+    closes = _dated_closes({"A": _walk(600, 1), "B": _walk(600, 2), "NEW": _walk(250, 3)})
+    closes["B"] = closes["A"] * 1.5
+
+    taus = pairwise_kendall(closes)
+
+    assert taus[("A", "B")].observations == 599
+    assert taus[("A", "B")].tau == pytest.approx(1.0)
+    assert taus[("A", "NEW")].observations == 249
+    assert set(taus) == {("A", "B"), ("A", "NEW"), ("B", "NEW")}
