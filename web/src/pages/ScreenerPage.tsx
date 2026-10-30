@@ -219,7 +219,7 @@ export function ScreenerPage() {
         </Notice>
       )}
 
-      <section className="card stack" style={{ gap: 14 }}>
+      <section id="screen" className="card stack" style={{ gap: 14 }}>
         <div className="filter-row">
           <label className="field">
             <span>Universe</span>
@@ -326,7 +326,7 @@ export function ScreenerPage() {
         )}
       </section>
 
-      <section className="card">
+      <section id="matches" className="card">
         <div className="card-header">
           <div>
             <h2>{total.toLocaleString()} matches</h2>

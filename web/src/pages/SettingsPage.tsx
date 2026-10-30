@@ -160,7 +160,7 @@ export function SettingsPage() {
       {account.data && (
         <>
           <FeatureSummary account={account.data} />
-          <section className="card stack" style={{ gap: 16 }}>
+          <section id="provider-keys" className="card stack" style={{ gap: 16 }}>
             <div>
               <h2>Provider keys</h2>
               <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
@@ -190,7 +190,7 @@ export function SettingsPage() {
 function FeatureSummary({ account }: { account: Account }) {
   const missing = FEATURES.filter((feature) => !feature.works(account))
   return (
-    <section className="card stack" style={{ gap: 12 }}>
+    <section id="key-coverage" className="card stack" style={{ gap: 12 }}>
       <div>
         <h2>What works with your keys</h2>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
@@ -299,6 +299,7 @@ function LimitsForm({ account, onSaved }: { account: Account; onSaved: (a: Accou
   })
   return (
     <form
+      id="ai-limits"
       className="card stack"
       style={{ gap: 14 }}
       onSubmit={(event) => {
@@ -364,7 +365,7 @@ function AdminSettingsForm({
   })
   const forced = admin.yfinance_fallback_from_server
   return (
-    <section className="card stack" style={{ gap: 14 }}>
+    <section id="admin" className="card stack" style={{ gap: 14 }}>
       <div>
         <h2>Admin settings</h2>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
@@ -434,6 +435,7 @@ function DeleteAccount({ email }: { email: string }) {
   const confirmed = typed.trim().toLowerCase() === email.toLowerCase()
   return (
     <form
+      id="delete-account"
       className="card stack"
       style={{ gap: 14 }}
       onSubmit={(event) => {

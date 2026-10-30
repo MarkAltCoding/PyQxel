@@ -4,6 +4,8 @@ import { ErrorNotice } from '../components/Notice'
 import type { InfoKey } from '../lib/glossary'
 
 interface Props {
+  /** The card's id, so a link ending in #id can point at it. */
+  id?: string
   title: string
   /** The glossary entry explaining what the chart shows: every chart needs one. */
   info: InfoKey
@@ -26,7 +28,7 @@ export function ChartCard(props: Props) {
   const [view, setView] = useState<'chart' | 'table'>('chart')
   const hasContent = Boolean(props.chart)
   return (
-    <section className="card" aria-busy={props.loading || props.refreshing}>
+    <section id={props.id} className="card" aria-busy={props.loading || props.refreshing}>
       <div className="card-header">
         <div>
           <div className="heading-with-info">

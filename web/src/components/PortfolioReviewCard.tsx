@@ -171,7 +171,7 @@ export function PortfolioReviewCard({
   const writing = progress !== null
   const blocked = !hasHoldings || stale
   return (
-    <section className="card">
+    <section id="ai-review" className="card">
       <div className="card-header">
         <div>
           <div className="heading-with-info">

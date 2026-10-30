@@ -26,6 +26,15 @@ colors.
 | `BacktestPage` | Single stock: built-in rules or custom code, with "Also trade" for several symbols. Across tickers: `CrossSectionalBacktest` (rank by a signal), or the same component with `across` (code that trades every ticker it names, `lib/tickers.ts`) |
 | `ScreenerPage`, `SettingsPage`, `SignInPage`, `PrivacyPage` | |
 
+Each card has an id, so a link can end in `#id` (`lib/scrollToHash.ts` scrolls to it,
+even through signing in): Stock `price`, `factors`, `volatility`, `news`, `signals`,
+`metrics`, `alternative-data`, `ai-report`; Portfolio `holdings`, `late-listings`,
+`simulation`, `comovement`, `ai-review`; Markets `calendar`, `market-news`; Backtest
+`backtest-form` (or `ranking-form`), `strategy-code`, `result`, `performance`,
+`allocation`, `stocks`, `saved-backtests`; Screener `screen`, `matches`; Settings
+`key-coverage`, `provider-keys`, `ai-limits`, `admin`, `delete-account`. Give a new card
+one too (`ChartCard` takes `id`).
+
 AI reports (`AnalysisPanel`, `PortfolioReviewCard`) share `components/ReportParts.tsx`: a
 verdict with meters, tabs, and a Visual / Full text switch remembered by
 `lib/reportView.ts`.

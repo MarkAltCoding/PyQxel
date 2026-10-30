@@ -1134,7 +1134,7 @@ function SingleStockBacktest({ across = false }: { across?: boolean }) {
       {opened.error !== null && <ErrorNotice error={opened.error} />}
       {custom ? (
         <div className="strategy-workspace">
-          <section className="card stack" style={{ gap: 12 }}>
+          <section id="strategy-code" className="card stack" style={{ gap: 12 }}>
             <div className="card-header">
               <div>
                 <h2>Strategy code</h2>
@@ -1218,7 +1218,7 @@ function SingleStockBacktest({ across = false }: { across?: boolean }) {
           {result ? (
             <ResultChart result={result} refreshing={run.isPending} />
           ) : (
-            <section className="card">
+            <section id="result" className="card">
               <div className="empty">
                 {across
                   ? 'Name the tickers you want in your code, and run it to see its equity curve against holding the ones it trades equally.'
@@ -1232,7 +1232,7 @@ function SingleStockBacktest({ across = false }: { across?: boolean }) {
       )}
       {result && <ResultDetails result={result} />}
 
-      <section className="card">
+      <section id="saved-backtests" className="card">
         <div className="card-header">
           <h2>Saved backtests</h2>
         </div>
@@ -1340,6 +1340,7 @@ function ResultChart({ result, refreshing }: { result: BacktestResponse; refresh
   const benchmark = benchmarkLabel(result)
   return (
     <ChartCard
+      id="result"
       info="equityChart"
       title={`${symbolsOf(result)}: ${describe(result.strategy)}`}
       subtitle={`${shortDate(m.start)} to ${shortDate(m.end)} · ${result.trades} trades · average exposure ${percent(result.exposure, 0)} · ${result.cost_bps} bps per trade`}
@@ -1406,7 +1407,7 @@ function ResultDetails({ result }: { result: BacktestResponse }) {
   return (
     <>
       <div className="grid-2">
-        <section className="card">
+        <section id="performance" className="card">
           <div className="card-header">
             <div className="heading-with-info">
               <h2>Performance</h2>
@@ -1422,7 +1423,7 @@ function ResultDetails({ result }: { result: BacktestResponse }) {
         <AttributionCard attribution={result.attribution} />
       </div>
       {result.assets && (
-        <section className="card">
+        <section id="allocation" className="card">
           <div className="card-header">
             <div>
               <h2>Allocation</h2>

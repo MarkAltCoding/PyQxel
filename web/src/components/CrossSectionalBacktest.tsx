@@ -234,7 +234,7 @@ export function CrossSectionalBacktest() {
 
   return (
     <>
-      <form className="card stack" style={{ gap: 14 }} onSubmit={submit}>
+      <form id="ranking-form" className="card stack" style={{ gap: 14 }} onSubmit={submit}>
         <label className="field">
           <span>Universe ({symbols.length} symbols)</span>
           <textarea
@@ -451,6 +451,7 @@ function UniverseResult({
   return (
     <>
       <ChartCard
+        id="result"
         info="equityChart"
         title={`${result.symbols.length} symbols: ${describe(result)}`}
         subtitle={`${shortDate(m.start)} to ${shortDate(m.end)} · ${result.rebalances} rebalances · ${number(result.holdings_per_leg, 1)} stocks per leg · ${percent(result.turnover, 0)} traded per rebalance · ${result.cost_bps} bps per trade`}
@@ -516,7 +517,7 @@ function UniverseResult({
         }
       />
       <div className="grid-2">
-        <section className="card">
+        <section id="performance" className="card">
           <div className="card-header">
             <div className="heading-with-info">
               <h2>Performance</h2>
@@ -527,7 +528,7 @@ function UniverseResult({
         </section>
         <AttributionCard attribution={result.attribution} />
       </div>
-      <section className="card">
+      <section id="stocks" className="card">
         <div className="card-header">
           <div>
             <h2>Stocks</h2>

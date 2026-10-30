@@ -100,7 +100,11 @@ export function MarketsPage() {
           </div>
         </div>
       </header>
-      <section className="card" aria-busy={calendar.isLoading || calendar.isPlaceholderData}>
+      <section
+        id="calendar"
+        className="card"
+        aria-busy={calendar.isLoading || calendar.isPlaceholderData}
+      >
         <div className="card-header">
           <div>
             <h2>Calendar</h2>
@@ -231,7 +235,7 @@ function MarketNewsCard({
   const shown = articles.slice((current - 1) * pageSize, current * pageSize)
   const failedAll = errors.length > 0 && errors.length === results.length
   return (
-    <section className="card" aria-busy={loading || refreshing}>
+    <section id="market-news" className="card" aria-busy={loading || refreshing}>
       <div className="card-header">
         <div>
           <h2>Market news</h2>

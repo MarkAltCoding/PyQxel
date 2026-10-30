@@ -40,7 +40,7 @@ export function SignalsCard({ symbol, currency }: { symbol: string; currency: st
   const data = signals.data
 
   return (
-    <section className="card" aria-busy={signals.isLoading}>
+    <section id="signals" className="card" aria-busy={signals.isLoading}>
       <div className="card-header">
         <div>
           <h2>Analysts, earnings and insiders</h2>
