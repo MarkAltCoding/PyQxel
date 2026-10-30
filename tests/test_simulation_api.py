@@ -373,6 +373,26 @@ def test_a_fund_the_provider_calls_money_market_is_cash(monkeypatch: pytest.Monk
     assert body["cash"] == ["FUND"] and body["left_out"] == []
 
 
+def test_the_history_cutoff_reaches_the_simulation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A listing that would cut most of the history is left out under a cutoff."""
+    closes = _closes(["SPY", "TLT", "NEW"])
+    closes.loc[closes.index[:-300], "NEW"] = np.nan
+    _serve(monkeypatch, closes)
+    _no_quote_types(monkeypatch)
+    holdings = [
+        {"symbol": "SPY", "weight": 0.5},
+        {"symbol": "TLT", "weight": 0.3},
+        {"symbol": "NEW", "weight": 0.2},
+    ]
+
+    cut = _simulate(holdings=holdings, max_history_cut=0.25)
+    kept = _simulate(holdings=holdings)
+
+    assert [(h["symbol"], h["reason"]) for h in cut["left_out"]] == [("NEW", "late_start")]
+    assert cut["observations"] == 1_309
+    assert kept["left_out"] == [] and kept["observations"] == 299
+
+
 def test_only_cash_left_is_422(monkeypatch: pytest.MonkeyPatch) -> None:
     """With nothing but cash to simulate, the reason is given."""
     _serve(monkeypatch)

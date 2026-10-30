@@ -151,8 +151,11 @@ export const saveHoldings = (portfolio: number, holdings: HoldingShares[], name?
   })
 export const simulate = (body: SimulationRequest) =>
   api<SimulationResponse>(`${V1}/portfolio/simulate`, { method: 'POST', body })
-export const fitCopula = (symbols: string[], period: string) =>
-  api<CopulaFitResponse>(`${V1}/portfolio/copula`, { method: 'POST', body: { symbols, period } })
+export const fitCopula = (symbols: string[], period: string, maxHistoryCut: number | null) =>
+  api<CopulaFitResponse>(`${V1}/portfolio/copula`, {
+    method: 'POST',
+    body: { symbols, period, max_history_cut: maxHistoryCut },
+  })
 
 export const screen = (body: ScreenRequest) =>
   api<ScreenResponse>(`${V1}/screener`, { method: 'POST', body })
