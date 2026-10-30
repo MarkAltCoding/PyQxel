@@ -27,6 +27,19 @@ WEIGHT_TOLERANCE: float = 1e-6
 PortfolioPeriod = Literal["1y", "2y", "5y", "10y"]
 """Lookback windows of daily bars a multi-asset model may be fitted on."""
 
+HistoryCut = Annotated[
+    float | None,
+    Field(
+        gt=0,
+        lt=1,
+        description="Leave out any holding whose data starts so late that keeping it would "
+        "cut more than this fraction (0.5 = half) off the history the others have, since "
+        "the fit starts when every holding has data. Null keeps every holding with enough "
+        "history of its own, however short the shared window.",
+    ),
+]
+"""How much shared history a late-starting holding may cost before it is left out."""
+
 PortfolioSymbol = Annotated[
     str,
     StringConstraints(strip_whitespace=True, to_upper=True, pattern=SYMBOL_PATTERN),
@@ -93,6 +106,7 @@ class CopulaRequest(BaseModel):
 
     symbols: SymbolList
     period: PortfolioPeriod = Field(default="5y", description="Lookback window of daily bars.")
+    max_history_cut: HistoryCut = None
 
 
 class GaussianCopula(BaseModel):
@@ -136,6 +150,16 @@ class PairDependence(BaseModel):
         "also in its worst 5%; about 0.05 for independent assets.",
     )
     empirical_upper_tail: float = Field(ge=0, le=1, description="The same for the best 5% of days.")
+    own_kendall_tau: float | None = Field(
+        default=None,
+        ge=-1,
+        le=1,
+        description="Rank correlation over every day the two share, which can be longer than "
+        "the window every holding shares; null when they share too few days.",
+    )
+    own_observations: int | None = Field(
+        default=None, ge=1, description="Days ``own_kendall_tau`` is computed on."
+    )
 
 
 LeftOutReason = Literal["cash", "short_history", "late_start", "no_data"]

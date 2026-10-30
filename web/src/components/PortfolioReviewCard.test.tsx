@@ -85,6 +85,7 @@ describe('PortfolioReviewCard', () => {
 
     expect(await screen.findByText('Concentrated in technology.')).toBeInTheDocument()
     expect(screen.getByText(/reused, not billed again/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: /Plan/ }))
     expect(screen.getByText('Limit at $49.75')).toBeInTheDocument()
     expect(screen.getByText('119')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Write a new review' }))
@@ -129,6 +130,23 @@ describe('PortfolioReviewCard', () => {
       request: { portfolio: 2, period: '1y' },
       response: 'the answer',
     })
+  })
+
+  it('shows the whole review as text when asked, and remembers the choice', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () => new Response(JSON.stringify(review('Concentrated in technology.'))),
+    )
+    renderCard({ hasHoldings: true, stale: false })
+    await screen.findByText('Concentrated in technology.')
+    expect(screen.getByRole('tablist', { name: 'Parts of the review' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Full text' }))
+
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Recommended plan' })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: 'Add.' })).toBeInTheDocument()
+    expect(screen.getByText('Limit at $49.75')).toBeInTheDocument()
+    expect(window.localStorage.getItem('pyqxel.reportView')).toBe('text')
   })
 
   it('waits for saved holdings before reviewing', async () => {

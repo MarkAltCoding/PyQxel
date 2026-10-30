@@ -85,7 +85,13 @@ from app.models.research import AnalysisDelta, AnalysisStreamError
 from app.models.simulation import SimulationList, SimulationRequest, SimulationResponse
 from app.models.stock import SYMBOL_PATTERN
 from app.stats.backtest import cash_returns, run_portfolio_backtest, strategy_for
-from app.stats.copulas import CopulaFit, asynchronous_trading_warning, fit_copulas
+from app.stats.copulas import (
+    CopulaFit,
+    PairTau,
+    asynchronous_trading_warning,
+    fit_copulas,
+    pairwise_kendall,
+)
 from app.stats.monte_carlo import SimulationError, simulate_portfolio
 from app.stats.panel import ReturnPanel, first_date, return_panel, usable_return_panel
 from app.stats.portfolio_risk import portfolio_stats, ranked_pairs
@@ -151,6 +157,21 @@ def _warnings(fit: CopulaFit, timezones: dict[str, str | None]) -> list[str]:
     return warnings
 
 
+def _pair(fit: CopulaFit, tail: np.ndarray, i: int, j: int, own: PairTau | None) -> PairDependence:
+    """The ``i``-th and ``j``-th assets' dependence, with ``tail`` the t copula's tail
+    dependence matrix, and their tau over all the history the two share when it could
+    be measured."""
+    return PairDependence(
+        symbols=(fit.symbols[i], fit.symbols[j]),
+        kendall_tau=float(fit.kendall_tau[i, j]),
+        tail_dependence=float(tail[i, j]),
+        empirical_lower_tail=float(fit.empirical_lower_tail[i, j]),
+        empirical_upper_tail=float(fit.empirical_upper_tail[i, j]),
+        own_kendall_tau=None if own is None else own.tau,
+        own_observations=None if own is None else own.observations,
+    )
+
+
 def _response(
     fit: CopulaFit,
     panel: ReturnPanel,
@@ -158,6 +179,7 @@ def _response(
     warnings: list[str],
     notice: str | None,
     left_out: list[LeftOutHolding],
+    own_taus: dict[tuple[str, str], PairTau],
 ) -> CopulaFitResponse:
     """Build the response from a fit."""
     tail = fit.t_tail_dependence
@@ -185,13 +207,7 @@ def _response(
         preferred="student_t" if t_preferred else "gaussian",
         aic_difference=abs(fit.gaussian_aic - fit.t_aic),
         pairs=[
-            PairDependence(
-                symbols=(fit.symbols[i], fit.symbols[j]),
-                kendall_tau=float(fit.kendall_tau[i, j]),
-                tail_dependence=float(tail[i, j]),
-                empirical_lower_tail=float(fit.empirical_lower_tail[i, j]),
-                empirical_upper_tail=float(fit.empirical_upper_tail[i, j]),
-            )
+            _pair(fit, tail, i, j, own_taus.get((fit.symbols[i], fit.symbols[j])))
             for i in range(fit.dimension)
             for j in range(i + 1, fit.dimension)
         ],
@@ -217,11 +233,13 @@ async def create_copula_fit(request: Annotated[CopulaRequest, Body()]) -> Copula
 
     Assets the fit cannot use are left out and listed in ``left_out``: money-market
     funds, whose price holds at $1; those with too little history or whose history
-    starts too late; and those whose prices cannot be fetched. Matrices are rows in the
-    order of the response's ``symbols``, the assets kept. Returns 422 when fewer than two
-    assets can be kept, and 502 when the price provider fails for every one.
+    starts too late, or later than ``max_history_cut`` allows; and those whose prices
+    cannot be fetched. Matrices are rows in the order of the response's ``symbols``, the
+    assets kept. Each pair also has ``own_kendall_tau``, over all the history the two
+    share. Returns 422 when fewer than two assets can be kept, and 502 when the price
+    provider fails for every one.
     """
-    usable = await _load_usable_returns(request.symbols, request.period)
+    usable = await _load_usable_returns(request.symbols, request.period, request.max_history_cut)
     left_out = [
         *(LeftOutHolding(symbol=s, reason="cash", detail=d) for s, d in usable.cash.items()),
         *usable.left_out,
@@ -232,7 +250,10 @@ async def create_copula_fit(request: Annotated[CopulaRequest, Body()]) -> Copula
             detail="At least two holdings need enough price history to compare; "
             f"{_left_out_text(left_out)}.",
         )
-    fit = await asyncio.to_thread(fit_copulas, usable.panel.returns)
+    fit, own_taus = await asyncio.gather(
+        asyncio.to_thread(fit_copulas, usable.panel.returns),
+        asyncio.to_thread(pairwise_kendall, usable.closes),
+    )
     order = {symbol: i for i, symbol in enumerate(request.symbols)}
     return _response(
         fit,
@@ -241,6 +262,7 @@ async def create_copula_fit(request: Annotated[CopulaRequest, Body()]) -> Copula
         _warnings(fit, usable.timezones),
         _window_notice(usable.panel, usable.closes, request.period),
         sorted(left_out, key=lambda holding: order[holding.symbol]),
+        own_taus,
     )
 
 
@@ -301,12 +323,15 @@ async def _quote_types(symbols: list[str]) -> dict[str, str | None]:
     }
 
 
-async def _load_usable_returns(symbols: list[str], period: PortfolioPeriod) -> UsableReturns:
+async def _load_usable_returns(
+    symbols: list[str], period: PortfolioPeriod, max_history_cut: float | None = None
+) -> UsableReturns:
     """Download closes and align the returns of the holdings that have enough of them.
 
     Money-market funds are recognized by ticker or quote type and returned as cash, as
-    are holdings whose price never changes. Holdings with too little history, or whose
-    prices cannot be fetched, are left out.
+    are holdings whose price never changes. Holdings with too little history, whose
+    data starts later than ``max_history_cut`` allows, or whose prices cannot be
+    fetched, are left out.
 
     Raises:
         HTTPException: 422 when no holding but cash can be used, and the statuses of
@@ -328,7 +353,7 @@ async def _load_usable_returns(symbols: list[str], period: PortfolioPeriod) -> U
     except DataFetchError as exc:
         raise upstream_error(exc) from exc
     try:
-        panel, dropped = usable_return_panel(prices.closes)
+        panel, dropped = usable_return_panel(prices.closes, max_history_cut=max_history_cut)
     except InsufficientDataError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -384,7 +409,8 @@ async def create_simulation(
     a previous result to reproduce it.
 
     Money-market funds are simulated as cash, keeping their value, and listed in
-    ``cash``. Holdings with too little history are left out and listed in ``left_out``;
+    ``cash``. Holdings with too little history, or whose data starts later than
+    ``max_history_cut`` allows, are left out and listed in ``left_out``;
     the rest are scaled up to make the whole portfolio, as ``simulated`` shows.
 
     The result is stored and its ``id`` returned for ``GET /portfolio/simulations/{id}``;
@@ -394,7 +420,7 @@ async def create_simulation(
     history, 502 when the price provider fails for every holding, and 503 when the
     server is busy with other simulations.
     """
-    usable = await _load_usable_returns(request.symbols, request.period)
+    usable = await _load_usable_returns(request.symbols, request.period, request.max_history_cut)
     panel = usable.panel
     kept = [str(symbol) for symbol in panel.returns.columns]
     included = sum(request.weights[symbol] for symbol in [*kept, *usable.cash])

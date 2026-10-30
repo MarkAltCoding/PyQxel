@@ -94,13 +94,19 @@ def _history(prices: pd.Series, count: int) -> str:
 
 
 def usable_return_panel(
-    closes: pd.DataFrame, min_observations: int = MIN_PANEL_OBSERVATIONS
+    closes: pd.DataFrame,
+    min_observations: int = MIN_PANEL_OBSERVATIONS,
+    max_history_cut: float | None = None,
 ) -> tuple[ReturnPanel, list[Dropped]]:
     """Like :func:`return_panel`, but leave out the assets that keep the rest from a fit.
 
     Assets with fewer than ``min_observations + 1`` closes, and those whose price never
-    changes, are left out first. If the rest still share too few dates, the asset whose
-    data starts latest is left out, and so on, as long as a late start is the cause.
+    changes, are left out first. With ``max_history_cut``, so is any asset whose data
+    starts so late that keeping it would cut more than that fraction off the history
+    the earliest-starting asset has: every asset must have a return on each day, so the
+    latest start sets where the fit begins. If the rest still share too few dates, the
+    asset whose data starts latest is left out, and so on, as long as a late start is
+    the cause.
 
     Returns:
         The panel of the assets kept, and those left out with why, in column order.
@@ -120,6 +126,24 @@ def usable_return_panel(
         elif float(prices[symbol].dropna().pct_change().iloc[1:].abs().max()) == 0.0:
             dropped.append(Dropped(str(symbol), "cash", "its price never changes"))
     kept = [str(symbol) for symbol in prices.columns if symbol not in {d.symbol for d in dropped}]
+
+    if max_history_cut is not None and len(kept) > 1:
+        starts = {symbol: first_date(prices[symbol]) for symbol in kept}
+        earliest = min(starts.values())
+        span = pd.Timestamp(cast(pd.Timestamp, prices[kept].last_valid_index())) - earliest
+        for symbol in list(kept):
+            cut = (starts[symbol] - earliest) / span if span > pd.Timedelta(0) else 0.0
+            if cut > max_history_cut:
+                kept.remove(symbol)
+                dropped.append(
+                    Dropped(
+                        symbol,
+                        "late_start",
+                        f"its data starts {starts[symbol].date()}, which would cut "
+                        f"{cut:.0%} off the others' history, more than the "
+                        f"{max_history_cut:.0%} allowed",
+                    )
+                )
 
     while kept:
         shared = len(prices[kept].dropna()) - 1
@@ -147,6 +171,14 @@ def usable_return_panel(
     order = {str(symbol): i for i, symbol in enumerate(prices.columns)}
     dropped.sort(key=lambda d: order[d.symbol])
     return return_panel(closes[kept], min_observations), dropped
+
+
+def pair_returns(closes: pd.DataFrame, first: str, second: str) -> pd.DataFrame:
+    """Simple daily returns of two of ``closes``' assets on every date both traded, so a
+    pair is measured over all the history it shares rather than the whole panel's."""
+    both = _by_date(closes[[first, second]]).dropna()
+    returns: pd.DataFrame = both.pct_change().iloc[1:]
+    return returns
 
 
 def return_panel(

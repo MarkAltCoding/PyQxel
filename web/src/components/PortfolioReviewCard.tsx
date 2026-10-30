@@ -12,15 +12,32 @@ import type {
   PortfolioContext,
   PortfolioAnalysisRequest,
   PortfolioAnalysisResponse,
+  PlannedTrade,
   RebalancePlan,
+  TargetPosition,
 } from '../api/types'
 import { dateTime, money, number, percent } from '../lib/format'
 import { keepExport, keptExport } from '../lib/exportedPrompts'
-import { LEVEL_TONE } from '../lib/tones'
+import { useReportView } from '../lib/reportView'
+import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
 import { ExternalClaude } from './ExternalClaude'
-import { Points } from './AnalysisPanel'
 import { ErrorNotice } from './Notice'
+import {
+  FinePrint,
+  FullText,
+  LevelMeter,
+  PointColumn,
+  ReportTabs,
+  ReportViewToggle,
+  RiskCards,
+  Summary,
+  TextPoints,
+  TextRisks,
+  Verdict,
+  type Tab,
+} from './ReportParts'
 import { Segmented } from './Segmented'
+import { Stat } from './Stat'
 import { InfoTip } from './InfoTip'
 
 type Period = NonNullable<PortfolioAnalysisRequest['period']>
@@ -39,13 +56,6 @@ const RISKS: { value: Risk; label: string }[] = [
   { value: 'moderate', label: 'Moderate' },
   { value: 'aggressive', label: 'Aggressive' },
 ]
-
-const DIVERSIFICATION_TONE = {
-  poor: 'critical',
-  fair: 'warning',
-  good: '',
-  strong: 'good',
-} as const
 
 /**
  * Claude's review of the saved portfolio: the latest one stored, and writing a new one,
@@ -224,52 +234,162 @@ export function PortfolioReviewCard({
   )
 }
 
+const DIVERSIFICATION_STEPS = ['poor', 'fair', 'good', 'strong'] as const
+const DIVERSIFICATION_METER = {
+  poor: 'critical',
+  fair: 'warning',
+  good: 'neutral',
+  strong: 'good',
+} as const
+
 function Review({ response }: { response: PortfolioAnalysisResponse }) {
-  const { report, context } = response
+  const [view, setView] = useReportView()
   return (
     <article className="report">
+      <ReportViewToggle view={view} onChange={setView} />
+      {view === 'text' ? <TextReview response={response} /> : <VisualReview response={response} />}
+      <p className="disclaimer" style={{ marginTop: 16 }}>
+        {response.model} · {dateTime(response.generated_at)} · {response.period} of history
+        {response.cached && ' · reused, not billed again'} · {response.disclaimer}
+      </p>
+    </article>
+  )
+}
+
+function VisualReview({ response }: { response: PortfolioAnalysisResponse }) {
+  const { report, context } = response
+  const stats = context.portfolio
+  const tabs: Tab[] = [
+    {
+      id: 'overview',
+      label: 'Overview',
+      content: (
+        <div className="stack" style={{ gap: 14 }}>
+          <div className="stats">
+            <Stat
+              info="annualizedVolatility"
+              label="Volatility"
+              value={percent(stats.volatility)}
+            />
+            <Stat info="maxDrawdown" label="Max drawdown" value={percent(stats.max_drawdown)} />
+            <Stat
+              info="diversificationRatio"
+              label="Diversification ratio"
+              value={number(stats.diversification_ratio)}
+            />
+            <Stat
+              info="effectiveHoldings"
+              label="Effective holdings"
+              value={number(stats.effective_holdings, 1)}
+              detail={`of ${context.holdings.length} held`}
+            />
+          </div>
+          <Summary text={report.summary} />
+        </div>
+      ),
+    },
+    {
+      id: 'assessment',
+      label: 'Strengths and risks',
+      count: report.strengths.length + report.key_risks.length,
+      content: (
+        <div className="grid-2">
+          <PointColumn title="Strengths" items={report.strengths} tone="good" />
+          <div>
+            <h3>
+              Key risks <span className="report-tab-count">{report.key_risks.length}</span>
+            </h3>
+            <RiskCards risks={report.key_risks} />
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'plan',
+      label: 'Plan',
+      count: response.plan?.trades.length,
+      content: (
+        <div className="stack" style={{ gap: 16 }}>
+          <p className="plan-summary">{report.plan_summary}</p>
+          <AllocationChart response={response} />
+          {response.plan && <Orders plan={response.plan} />}
+        </div>
+      ),
+    },
+    {
+      id: 'tradeoffs',
+      label: 'Trade-offs',
+      count: report.considerations.length,
+      content: (
+        <div className="stack" style={{ gap: 14 }}>
+          <PointColumn title="Weigh before acting" items={report.considerations} tone="warning" />
+          <FinePrint title="What the data cannot show" items={report.data_limitations} />
+        </div>
+      ),
+    },
+  ]
+  return (
+    <>
+      <Verdict headline={report.headline}>
+        <LevelMeter
+          label="Risk level"
+          info="riskLevel"
+          steps={SEVERITY_ORDER}
+          value={report.risk_level}
+          tone={SEVERITY_TONE[report.risk_level]}
+        />
+        <LevelMeter
+          label="Diversification"
+          info="diversification"
+          steps={DIVERSIFICATION_STEPS}
+          value={report.diversification}
+          tone={DIVERSIFICATION_METER[report.diversification]}
+        />
+      </Verdict>
+      <ReportTabs label="Parts of the review" tabs={tabs} />
+    </>
+  )
+}
+
+/** The whole review on one page, every rationale written out. */
+function TextReview({ response }: { response: PortfolioAnalysisResponse }) {
+  const { report, context } = response
+  return (
+    <>
       <div className="filter-row" style={{ alignItems: 'center', marginBottom: 8 }}>
-        <span className={`badge ${LEVEL_TONE[report.risk_level]}`}>
+        <span className={`badge ${badgeTone(SEVERITY_TONE[report.risk_level])}`}>
           Risk level: {report.risk_level}
           <InfoTip topic="riskLevel" />
         </span>
-        <span className={`badge ${DIVERSIFICATION_TONE[report.diversification]}`}>
+        <span className={`badge ${badgeTone(DIVERSIFICATION_METER[report.diversification])}`}>
           Diversification: {report.diversification}
           <InfoTip topic="diversification" />
         </span>
         <span className="badge">
-          Volatility {percent(context.portfolio.volatility)} · max drawdown{' '}
-          {percent(context.portfolio.max_drawdown)}
+          Volatility {percent(context.portfolio.volatility)}
+          <InfoTip topic="annualizedVolatility" />
+        </span>
+        <span className="badge">
+          Max drawdown {percent(context.portfolio.max_drawdown)}
+          <InfoTip topic="maxDrawdown" />
         </span>
       </div>
       <p className="headline">{report.headline}</p>
-      <p style={{ marginTop: 8 }}>{report.summary}</p>
+      <FullText text={report.summary} />
       <div className="grid-2">
-        <Points title="Strengths" items={report.strengths} />
+        <TextPoints title="Strengths" items={report.strengths} />
         <div>
           <h3>Key risks</h3>
-          <ul>
-            {report.key_risks.map((risk) => (
-              <li key={risk.name}>
-                <strong>{risk.name}</strong>{' '}
-                <span className={`badge ${LEVEL_TONE[risk.severity]}`}>{risk.severity}</span>
-                <div style={{ color: 'var(--text-secondary)' }}>{risk.evidence}</div>
-              </li>
-            ))}
-          </ul>
+          <TextRisks risks={report.key_risks} />
         </div>
       </div>
       <h3>Recommended plan</h3>
       <p>{report.plan_summary}</p>
       <TargetTable response={response} />
       {response.plan && <Orders plan={response.plan} />}
-      <Points title="Trade-offs and what would change the plan" items={report.considerations} />
-      <Points title="Data limitations" items={report.data_limitations} />
-      <p className="disclaimer" style={{ marginTop: 16 }}>
-        {response.model} · {dateTime(response.generated_at)} · {response.period} of history
-        {response.cached && ' · reused, not billed again'} · {response.disclaimer}
-      </p>
-    </article>
+      <TextPoints title="Trade-offs and what would change the plan" items={report.considerations} />
+      <TextPoints title="Data limitations" items={report.data_limitations} />
+    </>
   )
 }
 
@@ -282,7 +402,10 @@ function TargetTable({ response }: { response: PortfolioAnalysisResponse }) {
           <tr>
             <th>Position</th>
             <th className="num">Now</th>
-            <th className="num">Target</th>
+            <th className="num">
+              Target
+              <InfoTip topic="holdingWeight" />
+            </th>
             <th>Why</th>
           </tr>
         </thead>
@@ -301,10 +424,87 @@ function TargetTable({ response }: { response: PortfolioAnalysisResponse }) {
   )
 }
 
-function Orders({ plan }: { plan: RebalancePlan }) {
+/** Each position's weight now and Claude's target, biggest change first, with the
+ * reason a click away. */
+function AllocationChart({ response }: { response: PortfolioAnalysisResponse }) {
+  const current = new Map(response.context.holdings.map((h) => [h.symbol, h.weight]))
+  const rows = response.report.target_allocation
+    .map((target: TargetPosition) => {
+      const symbol = target.symbol.toUpperCase()
+      const now = current.get(symbol) ?? 0
+      return { symbol, now, target: target.target_weight, why: target.rationale }
+    })
+    .sort((a, b) => Math.abs(b.target - b.now) - Math.abs(a.target - a.now))
+  const scale = Math.max(0.01, ...rows.flatMap((row) => [row.now, row.target]))
   return (
-    <>
+    <div className="allocation">
+      <div className="heading-with-info">
+        <h3>Allocation: now and target</h3>
+        <InfoTip topic="holdingWeight" />
+      </div>
+      <div className="allocation-legend" aria-hidden="true">
+        <span className="swatch now" /> Now <span className="swatch target" /> Target
+      </div>
+      <ul>
+        {rows.map((row) => {
+          const change = row.target - row.now
+          const label =
+            Math.abs(change) < 0.0005
+              ? 'Hold'
+              : `${change > 0 ? '▲ +' : '▼ −'}${(Math.abs(change) * 100).toFixed(1)} pts`
+          return (
+            <li key={row.symbol}>
+              <details>
+                <summary>
+                  <span className="allocation-symbol">{row.symbol}</span>
+                  <span
+                    className="allocation-bars"
+                    role="img"
+                    aria-label={`${row.symbol}: ${percent(row.now)} now, ${percent(row.target)} target`}
+                  >
+                    <span className="bar now" style={{ width: `${(row.now / scale) * 100}%` }} />
+                    <span
+                      className="bar target"
+                      style={{ width: `${(row.target / scale) * 100}%` }}
+                    />
+                  </span>
+                  <span className="allocation-weights">
+                    {percent(row.now)} → {percent(row.target)}
+                  </span>
+                  <span className={`allocation-change${Math.abs(change) < 0.0005 ? ' muted' : ''}`}>
+                    {label}
+                  </span>
+                </summary>
+                <p>{row.why}</p>
+              </details>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`
+
+function Orders({ plan }: { plan: RebalancePlan }) {
+  const sells = plan.trades.filter((trade) => trade.action === 'sell')
+  const buys = plan.trades.filter((trade) => trade.action === 'buy')
+  const total = (trades: PlannedTrade[]) => trades.reduce((sum, t) => sum + t.value, 0)
+  return (
+    <div>
       <h3>Orders</h3>
+      {plan.trades.length > 0 && (
+        <div className="order-summary">
+          <span className="badge warning">
+            Sell {money(total(sells), 'USD', 0)} · {plural(sells.length, 'order')}
+          </span>
+          <span className="badge good">
+            Buy {money(total(buys), 'USD', 0)} · {plural(buys.length, 'order')}
+          </span>
+          <span className="badge">Cash after {money(plan.cash_after, 'USD', 0)}</span>
+        </div>
+      )}
       {plan.trades.length === 0 ? (
         <p>No trades: the portfolio is already at its targets.</p>
       ) : (
@@ -353,6 +553,6 @@ function Orders({ plan }: { plan: RebalancePlan }) {
           {note}
         </p>
       ))}
-    </>
+    </div>
   )
 }

@@ -643,9 +643,11 @@ export interface paths {
      *
      *     Assets the fit cannot use are left out and listed in ``left_out``: money-market
      *     funds, whose price holds at $1; those with too little history or whose history
-     *     starts too late; and those whose prices cannot be fetched. Matrices are rows in the
-     *     order of the response's ``symbols``, the assets kept. Returns 422 when fewer than two
-     *     assets can be kept, and 502 when the price provider fails for every one.
+     *     starts too late, or later than ``max_history_cut`` allows; and those whose prices
+     *     cannot be fetched. Matrices are rows in the order of the response's ``symbols``, the
+     *     assets kept. Each pair also has ``own_kendall_tau``, over all the history the two
+     *     share. Returns 422 when fewer than two assets can be kept, and 502 when the price
+     *     provider fails for every one.
      */
     post: operations['create_copula_fit_api_v1_portfolio_copula_post']
     delete?: never
@@ -731,7 +733,8 @@ export interface paths {
      *     a previous result to reproduce it.
      *
      *     Money-market funds are simulated as cash, keeping their value, and listed in
-     *     ``cash``. Holdings with too little history are left out and listed in ``left_out``;
+     *     ``cash``. Holdings with too little history, or whose data starts later than
+     *     ``max_history_cut`` allows, are left out and listed in ``left_out``;
      *     the rest are scaled up to make the whole portfolio, as ``simulated`` shows.
      *
      *     The result is stored and its ``id`` returned for ``GET /portfolio/simulations/{id}``;
@@ -2422,6 +2425,11 @@ export interface components {
      * @description Assets whose dependence to model.
      */
     CopulaRequest: {
+      /**
+       * Max History Cut
+       * @description Leave out any holding whose data starts so late that keeping it would cut more than this fraction (0.5 = half) off the history the others have, since the fit starts when every holding has data. Null keeps every holding with enough history of its own, however short the shared window.
+       */
+      max_history_cut?: number | null
       /**
        * Period
        * @description Lookback window of daily bars.
@@ -4721,6 +4729,16 @@ export interface components {
        * @description Rank correlation.
        */
       kendall_tau: number
+      /**
+       * Own Kendall Tau
+       * @description Rank correlation over every day the two share, which can be longer than the window every holding shares; null when they share too few days.
+       */
+      own_kendall_tau?: number | null
+      /**
+       * Own Observations
+       * @description Days ``own_kendall_tau`` is computed on.
+       */
+      own_observations?: number | null
       /** Symbols */
       symbols: [string, string]
       /**
@@ -6242,6 +6260,11 @@ export interface components {
        * @enum {string}
        */
       marginals?: 'empirical' | 'student_t'
+      /**
+       * Max History Cut
+       * @description Leave out any holding whose data starts so late that keeping it would cut more than this fraction (0.5 = half) off the history the others have, since the fit starts when every holding has data. Null keeps every holding with enough history of its own, however short the shared window.
+       */
+      max_history_cut?: number | null
       /**
        * Paths
        * @default 10000
