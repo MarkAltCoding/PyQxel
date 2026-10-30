@@ -50,3 +50,6 @@ SETUP_BRIEFING.md
 # Test coverage reports
 .coverage
 htmlcov/
+
+# Claude Code notes with private deployment details
+CLAUDE.local.md
