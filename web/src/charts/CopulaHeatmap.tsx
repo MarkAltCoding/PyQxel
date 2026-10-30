@@ -1,12 +1,19 @@
 import { useMemo } from 'react'
 import type { CopulaFitResponse } from '../api/types'
-import { number, percent } from '../lib/format'
+import { percent } from '../lib/format'
 import { EChart } from './EChart'
 import { escapeHtml, tooltipStyle, useChartTheme } from './theme'
 import { InfoTip } from '../components/InfoTip'
 
 /** Largest matrix whose cells are labeled; beyond it values are in the tooltip and table. */
 const LABELED_UP_TO = 8
+
+/** A tau to the hundredth, with a true minus sign, and no "−0.00" for values that round
+ * to zero. */
+function tauLabel(tau: number): string {
+  const rounded = Math.round(tau * 100) / 100
+  return (rounded === 0 ? 0 : rounded).toFixed(2).replace('-', '−')
+}
 
 /** Holdings beyond which the matrix grows taller and its axis labels smaller, so up to
  * 40 rows stay legible. */
@@ -49,7 +56,7 @@ export function CopulaHeatmap({ fit }: { fit: CopulaFitResponse }) {
           const tail = tails.get(`${a}|${b}`) ?? tails.get(`${b}|${a}`)
           return (
             `<div>${escapeHtml(a)} and ${escapeHtml(b)}</div>` +
-            `<div>Kendall's tau <strong>${number(tau)}</strong></div>` +
+            `<div>Kendall's tau <strong>${tauLabel(tau)}</strong></div>` +
             (tail !== undefined
               ? `<div>Crash co-movement (tail dependence) ${percent(tail)}</div>`
               : '')
@@ -76,13 +83,19 @@ export function CopulaHeatmap({ fit }: { fit: CopulaFitResponse }) {
         type: 'continuous',
         min: -1,
         max: 1,
-        calculable: false,
+        // Handles to drag, which show only the pairs between them; their labels and the
+        // hover marker read to the hundredth.
+        calculable: true,
+        precision: 2,
+        formatter: (value: number) => tauLabel(value),
+        handleStyle: { borderColor: theme.textSecondary },
+        indicatorStyle: { borderColor: theme.textPrimary },
         orient: 'horizontal',
         left: 'center',
         bottom: 0,
         itemWidth: 12,
         itemHeight: 160,
-        text: ['Move together  +1', '−1  Move opposite'],
+        text: ['Move together', 'Move opposite'],
         textStyle: { color: theme.textSecondary, fontSize: 11 },
         inRange: { color: [theme.divNeg, theme.divMid, theme.divPos] },
       },
@@ -100,7 +113,7 @@ export function CopulaHeatmap({ fit }: { fit: CopulaFitResponse }) {
             show: n <= LABELED_UP_TO,
             color: theme.textPrimary,
             fontSize: 11,
-            formatter: (params: { value: [number, number, number] }) => number(params.value[2]),
+            formatter: (params: { value: [number, number, number] }) => tauLabel(params.value[2]),
           },
         },
       ],
@@ -124,6 +137,10 @@ export function CopulaTable({ fit }: { fit: CopulaFitResponse }) {
             <InfoTip topic="kendallTau" />
           </th>
           <th className="num">
+            Over the pair’s own history
+            <InfoTip topic="ownKendallTau" />
+          </th>
+          <th className="num">
             Model tail dependence
             <InfoTip topic="tailDependence" />
           </th>
@@ -141,7 +158,17 @@ export function CopulaTable({ fit }: { fit: CopulaFitResponse }) {
         {fit.pairs.map((pair) => (
           <tr key={pair.symbols.join('|')}>
             <td>{pair.symbols.join(' · ')}</td>
-            <td className="num">{number(pair.kendall_tau)}</td>
+            <td className="num">{tauLabel(pair.kendall_tau)}</td>
+            <td className="num">
+              {pair.own_kendall_tau === null || pair.own_kendall_tau === undefined ? (
+                <span className="muted">—</span>
+              ) : (
+                <>
+                  {tauLabel(pair.own_kendall_tau)}
+                  <span className="muted"> · {pair.own_observations?.toLocaleString()} days</span>
+                </>
+              )}
+            </td>
             <td className="num">{percent(pair.tail_dependence)}</td>
             <td className="num">{percent(pair.empirical_lower_tail)}</td>
             <td className="num">{percent(pair.empirical_upper_tail)}</td>

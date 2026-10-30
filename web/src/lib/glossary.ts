@@ -550,6 +550,13 @@ const entries = {
     bad: 'A large share left out: the results then say little about the portfolio as a whole.',
     note: 'In the simulation, the holdings kept are scaled up in proportion to stand in for those left out. Choosing a longer history does not help a recent listing; it only becomes usable once it has traded long enough.',
   },
+  historyCut: {
+    title: 'History lost to late listings',
+    what: 'The simulation and the co-movement models need every holding on every day, so they start when the most recently listed holding started trading. This sets how much of the other holdings’ history one late listing may cost before it is left out instead.',
+    good: 'Around 25–50%: recent listings are left out rather than shrinking everyone’s history to a few months.',
+    bad: '“Keep all” with a holding that listed a few months ago: every figure then rests on that short window, which may miss whole market regimes such as a sell-off.',
+    note: 'Measured against the holding with the longest history in the chosen window. Holdings left out are listed with how much history they have.',
+  },
   monteCarlo: {
     title: 'Simulated outcomes (Monte Carlo)',
     what: 'Thousands of possible future paths for the portfolio, drawn from how the holdings’ returns behaved and moved together in the past. The bands show the range of outcomes.',
@@ -598,6 +605,11 @@ const entries = {
     good: 'Low or negative values between holdings diversify the portfolio.',
     bad: 'Above about 0.5: the two largely move as one.',
   },
+  ownKendallTau: {
+    title: 'Kendall’s tau over the pair’s own history',
+    what: 'The same rank correlation, measured over every day these two holdings both traded, rather than only the days every holding in the portfolio traded. When one holding listed recently, the main figure has to start when it did; this one can use the pair’s longer shared history.',
+    note: 'Pairs measured over different stretches of time are not strictly comparable, so the heatmap and the copula models use the shared window; read this column as a check on whether the shorter window changed the picture.',
+  },
   tailDependence: {
     title: 'Tail dependence',
     what: 'The chance that one holding has an extreme day given the other does: how often they crash (lower tail) or soar (upper tail) together.',
@@ -618,6 +630,33 @@ const entries = {
     title: 'AI portfolio review',
     what: 'Claude reviews your saved holdings, where the risk comes from and how well they diversify, and recommends specific changes, which the app turns into exact orders.',
     note: 'An AI’s recommendation from past prices, not a licensed adviser’s; check taxes, costs and prices before trading.',
+  },
+  stance: {
+    title: 'Stance',
+    what: 'Claude’s overall view of the stock from the data it was given: bearish (expects it to do poorly), neutral, or bullish (expects it to do well).',
+    note: 'A reading of past data, not a forecast you can bank on; weigh it against the counterpoints.',
+  },
+  conviction: {
+    title: 'Conviction',
+    what: 'How strongly the evidence backs the stance, from low to high. Low conviction means the case is finely balanced or the data are thin.',
+  },
+  currentDrawdown: {
+    title: 'Current drawdown',
+    what: 'How far the price now sits below its highest close in the window. Zero means it is at a high.',
+    good: 'Within about −10% of the high.',
+    bad: 'Below about −30%: still deep in a fall.',
+  },
+  diversificationRatio: {
+    title: 'Diversification ratio',
+    what: 'The holdings’ average volatility, weighted, divided by the portfolio’s own volatility. Above 1 means the holdings partly cancel out each other’s swings.',
+    good: 'About 1.3 or more: holdings offset each other well.',
+    bad: 'Close to 1: the holdings move largely as one.',
+  },
+  effectiveHoldings: {
+    title: 'Effective holdings',
+    what: 'How many equally weighted holdings would be as concentrated as this portfolio. Ten holdings with one at 80% count as barely more than one.',
+    good: '10 or more for a stock portfolio.',
+    bad: 'Under about 5: a few positions drive most of the result.',
   },
   riskLevel: {
     title: 'Risk level',

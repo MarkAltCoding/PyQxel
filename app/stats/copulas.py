@@ -26,6 +26,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import numpy as np
 import pandas as pd
 
+from app.stats.panel import pair_returns
+
 MIN_DEGREES_OF_FREEDOM: float = 2.05
 """Lower bound of the t copula's degrees of freedom; below 2 variances do not exist."""
 
@@ -97,6 +99,38 @@ def pseudo_observations(returns: pd.DataFrame) -> np.ndarray:
     """Return each asset's returns as ranks scaled into (0, 1), ties sharing an average rank."""
     ranks = returns.rank(method="average").to_numpy(dtype=float)
     return ranks / (len(returns) + 1)
+
+
+@dataclass(frozen=True)
+class PairTau:
+    """Kendall's tau of two assets over every day both have a return."""
+
+    tau: float
+    observations: int
+
+
+MIN_PAIR_OBSERVATIONS: int = 20
+"""Fewest shared returns a pair's own tau is computed on."""
+
+
+def pairwise_kendall(closes: pd.DataFrame) -> dict[tuple[str, str], PairTau]:
+    """Kendall's tau of each pair of ``closes``' assets over the history the two share,
+    which can be longer than the window every asset shares. Pairs with fewer than
+    :data:`MIN_PAIR_OBSERVATIONS` shared returns, or a price that never moves, are left
+    out."""
+    from scipy import stats
+
+    symbols = [str(symbol) for symbol in closes.columns]
+    taus: dict[tuple[str, str], PairTau] = {}
+    for i, first in enumerate(symbols):
+        for second in symbols[i + 1 :]:
+            returns = pair_returns(closes, first, second)
+            if len(returns) < MIN_PAIR_OBSERVATIONS:
+                continue
+            tau = float(stats.kendalltau(returns[first], returns[second]).statistic)
+            if math.isfinite(tau):
+                taus[(first, second)] = PairTau(tau=tau, observations=len(returns))
+    return taus
 
 
 def kendall_tau_matrix(returns: pd.DataFrame) -> np.ndarray:

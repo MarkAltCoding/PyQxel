@@ -38,6 +38,27 @@ function storedPortfolio(): PortfolioNumber {
 
 const MAX_NAME_LENGTH = 40
 
+/** How much of the others' history a late listing may cost, in percent; KEEP_ALL keeps
+ * every holding with enough history of its own. */
+const KEEP_ALL = 100
+const HISTORY_CUTS = [
+  { value: 25, label: '25%' },
+  { value: 50, label: '50%' },
+  { value: 75, label: '75%' },
+  { value: KEEP_ALL, label: 'Keep all' },
+] as const
+const HISTORY_CUT_KEY = 'pyqxel.historyCut'
+
+/** The cutoff this viewer chose before, or half. */
+function storedHistoryCut(): number {
+  const stored = Number(readStored(HISTORY_CUT_KEY))
+  return Number.isInteger(stored) && stored >= 1 && stored <= KEEP_ALL ? stored : 50
+}
+
+/** The cutoff as the API takes it: a fraction, or null to keep all. */
+const asFraction = (percentCut: number): number | null =>
+  percentCut >= KEEP_ALL ? null : percentCut / 100
+
 interface Row {
   symbol: string
   shares: string
@@ -92,6 +113,7 @@ const toRows = (data: HoldingsResponse | undefined): Row[] =>
 export function PortfolioPage() {
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState<PortfolioNumber>(storedPortfolio)
+  const [historyCut, setHistoryCut] = useState(storedHistoryCut)
   const portfolio = Number(selected)
   const portfolios = useQuery({ queryKey: ['portfolios'], queryFn: getPortfolios })
   const holdings = useQuery({
@@ -304,14 +326,43 @@ export function PortfolioPage() {
         )}
       </section>
 
+      <section className="card">
+        <div className="card-header" style={{ marginBottom: 0 }}>
+          <div>
+            <div className="heading-with-info">
+              <h2>Late listings</h2>
+              <InfoTip topic="historyCut" />
+            </div>
+            <div className="subtitle">
+              The simulation and co-movement models start when the newest holding started trading.
+              Leave a holding out when it would cut more than this off the others’ history.
+            </div>
+          </div>
+          <PresetOrCustom
+            label="Most history a late listing may cost"
+            presets={HISTORY_CUTS}
+            value={historyCut}
+            onChange={(next) => {
+              writeStored(HISTORY_CUT_KEY, String(next))
+              setHistoryCut(next)
+            }}
+            min={1}
+            max={99}
+            unit="% of history"
+          />
+        </div>
+      </section>
+
       <SimulationCard
         key={`simulation-${portfolio}`}
+        maxHistoryCut={asFraction(historyCut)}
         holdings={priced.map((h) => ({ symbol: h.symbol, weight: h.weight! }))}
         initialValue={loaded?.total_value ?? 0}
         stale={dirty || holdings.isPlaceholderData}
       />
       <CopulaCard
         symbols={priced.map((h) => h.symbol)}
+        maxHistoryCut={asFraction(historyCut)}
         stale={dirty || holdings.isPlaceholderData}
       />
       <PortfolioReviewCard
@@ -405,10 +456,13 @@ function normalized(holdings: { symbol: string; weight: number }[]) {
 function SimulationCard({
   holdings,
   initialValue,
+  maxHistoryCut,
   stale,
 }: {
   holdings: { symbol: string; weight: number }[]
   initialValue: number
+  /** Most of the others' history a late listing may cost, as a fraction; null keeps all. */
+  maxHistoryCut: number | null
   stale: boolean
 }) {
   const theme = useChartTheme()
@@ -469,6 +523,7 @@ function SimulationCard({
                 paths: pathsFor(horizon, holdings.length),
                 initial_value: start,
                 period: '5y',
+                max_history_cut: maxHistoryCut,
               })
             }
           >
@@ -572,12 +627,21 @@ function SimulationCard({
   )
 }
 
-function CopulaCard({ symbols, stale }: { symbols: string[]; stale: boolean }) {
+function CopulaCard({
+  symbols,
+  maxHistoryCut,
+  stale,
+}: {
+  symbols: string[]
+  /** Most of the others' history a late listing may cost, as a fraction; null keeps all. */
+  maxHistoryCut: number | null
+  stale: boolean
+}) {
   const [period, setPeriod] = useState<(typeof COPULA_PERIODS)[number]['value']>('5y')
   const key = useMemo(() => [...symbols].sort().join(','), [symbols])
   const fit = useQuery({
-    queryKey: ['copula', key, period],
-    queryFn: () => fitCopula(symbols, period),
+    queryKey: ['copula', key, period, maxHistoryCut],
+    queryFn: () => fitCopula(symbols, period, maxHistoryCut),
     enabled: symbols.length >= 2 && !stale,
     placeholderData: keepPreviousData,
     staleTime: 30 * 60_000,

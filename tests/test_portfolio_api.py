@@ -203,6 +203,40 @@ def test_holdings_the_fit_cannot_use_are_left_out(monkeypatch: pytest.MonkeyPatc
     assert len(body["pairs"]) == 3
 
 
+def test_a_late_start_beyond_the_cutoff_is_left_out_and_pairs_keep_their_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With a cutoff, a listing that would halve the window is left out; without one it
+    is kept, and the pairs that predate it are also measured over their own history."""
+    closes = _closes(["SPY", "QQQ", "NEW"], days=1_250)
+    closes.loc[closes.index[:900], "NEW"] = np.nan
+    _serve(monkeypatch, closes)
+    _equities(monkeypatch)
+
+    cut = client.post(
+        "/api/v1/portfolio/copula",
+        json={"symbols": ["SPY", "QQQ", "NEW"], "max_history_cut": 0.5},
+    ).json()
+    kept = client.post("/api/v1/portfolio/copula", json={"symbols": ["SPY", "QQQ", "NEW"]}).json()
+
+    assert cut["symbols"] == ["SPY", "QQQ"]
+    assert [(h["symbol"], h["reason"]) for h in cut["left_out"]] == [("NEW", "late_start")]
+    assert cut["observations"] == 1_249
+    assert kept["symbols"] == ["SPY", "QQQ", "NEW"] and kept["observations"] == 349
+    own = {tuple(pair["symbols"]): pair["own_observations"] for pair in kept["pairs"]}
+    assert own == {("SPY", "QQQ"): 1_249, ("SPY", "NEW"): 349, ("QQQ", "NEW"): 349}
+
+
+@pytest.mark.parametrize("cut", [0, 1, 1.5])
+def test_the_cutoff_must_be_a_fraction(cut: float) -> None:
+    """A cutoff outside (0, 1) is rejected."""
+    response = client.post(
+        "/api/v1/portfolio/copula", json={"symbols": ["SPY", "QQQ"], "max_history_cut": cut}
+    )
+
+    assert response.status_code == 422
+
+
 def test_fewer_than_two_usable_holdings_is_422(monkeypatch: pytest.MonkeyPatch) -> None:
     """With one holding left to compare, the reason names those left out."""
     closes = _closes(["SPY", "NEW"], days=1_310)
