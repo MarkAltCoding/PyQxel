@@ -300,6 +300,17 @@ async def create_backtest(
     )
 
 
+def _equal_weights(request: MultiAssetCustomBacktestRequest) -> dict[str, float]:
+    """Equal weights in the symbols the strategy ever holds, the benchmark it is measured
+    against; a symbol it only reads as a signal, such as an index, is not one to hold."""
+    traded = [
+        symbol
+        for j, symbol in enumerate(request.symbols)
+        if any(row[j] != 0 for row in request.weights)
+    ] or list(request.symbols)
+    return {symbol: 1.0 / len(traded) for symbol in traded}
+
+
 @router.post(
     "/{symbol}/backtest/custom",
     response_model=BacktestResponse,
@@ -386,7 +397,8 @@ async def create_multi_asset_custom_backtest(
     ``weights`` over the bar after its date. Weights are shares of capital, reset every
     bar; what they leave over is cash, which earns nothing or, with ``cash_interest``,
     the risk-free rate, as do short sale proceeds. Each change of weight pays
-    ``cost_bps`` per unit traded. The benchmark holds the symbols in equal weights,
+    ``cost_bps`` per unit traded. The benchmark holds the symbols the weights ever hold
+    (all of them, if none) in equal weights,
     rebalanced every bar, without costs; ``assets`` gives each symbol's part.
 
     The result is stored like a single-symbol backtest, under its first symbol, and its
@@ -426,7 +438,7 @@ async def create_multi_asset_custom_backtest(
                 if request.cash_interest and factors is not None
                 else None
             ),
-            benchmark_weights={symbol: 1.0 / len(request.symbols) for symbol in request.symbols},
+            benchmark_weights=_equal_weights(request),
         )
     except (InsufficientDataError, MisalignedPositionsError) as exc:
         raise HTTPException(

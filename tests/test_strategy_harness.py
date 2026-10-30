@@ -283,13 +283,23 @@ def test_universe_weights_may_be_a_dict_of_series() -> None:
     assert result["weights"][0] == [1.0, -0.5]
 
 
+def test_a_symbol_without_weights_is_never_held() -> None:
+    """A symbol the weights leave out, such as one read only as a signal, is held at zero."""
+    result = _run(
+        "def strategy(bars):\n    return bars['Close'][['GOOG']] * 0 + 0.5\n", _universe()
+    )
+
+    assert result["ok"] is True
+    assert result["weights"][0] == [0.5, 0.0]
+
+
 @pytest.mark.parametrize(
     ("code", "message"),
     [
         ("def strategy(bars):\n    return bars['Close']['GOOG'] * 0\n", "DataFrame of weights"),
         (
-            "def strategy(bars):\n    return bars['Close'][['GOOG']] * 0\n",
-            "missing UNH",
+            "def strategy(bars):\n    return bars['Close'].assign(XYZ=0.0) * 0\n",
+            "weights for XYZ, which it was not given",
         ),
         (
             "def strategy(bars):\n    return bars['Close'].rolling(5).mean() * 0\n",

@@ -149,6 +149,55 @@ describe('PortfolioReviewCard', () => {
     expect(window.localStorage.getItem('pyqxel.reportView')).toBe('text')
   })
 
+  it('asks for a custom length of price history, and shows fractional orders plainly', async () => {
+    const posted: Record<string, unknown>[] = []
+    const fractional = {
+      ...review('Trim AEHR.'),
+      plan: {
+        total_value: 10000,
+        cash_after: 9.8,
+        notes: ['Fractional orders (AEHR): not every broker trades fractions.'],
+        trades: [
+          {
+            symbol: 'AEHR',
+            action: 'sell',
+            shares: 0.49,
+            price: 20,
+            value: 9.8,
+            order_type: 'limit',
+            limit_price: 19.9,
+            rationale: 'Exit.',
+            fractional: true,
+          },
+        ],
+      },
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      if (init?.method === 'POST') {
+        posted.push(JSON.parse(String(init.body)) as Record<string, unknown>)
+        return new Response(`event: result\ndata: ${JSON.stringify(fractional)}\n\n`)
+      }
+      return new Response('{}', { status: 404 })
+    })
+    renderCard({ hasHoldings: true, stale: false })
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Custom' }))
+    const months = screen.getByRole('spinbutton', { name: /Price history to measure, custom/ })
+    await userEvent.clear(months)
+    await userEvent.type(months, '18')
+    await userEvent.tab()
+    await userEvent.click(screen.getByRole('button', { name: 'Review my portfolio' }))
+
+    expect(await screen.findByText('Trim AEHR.')).toBeInTheDocument()
+    expect(posted[0]).toMatchObject({ portfolio: 2, history_months: 18 })
+    expect(posted[0]).not.toHaveProperty('period')
+    await userEvent.click(screen.getByRole('tab', { name: /Plan/ }))
+    expect(screen.getByRole('cell', { name: '0.49' })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: /Sell\s*Fractional/ })).toBeInTheDocument()
+    expect(screen.getByText('Limit at $19.90, day order')).toBeInTheDocument()
+    expect(screen.getByText(/Fractional orders \(AEHR\)/)).toBeInTheDocument()
+  })
+
   it('waits for saved holdings before reviewing', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 404 }))
     renderCard({ hasHoldings: true, stale: true })

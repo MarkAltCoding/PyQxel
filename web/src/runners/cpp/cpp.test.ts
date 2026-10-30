@@ -302,7 +302,7 @@ describe('C++ strategies across several symbols', () => {
   it(
     'runs the starter, holding the stronger symbol from its first month end with history',
     async () => {
-      const outcome = await runAcross(starterCode('cpp', true), universe(300))
+      const outcome = await runAcross(starterCode('cpp', 'several'), universe(300))
 
       expect(outcome.ok).toBe(true)
       if (!outcome.ok) return

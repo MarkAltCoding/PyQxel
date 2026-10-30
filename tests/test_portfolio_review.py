@@ -182,6 +182,33 @@ def test_an_unpriced_new_symbol_is_planned_by_value() -> None:
     assert any("ZZZZ" in note for note in plan.notes)
 
 
+def test_a_fractional_holding_is_sold_in_full_with_broker_notes() -> None:
+    """Selling 0.49 shares sells exactly that, flagged, with what brokers allow."""
+    holdings = {"AEHR": (0.49, 20.0), "SPY": (10.0, 500.0)}
+    targets = {"AEHR": Target(0.0, "limit", -0.5, "Exit."), "SPY": Target(1.0, "market", None, "")}
+
+    plan = plan_trades(holdings, targets, {})
+
+    aehr = next(t for t in plan.trades if t.symbol == "AEHR")
+    assert (aehr.action, aehr.shares, aehr.fractional) == ("sell", 0.49, True)
+    assert aehr.value == pytest.approx(9.8)
+    assert any("Fractional orders (AEHR" in note and "trailing-stop" in note for note in plan.notes)
+    assert any("day orders" in note and "Fidelity" in note for note in plan.notes)
+
+
+def test_a_change_under_one_share_is_a_fraction_not_nothing() -> None:
+    """A buy worth less than one share is sized in a fraction; whole shares stay whole."""
+    holdings = {"BRK-A": (1.0, 700_000.0), "SPY": (100.0, 500.0)}  # 775,000 with the cash
+    targets = {"BRK-A": Target(0.9, "market", None, ""), "SPY": Target(0.1, "market", None, "")}
+
+    plan = plan_trades(holdings, targets, {}, cash=25_000.0)
+
+    trades = {t.symbol: t for t in plan.trades}
+    assert trades["BRK-A"].fractional and 0 < (trades["BRK-A"].shares or 0) < 1
+    assert trades["SPY"].shares == 55 and not trades["SPY"].fractional  # 27,500 more
+    assert not any("day orders" in note for note in plan.notes)
+
+
 # Routes.
 
 
@@ -299,6 +326,31 @@ def test_the_second_portfolio_is_reviewed_with_its_cash(
     assert context.notice is not None and "Counted as cash: SPAXX" in context.notice
     assert first.status_code == 404
     assert latest["id"] == second["id"]
+
+
+def test_a_custom_history_window_trims_the_returns(market: list[PortfolioContext]) -> None:
+    _save({"AAPL": 10, "XOM": 20})
+
+    body = client.post("/api/v1/portfolio/analysis", json={"history_months": 12}).json()
+    again = client.post("/api/v1/portfolio/analysis", json={"history_months": 13}).json()
+
+    context = market[0]
+    assert (context.period, context.history_months) == ("1y", 12)
+    assert body["history_months"] == 12 and body["period"] == "1y"
+    assert 245 <= context.portfolio.observations <= 262
+    assert again["cached"] is False, "a different window is a different review"
+    assert market[1].period == "2y"
+
+
+@pytest.mark.parametrize("months", [6, 121])
+def test_a_custom_window_must_be_one_to_ten_years(
+    market: list[PortfolioContext], months: int
+) -> None:
+    _save({"AAPL": 10})
+
+    response = client.post("/api/v1/portfolio/analysis", json={"history_months": months})
+
+    assert response.status_code == 422
 
 
 def test_review_needs_saved_holdings(market: list[PortfolioContext]) -> None:

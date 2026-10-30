@@ -631,6 +631,18 @@ const entries = {
     what: 'Claude reviews your saved holdings, where the risk comes from and how well they diversify, and recommends specific changes, which the app turns into exact orders.',
     note: 'An AI’s recommendation from past prices, not a licensed adviser’s; check taxes, costs and prices before trading.',
   },
+  reviewHistory: {
+    title: 'Price history to measure',
+    what: 'How many years of daily prices the review’s statistics are measured over: each holding’s return, volatility, drawdown and correlations. It is not how far ahead Claude looks. Pick a preset or choose Custom for any length from 12 to 120 months.',
+    good: 'Two to five years usually spans both rising and falling markets.',
+    bad: 'One year can miss a whole market regime, such as a sell-off; ten years may describe companies that have since changed.',
+    note: 'Holdings listed more recently than the window starts shorten it for all of them, or are left out.',
+  },
+  fractionalShares: {
+    title: 'Fractional order',
+    what: 'An order for part of a share, used when whole shares would round the trade away, or to sell a holding of less than one share in full.',
+    note: 'Not every broker trades fractions of every security. Some, including Fidelity, accept fractional limit orders only as day orders, and allow no stop or trailing-stop orders on fractions; if yours will not take one, trade the fraction at market or round to whole shares.',
+  },
   stance: {
     title: 'Stance',
     what: 'Claude’s overall view of the stock from the data it was given: bearish (expects it to do poorly), neutral, or bullish (expects it to do well).',

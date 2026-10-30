@@ -33,11 +33,12 @@ import { StrategyAssistant } from '../components/StrategyAssistant'
 import { StrategyRunOutput } from '../components/StrategyRunOutput'
 import type { EditorError } from '../editor/StrategyEditor'
 import type { EditorLanguage } from '../editor/languages'
-import { starterCode } from '../editor/starters'
+import { starterCode, type CodeKind } from '../editor/starters'
 import { dateTime, number, percent, shortDate, signedPercent, tone } from '../lib/format'
 import { readStored, writeStored } from '../lib/storage'
 import { runnerFor, StrategyRunError } from '../runners'
 import { alignUniverse } from '../runners/types'
+import { tickersIn } from '../lib/tickers'
 
 // CodeMirror loads only when someone opens a custom strategy.
 const StrategyEditor = lazy(() =>
@@ -123,6 +124,9 @@ const LANGUAGE_LABEL: Record<CodeLanguage, string> = { python: 'Python', cpp: 'C
 const CUSTOM_ABOUT =
   'Your own Python or C++, run in this browser. Only the positions it returns are sent to PyQxel, which backtests them like any built-in strategy. Add more symbols to allocate between them.'
 
+const ACROSS_ABOUT =
+  'Your own Python or C++, run in this browser, with no symbol to pick first: every ticker your code names in a string is fetched, on the dates they all traded. A ticker your weights leave out is only a signal. Only the weights are sent to PyQxel, which backtests them against holding the tickers they trade equally.'
+
 const UNIVERSE_ABOUT =
   'Your own Python or C++, run in this browser, setting a weight for each symbol on every date they all traded. Only the weights are sent to PyQxel, which backtests them against holding the symbols equally.'
 
@@ -157,10 +161,10 @@ interface Viewing {
   savedAt: string | null
 }
 
-/** Where the code being written is kept between visits; a strategy across several
- * symbols has a draft of its own, since its code has a different shape. */
-const draftKey = (language: EditorLanguage, universe: boolean) =>
-  `pyqxel.strategyDraft.${language}${universe ? '.universe' : ''}`
+/** Where the code being written is kept between visits; each kind of strategy has a
+ * draft of its own, since its code has a different shape. */
+const draftKey = (language: EditorLanguage, kind: CodeKind) =>
+  `pyqxel.strategyDraft.${language}${{ one: '', several: '.universe', across: '.across' }[kind]}`
 
 /** The symbols a result was backtested on, as a title names them. */
 const symbolsOf = (result: BacktestResponse) => (result.symbols ?? [result.symbol]).join(' + ')
@@ -170,8 +174,11 @@ const LONG_ONLY = new Set<StrategyType>(['buy_and_hold', 'dual_momentum', 'volat
 
 interface Form {
   symbol: string
-  /** Further symbols a custom strategy allocates between, beside `symbol`. */
+  /** Further symbols a custom strategy allocates between, beside `symbol`; across
+   * tickers, those added beside the ones the code names. */
   extraSymbols: string[]
+  /** Across tickers, tickers the code names that are left out of the run. */
+  excluded: string[]
   type: StrategyChoice
   code: string
   language: EditorLanguage
@@ -206,6 +213,7 @@ interface Form {
 const DEFAULTS: Form = {
   symbol: '',
   extraSymbols: [],
+  excluded: [],
   type: 'sma_crossover',
   code: '',
   language: 'python',
@@ -324,12 +332,20 @@ const MODES: { value: Mode; label: string }[] = [
 const SUBTITLES: Record<Mode, string> = {
   stock: 'Run a trading rule over history and compare it with buying and holding.',
   universe:
-    'Rank a set of stocks against one another on a schedule, hold the best, and compare it with holding them all.',
+    'Rank a set of stocks against one another and hold the best, or write code that trades any tickers it names, and compare it with holding them all.',
 }
+
+type AcrossView = 'rank' | 'code'
+
+const ACROSS_VIEWS: { value: AcrossView; label: string }[] = [
+  { value: 'rank', label: 'Rank by a signal' },
+  { value: 'code', label: 'Write your own code' },
+]
 
 export function BacktestPage() {
   const [params, setParams] = useSearchParams()
   const mode: Mode = params.get('mode') === 'universe' ? 'universe' : 'stock'
+  const acrossView: AcrossView = params.get('view') === 'code' ? 'code' : 'rank'
   return (
     <div className="stack">
       <header className="page-header">
@@ -344,61 +360,123 @@ export function BacktestPage() {
           onChange={(next) => setParams(next === 'universe' ? { mode: 'universe' } : {})}
         />
       </header>
-      {mode === 'universe' ? <CrossSectionalBacktest /> : <SingleStockBacktest />}
+      {mode === 'universe' && (
+        <Segmented
+          label="How to choose holdings"
+          value={acrossView}
+          options={ACROSS_VIEWS}
+          onChange={(next) =>
+            setParams({ mode: 'universe', ...(next === 'code' && { view: 'code' }) })
+          }
+        />
+      )}
+      {mode === 'stock' ? (
+        <SingleStockBacktest />
+      ) : acrossView === 'code' ? (
+        <SingleStockBacktest across />
+      ) : (
+        <CrossSectionalBacktest />
+      )}
     </div>
   )
 }
 
-function SingleStockBacktest() {
+/**
+ * A backtest of one symbol, with a built-in rule or custom code; or, `across`, of custom
+ * code alone, trading every ticker it names with no symbol to pick first.
+ */
+function SingleStockBacktest({ across = false }: { across?: boolean }) {
   const queryClient = useQueryClient()
   const [params, setParams] = useSearchParams()
   const openId = params.get('id')
+  /** What a custom strategy in this form trades. */
+  const kindOf = (current: Form): CodeKind =>
+    across ? 'across' : current.extraSymbols.length > 0 ? 'several' : 'one'
   const [form, setForm] = useState<Form>(() => ({
     ...DEFAULTS,
+    ...(across && { type: 'custom' as const }),
     symbol: params.get('symbol')?.toUpperCase() ?? '',
-    code: readStored(draftKey(DEFAULTS.language, false)) ?? starterCode(DEFAULTS.language),
+    code:
+      readStored(draftKey(DEFAULTS.language, across ? 'across' : 'one')) ??
+      starterCode(DEFAULTS.language, across ? 'across' : 'one'),
   }))
   const set = <K extends keyof Form>(key: K, value: Form[K]) =>
     setForm((current) => ({ ...current, [key]: value }))
-  const custom = form.type === 'custom'
+  const custom = across || form.type === 'custom'
+  const kind = kindOf(form)
   /** Whether the custom strategy allocates between several symbols. */
-  const universe = custom && form.extraSymbols.length > 0
-  const symbols = universe ? [form.symbol, ...form.extraSymbols] : [form.symbol]
+  const universe = custom && kind !== 'one'
+  /** Across tickers, the tickers the code names, which the run fetches. */
+  const named = useMemo(
+    () => (across ? tickersIn(form.code, form.language) : []),
+    [across, form.code, form.language],
+  )
+  const symbols = across
+    ? [...new Set([...named, ...form.extraSymbols])].filter((s) => !form.excluded.includes(s))
+    : universe
+      ? [form.symbol, ...form.extraSymbols]
+      : [form.symbol]
+  /** Why the run cannot start yet, if it cannot. */
+  const blocked = across
+    ? symbols.length < 2
+      ? 'Name at least two tickers in your code, such as SYMBOLS = ["SPY", "TLT"], or add them above.'
+      : symbols.length > MAX_CUSTOM_SYMBOLS
+        ? `At most ${MAX_CUSTOM_SYMBOLS} tickers can be backtested at once; this code names ${symbols.length}. Drop some with ×.`
+        : null
+    : form.symbol
+      ? null
+      : 'Choose a symbol.'
+
   /** The stored backtest whose code is in the editor instead of the draft, if any. Its
    * code and edits to it are never saved over the draft unless the user asks. */
   const [viewing, setViewing] = useState<Viewing | null>(null)
-  const draftOf = (language: EditorLanguage, across: boolean) =>
-    readStored(draftKey(language, across)) ?? starterCode(language, across)
+  const draftOf = (language: EditorLanguage, codeKind: CodeKind) =>
+    readStored(draftKey(language, codeKind)) ?? starterCode(language, codeKind)
   const setCode = (code: string) => {
     set('code', code)
-    if (viewing === null) writeStored(draftKey(form.language, universe), code)
+    if (viewing === null) writeStored(draftKey(form.language, kind), code)
   }
   /** Puts the language's draft back in the editor, leaving the stored backtest's code. */
   const backToDraft = () => {
-    setForm((current) => ({
-      ...current,
-      code: draftOf(current.language, current.extraSymbols.length > 0),
-    }))
+    setForm((current) => ({ ...current, code: draftOf(current.language, kindOf(current)) }))
     setViewing(null)
   }
   /** Makes the code in the editor the draft, replacing the draft there was. */
   const keepAsDraft = () => {
-    writeStored(draftKey(form.language, universe), form.code)
+    writeStored(draftKey(form.language, kind), form.code)
     setViewing(null)
   }
   /** Sets the symbols traded beside the first. Going from one symbol to several, or back,
    * swaps in that kind of strategy's draft, unless a stored backtest's code is shown. */
   const setExtraSymbols = (extraSymbols: string[]) => {
-    const across = extraSymbols.length > 0
+    const several = extraSymbols.length > 0
     setForm((current) => ({
       ...current,
       extraSymbols,
       code:
-        viewing === null && across !== current.extraSymbols.length > 0
-          ? draftOf(current.language, across)
+        !across && viewing === null && several !== current.extraSymbols.length > 0
+          ? draftOf(current.language, several ? 'several' : 'one')
           : current.code,
     }))
   }
+  /** Across tickers: adds a ticker beside those the code names, or brings back one left
+   * out. */
+  const addTicker = (symbol: string) =>
+    setForm((current) => ({
+      ...current,
+      excluded: current.excluded.filter((s) => s !== symbol),
+      extraSymbols:
+        named.includes(symbol) || current.extraSymbols.includes(symbol)
+          ? current.extraSymbols
+          : [...current.extraSymbols, symbol],
+    }))
+  /** Across tickers: leaves a ticker out of the run, whether the code names it or not. */
+  const dropTicker = (symbol: string) =>
+    setForm((current) => ({
+      ...current,
+      extraSymbols: current.extraSymbols.filter((s) => s !== symbol),
+      excluded: named.includes(symbol) ? [...current.excluded, symbol] : current.excluded,
+    }))
   /** Switches the custom strategy's language, to that language's own draft or starter. */
   const chooseLanguage = (language: EditorLanguage) => {
     if (language === form.language) return
@@ -406,7 +484,7 @@ function SingleStockBacktest() {
     setForm((current) => ({
       ...current,
       language,
-      code: draftOf(language, current.extraSymbols.length > 0),
+      code: draftOf(language, kindOf(current)),
     }))
     // Its runtime starts downloading while the code is read and written.
     runnerFor(language).warm()
@@ -437,7 +515,7 @@ function SingleStockBacktest() {
         cost_bps: Number(form.costBps),
         cash_interest: form.cashInterest,
       }
-      if (form.type !== 'custom') {
+      if (!custom) {
         return runBacktest(form.symbol, { strategy: strategyOf(form), ...options })
       }
       if (universe) return runAcross(options)
@@ -480,7 +558,7 @@ function SingleStockBacktest() {
           setViewing({ symbol: symbolsOf(result), savedAt: result.saved_at ?? null })
         setLoadedId(result.id)
         queryClient.setQueryData(['backtest', result.id], result)
-        setParams({ id: result.id })
+        setParams(across ? { mode: 'universe', view: 'code', id: result.id } : { id: result.id })
       }
     },
   })
@@ -499,10 +577,19 @@ function SingleStockBacktest() {
       setRanCode(form.code)
       setPhase('Fetching prices…')
       const histories = await Promise.all(
-        symbols.map(async (symbol) => ({
-          symbol,
-          bars: (await getHistory(symbol, form.period, form.interval)).bars,
-        })),
+        symbols.map(async (symbol) => {
+          try {
+            return { symbol, bars: (await getHistory(symbol, form.period, form.interval)).bars }
+          } catch (error) {
+            if (across && error instanceof ApiError && error.status === 404) {
+              throw new ApiError(
+                404,
+                `${symbol} is not a ticker PyQxel can find. If your code names it as something else, leave it out with its ×; otherwise check the spelling.`,
+              )
+            }
+            throw error
+          }
+        }),
       )
       const empty = histories.find((history) => history.bars.length === 0)
       if (empty) throw new ApiError(422, `${empty.symbol} has no prices in this window.`)
@@ -549,9 +636,13 @@ function SingleStockBacktest() {
     const { strategy } = openedResult
     if (strategy.type === 'custom') {
       const language = strategy.language ?? 'python'
-      const [first, ...rest] = openedResult.symbols ?? [openedResult.symbol]
+      const traded = openedResult.symbols ?? [openedResult.symbol]
+      const [first, ...rest] = traded
+      const openedKind: CodeKind = across ? 'across' : rest.length > 0 ? 'several' : 'one'
+      // Across tickers, the run's symbols are what the code names, give or take some.
+      const codeNames = across ? tickersIn(strategy.code, language) : []
       setViewing(
-        strategy.code === draftOf(language, rest.length > 0)
+        strategy.code === draftOf(language, openedKind)
           ? null
           : { symbol: symbolsOf(openedResult), savedAt: openedResult.saved_at ?? null },
       )
@@ -560,8 +651,9 @@ function SingleStockBacktest() {
         type: 'custom',
         language,
         code: strategy.code,
-        symbol: first ?? openedResult.symbol,
-        extraSymbols: rest,
+        symbol: across ? '' : (first ?? openedResult.symbol),
+        extraSymbols: across ? traded.filter((s) => !codeNames.includes(s)) : rest,
+        excluded: across ? codeNames.filter((s) => !traded.includes(s)) : [],
         period: openedResult.period,
         interval: openedResult.interval,
         costBps: String(openedResult.cost_bps),
@@ -573,10 +665,16 @@ function SingleStockBacktest() {
   const result = (openId ? opened.data : undefined) ?? run.data
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (form.symbol) run.mutate()
+    if (!blocked) run.mutate()
   }
   const strategy = STRATEGIES.find((s) => s.value === form.type)
-  const about = universe ? UNIVERSE_ABOUT : custom ? CUSTOM_ABOUT : strategy?.about
+  const about = across
+    ? ACROSS_ABOUT
+    : universe
+      ? UNIVERSE_ABOUT
+      : custom
+        ? CUSTOM_ABOUT
+        : strategy?.about
   // Failures in the browser are shown under the code; the rest, under the form.
   const runFailure = run.error instanceof StrategyRunError ? run.error.failure : null
   const editorError = useMemo<EditorError | null>(
@@ -603,7 +701,7 @@ function SingleStockBacktest() {
   }, [custom, ranCode, form.code, printed, runFailure, run.isSuccess])
   const resetCode = () => {
     if (window.confirm('Replace your code with the starting template?')) {
-      setCode(starterCode(form.language, universe))
+      setCode(starterCode(form.language, kind))
     }
   }
 
@@ -611,20 +709,33 @@ function SingleStockBacktest() {
     <>
       <form id="backtest-form" className="card stack" style={{ gap: 14 }} onSubmit={submit}>
         <div className="filter-row">
-          <div className="field" style={{ width: 220 }}>
-            <span>Symbol</span>
-            <SearchBox
-              label="Symbol"
-              placeholder={form.symbol || 'Ticker or company'}
-              onSelect={(symbol) => {
-                set('symbol', symbol)
-                if (form.extraSymbols.includes(symbol)) {
-                  setExtraSymbols(form.extraSymbols.filter((extra) => extra !== symbol))
-                }
-              }}
-            />
-          </div>
-          {custom && (
+          {across && (
+            <div className="field" style={{ width: 220 }}>
+              <span>Add a ticker</span>
+              <SearchBox
+                label="Add a ticker"
+                clearOnSelect
+                placeholder="Beside those your code names"
+                onSelect={addTicker}
+              />
+            </div>
+          )}
+          {!across && (
+            <div className="field" style={{ width: 220 }}>
+              <span>Symbol</span>
+              <SearchBox
+                label="Symbol"
+                placeholder={form.symbol || 'Ticker or company'}
+                onSelect={(symbol) => {
+                  set('symbol', symbol)
+                  if (form.extraSymbols.includes(symbol)) {
+                    setExtraSymbols(form.extraSymbols.filter((extra) => extra !== symbol))
+                  }
+                }}
+              />
+            </div>
+          )}
+          {custom && !across && (
             <div className="field" style={{ width: 220 }}>
               <span>Also trade</span>
               <SearchBox
@@ -647,31 +758,33 @@ function SingleStockBacktest() {
               />
             </div>
           )}
-          <label className="field">
-            <span>Strategy</span>
-            <select
-              value={form.type}
-              onChange={(event) => {
-                const choice = event.target.value as StrategyChoice
-                set('type', choice)
-                // Python starts downloading while the code is being written.
-                if (choice === 'custom') runnerFor(form.language).warm()
-              }}
-            >
-              {GROUPS.map((group) => (
-                <optgroup key={group} label={group}>
-                  {STRATEGIES.filter((s) => s.group === group).map((s) => (
-                    <option key={s.value} value={s.value}>
-                      {s.label}
-                    </option>
-                  ))}
+          {!across && (
+            <label className="field">
+              <span>Strategy</span>
+              <select
+                value={form.type}
+                onChange={(event) => {
+                  const choice = event.target.value as StrategyChoice
+                  set('type', choice)
+                  // Python starts downloading while the code is being written.
+                  if (choice === 'custom') runnerFor(form.language).warm()
+                }}
+              >
+                {GROUPS.map((group) => (
+                  <optgroup key={group} label={group}>
+                    {STRATEGIES.filter((s) => s.group === group).map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+                <optgroup label="Custom">
+                  <option value="custom">Custom code (Python or C++)</option>
                 </optgroup>
-              ))}
-              <optgroup label="Custom">
-                <option value="custom">Custom code (Python or C++)</option>
-              </optgroup>
-            </select>
-          </label>
+              </select>
+            </label>
+          )}
           {form.type === 'sma_crossover' && (
             <>
               <NumberField
@@ -930,19 +1043,68 @@ function SingleStockBacktest() {
           <button
             type="submit"
             className="button primary"
-            disabled={!form.symbol || run.isPending}
+            disabled={Boolean(blocked) || run.isPending}
             style={{ marginLeft: 'auto' }}
           >
             {run.isPending
               ? custom
                 ? phase
                 : 'Running…'
-              : form.symbol
-                ? `Backtest ${symbols.join(' + ')}`
-                : 'Backtest'}
+              : blocked
+                ? 'Backtest'
+                : across && symbols.length > 3
+                  ? `Backtest ${symbols.length} tickers`
+                  : `Backtest ${symbols.join(' + ')}`}
           </button>
         </div>
-        {universe && (
+        {across && (
+          <div className="stack" style={{ gap: 8 }}>
+            <div
+              className="filter-row"
+              aria-label="Tickers fetched"
+              style={{ alignItems: 'center' }}
+            >
+              <span className="muted">Tickers fetched:</span>
+              {symbols.length === 0 && <span className="muted">none yet</span>}
+              {symbols.map((symbol) => (
+                <span key={symbol} className="badge">
+                  {symbol}
+                  {!named.includes(symbol) && <span className="muted"> · added</span>}
+                  <button
+                    type="button"
+                    className="button ghost small"
+                    aria-label={`Leave out ${symbol}`}
+                    onClick={() => dropTicker(symbol)}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+            {form.excluded.length > 0 && (
+              <div
+                className="filter-row"
+                aria-label="Tickers left out"
+                style={{ alignItems: 'center' }}
+              >
+                <span className="muted">Left out:</span>
+                {form.excluded.map((symbol) => (
+                  <button
+                    key={symbol}
+                    type="button"
+                    className="button ghost small"
+                    aria-label={`Bring back ${symbol}`}
+                    onClick={() => addTicker(symbol)}
+                  >
+                    {symbol} ↺
+                  </button>
+                ))}
+              </div>
+            )}
+            {blocked && <small className="muted">{blocked}</small>}
+          </div>
+        )}
+        {universe && !across && (
           <div className="filter-row" aria-label="Symbols traded">
             {symbols.map((symbol, index) => (
               <span key={symbol} className="badge">
@@ -988,7 +1150,7 @@ function SingleStockBacktest() {
                 <button
                   type="button"
                   className="button ghost small"
-                  disabled={run.isPending || form.code === starterCode(form.language, universe)}
+                  disabled={run.isPending || form.code === starterCode(form.language, kind)}
                   onClick={resetCode}
                 >
                   Reset to template
@@ -1006,7 +1168,7 @@ function SingleStockBacktest() {
                     type="submit"
                     form="backtest-form"
                     className="button primary small"
-                    disabled={!form.symbol}
+                    disabled={Boolean(blocked)}
                   >
                     Run
                   </button>
@@ -1058,8 +1220,9 @@ function SingleStockBacktest() {
           ) : (
             <section className="card">
               <div className="empty">
-                Choose a symbol, or several to allocate between, and run your strategy to see its
-                equity curve against buying and holding.
+                {across
+                  ? 'Name the tickers you want in your code, and run it to see its equity curve against holding the ones it trades equally.'
+                  : 'Choose a symbol, or several to allocate between, and run your strategy to see its equity curve against buying and holding.'}
               </div>
             </section>
           )}

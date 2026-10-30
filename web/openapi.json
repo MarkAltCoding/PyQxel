@@ -7223,6 +7223,12 @@
             "title": "Action",
             "type": "string"
           },
+          "fractional": {
+            "default": false,
+            "description": "Whether ``shares`` is a fraction, which some brokers take only as a market or day limit order, and not as a stop or trailing stop.",
+            "title": "Fractional",
+            "type": "boolean"
+          },
           "limit_price": {
             "anyOf": [
               {
@@ -7267,7 +7273,7 @@
                 "type": "null"
               }
             ],
-            "description": "Whole shares to trade; null when the symbol could not be priced.",
+            "description": "Shares to trade: whole where they can be, fractional where whole shares would round the trade away or a fractional holding is sold in full; null when the symbol could not be priced.",
             "title": "Shares"
           },
           "symbol": {
@@ -7295,6 +7301,20 @@
       "PortfolioAnalysisRequest": {
         "description": "Options for a review of one of the saved portfolios.",
         "properties": {
+          "history_months": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 12.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A custom window of daily returns, in months, used instead of ``period``.",
+            "title": "History Months"
+          },
           "period": {
             "default": "1y",
             "description": "Window of daily returns the statistics are computed on.",
@@ -7349,6 +7369,18 @@
             "format": "date-time",
             "title": "Generated At",
             "type": "string"
+          },
+          "history_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The custom window in months, when one was asked for.",
+            "title": "History Months"
           },
           "id": {
             "anyOf": [
@@ -7701,6 +7733,18 @@
       "PortfolioContext": {
         "description": "The data a portfolio review is written from, sent to Claude verbatim.",
         "properties": {
+          "history_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The custom window, in months, the statistics cover; null when they cover ``period``.",
+            "title": "History Months"
+          },
           "holdings": {
             "items": {
               "$ref": "#/components/schemas/AssetRisk"
@@ -11371,7 +11415,7 @@
     },
     "/api/v1/backtests/custom": {
       "post": {
-        "description": "Score the weights a custom strategy set across several ``symbols`` in the browser.\n\nThe code never runs on the server: it is stored with the result so the run can be\nreproduced and edited. The server fetches every symbol's bars again, keeps the dates\nall of them traded from the first of ``dates`` to the last, and holds each row of\n``weights`` over the bar after its date. Weights are shares of capital, reset every\nbar; what they leave over is cash, which earns nothing or, with ``cash_interest``,\nthe risk-free rate, as do short sale proceeds. Each change of weight pays\n``cost_bps`` per unit traded. The benchmark holds the symbols in equal weights,\nrebalanced every bar, without costs; ``assets`` gives each symbol's part.\n\nThe result is stored like a single-symbol backtest, under its first symbol, and its\n``id`` returned for ``GET /backtests/{id}``.\n\nReturns 404 naming unknown symbols, 422 when a bar every symbol traded in that range\nhas no weights or the range has too few bars, and 502 when the data provider fails\nor the risk-free rate cannot be fetched.",
+        "description": "Score the weights a custom strategy set across several ``symbols`` in the browser.\n\nThe code never runs on the server: it is stored with the result so the run can be\nreproduced and edited. The server fetches every symbol's bars again, keeps the dates\nall of them traded from the first of ``dates`` to the last, and holds each row of\n``weights`` over the bar after its date. Weights are shares of capital, reset every\nbar; what they leave over is cash, which earns nothing or, with ``cash_interest``,\nthe risk-free rate, as do short sale proceeds. Each change of weight pays\n``cost_bps`` per unit traded. The benchmark holds the symbols the weights ever hold\n(all of them, if none) in equal weights,\nrebalanced every bar, without costs; ``assets`` gives each symbol's part.\n\nThe result is stored like a single-symbol backtest, under its first symbol, and its\n``id`` returned for ``GET /backtests/{id}``.\n\nReturns 404 naming unknown symbols, 422 when a bar every symbol traded in that range\nhas no weights or the range has too few bars, and 502 when the data provider fails\nor the risk-free rate cannot be fetched.",
         "operationId": "create_multi_asset_custom_backtest_api_v1_backtests_custom_post",
         "requestBody": {
           "content": {

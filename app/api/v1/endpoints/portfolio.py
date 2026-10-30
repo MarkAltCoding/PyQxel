@@ -125,10 +125,18 @@ def _matrix(values: np.ndarray) -> Matrix:
     return [[float(value) for value in row] for row in values]
 
 
-def _window_notice(panel: ReturnPanel, closes: pd.DataFrame, period: PortfolioPeriod) -> str | None:
+def _window_start(period: PortfolioPeriod, months: int | None = None) -> pd.Timestamp:
+    """Where the requested window starts: ``months`` back when given, else ``period``."""
+    offset = PERIOD_OFFSETS[period] if months is None else pd.DateOffset(months=months)
+    return pd.Timestamp.now().normalize() - offset
+
+
+def _window_notice(
+    panel: ReturnPanel, closes: pd.DataFrame, period: PortfolioPeriod, months: int | None = None
+) -> str | None:
     """Say when the fit starts well after the requested window, and which asset is why."""
     first = pd.Timestamp(panel.returns.index[0])
-    requested = pd.Timestamp.now().normalize() - PERIOD_OFFSETS[period]
+    requested = _window_start(period, months)
     if first - requested <= COVERAGE_TOLERANCE:
         return None
     latest = max(closes.columns, key=lambda symbol: first_date(closes[str(symbol)]))
@@ -324,14 +332,18 @@ async def _quote_types(symbols: list[str]) -> dict[str, str | None]:
 
 
 async def _load_usable_returns(
-    symbols: list[str], period: PortfolioPeriod, max_history_cut: float | None = None
+    symbols: list[str],
+    period: PortfolioPeriod,
+    max_history_cut: float | None = None,
+    months: int | None = None,
 ) -> UsableReturns:
     """Download closes and align the returns of the holdings that have enough of them.
 
     Money-market funds are recognized by ticker or quote type and returned as cash, as
     are holdings whose price never changes. Holdings with too little history, whose
     data starts later than ``max_history_cut`` allows, or whose prices cannot be
-    fetched, are left out.
+    fetched, are left out. With ``months``, the closes are trimmed to that many months back
+    from today, inside ``period``.
 
     Raises:
         HTTPException: 422 when no holding but cash can be used, and the statuses of
@@ -352,8 +364,11 @@ async def _load_usable_returns(
         )
     except DataFetchError as exc:
         raise upstream_error(exc) from exc
+    closes = prices.closes
+    if months is not None:
+        closes = closes[pd.DatetimeIndex(closes.index) >= _window_start(period, months)]
     try:
-        panel, dropped = usable_return_panel(prices.closes, max_history_cut=max_history_cut)
+        panel, dropped = usable_return_panel(closes, max_history_cut=max_history_cut)
     except InsufficientDataError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -380,7 +395,7 @@ async def _load_usable_returns(
     kept = [str(symbol) for symbol in panel.returns.columns]
     return UsableReturns(
         panel=panel,
-        closes=prices.closes[kept],
+        closes=closes[kept],
         timezones={symbol: prices.timezones.get(symbol) for symbol in kept},
         cash=dict(sorted(cash.items(), key=lambda item: order[item[0]])),
         left_out=sorted(left_out, key=lambda holding: order[holding.symbol]),
@@ -756,7 +771,10 @@ CORRELATED_PAIRS: int = 5
 
 
 async def _portfolio_context(
-    holdings: list[HoldingShares], period: PortfolioPeriod, profile: InvestorProfile
+    holdings: list[HoldingShares],
+    period: PortfolioPeriod,
+    profile: InvestorProfile,
+    months: int | None = None,
 ) -> PortfolioContext:
     """Value the holdings and compute the statistics a review is written from.
 
@@ -771,7 +789,7 @@ async def _portfolio_context(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"None of your holdings could be priced. {valued.notice or ''}".strip(),
         )
-    usable = await _load_usable_returns([h.symbol for h in priced], period)
+    usable = await _load_usable_returns([h.symbol for h in priced], period, months=months)
     panel = usable.panel
     # Cash earns nothing in these statistics: a column of zero returns.
     returns = panel.returns.assign(**{symbol: 0.0 for symbol in usable.cash})
@@ -788,7 +806,7 @@ async def _portfolio_context(
     notices = [
         notice
         for notice in (
-            _window_notice(panel, usable.closes, period),
+            _window_notice(panel, usable.closes, period, months),
             f"Left out of the review: {valued.notice}" if valued.notice else None,
             (
                 f"Left out for too little price history: {_left_out_text(usable.left_out)}."
@@ -807,6 +825,7 @@ async def _portfolio_context(
     return PortfolioContext(
         profile=profile,
         period=period,
+        history_months=months,
         total_value=total,
         holdings=[
             AssetRisk(
@@ -847,6 +866,17 @@ async def _portfolio_context(
     )
 
 
+def _review_key(holdings: list[HoldingShares], request: PortfolioAnalysisRequest) -> str:
+    """Fingerprint the holdings and what the review was asked to tailor to and cover."""
+    months = "" if request.history_months is None else f"|{request.history_months}mo"
+    return holdings_key(holdings, request.profile.model_dump_json() + months)
+
+
+def _window_label(request: PortfolioAnalysisRequest) -> str:
+    """The review's window as a file name part: 1y, or 18mo for a custom one."""
+    return request.period if request.history_months is None else f"{request.history_months}mo"
+
+
 @dataclass(frozen=True)
 class PreparedReview:
     """What a portfolio review needs before Claude is asked: or a recent one to reuse."""
@@ -863,7 +893,8 @@ class PreparedReview:
     ) -> PortfolioAnalysisResponse:
         assert self.context is not None
         return PortfolioAnalysisResponse(
-            period=self.request.period,
+            period=self.request.window,
+            history_months=self.request.history_months,
             report=report,
             plan=plan,
             context=self.context,
@@ -883,13 +914,13 @@ async def prepare_portfolio_review(
     try:
         async with get_sessionmaker()() as session:
             holdings = await get_holdings(session, user.id, request.portfolio)
-            key = holdings_key(holdings, request.profile.model_dump_json())
+            key = _review_key(holdings, request)
             cached = None
             if holdings and not request.refresh and settings.analysis_cache_ttl_seconds > 0:
                 cached = await find_recent_portfolio_analysis(
                     session,
                     user.id,
-                    request.period,
+                    request.window,
                     key,
                     settings.anthropic_model,
                     settings.anthropic_effort,
@@ -913,7 +944,9 @@ async def prepare_portfolio_review(
         )
     api_key = anthropic_key()
     await check_ai_limits(user)
-    context = await _portfolio_context(holdings, request.period, request.profile)
+    context = await _portfolio_context(
+        holdings, request.window, request.profile, request.history_months
+    )
     return PreparedReview(
         user_id=user.id, request=request, key=key, context=context, api_key=api_key
     )
@@ -1115,10 +1148,12 @@ async def export_portfolio_prompt(
     ``context`` returned here.
     """
     holdings = await _saved_holdings(session, user.id, request.portfolio)
-    context = await _portfolio_context(holdings, request.period, request.profile)
+    context = await _portfolio_context(
+        holdings, request.window, request.profile, request.history_months
+    )
     return PortfolioPromptExport(
         prompt=render_prompt(PORTFOLIO_SYSTEM_PROMPT, review_messages(context), PortfolioReview),
-        filename=f"pyqxel-portfolio-review-{request.period}-prompt.md",
+        filename=f"pyqxel-portfolio-review-{_window_label(request)}-prompt.md",
         context=context,
     )
 
@@ -1147,6 +1182,7 @@ async def import_portfolio_review(
     plan = await _plan(body.context, report)
     response = PortfolioAnalysisResponse(
         period=body.context.period,
+        history_months=body.context.history_months,
         report=report,
         plan=plan,
         context=body.context,
@@ -1157,7 +1193,7 @@ async def import_portfolio_review(
         return await save_portfolio_analysis(
             session,
             user.id,
-            holdings_key(holdings, body.request.profile.model_dump_json()),
+            _review_key(holdings, body.request),
             response,
             PASTED_MODEL,
             PASTED_MODEL,

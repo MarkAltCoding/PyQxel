@@ -274,7 +274,8 @@ export interface paths {
      *     ``weights`` over the bar after its date. Weights are shares of capital, reset every
      *     bar; what they leave over is cash, which earns nothing or, with ``cash_interest``,
      *     the risk-free rate, as do short sale proceeds. Each change of weight pays
-     *     ``cost_bps`` per unit traded. The benchmark holds the symbols in equal weights,
+     *     ``cost_bps`` per unit traded. The benchmark holds the symbols the weights ever hold
+     *     (all of them, if none) in equal weights,
      *     rebalanced every bar, without costs; ``assets`` gives each symbol's part.
      *
      *     The result is stored like a single-symbol backtest, under its first symbol, and its
@@ -4959,6 +4960,12 @@ export interface components {
        * @enum {string}
        */
       action: 'buy' | 'sell'
+      /**
+       * Fractional
+       * @description Whether ``shares`` is a fraction, which some brokers take only as a market or day limit order, and not as a stop or trailing stop.
+       * @default false
+       */
+      fractional?: boolean
       /** Limit Price */
       limit_price?: number | null
       /**
@@ -4975,7 +4982,7 @@ export interface components {
       rationale: string
       /**
        * Shares
-       * @description Whole shares to trade; null when the symbol could not be priced.
+       * @description Shares to trade: whole where they can be, fractional where whole shares would round the trade away or a fractional holding is sold in full; null when the symbol could not be priced.
        */
       shares: number | null
       /** Symbol */
@@ -4991,6 +4998,11 @@ export interface components {
      * @description Options for a review of one of the saved portfolios.
      */
     PortfolioAnalysisRequest: {
+      /**
+       * History Months
+       * @description A custom window of daily returns, in months, used instead of ``period``.
+       */
+      history_months?: number | null
       /**
        * Period
        * @description Window of daily returns the statistics are computed on.
@@ -5034,6 +5046,11 @@ export interface components {
        * Format: date-time
        */
       generated_at: string
+      /**
+       * History Months
+       * @description The custom window in months, when one was asked for.
+       */
+      history_months?: number | null
       /**
        * Id
        * @description ID of the stored review; null if it could not be saved.
@@ -5175,6 +5192,11 @@ export interface components {
      * @description The data a portfolio review is written from, sent to Claude verbatim.
      */
     PortfolioContext: {
+      /**
+       * History Months
+       * @description The custom window, in months, the statistics cover; null when they cover ``period``.
+       */
+      history_months?: number | null
       /** Holdings */
       holdings: components['schemas']['AssetRisk'][]
       /** Least Correlated */
