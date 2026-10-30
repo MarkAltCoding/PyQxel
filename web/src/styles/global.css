@@ -1769,3 +1769,15 @@ table.data td.award {
   justify-content: flex-end;
   margin-bottom: 10px;
 }
+
+/* A section a link scrolls to stops below the sticky top bar, not under it; on phones
+ * the bar wraps to three rows. */
+main [id] {
+  scroll-margin-top: 80px;
+}
+
+@media (max-width: 760px) {
+  main [id] {
+    scroll-margin-top: 190px;
+  }
+}
