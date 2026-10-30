@@ -7,7 +7,7 @@ date one market was closed is dropped for all, and the next return spans both da
 """
 
 from dataclasses import dataclass
-from typing import cast
+from typing import Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -68,6 +68,85 @@ def _overlap_reason(prices: pd.DataFrame, excluded: int) -> str:
         f"{excluded} dates on which some of the markets were closed were left out; "
         "request a longer period."
     )
+
+
+DropReason = Literal["cash", "short_history", "late_start"]
+"""Why :func:`usable_return_panel` left an asset out: its price never moves, so it acts
+as cash; it has too few closes; or its data starts so late that keeping it would leave
+the others too few common days."""
+
+
+@dataclass(frozen=True)
+class Dropped:
+    """An asset left out of a return panel, and why."""
+
+    symbol: str
+    reason: DropReason
+    detail: str
+    """The reason in words, e.g. ``170 daily closes, from 2026-02-27``."""
+
+
+def _history(prices: pd.Series, count: int) -> str:
+    """Describe how much of the window ``prices`` covers."""
+    if not count:
+        return "no daily closes in the window"
+    return f"{count} daily closes, from {first_date(prices).date()}"
+
+
+def usable_return_panel(
+    closes: pd.DataFrame, min_observations: int = MIN_PANEL_OBSERVATIONS
+) -> tuple[ReturnPanel, list[Dropped]]:
+    """Like :func:`return_panel`, but leave out the assets that keep the rest from a fit.
+
+    Assets with fewer than ``min_observations + 1`` closes, and those whose price never
+    changes, are left out first. If the rest still share too few dates, the asset whose
+    data starts latest is left out, and so on, as long as a late start is the cause.
+
+    Returns:
+        The panel of the assets kept, and those left out with why, in column order.
+
+    Raises:
+        InsufficientDataError: If no asset can be kept, or the ones that can share too
+            few dates because their markets keep different calendars.
+    """
+    prices = _by_date(closes)
+    counts = prices.notna().sum()
+    dropped: list[Dropped] = []
+    for symbol in prices.columns:
+        count = int(counts[symbol])
+        if count < min_observations + 1:
+            detail = _history(prices[symbol], count)
+            dropped.append(Dropped(str(symbol), "short_history", detail))
+        elif float(prices[symbol].dropna().pct_change().iloc[1:].abs().max()) == 0.0:
+            dropped.append(Dropped(str(symbol), "cash", "its price never changes"))
+    kept = [str(symbol) for symbol in prices.columns if symbol not in {d.symbol for d in dropped}]
+
+    while kept:
+        shared = len(prices[kept].dropna()) - 1
+        if shared >= min_observations or len(kept) == 1:
+            break
+        starts = {symbol: first_date(prices[symbol]) for symbol in kept}
+        latest = max(kept, key=lambda symbol: starts[symbol])
+        if starts[latest] - min(starts.values()) <= LATE_START:
+            break
+        kept.remove(latest)
+        dropped.append(
+            Dropped(
+                latest,
+                "late_start",
+                f"its data starts {starts[latest].date()}, leaving the others only "
+                f"{max(shared, 0)} common days",
+            )
+        )
+    if not kept:
+        details = "; ".join(f"{d.symbol}: {d.detail}" for d in dropped)
+        raise InsufficientDataError(
+            f"None of the assets can be modeled, each needing {min_observations + 1} daily "
+            f"closes that move; {details}. Request a longer period."
+        )
+    order = {str(symbol): i for i, symbol in enumerate(prices.columns)}
+    dropped.sort(key=lambda d: order[d.symbol])
+    return return_panel(closes[kept], min_observations), dropped
 
 
 def return_panel(

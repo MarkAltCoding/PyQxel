@@ -33,6 +33,7 @@ from app.db.tables import (
     HoldingRecord,
     IdentityRecord,
     PortfolioAnalysisRecord,
+    PortfolioRecord,
     UserRecord,
 )
 from app.db.users import User, create_api_key
@@ -506,7 +507,10 @@ def _give_data(user: User) -> None:
                     created_at=pd.Timestamp.now(tz="UTC").to_pydatetime(),
                 )
             )
-            session.add(HoldingRecord(user_id=user.id, symbol="SPY", shares=10.0, position=0))
+            session.add(
+                HoldingRecord(user_id=user.id, portfolio=2, symbol="SPY", shares=10.0, position=0)
+            )
+            session.add(PortfolioRecord(user_id=user.id, portfolio=2, name="Retirement"))
             now = pd.Timestamp.now(tz="UTC").to_pydatetime()
             session.add(
                 PortfolioAnalysisRecord(
@@ -575,7 +579,8 @@ def test_deleting_an_account_removes_everything_it_holds(
     assert _rows_of(bob_user) | {"api_keys": 1} == {
         "api_keys": 1,
         "identities": 1,
-        "holdings": 1,
+        "portfolio_holdings": 1,
+        "portfolios": 1,
         "backtests": 1,
         "analyses": 0,
         "portfolio_analyses": 1,

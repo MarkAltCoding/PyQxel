@@ -22,6 +22,7 @@ from app.web import (
     accepts_brotli,
     mount_web,
 )
+from app.models.portfolio import MAX_SYMBOLS
 from app.models.stock import TickerInfo
 from tests.conftest import make_user
 from tests.test_screener_api import STOCKS, _stock, _store
@@ -170,12 +171,12 @@ def test_saving_replaces_the_portfolio(priced: None) -> None:
         [{"symbol": "AAPL", "shares": 0}],
         [{"symbol": "AAPL", "shares": -1}],
         [{"symbol": "AAPL", "shares": 1}, {"symbol": "aapl", "shares": 2}],
-        [{"symbol": f"S{i}", "shares": 1} for i in range(21)],
+        [{"symbol": f"S{i}", "shares": 1} for i in range(MAX_SYMBOLS + 1)],
         [{"symbol": "not a symbol", "shares": 1}],
     ],
 )
 def test_invalid_holdings_are_rejected(priced: None, holdings: list[dict[str, object]]) -> None:
-    """Shares must be positive, symbols valid and distinct, and at most 20 of them."""
+    """Shares must be positive, symbols valid and distinct, and at most 40 of them."""
     response = client.put("/api/v1/portfolio/holdings", json={"holdings": holdings})
 
     assert response.status_code == 422
@@ -204,6 +205,61 @@ def test_holdings_belong_to_their_account(
     assert [h["symbol"] for h in client.get("/api/v1/portfolio/holdings").json()["holdings"]] == [
         "AAPL"
     ]
+
+
+def test_two_portfolios_are_saved_and_named_apart(priced: None) -> None:
+    """Each portfolio keeps its own holdings and name; the same symbol may be in both."""
+    client.put("/api/v1/portfolio/holdings", json={"holdings": [{"symbol": "AAPL", "shares": 1}]})
+    saved = client.put(
+        "/api/v1/portfolio/holdings",
+        params={"portfolio": 2},
+        json={
+            "holdings": [{"symbol": "AAPL", "shares": 3}, {"symbol": "MSFT", "shares": 1}],
+            "name": "  Retirement ",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["portfolio"] == 2 and saved.json()["name"] == "Retirement"
+
+    first = client.get("/api/v1/portfolio/holdings").json()
+    second = client.get("/api/v1/portfolio/holdings", params={"portfolio": 2}).json()
+
+    assert first["name"] == "Portfolio 1"
+    assert [(h["symbol"], h["shares"]) for h in first["holdings"]] == [("AAPL", 1)]
+    assert [(h["symbol"], h["shares"]) for h in second["holdings"]] == [("AAPL", 3), ("MSFT", 1)]
+    assert client.get("/api/v1/portfolio/portfolios").json() == {
+        "portfolios": [
+            {"portfolio": 1, "name": "Portfolio 1", "holdings": 1},
+            {"portfolio": 2, "name": "Retirement", "holdings": 2},
+        ]
+    }
+    client.put("/api/v1/portfolio/holdings", params={"portfolio": 2}, json={"holdings": []})
+    assert client.get("/api/v1/portfolio/holdings", params={"portfolio": 2}).json()["name"] == (
+        "Retirement"
+    )
+
+
+def test_there_are_only_two_portfolios(priced: None) -> None:
+    """Portfolio numbers outside 1 and 2 are rejected."""
+    for number in (0, 3):
+        response = client.get("/api/v1/portfolio/holdings", params={"portfolio": number})
+        assert response.status_code == 422
+
+
+def test_a_money_market_fund_is_cash_at_a_dollar(priced: None) -> None:
+    """A money-market fund the provider cannot price is valued at $1 a share, as cash."""
+    client.put(
+        "/api/v1/portfolio/holdings",
+        json={"holdings": [{"symbol": "AAPL", "shares": 1}, {"symbol": "SPAXX", "shares": 200}]},
+    )
+
+    body = client.get("/api/v1/portfolio/holdings").json()
+
+    spaxx = body["holdings"][1]
+    assert spaxx["price"] == 1.0 and spaxx["value"] == 200.0 and spaxx["cash"] is True
+    assert spaxx["weight"] == pytest.approx(0.5)
+    assert body["holdings"][0]["cash"] is False
+    assert body["notice"] is None
 
 
 # ── Serving the frontend ──

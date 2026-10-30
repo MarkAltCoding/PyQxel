@@ -203,14 +203,29 @@ class SimulationRecord(Base):
     result: Mapped[dict[str, Any]] = mapped_column(JSON)
 
 
-class HoldingRecord(Base):
-    """One position in an account's saved portfolio."""
+class PortfolioRecord(Base):
+    """The name an account gave one of its saved portfolios; unnamed ones have no row."""
 
-    __tablename__ = "holdings"
+    __tablename__ = "portfolios"
 
     user_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
+    portfolio: Mapped[int] = mapped_column(Integer, primary_key=True)
+    """Which of the account's portfolios, from 1."""
+    name: Mapped[str] = mapped_column(String(40))
+
+
+class HoldingRecord(Base):
+    """One position in one of an account's saved portfolios."""
+
+    __tablename__ = "portfolio_holdings"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    portfolio: Mapped[int] = mapped_column(Integer, primary_key=True)
+    """Which of the account's portfolios, from 1."""
     symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
     shares: Mapped[float] = mapped_column(Float)
     position: Mapped[int] = mapped_column(Integer)
@@ -233,6 +248,8 @@ class PortfolioAnalysisRecord(Base):
         String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    portfolio: Mapped[int] = mapped_column(Integer, server_default="1")
+    """Which of the account's portfolios it reviews."""
     period: Mapped[str] = mapped_column(String(8))
     holdings_key: Mapped[str] = mapped_column(String(64))
     requested_model: Mapped[str] = mapped_column(String(64))

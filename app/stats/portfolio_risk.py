@@ -2,7 +2,9 @@
 
 The portfolio's returns are those of fixed weights rebalanced daily: the weights the
 account holds today, applied to the whole window. They describe how today's portfolio
-would have behaved, not what the account earned.
+would have behaved, not what the account earned. A holding whose returns never change,
+such as a money-market fund held as cash, has no correlation with anything, so it is
+left out of the correlations.
 """
 
 from dataclasses import dataclass
@@ -24,7 +26,8 @@ class AssetStats:
     risk_contribution: float
     """Share of the portfolio's variance; the shares sum to 1."""
     correlation_to_rest: float | None
-    """Correlation with the rest of the portfolio; ``None`` when it is the only holding."""
+    """Correlation with the rest of the portfolio; ``None`` when it is the only holding,
+    or when it or the rest never moves."""
 
 
 @dataclass(frozen=True)
@@ -43,6 +46,7 @@ class PortfolioStats:
     average_correlation: float | None
     assets: dict[str, AssetStats]
     correlations: pd.DataFrame
+    """Correlations of the holdings whose returns vary."""
 
 
 def annualized_return(returns: pd.Series) -> float:
@@ -78,16 +82,18 @@ def portfolio_stats(returns: pd.DataFrame, weights: pd.Series) -> PortfolioStats
     contribution = (
         weights * marginal / portfolio_variance if portfolio_variance > 0 else weights * 0.0
     )
-    correlations = returns.corr()
+    moving = [symbol for symbol in returns.columns if float(returns[symbol].std()) > 0]
+    correlations = returns[moving].corr()
     path = drawdowns(combined)
 
     assets: dict[str, AssetStats] = {}
     for position, symbol in enumerate(returns.columns):
         rest_weights = weights.drop(symbol)
         to_rest: float | None = None
-        if len(rest_weights) and float(rest_weights.sum()) > 0:
+        if symbol in moving and len(rest_weights) and float(rest_weights.sum()) > 0:
             rest = returns[rest_weights.index] @ (rest_weights / rest_weights.sum())
-            to_rest = float(returns[symbol].corr(rest))
+            if float(rest.std()) > 0:
+                to_rest = float(returns[symbol].corr(rest))
         assets[symbol] = AssetStats(
             annualized_return=annualized_return(returns[symbol]),
             volatility=float(asset_volatility[position]),
@@ -96,7 +102,7 @@ def portfolio_stats(returns: pd.DataFrame, weights: pd.Series) -> PortfolioStats
             correlation_to_rest=to_rest,
         )
 
-    pairs = correlations.to_numpy()[np.triu_indices(len(returns.columns), k=1)]
+    pairs = correlations.to_numpy()[np.triu_indices(len(moving), k=1)]
     return PortfolioStats(
         start=returns.index[0],
         end=returns.index[-1],

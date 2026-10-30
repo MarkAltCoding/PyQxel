@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { getHoldings, runCrossSectionalBacktest } from '../api/endpoints'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { getHoldings, getPortfolios, runCrossSectionalBacktest } from '../api/endpoints'
 import type {
   CrossSectionalBacktestRequest,
   CrossSectionalBacktestResponse,
@@ -199,8 +199,14 @@ export function CrossSectionalBacktest() {
   const tooFew = symbols.length < 3
   const tooMany = symbols.length > MAX_SYMBOLS
 
+  const portfolios = useQuery({ queryKey: ['portfolios'], queryFn: getPortfolios })
+  const saved = (portfolios.data?.portfolios ?? []).filter((p) => p.holdings > 0)
   const holdings = useMutation({
-    mutationFn: () => queryClient.fetchQuery({ queryKey: ['holdings'], queryFn: getHoldings }),
+    mutationFn: (portfolio: number) =>
+      queryClient.fetchQuery({
+        queryKey: ['holdings', portfolio],
+        queryFn: () => getHoldings(portfolio),
+      }),
     onSuccess: (data) => setSymbols(data.holdings.map((holding) => holding.symbol).join(' ')),
   })
   const run = useMutation({
@@ -252,14 +258,17 @@ export function CrossSectionalBacktest() {
               {preset.label}
             </button>
           ))}
-          <button
-            type="button"
-            className="button ghost small"
-            disabled={holdings.isPending}
-            onClick={() => holdings.mutate()}
-          >
-            My holdings
-          </button>
+          {saved.map((portfolio) => (
+            <button
+              key={portfolio.portfolio}
+              type="button"
+              className="button ghost small"
+              disabled={holdings.isPending}
+              onClick={() => holdings.mutate(portfolio.portfolio)}
+            >
+              {saved.length > 1 ? portfolio.name : 'My holdings'}
+            </button>
+          ))}
         </div>
         {holdings.error !== null && <ErrorNotice error={holdings.error} />}
         <div className="filter-row">

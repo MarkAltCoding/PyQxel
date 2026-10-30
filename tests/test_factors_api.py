@@ -170,6 +170,17 @@ def test_too_little_overlap_is_422(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "factor data is published about a month late" in response.json()["detail"]
 
 
+def test_a_money_market_fund_has_no_factor_exposure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A money-market fund's 422 says why, rather than asking for more history."""
+    table = _factor_table(300)
+    _serve(monkeypatch, _price_history(table.iloc[-1:]), table)
+
+    response = client.get("/api/v1/stocks/SPAXX/factors", params={"period": "1y"})
+
+    assert response.status_code == 422
+    assert "money-market fund" in response.json()["detail"]
+
+
 @pytest.mark.parametrize(
     "params",
     [{"model": "ff4"}, {"period": "6mo"}, {"period": "max"}],

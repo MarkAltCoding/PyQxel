@@ -7,11 +7,15 @@ import type { NewsArticle } from '../api/types'
 import { ChartCard } from '../charts/ChartCard'
 import { NewsChart, NewsTable } from '../charts/NewsChart'
 import { number, shortDate, timeAgo } from '../lib/format'
+import { PAGE_SIZES, storedPageSize } from '../lib/paging'
+import { writeStored } from '../lib/storage'
 import { Notice } from './Notice'
+import { Pager } from './Pager'
 import { Stat } from './Stat'
 import { safeUrl } from '../lib/safeUrl'
 
-const FIRST_ARTICLES = 8
+/** Shared with the market news, so a viewer's choice of page size holds for both. */
+const PAGE_SIZE_KEY = 'pyqxel.marketNewsPerPage'
 
 /**
  * The last two weeks of news about a stock, from Finnhub on the account's own key: how
@@ -23,11 +27,15 @@ export function NewsCard({ symbol }: { symbol: string }) {
     queryFn: () => getNews(symbol),
     retry: (count, error) => !(error instanceof ApiError && error.status < 500) && count < 2,
   })
-  const [expanded, setExpanded] = useState(false)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(() => storedPageSize(PAGE_SIZE_KEY))
   const noKey = news.error instanceof ApiError && news.error.status === 403
   const data = news.data
   const overview = data?.overview
-  const shown = expanded ? data?.articles : data?.articles.slice(0, FIRST_ARTICLES)
+  const articles = data?.articles ?? []
+  const pages = Math.max(1, Math.ceil(articles.length / pageSize))
+  const current = Math.min(page, pages)
+  const shown = articles.slice((current - 1) * pageSize, current * pageSize)
 
   return (
     <ChartCard
@@ -95,23 +103,23 @@ export function NewsCard({ symbol }: { symbol: string }) {
                   ))}
                 </div>
                 <ul className="news-list">
-                  {shown?.map((article) => (
+                  {shown.map((article) => (
                     <Article key={article.url} article={article} />
                   ))}
                 </ul>
-                {data.articles.length > FIRST_ARTICLES && (
-                  <div>
-                    <button
-                      type="button"
-                      className="button"
-                      onClick={() => setExpanded((open) => !open)}
-                    >
-                      {expanded
-                        ? 'Show fewer'
-                        : `Show ${data.articles.length - FIRST_ARTICLES} more`}
-                    </button>
-                  </div>
-                )}
+                <Pager
+                  page={current}
+                  pageSize={pageSize}
+                  total={articles.length}
+                  sizes={PAGE_SIZES}
+                  noun="headlines"
+                  onPage={setPage}
+                  onPageSize={(size) => {
+                    writeStored(PAGE_SIZE_KEY, String(size))
+                    setPageSize(size)
+                    setPage(1)
+                  }}
+                />
               </>
             )}
           </div>

@@ -483,8 +483,8 @@ export interface paths {
     }
     /**
      * Your latest portfolio review
-     * @description Return your newest stored portfolio review, whatever it was written for, so it can
-     *     be shown again without a charge. Returns 404 when you have none.
+     * @description Return your newest stored review of ``portfolio``, whatever it was written for, so
+     *     it can be shown again without a charge. Returns 404 when you have none.
      */
     get: operations['read_portfolio_review_api_v1_portfolio_analysis_get']
     put?: never
@@ -641,8 +641,11 @@ export interface paths {
      *     have extreme days together than a Gaussian copula allows; ``pairs`` gives each pair's
      *     implied tail dependence alongside how often it was observed.
      *
-     *     Matrices are rows in the order of ``symbols``. Returns 404 naming unknown symbols, 422
-     *     when the assets share too little history, and 502 when the price provider fails.
+     *     Assets the fit cannot use are left out and listed in ``left_out``: money-market
+     *     funds, whose price holds at $1; those with too little history or whose history
+     *     starts too late; and those whose prices cannot be fetched. Matrices are rows in the
+     *     order of the response's ``symbols``, the assets kept. Returns 422 when fewer than two
+     *     assets can be kept, and 502 when the price provider fails for every one.
      */
     post: operations['create_copula_fit_api_v1_portfolio_copula_post']
     delete?: never
@@ -659,21 +662,43 @@ export interface paths {
       cookie?: never
     }
     /**
-     * Your saved portfolio
-     * @description Return your saved holdings valued at the latest prices, with their weights.
+     * One of your saved portfolios
+     * @description Return a saved portfolio's holdings valued at the latest prices, with their weights.
      *
      *     Holdings that cannot be priced are listed without a value or weight and named in
      *     ``notice``. Returns 503 when the database is unavailable.
      */
     get: operations['read_holdings_api_v1_portfolio_holdings_get']
     /**
-     * Save your portfolio
-     * @description Replace your saved holdings (up to 20 symbols) and return them valued.
+     * Save one of your portfolios
+     * @description Replace a saved portfolio's holdings (up to 40 symbols), and its name when
+     *     ``name`` is given, and return them valued.
      *
      *     Simulate or fit a copula to them by sending their ``weight`` values to
      *     ``/portfolio/simulate`` or their symbols to ``/portfolio/copula``.
      */
     put: operations['store_holdings_api_v1_portfolio_holdings_put']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/portfolio/portfolios': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Your saved portfolios
+     * @description List both of the portfolios you can save, with their names and how many holdings
+     *     each has; one never saved has none. Returns 503 when the database is unavailable.
+     */
+    get: operations['read_portfolios_api_v1_portfolio_portfolios_get']
+    put?: never
     post?: never
     delete?: never
     options?: never
@@ -705,12 +730,16 @@ export interface paths {
      *     how often holdings crash together in the simulation with history. Pass ``seed`` from
      *     a previous result to reproduce it.
      *
+     *     Money-market funds are simulated as cash, keeping their value, and listed in
+     *     ``cash``. Holdings with too little history are left out and listed in ``left_out``;
+     *     the rest are scaled up to make the whole portfolio, as ``simulated`` shows.
+     *
      *     The result is stored and its ``id`` returned for ``GET /portfolio/simulations/{id}``;
      *     if the database is unavailable it is still returned, with a null ``id``.
      *
-     *     Returns 404 naming unknown symbols, 422 for invalid or oversized settings or too
-     *     little shared history, 502 when the price provider fails, and 503 when the server is
-     *     busy with other simulations.
+     *     Returns 422 for invalid or oversized settings or when no holding but cash has enough
+     *     history, 502 when the price provider fails for every holding, and 503 when the
+     *     server is busy with other simulations.
      */
     post: operations['create_simulation_api_v1_portfolio_simulate_post']
     delete?: never
@@ -1845,8 +1874,14 @@ export interface components {
       /** Annualized Return */
       annualized_return: number
       /**
+       * Cash
+       * @description A money-market fund, counted as cash: its price stays at $1, so its statistics are zero.
+       * @default false
+       */
+      cash?: boolean
+      /**
        * Correlation To Rest
-       * @description Correlation of its daily returns with the rest of the portfolio's; null for a portfolio of one holding.
+       * @description Correlation of its daily returns with the rest of the portfolio's; null for a portfolio of one holding, and for cash.
        */
       correlation_to_rest?: number | null
       /** Industry */
@@ -2342,6 +2377,11 @@ export interface components {
       gaussian: components['schemas']['GaussianCopula']
       /** Kendall Tau */
       kendall_tau: number[][]
+      /**
+       * Left Out
+       * @description Requested symbols the fit does not include; ``symbols`` are the rest.
+       */
+      left_out?: components['schemas']['LeftOutHolding'][]
       /**
        * Notice
        * @description Explains any part of the window without data.
@@ -3548,6 +3588,12 @@ export interface components {
      * @description A saved position valued at the latest price.
      */
     HoldingValue: {
+      /**
+       * Cash
+       * @description A money-market fund, held at a steady $1 a share: simulations hold it as cash, and it is left out of how the holdings move together.
+       * @default false
+       */
+      cash?: boolean
       /** Industry */
       industry?: string | null
       /** Name */
@@ -3576,16 +3622,23 @@ export interface components {
     }
     /**
      * HoldingsResponse
-     * @description The account's saved portfolio, valued now, in the order it was saved.
+     * @description One of the account's saved portfolios, valued now, in the order it was saved.
      */
     HoldingsResponse: {
       /** Holdings */
       holdings: components['schemas']['HoldingValue'][]
+      /** Name */
+      name?: string
       /**
        * Notice
        * @description Which holdings could not be priced, and why.
        */
       notice?: string | null
+      /**
+       * Portfolio
+       * @default 1
+       */
+      portfolio?: number
       /**
        * Priced At
        * Format: date-time
@@ -3599,11 +3652,16 @@ export interface components {
     }
     /**
      * HoldingsUpdate
-     * @description The account's whole portfolio, replacing what was saved; empty clears it.
+     * @description One of the account's portfolios in full, replacing what was saved; empty clears it.
      */
     HoldingsUpdate: {
       /** Holdings */
       holdings?: components['schemas']['HoldingShares'][]
+      /**
+       * Name
+       * @description A new name for the portfolio; null keeps its name.
+       */
+      name?: string | null
     }
     /**
      * InformationCoefficient
@@ -3981,6 +4039,24 @@ export interface components {
       output?: string | null
       /** Traceback */
       traceback?: string | null
+    }
+    /**
+     * LeftOutHolding
+     * @description A holding a multi-asset model could not use, and why.
+     */
+    LeftOutHolding: {
+      /**
+       * Detail
+       * @description The reason in words, e.g. how much history it has.
+       */
+      detail: string
+      /**
+       * Reason
+       * @enum {string}
+       */
+      reason: 'cash' | 'short_history' | 'late_start' | 'no_data'
+      /** Symbol */
+      symbol: string
     }
     /**
      * LobbyingFiling
@@ -4894,7 +4970,7 @@ export interface components {
     }
     /**
      * PortfolioAnalysisRequest
-     * @description Options for a review of the saved portfolio.
+     * @description Options for a review of one of the saved portfolios.
      */
     PortfolioAnalysisRequest: {
       /**
@@ -4904,6 +4980,12 @@ export interface components {
        * @enum {string}
        */
       period?: '1y' | '2y' | '5y' | '10y'
+      /**
+       * Portfolio
+       * @description Which saved portfolio to review.
+       * @default 1
+       */
+      portfolio?: number
       profile?: components['schemas']['InvestorProfile']
       /**
        * Refresh
@@ -5081,7 +5163,7 @@ export interface components {
       least_correlated?: components['schemas']['PairCorrelation'][]
       /**
        * Left Out
-       * @description Holdings left out of the review because they could not be priced.
+       * @description Holdings left out of the review because they could not be priced or have too little history; ``notice`` says which and why.
        */
       left_out?: string[]
       /** Most Correlated */
@@ -5110,6 +5192,14 @@ export interface components {
        * @description Value of the priced holdings, at latest prices.
        */
       total_value: number
+    }
+    /**
+     * PortfolioList
+     * @description Every portfolio the account may save, saved or still empty, in order.
+     */
+    PortfolioList: {
+      /** Portfolios */
+      portfolios: components['schemas']['PortfolioSummary'][]
     }
     /**
      * PortfolioPromptExport
@@ -5246,6 +5336,21 @@ export interface components {
       start: string
       /** Volatility */
       volatility: number
+    }
+    /**
+     * PortfolioSummary
+     * @description One of the account's portfolio slots, without prices.
+     */
+    PortfolioSummary: {
+      /**
+       * Holdings
+       * @description How many holdings it has saved.
+       */
+      holdings: number
+      /** Name */
+      name: string
+      /** Portfolio */
+      portfolio: number
     }
     /**
      * PriceHistory
@@ -6168,6 +6273,11 @@ export interface components {
      */
     SimulationResponse: {
       /**
+       * Cash
+       * @description Holdings simulated as cash, keeping their value with no return: money-market funds, whose price stays at $1.
+       */
+      cash?: string[]
+      /**
        * Disclaimer
        * @default Simulated from historical returns, which assume the future resembles the fitted window. Not investment advice.
        */
@@ -6190,6 +6300,11 @@ export interface components {
        * @description ID of the stored result, for GET /portfolio/simulations/{id}; null if it could not be saved.
        */
       id?: string | null
+      /**
+       * Left Out
+       * @description Holdings without enough history to simulate, and why; the rest are reweighted to make up the whole portfolio.
+       */
+      left_out?: components['schemas']['LeftOutHolding'][]
       /** Notice */
       notice?: string | null
       /**
@@ -6204,6 +6319,11 @@ export interface components {
       period: '1y' | '2y' | '5y' | '10y'
       /** Saved At */
       saved_at?: string | null
+      /**
+       * Simulated
+       * @description The weights simulated: ``holdings`` without those left out, scaled back up to sum to one. Empty in results stored before holdings could be left out.
+       */
+      simulated?: components['schemas']['Holding'][]
       simulation: components['schemas']['SimulationSummary']
       /**
        * Start
@@ -6423,6 +6543,11 @@ export interface components {
       name?: string | null
       /** Price */
       price?: number | null
+      /**
+       * Quote Type
+       * @description Kind of security as the provider classes it, e.g. EQUITY, ETF or MONEYMARKET; null when it does not say.
+       */
+      quote_type?: string | null
       /** Sector */
       sector?: string | null
       /**
@@ -7327,7 +7452,10 @@ export interface operations {
   }
   read_portfolio_review_api_v1_portfolio_analysis_get: {
     parameters: {
-      query?: never
+      query?: {
+        /** @description Which of your saved portfolios: 1 or 2. */
+        portfolio?: number
+      }
       header?: never
       path?: never
       cookie?: never
@@ -7341,6 +7469,15 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['PortfolioAnalysisResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
         }
       }
     }
@@ -7545,7 +7682,10 @@ export interface operations {
   }
   read_holdings_api_v1_portfolio_holdings_get: {
     parameters: {
-      query?: never
+      query?: {
+        /** @description Which of your saved portfolios: 1 or 2. */
+        portfolio?: number
+      }
       header?: never
       path?: never
       cookie?: never
@@ -7561,11 +7701,23 @@ export interface operations {
           'application/json': components['schemas']['HoldingsResponse']
         }
       }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
     }
   }
   store_holdings_api_v1_portfolio_holdings_put: {
     parameters: {
-      query?: never
+      query?: {
+        /** @description Which of your saved portfolios: 1 or 2. */
+        portfolio?: number
+      }
       header?: never
       path?: never
       cookie?: never
@@ -7592,6 +7744,26 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_portfolios_api_v1_portfolio_portfolios_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PortfolioList']
         }
       }
     }

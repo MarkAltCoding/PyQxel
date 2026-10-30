@@ -17,6 +17,7 @@ import { SignalsCard } from '../components/SignalsCard'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { Segmented } from '../components/Segmented'
 import { Stat } from '../components/Stat'
+import { InfoTip } from '../components/InfoTip'
 import { compact, money, number, percent, shortDate, signedPercent, tone } from '../lib/format'
 
 const PERIODS = [
@@ -120,6 +121,18 @@ export function StockPage() {
       </header>
 
       {ticker.error !== null && <ErrorNotice error={ticker.error} />}
+      {info?.quote_type === 'MONEYMARKET' && (
+        <Notice>
+          <span className="heading-with-info">
+            <span>
+              {symbol} is a money-market fund: it holds a steady $1 a share and pays its return as
+              interest, so price charts, volatility and factor models have little to show. In a
+              portfolio it counts as cash.
+            </span>
+            <InfoTip topic="moneyMarketCash" />
+          </span>
+        </Notice>
+      )}
 
       <div className="stats">
         <Stat info="price" label="Price" value={money(info?.price, currency)} />

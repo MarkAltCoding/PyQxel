@@ -62,7 +62,7 @@ function renderCard(props: { hasHoldings: boolean; stale: boolean }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <PortfolioReviewCard {...props} />
+      <PortfolioReviewCard portfolio={2} {...props} />
     </QueryClientProvider>,
   )
 }
@@ -78,7 +78,7 @@ describe('PortfolioReviewCard', () => {
         const result = { ...review('Rebalanced view.'), cached: false }
         return new Response(`event: result\ndata: ${JSON.stringify(result)}\n\n`)
       }
-      expect(String(input)).toContain('/api/v1/portfolio/analysis')
+      expect(String(input)).toContain('/api/v1/portfolio/analysis?portfolio=2')
       return new Response(JSON.stringify(review('Concentrated in technology.')))
     })
     renderCard({ hasHoldings: true, stale: false })
@@ -92,6 +92,7 @@ describe('PortfolioReviewCard', () => {
     expect(await screen.findByText('Rebalanced view.')).toBeInTheDocument()
     expect(posted).toEqual([
       {
+        portfolio: 2,
         period: '1y',
         refresh: true,
         profile: { risk_tolerance: null, horizon_years: null, cash_to_invest: 0, notes: null },
@@ -125,7 +126,7 @@ describe('PortfolioReviewCard', () => {
     expect(await screen.findByText('Pasted review.')).toBeInTheDocument()
     expect(bodies[0]).toMatchObject({
       context: { period: '1y' },
-      request: { period: '1y' },
+      request: { portfolio: 2, period: '1y' },
       response: 'the answer',
     })
   })

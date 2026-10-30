@@ -6,6 +6,7 @@ from typing import Annotated, cast
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Path, Query, status
 
+from app.data.cash import is_money_market, money_market_message
 from app.data.fetcher import (
     HISTORY_NOTICE,
     DataFetchError,
@@ -245,8 +246,9 @@ async def get_volatility(
                 closes, periods_per_year, horizon=horizon, distribution=distribution
             )
     except (InsufficientDataError, ModelFitError) as exc:
+        detail = money_market_message(symbol) if is_money_market(symbol) else str(exc)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail
         ) from exc
     except RUnavailableError as exc:
         raise HTTPException(

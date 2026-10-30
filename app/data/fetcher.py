@@ -858,6 +858,7 @@ def _yfinance_info(symbol: str) -> TickerInfo:
         industry=info.get("industry"),
         market_cap=info.get("marketCap"),
         price=info.get("currentPrice") or info.get("regularMarketPrice"),
+        quote_type=info.get("quoteType"),
         source="yfinance",
     )
 

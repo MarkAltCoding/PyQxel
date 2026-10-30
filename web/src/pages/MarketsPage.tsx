@@ -12,7 +12,8 @@ import { PresetOrCustom } from '../components/PresetOrCustom'
 import { Segmented } from '../components/Segmented'
 import { timeAgo } from '../lib/format'
 import { safeUrl } from '../lib/safeUrl'
-import { readStored, writeStored } from '../lib/storage'
+import { PAGE_SIZES, storedPageSize } from '../lib/paging'
+import { writeStored } from '../lib/storage'
 
 const WINDOWS = [
   { value: 14, label: '2 weeks' },
@@ -59,14 +60,7 @@ const ORDERS: { value: NewsOrder; label: string }[] = [
   { value: 'newest', label: 'Newest' },
 ]
 
-const PAGE_SIZES = [10, 20, 50, 100] as const
 const PAGE_SIZE_KEY = 'pyqxel.marketNewsPerPage'
-
-/** The headlines per page this viewer chose before, or 10. */
-function storedPageSize(): number {
-  const stored = Number(readStored(PAGE_SIZE_KEY))
-  return (PAGE_SIZES as readonly number[]).includes(stored) ? stored : PAGE_SIZES[0]
-}
 
 const KIND_LABELS: Record<CalendarRow['kind'], string> = {
   fomc: 'FOMC',
@@ -214,7 +208,7 @@ function MarketNewsCard({
 }) {
   const [order, setOrder] = useState<NewsOrder>('importance')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(storedPageSize)
+  const [pageSize, setPageSize] = useState(() => storedPageSize(PAGE_SIZE_KEY))
   const results = useQueries({
     queries: categories.map((category) => ({
       queryKey: ['market-news', category],
