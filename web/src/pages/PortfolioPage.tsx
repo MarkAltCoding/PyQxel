@@ -186,7 +186,7 @@ export function PortfolioPage() {
         />
       </header>
 
-      <section className="card" aria-busy={holdings.isPlaceholderData}>
+      <section id="holdings" className="card" aria-busy={holdings.isPlaceholderData}>
         <div className="card-header">
           <div>
             <h2>{savedName}</h2>
@@ -326,7 +326,7 @@ export function PortfolioPage() {
         )}
       </section>
 
-      <section className="card">
+      <section id="late-listings" className="card">
         <div className="card-header" style={{ marginBottom: 0 }}>
           <div>
             <div className="heading-with-info">
@@ -487,6 +487,7 @@ function SimulationCard({
 
   return (
     <ChartCard
+      id="simulation"
       info="monteCarlo"
       title="Simulated outcomes"
       subtitle={
@@ -649,6 +650,7 @@ function CopulaCard({
   const data = fit.data
   return (
     <ChartCard
+      id="comovement"
       info="copula"
       title="How the holdings move together"
       subtitle={

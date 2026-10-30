@@ -145,7 +145,7 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
 
   const writing = progress !== null
   return (
-    <section className="card">
+    <section id="ai-report" className="card">
       <div className="card-header">
         <div>
           <div className="heading-with-info">

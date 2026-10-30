@@ -161,6 +161,7 @@ export function StockPage() {
       </div>
 
       <ChartCard
+        id="price"
         info="priceChart"
         title="Price"
         subtitle={`Adjusted closes, ${interval === '1d' ? 'daily' : 'weekly'} · Ctrl + scroll to zoom`}
@@ -183,6 +184,7 @@ export function StockPage() {
           onModel={setFactorModel}
         />
         <ChartCard
+          id="volatility"
           info="volatilityChart"
           title="Volatility"
           subtitle={
@@ -245,6 +247,7 @@ function FactorCard(props: {
   const fit = props.regression?.fit
   return (
     <ChartCard
+      id="factors"
       info="factorModel"
       title="Factor exposures"
       subtitle="Betas on Fama–French factors, with 95% intervals"

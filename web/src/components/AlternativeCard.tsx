@@ -31,7 +31,7 @@ export function AlternativeCard({ symbol }: { symbol: string }) {
   })
   const noKey = alternative.error instanceof ApiError && alternative.error.status === 403
   return (
-    <section className="card" aria-busy={alternative.isLoading}>
+    <section id="alternative-data" className="card" aria-busy={alternative.isLoading}>
       <div className="card-header">
         <div>
           <h2>Lobbying, government contracts and patents</h2>

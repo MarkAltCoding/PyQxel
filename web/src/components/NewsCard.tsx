@@ -39,6 +39,7 @@ export function NewsCard({ symbol }: { symbol: string }) {
 
   return (
     <ChartCard
+      id="news"
       info="newsChart"
       title="News"
       subtitle={

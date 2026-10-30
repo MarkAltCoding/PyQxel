@@ -114,7 +114,7 @@ export function MetricsCard({ symbol, currency }: { symbol: string; currency: st
   const data = metrics.data
 
   return (
-    <section className="card" aria-busy={metrics.isLoading}>
+    <section id="metrics" className="card" aria-busy={metrics.isLoading}>
       <div className="card-header">
         <div>
           <h2>Key metrics</h2>
