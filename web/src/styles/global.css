@@ -1332,8 +1332,12 @@ table.data .muted {
   display: inline-flex;
   vertical-align: middle;
   margin-left: 4px;
-  /* Above neighbouring cards and chart canvases while open. */
-  z-index: 20;
+}
+
+/* An open box sits above neighbouring cards and chart canvases, yet below the sticky top
+   bar, so neither the "i" nor its box ever covers the bar while the page scrolls. */
+.info-tip.open {
+  z-index: 10;
 }
 
 .info-tip-button {

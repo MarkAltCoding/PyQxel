@@ -49,7 +49,7 @@ export function InfoTip({ topic }: { topic: InfoKey }) {
   return (
     <span
       ref={wrapper}
-      className="info-tip"
+      className={`info-tip${open ? ' open' : ''}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
