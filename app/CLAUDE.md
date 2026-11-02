@@ -11,7 +11,7 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
 - **Market data:** `data/fetcher.py`. `fetch_price_history`, `fetch_ticker_info` and
   quotes try `available_providers()` in order (Finnhub for quotes or info where its free
   plan covers the symbol, then FMP, Alpha Vantage, then yfinance when
-  `YFINANCE_FALLBACK` is on) through `first_success()`. Results
+  `YFINANCE_FALLBACK` is on, see `CLAUDE.local.md`) through `first_success()`. Results
   are cached in Redis when `REDIS_URL` is set (`core/cache.py`); without it every lookup
   goes to the provider. Several symbols at once:
   `data/panel.py: fetch_close_panel` (pass `tolerate_failures=True` to leave out the
