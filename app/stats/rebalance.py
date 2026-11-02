@@ -7,8 +7,9 @@ prices, so the plan's arithmetic is exact.
 import math
 from dataclasses import dataclass
 
-CASH: str = "CASH"
-"""The symbol a target uses for money left uninvested."""
+CASH: str = "Cash"
+"""The key the planner files money left uninvested under: not a ticker, so it never
+collides with a stock's (CASH itself is one)."""
 
 MIN_TRADE_VALUE: float = 1.0
 """Trades worth less than this are left out as noise."""
@@ -39,6 +40,8 @@ class Target:
     order_type: str
     limit_offset_percent: float | None
     rationale: str
+    keep: bool = False
+    """Leave the holding exactly as it is: no order, whatever the weight says."""
 
 
 @dataclass(frozen=True)
@@ -80,12 +83,14 @@ def normalized(targets: dict[str, Target], holdings: dict[str, float]) -> dict[s
     complete = dict(targets)
     for symbol, weight in holdings.items():
         if symbol not in complete:
-            complete[symbol] = Target(weight, "market", None, "Kept at its current weight.")
+            complete[symbol] = Target(
+                weight, "market", None, "Kept at its current weight.", keep=True
+            )
     total = math.fsum(target.weight for target in complete.values())
     if total <= 1:
         return complete
     return {
-        symbol: Target(t.weight / total, t.order_type, t.limit_offset_percent, t.rationale)
+        symbol: Target(t.weight / total, t.order_type, t.limit_offset_percent, t.rationale, t.keep)
         for symbol, t in complete.items()
     }
 
@@ -121,7 +126,7 @@ def plan_trades(
     buys: list[Trade] = []
     spent = 0.0
     for symbol, target in weights.items():
-        if symbol == CASH:
+        if symbol == CASH or (target.keep and symbol in holdings):
             continue
         held_shares, held_price = holdings.get(symbol, (0.0, prices.get(symbol) or 0.0))
         price = held_price if symbol in holdings else prices.get(symbol)

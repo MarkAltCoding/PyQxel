@@ -726,6 +726,11 @@ table.data .muted {
   font-size: 0.8rem;
 }
 
+/* Cash in a plan: a word, not a ticker. */
+.cash-position {
+  font-style: italic;
+}
+
 .unavailable {
   display: inline-flex;
   align-items: center;
@@ -1313,7 +1318,7 @@ table.data .muted {
 
 .allocation summary {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) 120px 76px;
+  grid-template-columns: 112px minmax(0, 1fr) 120px 76px;
   align-items: center;
   gap: 12px;
   padding: 6px 4px;
@@ -1369,7 +1374,12 @@ table.data .muted {
 
 @media (max-width: 600px) {
   .allocation summary {
-    grid-template-columns: 52px minmax(0, 1fr) 64px;
+    grid-template-columns: 84px minmax(0, 1fr) 64px;
+  }
+
+  /* Too narrow for the badge: the "i" beside the fund still says it holds the cash. */
+  .allocation-symbol .badge {
+    display: none;
   }
 
   .allocation-weights {

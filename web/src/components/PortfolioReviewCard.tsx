@@ -486,8 +486,49 @@ function TextReview({ response }: { response: PortfolioAnalysisResponse }) {
   )
 }
 
+/** One position of Claude's plan as shown: cash under the money-market fund it sits in,
+ * or as Cash when there is none, never as the ticker CASH. */
+interface PlanRow {
+  symbol: string
+  cash: boolean
+  keep: boolean
+  now: number
+  target: number
+  why: string
+}
+
+function planRows(response: PortfolioAnalysisResponse): PlanRow[] {
+  const holdings = new Map(response.context.holdings.map((h) => [h.symbol, h]))
+  const marked = response.report.target_allocation.some((t: TargetPosition) => t.cash)
+  return response.report.target_allocation.map((target: TargetPosition) => {
+    const symbol = target.symbol.trim().toUpperCase()
+    const held = holdings.get(symbol)
+    // Reviews written before cash was marked called it CASH.
+    const cash = Boolean(target.cash || held?.cash) || (!marked && symbol === 'CASH' && !held)
+    return {
+      symbol: cash && !held ? 'Cash' : symbol,
+      cash,
+      keep: Boolean(target.keep),
+      now: held?.weight ?? 0,
+      target: target.target_weight,
+      why: target.rationale,
+    }
+  })
+}
+
+/** A position's name: its ticker, the fund cash sits in with a Cash badge, or Cash. */
+function PositionName({ row }: { row: PlanRow }) {
+  if (!row.cash) return <>{row.symbol}</>
+  return (
+    <span className="heading-with-info" style={{ gap: 6 }}>
+      {row.symbol === 'Cash' ? <span className="cash-position">Cash</span> : row.symbol}
+      {row.symbol !== 'Cash' && <span className="badge">Cash</span>}
+      <InfoTip topic="planCash" />
+    </span>
+  )
+}
+
 function TargetTable({ response }: { response: PortfolioAnalysisResponse }) {
-  const current = new Map(response.context.holdings.map((h) => [h.symbol, h.weight]))
   return (
     <div className="table-wrap">
       <table className="data">
@@ -503,12 +544,17 @@ function TargetTable({ response }: { response: PortfolioAnalysisResponse }) {
           </tr>
         </thead>
         <tbody>
-          {response.report.target_allocation.map((target) => (
-            <tr key={target.symbol}>
-              <td>{target.symbol.toUpperCase()}</td>
-              <td className="num">{percent(current.get(target.symbol.toUpperCase()) ?? 0)}</td>
-              <td className="num">{percent(target.target_weight)}</td>
-              <td>{target.rationale}</td>
+          {planRows(response).map((row) => (
+            <tr key={row.symbol}>
+              <td>
+                <PositionName row={row} />
+              </td>
+              <td className="num">{percent(row.now)}</td>
+              <td className="num">
+                {percent(row.target)}
+                {row.keep && <span className="muted"> · hold</span>}
+              </td>
+              <td>{row.why}</td>
             </tr>
           ))}
         </tbody>
@@ -520,14 +566,9 @@ function TargetTable({ response }: { response: PortfolioAnalysisResponse }) {
 /** Each position's weight now and Claude's target, biggest change first, with the
  * reason a click away. */
 function AllocationChart({ response }: { response: PortfolioAnalysisResponse }) {
-  const current = new Map(response.context.holdings.map((h) => [h.symbol, h.weight]))
-  const rows = response.report.target_allocation
-    .map((target: TargetPosition) => {
-      const symbol = target.symbol.toUpperCase()
-      const now = current.get(symbol) ?? 0
-      return { symbol, now, target: target.target_weight, why: target.rationale }
-    })
-    .sort((a, b) => Math.abs(b.target - b.now) - Math.abs(a.target - a.now))
+  const rows = planRows(response).sort(
+    (a, b) => Math.abs(b.target - b.now) - Math.abs(a.target - a.now),
+  )
   const scale = Math.max(0.01, ...rows.flatMap((row) => [row.now, row.target]))
   return (
     <div className="allocation">
@@ -541,15 +582,17 @@ function AllocationChart({ response }: { response: PortfolioAnalysisResponse }) 
       <ul>
         {rows.map((row) => {
           const change = row.target - row.now
-          const label =
-            Math.abs(change) < 0.0005
-              ? 'Hold'
-              : `${change > 0 ? '▲ +' : '▼ −'}${(Math.abs(change) * 100).toFixed(1)} pts`
+          const held = row.keep || Math.abs(change) < 0.0005
+          const label = held
+            ? 'Hold'
+            : `${change > 0 ? '▲ +' : '▼ −'}${(Math.abs(change) * 100).toFixed(1)} pts`
           return (
             <li key={row.symbol}>
               <details>
                 <summary>
-                  <span className="allocation-symbol">{row.symbol}</span>
+                  <span className="allocation-symbol">
+                    <PositionName row={row} />
+                  </span>
                   <span
                     className="allocation-bars"
                     role="img"
@@ -564,9 +607,7 @@ function AllocationChart({ response }: { response: PortfolioAnalysisResponse }) 
                   <span className="allocation-weights">
                     {percent(row.now)} → {percent(row.target)}
                   </span>
-                  <span className={`allocation-change${Math.abs(change) < 0.0005 ? ' muted' : ''}`}>
-                    {label}
-                  </span>
+                  <span className={`allocation-change${held ? ' muted' : ''}`}>{label}</span>
                 </summary>
                 <p>{row.why}</p>
               </details>
@@ -595,7 +636,10 @@ function Orders({ plan }: { plan: RebalancePlan }) {
           <span className="badge good">
             Buy {money(total(buys), 'USD', 0)} · {plural(buys.length, 'order')}
           </span>
-          <span className="badge">Cash after {money(plan.cash_after, 'USD', 0)}</span>
+          <span className="badge">
+            Cash after{plan.cash_symbol ? ` (in ${plan.cash_symbol})` : ''}{' '}
+            {money(plan.cash_after, 'USD', 0)}
+          </span>
         </div>
       )}
       {plan.trades.length === 0 ? (
@@ -646,8 +690,9 @@ function Orders({ plan }: { plan: RebalancePlan }) {
       )}
       <p className="disclaimer">
         Sized at the latest prices from {money(plan.total_value)}, including any new cash;{' '}
-        {money(plan.cash_after)} would be left as cash. Prices move: check them, and place sells
-        before buys.
+        {money(plan.cash_after)} would be left as cash
+        {plan.cash_symbol ? `, in ${plan.cash_symbol}, which needs no order` : ''}. Prices move:
+        check them, and place sells before buys.
       </p>
       {(plan.notes ?? []).map((note) => (
         <div key={note} style={{ marginTop: 8 }}>

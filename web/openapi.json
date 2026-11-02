@@ -983,7 +983,7 @@
         "type": "object"
       },
       "AssetRisk": {
-        "description": "One holding: its place in the portfolio and its statistics over the window.\n\nReturns and volatilities are decimals (0.25 = 25%), annualized from daily returns.",
+        "description": "One holding: its place in the portfolio and its statistics over the window.\n\nReturns and volatilities are decimals (0.25 = 25%), annualized from daily returns.\nEvery holding is listed; one without enough prices for the statistics has them null,\nand ``data_note`` says why.",
         "properties": {
           "accounts": {
             "description": "In a review of several accounts together: the shares each account holds, which sum to ``shares``; empty when one portfolio is reviewed.",
@@ -994,8 +994,15 @@
             "type": "array"
           },
           "annualized_return": {
-            "title": "Annualized Return",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annualized Return"
           },
           "cash": {
             "default": false,
@@ -1015,6 +1022,18 @@
             "description": "Correlation of its daily returns with the rest of the portfolio's; null for a portfolio of one holding, and for cash.",
             "title": "Correlation To Rest"
           },
+          "data_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why its statistics are missing, such as too little price history; null when it has them. It is still part of the portfolio.",
+            "title": "Data Note"
+          },
           "industry": {
             "anyOf": [
               {
@@ -1027,9 +1046,16 @@
             "title": "Industry"
           },
           "max_drawdown": {
-            "maximum": 0.0,
-            "title": "Max Drawdown",
-            "type": "number"
+            "anyOf": [
+              {
+                "maximum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Drawdown"
           },
           "name": {
             "anyOf": [
@@ -1043,15 +1069,29 @@
             "title": "Name"
           },
           "price": {
-            "description": "Latest price.",
-            "exclusiveMinimum": 0.0,
-            "title": "Price",
-            "type": "number"
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest price; null if unknown.",
+            "title": "Price"
           },
           "risk_contribution": {
-            "description": "Share of the portfolio's variance this holding accounts for; the shares sum to 1, and one above the holding's weight means it adds more risk than capital.",
-            "title": "Risk Contribution",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of the portfolio's variance this holding accounts for; the shares sum to 1 over the holdings with statistics, and one above the holding's weight means it adds more risk than capital.",
+            "title": "Risk Contribution"
           },
           "sector": {
             "anyOf": [
@@ -1074,33 +1114,47 @@
             "type": "string"
           },
           "value": {
-            "description": "Shares times the latest price.",
-            "exclusiveMinimum": 0.0,
-            "title": "Value",
-            "type": "number"
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shares times the latest price; null when it could not be priced.",
+            "title": "Value"
           },
           "volatility": {
-            "title": "Volatility",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volatility"
           },
           "weight": {
-            "description": "Share of the portfolio's value.",
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Weight",
-            "type": "number"
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of the portfolio's value; null when it could not be priced.",
+            "title": "Weight"
           }
         },
         "required": [
           "symbol",
-          "shares",
-          "price",
-          "value",
-          "weight",
-          "annualized_return",
-          "volatility",
-          "max_drawdown",
-          "risk_contribution"
+          "shares"
         ],
         "title": "AssetRisk",
         "type": "object"
@@ -8042,7 +8096,7 @@
             "type": "array"
           },
           "left_out": {
-            "description": "Holdings left out of the review because they could not be priced or have too little history; ``notice`` says which and why.",
+            "description": "Holdings left out of the statistics because they could not be priced or have too little history; they are still in ``holdings`` and reviewed, and ``notice`` says which and why.",
             "items": {
               "type": "string"
             },
@@ -8287,6 +8341,14 @@
             ],
             "description": "Average correlation over every pair of holdings, equally weighted; null for a portfolio of one holding.",
             "title": "Average Correlation"
+          },
+          "covered_weight": {
+            "default": 1.0,
+            "description": "Share of the portfolio's value these statistics cover: holdings without enough prices are left out of them, though not out of the review.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Covered Weight",
+            "type": "number"
           },
           "current_drawdown": {
             "maximum": 0.0,
@@ -9126,9 +9188,21 @@
         "description": "The orders that move the portfolio to Claude's target allocation.",
         "properties": {
           "cash_after": {
-            "description": "Cash left over, including any CASH target.",
+            "description": "Cash left over, including any cash target.",
             "title": "Cash After",
             "type": "number"
+          },
+          "cash_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The money-market fund the cash sits in, e.g. SPAXX; null when the portfolio holds none.",
+            "title": "Cash Symbol"
           },
           "notes": {
             "items": {
@@ -10495,6 +10569,18 @@
       "TargetPosition": {
         "description": "Where Claude would take one position: a current holding or a new investment.",
         "properties": {
+          "cash": {
+            "default": false,
+            "description": "True for cash: money left uninvested, or the money-market fund it sits in. Cash is never ordered; it is what the orders leave over.",
+            "title": "Cash",
+            "type": "boolean"
+          },
+          "keep": {
+            "default": false,
+            "description": "True to leave a current holding exactly as it is, with no order; its target_weight is then taken as its current weight.",
+            "title": "Keep",
+            "type": "boolean"
+          },
           "limit_offset_percent": {
             "anyOf": [
               {
@@ -10524,7 +10610,7 @@
             "type": "string"
           },
           "symbol": {
-            "description": "Ticker, e.g. VXUS; CASH for uninvested cash.",
+            "description": "Ticker, e.g. VXUS. For cash, the money-market fund the portfolio holds it in, e.g. SPAXX, or Cash when it holds none; never CASH, which is a stock.",
             "title": "Symbol",
             "type": "string"
           },

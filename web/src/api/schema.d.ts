@@ -1959,6 +1959,8 @@ export interface components {
      * @description One holding: its place in the portfolio and its statistics over the window.
      *
      *     Returns and volatilities are decimals (0.25 = 25%), annualized from daily returns.
+     *     Every holding is listed; one without enough prices for the statistics has them null,
+     *     and ``data_note`` says why.
      */
     AssetRisk: {
       /**
@@ -1967,7 +1969,7 @@ export interface components {
        */
       accounts?: components['schemas']['AccountShares'][]
       /** Annualized Return */
-      annualized_return: number
+      annualized_return?: number | null
       /**
        * Cash
        * @description A money-market fund, counted as cash: its price stays at $1, so its statistics are zero.
@@ -1979,22 +1981,27 @@ export interface components {
        * @description Correlation of its daily returns with the rest of the portfolio's; null for a portfolio of one holding, and for cash.
        */
       correlation_to_rest?: number | null
+      /**
+       * Data Note
+       * @description Why its statistics are missing, such as too little price history; null when it has them. It is still part of the portfolio.
+       */
+      data_note?: string | null
       /** Industry */
       industry?: string | null
       /** Max Drawdown */
-      max_drawdown: number
+      max_drawdown?: number | null
       /** Name */
       name?: string | null
       /**
        * Price
-       * @description Latest price.
+       * @description Latest price; null if unknown.
        */
-      price: number
+      price?: number | null
       /**
        * Risk Contribution
-       * @description Share of the portfolio's variance this holding accounts for; the shares sum to 1, and one above the holding's weight means it adds more risk than capital.
+       * @description Share of the portfolio's variance this holding accounts for; the shares sum to 1 over the holdings with statistics, and one above the holding's weight means it adds more risk than capital.
        */
-      risk_contribution: number
+      risk_contribution?: number | null
       /** Sector */
       sector?: string | null
       /** Shares */
@@ -2003,16 +2010,16 @@ export interface components {
       symbol: string
       /**
        * Value
-       * @description Shares times the latest price.
+       * @description Shares times the latest price; null when it could not be priced.
        */
-      value: number
+      value?: number | null
       /** Volatility */
-      volatility: number
+      volatility?: number | null
       /**
        * Weight
-       * @description Share of the portfolio's value.
+       * @description Share of the portfolio's value; null when it could not be priced.
        */
-      weight: number
+      weight?: number | null
     }
     /**
      * AssetWeight
@@ -5382,7 +5389,7 @@ export interface components {
       least_correlated?: components['schemas']['PairCorrelation'][]
       /**
        * Left Out
-       * @description Holdings left out of the review because they could not be priced or have too little history; ``notice`` says which and why.
+       * @description Holdings left out of the statistics because they could not be priced or have too little history; they are still in ``holdings`` and reviewed, and ``notice`` says which and why.
        */
       left_out?: string[]
       /** Most Correlated */
@@ -5517,6 +5524,12 @@ export interface components {
        * @description Average correlation over every pair of holdings, equally weighted; null for a portfolio of one holding.
        */
       average_correlation?: number | null
+      /**
+       * Covered Weight
+       * @description Share of the portfolio's value these statistics cover: holdings without enough prices are left out of them, though not out of the review.
+       * @default 1
+       */
+      covered_weight?: number
       /** Current Drawdown */
       current_drawdown: number
       /**
@@ -5942,9 +5955,14 @@ export interface components {
     RebalancePlan: {
       /**
        * Cash After
-       * @description Cash left over, including any CASH target.
+       * @description Cash left over, including any cash target.
        */
       cash_after: number
+      /**
+       * Cash Symbol
+       * @description The money-market fund the cash sits in, e.g. SPAXX; null when the portfolio holds none.
+       */
+      cash_symbol?: string | null
       /** Notes */
       notes?: string[]
       /**
@@ -6719,6 +6737,18 @@ export interface components {
      */
     TargetPosition: {
       /**
+       * Cash
+       * @description True for cash: money left uninvested, or the money-market fund it sits in. Cash is never ordered; it is what the orders leave over.
+       * @default false
+       */
+      cash?: boolean
+      /**
+       * Keep
+       * @description True to leave a current holding exactly as it is, with no order; its target_weight is then taken as its current weight.
+       * @default false
+       */
+      keep?: boolean
+      /**
        * Limit Offset Percent
        * @description For limit orders: the limit as a percent from the latest price, negative below it (e.g. -0.5 buys up to 0.5% below the last price).
        */
@@ -6736,7 +6766,7 @@ export interface components {
       rationale: string
       /**
        * Symbol
-       * @description Ticker, e.g. VXUS; CASH for uninvested cash.
+       * @description Ticker, e.g. VXUS. For cash, the money-market fund the portfolio holds it in, e.g. SPAXX, or Cash when it holds none; never CASH, which is a stock.
        */
       symbol: string
       /**

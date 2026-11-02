@@ -255,7 +255,7 @@ def test_review_is_grounded_in_the_saved_holdings(market: list[PortfolioContext]
     assert body["report"]["headline"] == REVIEW.headline
     assert body["cached"] is False and body["id"]
     context = market[0]
-    assert {h.symbol: round(h.weight, 4) for h in context.holdings} == {
+    assert {h.symbol: round(h.weight or 0.0, 4) for h in context.holdings} == {
         "AAPL": 0.3333,
         "MSFT": 0.3333,
         "XOM": 0.3333,
@@ -318,7 +318,7 @@ def test_the_second_portfolio_is_reviewed_with_its_cash(
     latest = client.get("/api/v1/portfolio/analysis", params={"portfolio": 2}).json()
 
     context = market[0]
-    assert {h.symbol: (round(h.weight, 6), h.cash) for h in context.holdings} == {
+    assert {h.symbol: (round(h.weight or 0.0, 6), h.cash) for h in context.holdings} == {
         "XOM": (0.5, False),
         "SPAXX": (0.5, True),
     }
@@ -462,3 +462,111 @@ def test_review_refusals_are_422(
     _save({"AAPL": 10, "XOM": 20})
 
     assert client.post("/api/v1/portfolio/analysis").status_code == 422
+
+
+# Plans say exactly what the orders do; cash is never a ticker; every holding is reviewed.
+
+
+def test_a_kept_holding_gets_no_order_whatever_its_weight() -> None:
+    holdings = {"IJR": (20.0, 100.0), "AAPL": (10.0, 200.0)}  # 2,000 and 2,000
+    targets = {
+        "IJR": Target(0.47, "market", None, "Leave IJR untouched.", keep=True),
+        "AAPL": Target(0.5, "market", None, "Hold."),
+    }
+
+    plan = plan_trades(holdings, targets, {})
+
+    assert [t.symbol for t in plan.trades] == []
+
+
+def _review_with(*positions: TargetPosition) -> PortfolioReview:
+    return REVIEW.model_copy(update={"target_allocation": list(positions)})
+
+
+def test_kept_holdings_and_cash_are_settled_before_the_orders(
+    market: list[PortfolioContext], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    review = _review_with(
+        # 2,000 of 7,000 is 28.6%; a rounded 30% must not become a buy.
+        TargetPosition(
+            symbol="AAPL", target_weight=0.3, order_type="market", rationale="Hold.", keep=True
+        ),
+        TargetPosition(symbol="MSFT", target_weight=0.2, order_type="market", rationale="Trim."),
+        TargetPosition(symbol="XOM", target_weight=0.2857, order_type="market", rationale="Hold."),
+        TargetPosition(
+            symbol="SPAXX", target_weight=0.2143, order_type="market", rationale="More cash."
+        ),
+    )
+
+    async def write(context: PortfolioContext, *, client: Any) -> tuple[PortfolioReview, str]:
+        market.append(context)
+        return review, "claude-opus-5-5"
+
+    monkeypatch.setattr(portfolio, "write_portfolio_review", write)
+    _save({"AAPL": 10, "MSFT": 5, "XOM": 20, "SPAXX": 1000})
+
+    body = client.post("/api/v1/portfolio/analysis").json()
+
+    targets = {t["symbol"]: t for t in body["report"]["target_allocation"]}
+    assert targets["AAPL"]["target_weight"] == pytest.approx(2000 / 7000)
+    assert targets["SPAXX"]["cash"] is True
+    traded = {t["symbol"] for t in body["plan"]["trades"]}
+    assert "AAPL" not in traded and "SPAXX" not in traded
+    assert ("MSFT", "sell") in {(t["symbol"], t["action"]) for t in body["plan"]["trades"]}
+    assert body["plan"]["cash_symbol"] == "SPAXX"
+    # MSFT's sale stays in SPAXX alongside the 1,000 already there.
+    assert body["plan"]["cash_after"] > 1000
+
+
+def test_cash_is_named_by_its_fund_or_as_cash_never_as_the_ticker_cash(
+    market: list[PortfolioContext],
+) -> None:
+    _save({"AAPL": 10, "XOM": 20, "SPAXX": 1000})
+    client.post("/api/v1/portfolio/analysis")
+    with_fund = market[0]
+    legacy = _review_with(
+        TargetPosition(symbol="AAPL", target_weight=0.5, order_type="market", rationale="."),
+        TargetPosition(symbol="CASH", target_weight=0.5, order_type="market", rationale="Cash."),
+    )
+    flagged = _review_with(
+        TargetPosition(symbol="AAPL", target_weight=0.5, order_type="market", rationale="."),
+        TargetPosition(
+            symbol="Cash", target_weight=0.5, order_type="market", rationale=".", cash=True
+        ),
+    )
+
+    settled = portfolio.settle_review(with_fund, legacy).target_allocation
+    assert [(t.symbol, t.cash) for t in settled] == [("AAPL", False), ("SPAXX", True)]
+    without_fund = with_fund.model_copy(
+        update={"holdings": [h for h in with_fund.holdings if not h.cash]}
+    )
+    settled = portfolio.settle_review(without_fund, flagged).target_allocation
+    assert [(t.symbol, t.cash) for t in settled] == [("AAPL", False), ("Cash", True)]
+
+
+def test_a_holding_with_little_history_is_still_reviewed(
+    market: list[PortfolioContext], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(PRICES, "NEW", 50.0)
+    monkeypatch.setitem(SECTORS, "NEW", "Technology")
+
+    async def closes(
+        symbols: list[str], period: str, interval: str, tolerate_failures: bool = False
+    ) -> ClosePanel:
+        returns = _returns().assign(NEW=np.random.default_rng(1).normal(0, 0.02, 300))
+        prices = 100 * (1 + returns[symbols]).cumprod()
+        prices.loc[prices.index[:-60], "NEW"] = np.nan
+        return ClosePanel(closes=prices, timezones={s: "America/New_York" for s in symbols})
+
+    monkeypatch.setattr(portfolio, "fetch_close_panel", closes)
+    _save({"AAPL": 10, "XOM": 20, "NEW": 40})
+
+    client.post("/api/v1/portfolio/analysis")
+
+    context = market[0]
+    new = next(h for h in context.holdings if h.symbol == "NEW")
+    assert new.weight == pytest.approx(2000 / 6000) and new.volatility is None
+    assert new.data_note is not None and "Too little price history" in new.data_note
+    assert context.portfolio.covered_weight == pytest.approx(4000 / 6000)
+    assert context.left_out == ["NEW"]
+    assert context.notice is not None and "still reviewed" in context.notice

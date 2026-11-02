@@ -95,6 +95,7 @@ from app.models.portfolio_analysis import (
     PortfolioReview,
     PortfolioRiskStats,
     RebalancePlan,
+    TargetPosition,
 )
 from app.models.research import AnalysisDelta, AnalysisStreamError
 from app.models.simulation import SimulationList, SimulationRequest, SimulationResponse
@@ -1091,23 +1092,45 @@ async def _portfolio_context(
     panel = usable.panel
     # Cash earns nothing in these statistics: a column of zero returns.
     returns = panel.returns.assign(**{symbol: 0.0 for symbol in usable.cash})
-    reviewed = [h for h in priced if h.symbol in returns.columns]
-    left_out = [h.symbol for h in valued.holdings if h not in reviewed]
-    total = sum(h.value for h in reviewed if h.value is not None)
-    weights = pd.Series({h.symbol: (h.value or 0.0) / total for h in reviewed})
-    stats = portfolio_stats(returns[weights.index], weights)
+    # The statistics cover the holdings with enough prices; the review covers every one.
+    measured = [h for h in priced if h.symbol in returns.columns]
+    left_out = [h.symbol for h in valued.holdings if h not in measured]
+    total = sum(h.value for h in priced if h.value is not None)
+    measured_total = sum(h.value for h in measured if h.value is not None)
+    weights = pd.Series({h.symbol: (h.value or 0.0) / total for h in priced})
+    stats = portfolio_stats(
+        returns[[h.symbol for h in measured]],
+        pd.Series({h.symbol: (h.value or 0.0) / measured_total for h in measured}),
+    )
     most, least = ranked_pairs(stats.correlations, CORRELATED_PAIRS)
     sectors: dict[str, float] = {}
-    for h in reviewed:
+    for h in priced:
         sector = "Cash" if h.symbol in usable.cash else h.sector or "Unclassified"
         sectors[sector] = sectors.get(sector, 0.0) + float(weights[h.symbol])
+    short = {holding.symbol: holding.detail for holding in usable.left_out}
+    data_notes = {
+        h.symbol: (
+            f"Too little price history for the statistics ({short[h.symbol]})."
+            if h.symbol in short
+            else "Could not be priced, so it has no value or weight here."
+        )
+        for h in valued.holdings
+        if h.symbol in left_out
+    }
     notices = [
         notice
         for notice in (
             _window_notice(panel, usable.closes, period, months),
-            f"Left out of the review: {valued.notice}" if valued.notice else None,
             (
-                f"Left out for too little price history: {_left_out_text(usable.left_out)}."
+                f"Could not be priced, so left out of the values and statistics but still "
+                f"reviewed: {valued.notice}"
+                if valued.notice
+                else None
+            ),
+            (
+                f"Left out of the statistics for too little price history, but still "
+                f"reviewed: {_left_out_text(usable.left_out)}. The statistics cover "
+                f"{measured_total / total:.0%} of the portfolio's value."
                 if usable.left_out
                 else None
             ),
@@ -1122,13 +1145,13 @@ async def _portfolio_context(
     ]
     prices = {h.symbol: h.price for h in valued.holdings if h.price is not None}
     held_by = {
-        symbol: [
-            AccountShares(account=name, shares=h.shares)
+        h.symbol: [
+            AccountShares(account=name, shares=held_holding.shares)
             for name, held in accounts or []
-            for h in held
-            if h.symbol == symbol
+            for held_holding in held
+            if held_holding.symbol == h.symbol
         ]
-        for symbol in prices
+        for h in valued.holdings
     }
     return PortfolioContext(
         profile=profile,
@@ -1150,14 +1173,15 @@ async def _portfolio_context(
                 sector=h.sector,
                 industry=h.industry,
                 shares=h.shares,
-                price=h.price or 0.0,
-                value=h.value or 0.0,
-                weight=float(weights[h.symbol]),
-                cash=h.symbol in usable.cash,
+                price=h.price or None,
+                value=h.value or None,
+                weight=float(weights[h.symbol]) if h.symbol in weights.index else None,
+                cash=h.symbol in usable.cash or h.cash,
                 accounts=held_by.get(h.symbol, []),
-                **vars(stats.assets[h.symbol]),
+                data_note=data_notes.get(h.symbol),
+                **(vars(stats.assets[h.symbol]) if h.symbol in stats.assets else {}),
             )
-            for h in reviewed
+            for h in valued.holdings
         ],
         sectors=dict(sorted(sectors.items(), key=lambda item: -item[1])),
         portfolio=PortfolioRiskStats(
@@ -1174,6 +1198,7 @@ async def _portfolio_context(
             diversification_ratio=stats.diversification_ratio,
             effective_holdings=stats.effective_holdings,
             largest_weight=float(weights.max()),
+            covered_weight=min(1.0, measured_total / total),
             average_correlation=stats.average_correlation,
         ),
         most_correlated=[PairCorrelation(first=a, second=b, correlation=c) for a, b, c in most],
@@ -1275,47 +1300,115 @@ async def prepare_portfolio_review(
 PreparedPortfolioReview = Annotated[PreparedReview, Depends(prepare_portfolio_review)]
 
 
-async def _plan(context: PortfolioContext, report: PortfolioReview) -> RebalancePlan | None:
-    """The orders that carry out the review's target allocation, sized at latest prices.
+def _cash_symbol(context: PortfolioContext) -> str | None:
+    """The money-market fund the portfolio's cash sits in: its largest, or ``None``."""
+    funds = [h for h in context.holdings if h.cash]
+    return max(funds, key=lambda h: h.value or 0.0).symbol if funds else None
 
-    New symbols are priced here; one that cannot be is planned by value alone. Returns
-    ``None`` when the review gives no targets.
+
+def settle_review(context: PortfolioContext, report: PortfolioReview) -> PortfolioReview:
+    """Make the targets say exactly what the orders will do.
+
+    A holding Claude keeps is held at its current weight, so a rounded target never turns
+    into a small order. Cash is one target, under the money-market fund the portfolio
+    holds it in (e.g. SPAXX), or under Cash when it holds none, whichever names Claude gave
+    it: the fund's ticker, or CASH in answers written before cash was marked, unless the
+    portfolio holds the stock CASH.
+    """
+    holdings = {h.symbol: h for h in context.holdings}
+    legacy = not any(position.cash for position in report.target_allocation) and (
+        "CASH" not in holdings
+    )
+    settled: list[TargetPosition] = []
+    cash: list[TargetPosition] = []
+    cash_at: int | None = None
+    for position in report.target_allocation:
+        symbol = position.symbol.strip().upper()
+        held = holdings.get(symbol)
+        if position.cash or (held is not None and held.cash) or (legacy and symbol == "CASH"):
+            cash_at = len(settled) if cash_at is None else cash_at
+            cash.append(position)
+            continue
+        update: dict[str, object] = {"symbol": symbol}
+        if position.keep and held is not None and held.weight is not None:
+            update["target_weight"] = held.weight
+        settled.append(position.model_copy(update=update))
+    if cash:
+        fund = _cash_symbol(context)
+        kept = fund is not None and all(position.keep for position in cash)
+        weight = holdings[fund].weight if kept and fund else None
+        settled.insert(
+            cash_at or 0,
+            TargetPosition(
+                symbol=fund or CASH,
+                cash=True,
+                keep=kept,
+                target_weight=min(
+                    1.0, weight if weight is not None else sum(p.target_weight for p in cash)
+                ),
+                order_type="market",
+                rationale=" ".join(position.rationale for position in cash),
+            ),
+        )
+    return report.model_copy(update={"target_allocation": settled})
+
+
+async def _plan(context: PortfolioContext, report: PortfolioReview) -> RebalancePlan | None:
+    """The orders that carry out the review's settled target allocation (see
+    :func:`settle_review`), sized at latest prices.
+
+    Cash, and the money-market fund it sits in, is never ordered: it is what the orders
+    leave over. New symbols are priced here; one that cannot be is planned by value alone,
+    and a holding that could not be priced gets no order. Returns ``None`` when the review
+    gives no targets.
     """
     # Targets come from Claude, or from an answer pasted from outside the app: only real
     # ticker symbols are planned, and few enough to price, since each new one is looked up.
-    targets = {
-        symbol: Target(
+    targets: dict[str, Target] = {}
+    for position in report.target_allocation[:MAX_PLANNED_POSITIONS]:
+        symbol = CASH if position.cash else position.symbol.strip().upper()
+        if symbol != CASH and not re.fullmatch(SYMBOL_PATTERN, symbol):
+            continue
+        targets[symbol] = Target(
             position.target_weight,
             position.order_type,
             position.limit_offset_percent,
             position.rationale,
+            position.keep,
         )
-        for position in report.target_allocation[:MAX_PLANNED_POSITIONS]
-        if re.fullmatch(SYMBOL_PATTERN, symbol := position.symbol.strip().upper())
-    }
     if not targets:
         return None
-    held = {h.symbol: (h.shares, h.price) for h in context.holdings if h.price > 0}
+    funds = {h.symbol for h in context.holdings if h.cash}
+    held = {
+        h.symbol: (h.shares, h.price)
+        for h in context.holdings
+        if h.price is not None and h.symbol not in funds
+    }
+    unpriced = [h.symbol for h in context.holdings if h.price is None and h.symbol in targets]
+    for symbol in unpriced:
+        del targets[symbol]
+    cash_held = sum(h.value or 0.0 for h in context.holdings if h.symbol in funds)
     new = [s for s in targets if s not in held and s != CASH]
     found = await asyncio.gather(*(fetch_ticker_info(s) for s in new), return_exceptions=True)
     prices = {
         symbol: None if isinstance(info, BaseException) else info.price
         for symbol, info in zip(new, found, strict=True)
     }
-    plan = plan_trades(held, targets, prices, context.profile.cash_to_invest)
+    plan = plan_trades(held, targets, prices, context.profile.cash_to_invest + cash_held)
+    notes = list(plan.notes)
+    if unpriced:
+        notes.append(f"No order for {', '.join(unpriced)}: it could not be priced.")
+    if len(context.accounts) > 1:
+        notes.append(
+            "These orders are for your accounts combined: each position's reason says "
+            "which account to place it in."
+        )
     return RebalancePlan(
         total_value=plan.total_value,
         trades=[PlannedTrade(**vars(trade)) for trade in plan.trades],
         cash_after=plan.cash_after,
-        notes=plan.notes
-        + (
-            [
-                "These orders are for your accounts combined: each position's reason says "
-                "which account to place it in."
-            ]
-            if len(context.accounts) > 1
-            else []
-        ),
+        cash_symbol=_cash_symbol(context),
+        notes=notes,
     )
 
 
@@ -1371,6 +1464,7 @@ async def create_portfolio_review(prepared: PreparedPortfolioReview) -> Portfoli
             report, model = await write_portfolio_review(prepared.context, client=client)
     except AnalysisError as exc:
         raise ai_error(exc) from exc
+    report = settle_review(prepared.context, report)
     plan = await _plan(prepared.context, report)
     return await _remember(prepared, prepared.response(report, model, plan))
 
@@ -1401,9 +1495,10 @@ async def stream_portfolio_review_events(
         async with anthropic_client(prepared.api_key) as client:
             async for item in stream_portfolio_review(prepared.context, client=client):
                 if isinstance(item, Written):
-                    plan = await _plan(prepared.context, item.output)
+                    report = settle_review(prepared.context, item.output)
+                    plan = await _plan(prepared.context, report)
                     response = await _remember(
-                        prepared, prepared.response(item.output, item.model, plan)
+                        prepared, prepared.response(report, item.model, plan)
                     )
                     yield ServerSentEvent(event="result", data=response)
                 elif isinstance(item, AnalysisDelta):
@@ -1519,6 +1614,7 @@ async def import_portfolio_review(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     covered = await _saved_holdings(session, user.id, body.request)
+    report = settle_review(body.context, report)
     plan = await _plan(body.context, report)
     response = PortfolioAnalysisResponse(
         period=body.context.period,

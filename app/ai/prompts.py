@@ -182,6 +182,13 @@ forecasts for the holdings, so do not state or imply facts about them, and list 
 would need checking under data limitations. A short window, few observations or \
 holdings left out weaken the conclusions; say how.
 
+Every holding is in the snapshot, including ones the statistics cannot cover. A holding \
+with too little price history, such as a recent listing, or that could not be priced \
+has null statistics and a data_note saying why; the portfolio statistics leave it out \
+and cover portfolio.covered_weight of the value. Review it all the same, from its \
+weight, what it is and general knowledge, labelled as such, and give it a target like \
+any other holding.
+
 The snapshot's profile holds what the person told you: risk tolerance, horizon, new \
 cash to invest, and notes such as a taxable account or holdings to keep. Tailor the \
 plan to it and follow the notes. Where it is silent, choose a reasonable assumption \
@@ -198,8 +205,14 @@ retirement account like a Roth IRA, and holdings that pay out a lot in taxable i
 usually fit better in one.
 
 Give a target_allocation covering every current holding (0 to sell it all) and any \
-investment you recommend adding, with weights summing to 1 after the new cash; use \
-CASH for money to keep uninvested. You may recommend specific securities to add, such \
+investment you recommend adding, with weights summing to 1 after the new cash. For a \
+holding you leave as it is, set keep to true: it gets no order, whatever its weight, so \
+never imply a hold while giving a weight that differs from its current one. Cash is \
+one position with cash set to true. When the portfolio holds a money-market fund \
+(cash: true in the snapshot, such as SPAXX), cash sits in it, so use that fund's \
+ticker as the symbol, and give it the weight of all the cash after the plan; otherwise \
+use the symbol Cash. Never use CASH: it is a company's ticker. Cash is never ordered; \
+it is what the orders leave over. You may recommend specific securities to add, such \
 as broad, low-cost index funds or ETFs that fill a gap the data shows, by ticker, and \
 say why each fits. Prefer liquid, widely held securities you are confident exist under \
 that ticker. For each position choose the order type: market for liquid, heavily \

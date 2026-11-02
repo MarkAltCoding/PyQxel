@@ -96,6 +96,8 @@ class AssetRisk(BaseModel):
     """One holding: its place in the portfolio and its statistics over the window.
 
     Returns and volatilities are decimals (0.25 = 25%), annualized from daily returns.
+    Every holding is listed; one without enough prices for the statistics has them null,
+    and ``data_note`` says why.
     """
 
     symbol: str
@@ -103,16 +105,29 @@ class AssetRisk(BaseModel):
     sector: str | None = None
     industry: str | None = None
     shares: float = Field(gt=0, allow_inf_nan=False)
-    price: float = Field(gt=0, allow_inf_nan=False, description="Latest price.")
-    value: float = Field(gt=0, allow_inf_nan=False, description="Shares times the latest price.")
-    weight: float = Field(ge=0, le=1, description="Share of the portfolio's value.")
-    annualized_return: float
-    volatility: float
-    max_drawdown: float = Field(le=0)
-    risk_contribution: float = Field(
+    price: float | None = Field(
+        default=None, gt=0, allow_inf_nan=False, description="Latest price; null if unknown."
+    )
+    value: float | None = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        description="Shares times the latest price; null when it could not be priced.",
+    )
+    weight: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description="Share of the portfolio's value; null when it could not be priced.",
+    )
+    annualized_return: float | None = None
+    volatility: float | None = None
+    max_drawdown: float | None = Field(default=None, le=0)
+    risk_contribution: float | None = Field(
+        default=None,
         description="Share of the portfolio's variance this holding accounts for; the "
-        "shares sum to 1, and one above the holding's weight means it adds more risk "
-        "than capital."
+        "shares sum to 1 over the holdings with statistics, and one above the holding's "
+        "weight means it adds more risk than capital.",
     )
     correlation_to_rest: float | None = Field(
         default=None,
@@ -128,6 +143,11 @@ class AssetRisk(BaseModel):
         default_factory=list,
         description="In a review of several accounts together: the shares each account "
         "holds, which sum to ``shares``; empty when one portfolio is reviewed.",
+    )
+    data_note: str | None = Field(
+        default=None,
+        description="Why its statistics are missing, such as too little price history; "
+        "null when it has them. It is still part of the portfolio.",
     )
 
 
@@ -165,6 +185,13 @@ class PortfolioRiskStats(BaseModel):
         "portfolio's concentration matches."
     )
     largest_weight: float
+    covered_weight: float = Field(
+        default=1.0,
+        ge=0,
+        le=1,
+        description="Share of the portfolio's value these statistics cover: holdings "
+        "without enough prices are left out of them, though not out of the review.",
+    )
     average_correlation: float | None = Field(
         default=None,
         description="Average correlation over every pair of holdings, equally weighted; "
@@ -200,8 +227,9 @@ class PortfolioContext(BaseModel):
     least_correlated: list[PairCorrelation] = Field(default_factory=list)
     left_out: list[str] = Field(
         default_factory=list,
-        description="Holdings left out of the review because they could not be priced or "
-        "have too little history; ``notice`` says which and why.",
+        description="Holdings left out of the statistics because they could not be priced "
+        "or have too little history; they are still in ``holdings`` and reviewed, and "
+        "``notice`` says which and why.",
     )
     notice: str | None = Field(
         default=None, description="Explains anything left out of the window or the holdings."
@@ -214,7 +242,20 @@ OrderType = Literal["market", "limit"]
 class TargetPosition(BaseModel):
     """Where Claude would take one position: a current holding or a new investment."""
 
-    symbol: str = Field(description="Ticker, e.g. VXUS; CASH for uninvested cash.")
+    symbol: str = Field(
+        description="Ticker, e.g. VXUS. For cash, the money-market fund the portfolio "
+        "holds it in, e.g. SPAXX, or Cash when it holds none; never CASH, which is a stock."
+    )
+    cash: bool = Field(
+        default=False,
+        description="True for cash: money left uninvested, or the money-market fund it sits "
+        "in. Cash is never ordered; it is what the orders leave over.",
+    )
+    keep: bool = Field(
+        default=False,
+        description="True to leave a current holding exactly as it is, with no order; its "
+        "target_weight is then taken as its current weight.",
+    )
     target_weight: float = Field(
         ge=0, le=1, description="Share of the portfolio after the plan, as a decimal."
     )
@@ -283,7 +324,12 @@ class RebalancePlan(BaseModel):
 
     total_value: float = Field(description="Value of the holdings plus the new cash.")
     trades: list[PlannedTrade]
-    cash_after: float = Field(description="Cash left over, including any CASH target.")
+    cash_after: float = Field(description="Cash left over, including any cash target.")
+    cash_symbol: str | None = Field(
+        default=None,
+        description="The money-market fund the cash sits in, e.g. SPAXX; null when the "
+        "portfolio holds none.",
+    )
     notes: list[str] = Field(default_factory=list)
 
 

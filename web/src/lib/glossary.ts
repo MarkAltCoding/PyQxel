@@ -576,6 +576,11 @@ const entries = {
     good: 'Cheaper than reviewing each one, and better advice: overlap and gaps across accounts show up only when they are seen together.',
     note: 'Say what each account is (taxable, Roth IRA, 401(k)…) in its name or in “Anything else”, so the plan can account for taxes.',
   },
+  planCash: {
+    title: 'Cash in the plan',
+    what: 'The money the plan leaves uninvested. When you hold a money-market fund such as SPAXX, your cash sits in it, so the plan shows cash under that fund; otherwise it is shown as Cash. Cash never needs an order: it is what is left after the sells and buys.',
+    note: 'Cash has no ticker. CASH, in capitals, is a bank’s stock (Pathward Financial), not cash.',
+  },
   moneyMarketCash: {
     title: 'Cash (money-market fund)',
     what: 'A money-market fund, such as SPAXX or VMFXX, holds short-term government debt and keeps its price at $1 a share; its return comes as interest paid out. PyQxel treats it as cash: valued at $1 a share, held at a steady value in simulations, and left out of how the holdings move together, since its price never moves.',

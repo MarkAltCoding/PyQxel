@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PortfolioReviewCard } from './PortfolioReviewCard'
@@ -135,6 +135,47 @@ describe('PortfolioReviewCard', () => {
     ).toBeInTheDocument()
     expect(posted[0]).toMatchObject({ combined: true })
     expect(read.at(-1)).toContain('combined=true')
+  })
+
+  it('shows cash as Cash or its fund, never the ticker CASH, and holds as holds', async () => {
+    const stored = review('Cash and holds.')
+    const withCash = {
+      ...stored,
+      report: {
+        ...stored.report,
+        target_allocation: [
+          {
+            symbol: 'AAPL',
+            target_weight: 1,
+            order_type: 'market',
+            rationale: 'Keep.',
+            keep: true,
+          },
+          // A review written before cash was marked.
+          { symbol: 'CASH', target_weight: 0, order_type: 'market', rationale: 'No cash.' },
+        ],
+      },
+      plan: { ...stored.plan, cash_symbol: 'SPAXX', cash_after: 50 },
+    }
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(withCash)))
+    renderCard({ hasHoldings: true, stale: false })
+
+    await screen.findByText('Cash and holds.')
+    await userEvent.click(screen.getByRole('tab', { name: /Plan/ }))
+    const allocation = screen
+      .getByRole('heading', { name: 'Allocation: now and target' })
+      .closest('.allocation') as HTMLElement
+    expect(within(allocation).getByText('Cash')).toBeInTheDocument()
+    expect(within(allocation).queryByText('CASH')).toBeNull()
+    expect(within(allocation).getAllByText('Hold')).toHaveLength(2)
+    expect(screen.getByText(/Cash after \(in SPAXX\)/)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Full text' }))
+    const table = screen.getByRole('columnheader', { name: 'Position' }).closest('table')!
+    expect(within(table).getByText('Cash')).toBeInTheDocument()
+    expect(within(table).queryByText('CASH')).toBeNull()
+    expect(within(table).getByText(/hold/)).toBeInTheDocument()
+    expect(screen.getByText(/Cash after \(in SPAXX\)/)).toBeInTheDocument()
   })
 
   it('offers no combined review until both portfolios have holdings', async () => {
