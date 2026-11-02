@@ -69,6 +69,55 @@
         "title": "Account",
         "type": "object"
       },
+      "AccountShares": {
+        "description": "How many shares of a holding one account holds, in a review of several accounts.",
+        "properties": {
+          "account": {
+            "description": "The account's name, as the person saved it.",
+            "title": "Account",
+            "type": "string"
+          },
+          "shares": {
+            "exclusiveMinimum": 0.0,
+            "title": "Shares",
+            "type": "number"
+          }
+        },
+        "required": [
+          "account",
+          "shares"
+        ],
+        "title": "AccountShares",
+        "type": "object"
+      },
+      "AccountValue": {
+        "description": "One of the accounts reviewed together, with its value at the latest prices.",
+        "properties": {
+          "account": {
+            "description": "The account's name, as the person saved it.",
+            "title": "Account",
+            "type": "string"
+          },
+          "holdings": {
+            "description": "How many holdings it has.",
+            "minimum": 0.0,
+            "title": "Holdings",
+            "type": "integer"
+          },
+          "value": {
+            "minimum": 0.0,
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "account",
+          "value",
+          "holdings"
+        ],
+        "title": "AccountValue",
+        "type": "object"
+      },
       "AgencyTotal": {
         "description": "What one federal agency awarded the company over the window.",
         "properties": {
@@ -936,6 +985,14 @@
       "AssetRisk": {
         "description": "One holding: its place in the portfolio and its statistics over the window.\n\nReturns and volatilities are decimals (0.25 = 25%), annualized from daily returns.",
         "properties": {
+          "accounts": {
+            "description": "In a review of several accounts together: the shares each account holds, which sum to ``shares``; empty when one portfolio is reviewed.",
+            "items": {
+              "$ref": "#/components/schemas/AccountShares"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
           "annualized_return": {
             "title": "Annualized Return",
             "type": "number"
@@ -4353,6 +4410,215 @@
         "title": "Holding",
         "type": "object"
       },
+      "HoldingChange": {
+        "description": "One holding's total return over a window, or why it has none.",
+        "properties": {
+          "change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total return from ``start`` to the latest close, as a decimal, with dividends reinvested; null when ``unavailable`` says why there is none.",
+            "title": "Change"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why there is no change, in words.",
+            "title": "Detail"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Date of the close the change is measured from.",
+            "title": "Start"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "unavailable": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cash",
+                  "too_new",
+                  "no_data"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "HoldingChange",
+        "type": "object"
+      },
+      "HoldingChangesResponse": {
+        "description": "Each holding's total return since the same day, in the order asked.",
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/HoldingChange"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "start": {
+            "description": "The window's first day.",
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "window": {
+            "anyOf": [
+              {
+                "enum": [
+                  "1d",
+                  "1w",
+                  "1mo",
+                  "3mo",
+                  "6mo",
+                  "ytd",
+                  "1y",
+                  "2y",
+                  "3y",
+                  "5y",
+                  "10y"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The preset window, or null for a custom ``since``.",
+            "title": "Window"
+          }
+        },
+        "required": [
+          "start",
+          "changes"
+        ],
+        "title": "HoldingChangesResponse",
+        "type": "object"
+      },
+      "HoldingRange": {
+        "description": "One holding's lowest and highest prices over the last 52 weeks.",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest daily close.",
+            "title": "Latest"
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "unavailable": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cash",
+                  "too_new",
+                  "no_data"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why there is no range: ``cash`` or ``no_data``.",
+            "title": "Unavailable"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "HoldingRange",
+        "type": "object"
+      },
+      "HoldingRangesResponse": {
+        "description": "Each holding's 52-week range, in the order asked.",
+        "properties": {
+          "ranges": {
+            "items": {
+              "$ref": "#/components/schemas/HoldingRange"
+            },
+            "title": "Ranges",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ranges"
+        ],
+        "title": "HoldingRangesResponse",
+        "type": "object"
+      },
       "HoldingShares": {
         "description": "A saved position: how many shares of a symbol the account holds.",
         "properties": {
@@ -7301,6 +7567,12 @@
       "PortfolioAnalysisRequest": {
         "description": "Options for a review of one of the saved portfolios.",
         "properties": {
+          "combined": {
+            "default": false,
+            "description": "Review every saved portfolio together, as one, in place of ``portfolio``: one review of the whole picture, telling Claude which account holds what.",
+            "title": "Combined",
+            "type": "boolean"
+          },
           "history_months": {
             "anyOf": [
               {
@@ -7733,6 +8005,14 @@
       "PortfolioContext": {
         "description": "The data a portfolio review is written from, sent to Claude verbatim.",
         "properties": {
+          "accounts": {
+            "description": "The accounts reviewed together as one portfolio, with their values; empty when one portfolio is reviewed. Weights are shares of all of them combined.",
+            "items": {
+              "$ref": "#/components/schemas/AccountValue"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
           "history_months": {
             "anyOf": [
               {
@@ -7749,7 +8029,7 @@
             "items": {
               "$ref": "#/components/schemas/AssetRisk"
             },
-            "maxItems": 40,
+            "maxItems": 80,
             "minItems": 1,
             "title": "Holdings",
             "type": "array"
@@ -11830,7 +12110,7 @@
     },
     "/api/v1/portfolio/analysis": {
       "get": {
-        "description": "Return your newest stored review of ``portfolio``, whatever it was written for, so\nit can be shown again without a charge. Returns 404 when you have none.",
+        "description": "Return your newest stored review of ``portfolio``, or with ``combined`` of every\nportfolio together, whatever it was written for, so it can be shown again without a\ncharge. Returns 404 when you have none.",
         "operationId": "read_portfolio_review_api_v1_portfolio_analysis_get",
         "parameters": [
           {
@@ -11845,6 +12125,18 @@
               "minimum": 1,
               "title": "Portfolio",
               "type": "integer"
+            }
+          },
+          {
+            "description": "The review of every portfolio together, not ``portfolio``.",
+            "in": "query",
+            "name": "combined",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "The review of every portfolio together, not ``portfolio``.",
+              "title": "Combined",
+              "type": "boolean"
             }
           }
         ],
@@ -11884,6 +12176,7 @@
               "schema": {
                 "$ref": "#/components/schemas/PortfolioAnalysisRequest",
                 "default": {
+                  "combined": false,
                   "period": "1y",
                   "portfolio": 1,
                   "profile": {
@@ -11975,6 +12268,7 @@
               "schema": {
                 "$ref": "#/components/schemas/PortfolioAnalysisRequest",
                 "default": {
+                  "combined": false,
                   "period": "1y",
                   "portfolio": 1,
                   "profile": {
@@ -12024,6 +12318,7 @@
               "schema": {
                 "$ref": "#/components/schemas/PortfolioAnalysisRequest",
                 "default": {
+                  "combined": false,
                   "period": "1y",
                   "portfolio": 1,
                   "profile": {
@@ -12115,6 +12410,99 @@
           }
         },
         "summary": "Backtest a strategy on every holding of a portfolio",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/v1/portfolio/changes": {
+      "get": {
+        "description": "Return each holding's total return over ``window`` (or since ``since``): from the\nlast close on or before the window's first day to the latest close, with dividends\nreinvested, as the adjusted daily closes give it.\n\nA holding has no change, with ``unavailable`` saying why, when it is a money-market\nfund (``cash``), when it was listed after the window began (``too_new``), or when its\nprices could not be fetched (``no_data``). Returns 422 for a list that is not ticker\nsymbols or a ``since`` in the future or before 1970, and the statuses of\n:func:`upstream_error` when no holding's prices can be fetched.",
+        "operationId": "read_changes_api_v1_portfolio_changes_get",
+        "parameters": [
+          {
+            "description": "Up to 40 ticker symbols, separated by commas.",
+            "in": "query",
+            "name": "symbols",
+            "required": true,
+            "schema": {
+              "description": "Up to 40 ticker symbols, separated by commas.",
+              "examples": [
+                "AAPL,MSFT,SPAXX"
+              ],
+              "minLength": 1,
+              "title": "Symbols",
+              "type": "string"
+            }
+          },
+          {
+            "description": "How far back to measure, from each latest close.",
+            "in": "query",
+            "name": "window",
+            "required": false,
+            "schema": {
+              "default": "1y",
+              "description": "How far back to measure, from each latest close.",
+              "enum": [
+                "1d",
+                "1w",
+                "1mo",
+                "3mo",
+                "6mo",
+                "ytd",
+                "1y",
+                "2y",
+                "3y",
+                "5y",
+                "10y"
+              ],
+              "title": "Window",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A custom first day, used instead of ``window``.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A custom first day, used instead of ``window``.",
+              "title": "Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HoldingChangesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Each holding's gain or loss over a window",
         "tags": [
           "portfolio"
         ]
@@ -12283,6 +12671,55 @@
           }
         },
         "summary": "Your saved portfolios",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/v1/portfolio/ranges": {
+      "get": {
+        "description": "Return each holding's lowest and highest price over the last 52 weeks, from daily\nlows and highs adjusted for splits and dividends, with its latest close.\n\nA money-market fund has no range (``unavailable`` is ``cash``), nor does a holding\nwhose prices could not be fetched (``no_data``). Returns 422 for a list that is not\nticker symbols, and the statuses of :func:`upstream_error` when no holding's prices\ncan be fetched.",
+        "operationId": "read_ranges_api_v1_portfolio_ranges_get",
+        "parameters": [
+          {
+            "description": "Up to 40 ticker symbols, separated by commas.",
+            "in": "query",
+            "name": "symbols",
+            "required": true,
+            "schema": {
+              "description": "Up to 40 ticker symbols, separated by commas.",
+              "examples": [
+                "AAPL,MSFT,SPAXX"
+              ],
+              "minLength": 1,
+              "title": "Symbols",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HoldingRangesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Each holding's 52-week range",
         "tags": [
           "portfolio"
         ]

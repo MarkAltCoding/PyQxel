@@ -6,9 +6,10 @@ import logging
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -28,8 +29,13 @@ from app.core.config import get_settings
 from app.api.v1.endpoints.backtest import attribute, equity_points, load_benchmark, load_factors
 from app.api.v1.endpoints.stocks import COVERAGE_TOLERANCE, PERIOD_OFFSETS, upstream_error
 from app.data.cash import MONEY_MARKET_PRICE, is_money_market
-from app.data.fetcher import DataFetchError, fetch_ticker_info
-from app.data.panel import fetch_close_panel
+from app.data.fetcher import (
+    HISTORY_NOTICE,
+    DataFetchError,
+    fetch_price_history,
+    fetch_ticker_info,
+)
+from app.data.panel import MAX_CONCURRENT_DOWNLOADS, fetch_close_panel
 from app.db.holdings import get_holdings, get_portfolio_name, list_portfolios, replace_holdings
 from app.db.portfolio_analyses import (
     find_recent_portfolio_analysis,
@@ -47,13 +53,20 @@ from app.db.simulations import (
 from app.models.portfolio import (
     CopulaFitResponse,
     CopulaRequest,
+    GainWindow,
     GaussianCopula,
+    HoldingChange,
+    HoldingChangesResponse,
+    HoldingRange,
+    HoldingRangesResponse,
     HoldingShares,
     HoldingsResponse,
     HoldingsUpdate,
     HoldingValue,
     Holding,
     LeftOutHolding,
+    MAX_PORTFOLIOS,
+    MAX_SYMBOLS,
     Matrix,
     PairDependence,
     PortfolioList,
@@ -70,6 +83,8 @@ from app.models.backtest import (
 from app.models.external import PortfolioPromptExport, PortfolioReviewImport
 from app.models.factors import RISK_FREE
 from app.models.portfolio_analysis import (
+    AccountShares,
+    AccountValue,
     AssetRisk,
     InvestorProfile,
     PairCorrelation,
@@ -93,6 +108,7 @@ from app.stats.copulas import (
     pairwise_kendall,
 )
 from app.stats.monte_carlo import SimulationError, simulate_portfolio
+from app.stats.performance import change_since, price_range
 from app.stats.panel import ReturnPanel, first_date, return_panel, usable_return_panel
 from app.stats.portfolio_risk import portfolio_stats, ranked_pairs
 from app.stats.rebalance import CASH, Target, plan_trades
@@ -761,6 +777,244 @@ async def store_holdings(
     return await _value_holdings(update.holdings, portfolio, name)
 
 
+# Each holding's gain or loss over a window and its 52-week range, for the holdings table.
+
+US_EASTERN = ZoneInfo("America/New_York")
+"""The time zone of the US market day, which decides what "today" is."""
+
+GAIN_WINDOW_OFFSETS: dict[GainWindow, pd.DateOffset] = {
+    "1d": pd.DateOffset(days=1),
+    "1w": pd.DateOffset(weeks=1),
+    "1mo": pd.DateOffset(months=1),
+    "3mo": pd.DateOffset(months=3),
+    "6mo": pd.DateOffset(months=6),
+    "1y": pd.DateOffset(years=1),
+    "2y": pd.DateOffset(years=2),
+    "3y": pd.DateOffset(years=3),
+    "5y": pd.DateOffset(years=5),
+    "10y": pd.DateOffset(years=10),
+}
+"""How far back each preset window reaches from a holding's latest close; ``ytd`` starts
+at the last close of the year before."""
+
+HISTORY_SPANS: tuple[tuple[str, int], ...] = (
+    ("1mo", 28),
+    ("3mo", 88),
+    ("6mo", 180),
+    ("2y", 725),
+    ("5y", 1820),
+    ("10y", 3645),
+)
+"""History periods to fetch, shortest first, with the calendar days each surely covers.
+One year is skipped, so a one-year window and the 52-week range share the 2-year download."""
+
+HISTORY_MARGIN_DAYS: int = 10
+"""Days fetched before a window's start, so the close it starts from is in the history."""
+
+RANGE_PERIOD: str = "2y"
+"""History fetched for 52-week ranges: the same download a one-year window uses."""
+
+SINCE_FLOOR: date = date(1970, 1, 1)
+"""Earliest custom start accepted; daily prices before it are rare."""
+
+CASH_NO_CHANGE: str = (
+    "A money-market fund holds its price at $1 a share and pays its return as interest, "
+    "so its price shows no gain or loss."
+)
+
+SymbolsQuery = Annotated[
+    str,
+    Query(
+        min_length=1,
+        description=f"Up to {MAX_SYMBOLS} ticker symbols, separated by commas.",
+        examples=["AAPL,MSFT,SPAXX"],
+    ),
+]
+
+
+def _symbol_list(symbols: str) -> list[str]:
+    """The distinct symbols in a comma-separated list, upper-cased; 422 when any is not a
+    ticker symbol or there are more than :data:`MAX_SYMBOLS`."""
+    names = list(dict.fromkeys(s.strip().upper() for s in symbols.split(",") if s.strip()))
+    invalid = [name for name in names if not re.fullmatch(SYMBOL_PATTERN, name)]
+    if not names or invalid or len(names) > MAX_SYMBOLS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Not ticker symbols: {', '.join(invalid)}."
+                if invalid
+                else f"Give between 1 and {MAX_SYMBOLS} symbols, separated by commas."
+            ),
+        )
+    return names
+
+
+def _market_today() -> date:
+    """Today's date in New York."""
+    return datetime.now(US_EASTERN).date()
+
+
+def _gain_window_start(latest: date, window: GainWindow) -> date:
+    """The first day of ``window`` ending on ``latest``."""
+    if window == "ytd":
+        return date(latest.year - 1, 12, 31)
+    return (pd.Timestamp(latest) - GAIN_WINDOW_OFFSETS[window]).date()
+
+
+def _history_period(start: date, today: date) -> str:
+    """The shortest history period that reaches back past ``start``."""
+    days = (today - start).days + HISTORY_MARGIN_DAYS
+    return next((period for period, span in HISTORY_SPANS if span >= days), "max")
+
+
+def _long_date(day: date) -> str:
+    """A date as people write it: Mar 4, 2025."""
+    return f"{day.strftime('%b')} {day.day}, {day.year}"
+
+
+async def _histories(symbols: list[str], period: str) -> dict[str, pd.DataFrame | DataFetchError]:
+    """Each symbol's daily bars over ``period``, or why they could not be fetched.
+
+    Raises:
+        HTTPException: As :func:`upstream_error` says, when every symbol fails, which
+            usually means no usable key rather than a problem with any one holding.
+    """
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
+
+    async def fetch(symbol: str) -> pd.DataFrame:
+        async with semaphore:
+            return await fetch_price_history(symbol, period=period, interval="1d")
+
+    results = await asyncio.gather(*(fetch(s) for s in symbols), return_exceptions=True)
+    histories: dict[str, pd.DataFrame | DataFetchError] = {}
+    for symbol, result in zip(symbols, results, strict=True):
+        if isinstance(result, BaseException) and not isinstance(result, DataFetchError):
+            raise result
+        histories[symbol] = result
+    failures = [result for result in histories.values() if isinstance(result, DataFetchError)]
+    if failures and len(failures) == len(histories):
+        raise upstream_error(failures[0])
+    return histories
+
+
+@router.get(
+    "/changes",
+    response_model=HoldingChangesResponse,
+    summary="Each holding's gain or loss over a window",
+)
+async def read_changes(
+    symbols: SymbolsQuery,
+    window: Annotated[
+        GainWindow, Query(description="How far back to measure, from each latest close.")
+    ] = "1y",
+    since: Annotated[
+        date | None,
+        Query(description="A custom first day, used instead of ``window``."),
+    ] = None,
+) -> HoldingChangesResponse:
+    """Return each holding's total return over ``window`` (or since ``since``): from the
+    last close on or before the window's first day to the latest close, with dividends
+    reinvested, as the adjusted daily closes give it.
+
+    A holding has no change, with ``unavailable`` saying why, when it is a money-market
+    fund (``cash``), when it was listed after the window began (``too_new``), or when its
+    prices could not be fetched (``no_data``). Returns 422 for a list that is not ticker
+    symbols or a ``since`` in the future or before 1970, and the statuses of
+    :func:`upstream_error` when no holding's prices can be fetched.
+    """
+    names = _symbol_list(symbols)
+    today = _market_today()
+    if since is not None and not SINCE_FLOOR <= since < today:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Choose a start between {_long_date(SINCE_FLOOR)} and yesterday.",
+        )
+    first_day = since or _gain_window_start(today, window)
+    priced = [name for name in names if not is_money_market(name)]
+    histories = await _histories(priced, _history_period(first_day, today)) if priced else {}
+    changes: list[HoldingChange] = []
+    latest_days: list[date] = []
+    for name in names:
+        history = histories.get(name)
+        if history is None:
+            changes.append(HoldingChange(symbol=name, unavailable="cash", detail=CASH_NO_CHANGE))
+            continue
+        if isinstance(history, DataFetchError):
+            changes.append(HoldingChange(symbol=name, unavailable="no_data", detail=str(history)))
+            continue
+        closes = history["Close"].dropna()
+        if closes.empty:
+            changes.append(
+                HoldingChange(symbol=name, unavailable="no_data", detail="No recent prices.")
+            )
+            continue
+        latest = closes.index[-1].date()
+        latest_days.append(latest)
+        start = since or _gain_window_start(latest, window)
+        found = change_since(closes, start)
+        if found is not None:
+            changes.append(HoldingChange(symbol=name, start=found.start, change=found.change))
+        elif history.attrs.get(HISTORY_NOTICE):
+            # The provider served only part of the window, so the listing may be older.
+            changes.append(
+                HoldingChange(
+                    symbol=name, unavailable="no_data", detail=history.attrs[HISTORY_NOTICE]
+                )
+            )
+        else:
+            changes.append(
+                HoldingChange(
+                    symbol=name,
+                    unavailable="too_new",
+                    detail=f"Its prices begin {_long_date(closes.index[0].date())}, after "
+                    f"the window starts on {_long_date(start)}.",
+                )
+            )
+    if since is None and latest_days:
+        first_day = _gain_window_start(max(latest_days), window)
+    return HoldingChangesResponse(
+        window=None if since is not None else window, start=first_day, changes=changes
+    )
+
+
+@router.get(
+    "/ranges",
+    response_model=HoldingRangesResponse,
+    summary="Each holding's 52-week range",
+)
+async def read_ranges(symbols: SymbolsQuery) -> HoldingRangesResponse:
+    """Return each holding's lowest and highest price over the last 52 weeks, from daily
+    lows and highs adjusted for splits and dividends, with its latest close.
+
+    A money-market fund has no range (``unavailable`` is ``cash``), nor does a holding
+    whose prices could not be fetched (``no_data``). Returns 422 for a list that is not
+    ticker symbols, and the statuses of :func:`upstream_error` when no holding's prices
+    can be fetched.
+    """
+    names = _symbol_list(symbols)
+    priced = [name for name in names if not is_money_market(name)]
+    histories = await _histories(priced, RANGE_PERIOD) if priced else {}
+    ranges: list[HoldingRange] = []
+    for name in names:
+        history = histories.get(name)
+        if history is None:
+            ranges.append(HoldingRange(symbol=name, unavailable="cash", detail=CASH_NO_CHANGE))
+            continue
+        if isinstance(history, DataFetchError):
+            ranges.append(HoldingRange(symbol=name, unavailable="no_data", detail=str(history)))
+            continue
+        found = price_range(history)
+        if found is None:
+            ranges.append(
+                HoldingRange(symbol=name, unavailable="no_data", detail="No recent prices.")
+            )
+            continue
+        ranges.append(
+            HoldingRange(symbol=name, low=found.low, high=found.high, latest=found.latest)
+        )
+    return HoldingRangesResponse(ranges=ranges)
+
+
 # Claude's review of the saved portfolio.
 
 MAX_PLANNED_POSITIONS: int = 50
@@ -770,13 +1024,57 @@ CORRELATED_PAIRS: int = 5
 """Most and least correlated pairs listed in a review's data."""
 
 
+@dataclass(frozen=True)
+class ReviewHoldings:
+    """What a review covers: one saved portfolio, or every one combined."""
+
+    holdings: list[HoldingShares]
+    """The holdings reviewed; for several accounts, each symbol once with its shares summed."""
+    accounts: list[tuple[str, list[HoldingShares]]]
+    """Each account's name and holdings when several are reviewed together; else empty."""
+
+
+COMBINED_PORTFOLIO: int = 0
+"""The portfolio number a review of every saved portfolio together is stored under."""
+
+
+def _stored_portfolio(request: PortfolioAnalysisRequest) -> int:
+    """The portfolio number a review is stored and looked up under."""
+    return COMBINED_PORTFOLIO if request.combined else request.portfolio
+
+
+async def _review_holdings(
+    session: AsyncSession, user_id: str, request: PortfolioAnalysisRequest
+) -> ReviewHoldings:
+    """The saved holdings a review covers: ``request.portfolio``'s, or with ``combined``
+    every portfolio's, a symbol held in several counted once with its shares summed."""
+    if not request.combined:
+        return ReviewHoldings(await get_holdings(session, user_id, request.portfolio), [])
+    accounts: list[tuple[str, list[HoldingShares]]] = []
+    for number in range(1, MAX_PORTFOLIOS + 1):
+        held = await get_holdings(session, user_id, number)
+        if held:
+            name = await get_portfolio_name(session, user_id, number)
+            accounts.append((name or default_portfolio_name(number), held))
+    shares: dict[str, float] = {}
+    for _, held in accounts:
+        for holding in held:
+            shares[holding.symbol] = shares.get(holding.symbol, 0.0) + holding.shares
+    merged = [HoldingShares(symbol=symbol, shares=count) for symbol, count in shares.items()]
+    return ReviewHoldings(merged, accounts)
+
+
 async def _portfolio_context(
     holdings: list[HoldingShares],
     period: PortfolioPeriod,
     profile: InvestorProfile,
     months: int | None = None,
+    accounts: list[tuple[str, list[HoldingShares]]] | None = None,
 ) -> PortfolioContext:
     """Value the holdings and compute the statistics a review is written from.
+
+    With ``accounts``, the holdings are those accounts' combined, and each holding and
+    the context say which account holds what and what each is worth.
 
     Raises:
         HTTPException: 422 when no holding can be priced or the window is too short, and
@@ -822,11 +1120,29 @@ async def _portfolio_context(
         )
         if notice
     ]
+    prices = {h.symbol: h.price for h in valued.holdings if h.price is not None}
+    held_by = {
+        symbol: [
+            AccountShares(account=name, shares=h.shares)
+            for name, held in accounts or []
+            for h in held
+            if h.symbol == symbol
+        ]
+        for symbol in prices
+    }
     return PortfolioContext(
         profile=profile,
         period=period,
         history_months=months,
         total_value=total,
+        accounts=[
+            AccountValue(
+                account=name,
+                value=sum(h.shares * prices.get(h.symbol, 0.0) for h in held),
+                holdings=len(held),
+            )
+            for name, held in accounts or []
+        ],
         holdings=[
             AssetRisk(
                 symbol=h.symbol,
@@ -838,6 +1154,7 @@ async def _portfolio_context(
                 value=h.value or 0.0,
                 weight=float(weights[h.symbol]),
                 cash=h.symbol in usable.cash,
+                accounts=held_by.get(h.symbol, []),
                 **vars(stats.assets[h.symbol]),
             )
             for h in reviewed
@@ -866,10 +1183,12 @@ async def _portfolio_context(
     )
 
 
-def _review_key(holdings: list[HoldingShares], request: PortfolioAnalysisRequest) -> str:
-    """Fingerprint the holdings and what the review was asked to tailor to and cover."""
+def _review_key(covered: ReviewHoldings, request: PortfolioAnalysisRequest) -> str:
+    """Fingerprint the holdings, which account holds what, and what the review was asked to
+    tailor to and cover."""
     months = "" if request.history_months is None else f"|{request.history_months}mo"
-    return holdings_key(holdings, request.profile.model_dump_json() + months)
+    split = "".join(f"|{name}=" + holdings_key(held) for name, held in covered.accounts)
+    return holdings_key(covered.holdings, request.profile.model_dump_json() + months + split)
 
 
 def _window_label(request: PortfolioAnalysisRequest) -> str:
@@ -913,8 +1232,9 @@ async def prepare_portfolio_review(
     settings = get_settings()
     try:
         async with get_sessionmaker()() as session:
-            holdings = await get_holdings(session, user.id, request.portfolio)
-            key = _review_key(holdings, request)
+            covered = await _review_holdings(session, user.id, request)
+            holdings = covered.holdings
+            key = _review_key(covered, request)
             cached = None
             if holdings and not request.refresh and settings.analysis_cache_ttl_seconds > 0:
                 cached = await find_recent_portfolio_analysis(
@@ -926,7 +1246,7 @@ async def prepare_portfolio_review(
                     settings.anthropic_effort,
                     datetime.now(timezone.utc)
                     - timedelta(seconds=settings.analysis_cache_ttl_seconds),
-                    request.portfolio,
+                    _stored_portfolio(request),
                 )
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
@@ -945,7 +1265,7 @@ async def prepare_portfolio_review(
     api_key = anthropic_key()
     await check_ai_limits(user)
     context = await _portfolio_context(
-        holdings, request.window, request.profile, request.history_months
+        holdings, request.window, request.profile, request.history_months, covered.accounts
     )
     return PreparedReview(
         user_id=user.id, request=request, key=key, context=context, api_key=api_key
@@ -987,7 +1307,15 @@ async def _plan(context: PortfolioContext, report: PortfolioReview) -> Rebalance
         total_value=plan.total_value,
         trades=[PlannedTrade(**vars(trade)) for trade in plan.trades],
         cash_after=plan.cash_after,
-        notes=plan.notes,
+        notes=plan.notes
+        + (
+            [
+                "These orders are for your accounts combined: each position's reason says "
+                "which account to place it in."
+            ]
+            if len(context.accounts) > 1
+            else []
+        ),
     )
 
 
@@ -1005,7 +1333,7 @@ async def _remember(
                 response,
                 settings.anthropic_model,
                 settings.anthropic_effort,
-                prepared.request.portfolio,
+                _stored_portfolio(prepared.request),
             )
     except SQLAlchemyError as exc:
         logger.error("Could not store a portfolio review: %s", exc)
@@ -1100,12 +1428,20 @@ async def stream_portfolio_review_events(
     summary="Your latest portfolio review",
 )
 async def read_portfolio_review(
-    session: Session, user: CurrentUser, portfolio: PortfolioQuery = 1
+    session: Session,
+    user: CurrentUser,
+    portfolio: PortfolioQuery = 1,
+    combined: Annotated[
+        bool, Query(description="The review of every portfolio together, not ``portfolio``.")
+    ] = False,
 ) -> PortfolioAnalysisResponse:
-    """Return your newest stored review of ``portfolio``, whatever it was written for, so
-    it can be shown again without a charge. Returns 404 when you have none."""
+    """Return your newest stored review of ``portfolio``, or with ``combined`` of every
+    portfolio together, whatever it was written for, so it can be shown again without a
+    charge. Returns 404 when you have none."""
     try:
-        review = await latest_portfolio_analysis(session, user.id, portfolio)
+        review = await latest_portfolio_analysis(
+            session, user.id, COMBINED_PORTFOLIO if combined else portfolio
+        )
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
     if review is None:
@@ -1116,19 +1452,19 @@ async def read_portfolio_review(
 
 
 async def _saved_holdings(
-    session: AsyncSession, user_id: str, portfolio: int
-) -> list[HoldingShares]:
-    """A saved portfolio's holdings; 422 when there are none, 503 when unreadable."""
+    session: AsyncSession, user_id: str, request: PortfolioAnalysisRequest
+) -> ReviewHoldings:
+    """The saved holdings a review covers; 422 when there are none, 503 when unreadable."""
     try:
-        holdings = await get_holdings(session, user_id, portfolio)
+        covered = await _review_holdings(session, user_id, request)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
-    if not holdings:
+    if not covered.holdings:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Save your holdings first; the review is of your saved portfolio.",
         )
-    return holdings
+    return covered
 
 
 @router.post(
@@ -1147,9 +1483,13 @@ async def export_portfolio_prompt(
     ``prompt`` into Claude, then send its answer to ``/analysis/import`` with the
     ``context`` returned here.
     """
-    holdings = await _saved_holdings(session, user.id, request.portfolio)
+    covered = await _saved_holdings(session, user.id, request)
     context = await _portfolio_context(
-        holdings, request.window, request.profile, request.history_months
+        covered.holdings,
+        request.window,
+        request.profile,
+        request.history_months,
+        covered.accounts,
     )
     return PortfolioPromptExport(
         prompt=render_prompt(PORTFOLIO_SYSTEM_PROMPT, review_messages(context), PortfolioReview),
@@ -1178,7 +1518,7 @@ async def import_portfolio_review(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
-    holdings = await _saved_holdings(session, user.id, body.request.portfolio)
+    covered = await _saved_holdings(session, user.id, body.request)
     plan = await _plan(body.context, report)
     response = PortfolioAnalysisResponse(
         period=body.context.period,
@@ -1193,11 +1533,11 @@ async def import_portfolio_review(
         return await save_portfolio_analysis(
             session,
             user.id,
-            _review_key(holdings, body.request),
+            _review_key(covered, body.request),
             response,
             PASTED_MODEL,
             PASTED_MODEL,
-            body.request.portfolio,
+            _stored_portfolio(body.request),
         )
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc

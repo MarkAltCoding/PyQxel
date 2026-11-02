@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fitCopula, getHoldings, getPortfolios, saveHoldings, simulate } from '../api/endpoints'
+import { HoldingsTable, type HoldingRow } from '../components/HoldingsTable'
 import { PortfolioReviewCard } from '../components/PortfolioReviewCard'
 import type {
   HoldingsResponse,
@@ -59,10 +59,7 @@ function storedHistoryCut(): number {
 const asFraction = (percentCut: number): number | null =>
   percentCut >= KEEP_ALL ? null : percentCut / 100
 
-interface Row {
-  symbol: string
-  shares: string
-}
+type Row = HoldingRow
 
 /** Unsaved edits to one portfolio. */
 interface Draft {
@@ -153,7 +150,6 @@ export function PortfolioPage() {
       return next
     })
   const invalid = rows.some((row) => !(Number(row.shares) > 0)) || !name.trim()
-  const valued = new Map((loaded?.holdings ?? []).map((h) => [h.symbol, h]))
 
   const priced = (loaded?.holdings ?? []).filter(
     (holding) => holding.weight !== null && holding.weight !== undefined && holding.weight > 0,
@@ -221,80 +217,16 @@ export function PortfolioPage() {
         </div>
         {holdings.error !== null && <ErrorNotice error={holdings.error} />}
         {save.error !== null && <ErrorNotice error={save.error} />}
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Symbol</th>
-                <th>Name</th>
-                <th className="num">Shares</th>
-                <th className="num">Price</th>
-                <th className="num">Value</th>
-                <th className="num" style={{ minWidth: 150 }}>
-                  Weight
-                  <InfoTip topic="holdingWeight" />
-                </th>
-                <th>
-                  <span className="visually-hidden">Remove</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, index) => {
-                const known = valued.get(row.symbol)
-                const value = dirty ? undefined : known
-                return (
-                  <tr key={row.symbol}>
-                    <td>
-                      <Link to={`/stocks/${encodeURIComponent(row.symbol)}`}>{row.symbol}</Link>
-                    </td>
-                    <td className="muted">
-                      {known?.name ?? ''}
-                      {known?.cash && (
-                        <span className="heading-with-info" style={{ marginLeft: 6 }}>
-                          <span className="badge">Cash</span>
-                          <InfoTip topic="moneyMarketCash" />
-                        </span>
-                      )}
-                    </td>
-                    <td className="num">
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        aria-label={`Shares of ${row.symbol}`}
-                        style={{ width: 110, textAlign: 'right' }}
-                        value={row.shares}
-                        aria-invalid={!(Number(row.shares) > 0)}
-                        onChange={(event) =>
-                          edit({
-                            rows: rows.map((r, i) =>
-                              i === index ? { ...r, shares: event.target.value } : r,
-                            ),
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="num">{money(known?.price)}</td>
-                    <td className="num">{money(value?.value)}</td>
-                    <td className="num">
-                      <WeightBar weight={value?.weight} />
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="button ghost small danger"
-                        onClick={() => edit({ rows: rows.filter((_, i) => i !== index) })}
-                      >
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <HoldingsTable
+          rows={rows}
+          holdings={loaded?.holdings ?? []}
+          totalValue={loaded?.total_value}
+          dirty={dirty}
+          onShares={(symbol, shares) =>
+            edit({ rows: rows.map((r) => (r.symbol === symbol ? { ...r, shares } : r)) })
+          }
+          onRemove={(symbol) => edit({ rows: rows.filter((r) => r.symbol !== symbol) })}
+        />
         {rows.length === 0 && !holdings.isLoading && (
           <div className="empty">No holdings yet. Add your first one below.</div>
         )}
@@ -369,39 +301,13 @@ export function PortfolioPage() {
         key={`review-${portfolio}`}
         portfolio={portfolio}
         hasHoldings={priced.length > 0}
+        canCombine={
+          (portfolios.data?.portfolios.length ?? 0) > 1 &&
+          (portfolios.data?.portfolios.every((p) => p.holdings > 0) ?? false)
+        }
         stale={dirty || holdings.isPlaceholderData}
       />
     </div>
-  )
-}
-
-function WeightBar({ weight }: { weight: number | null | undefined }) {
-  if (weight === null || weight === undefined) return <span className="muted">—</span>
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-      <span
-        aria-hidden="true"
-        style={{
-          display: 'inline-block',
-          width: 80,
-          height: 6,
-          borderRadius: 3,
-          background: 'var(--surface-sunken)',
-          overflow: 'hidden',
-        }}
-      >
-        <span
-          style={{
-            display: 'block',
-            width: `${Math.min(100, weight * 100)}%`,
-            height: '100%',
-            borderRadius: 3,
-            background: 'var(--series-1)',
-          }}
-        />
-      </span>
-      <span style={{ minWidth: 48, textAlign: 'right' }}>{percent(weight)}</span>
-    </span>
   )
 }
 

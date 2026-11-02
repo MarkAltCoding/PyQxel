@@ -22,7 +22,7 @@ colors.
 | --- | --- |
 | `StockPage` | `PriceChart`, `FactorChart`, `VolatilityChart`, `MetricsCard`, `SignalsCard`, `NewsCard` (paged by `Pager`), `AlternativeCard`, `AnalysisPanel` (AI report) |
 | `MarketsPage` | market news (paged), event calendar (`lib/calendar.ts`) |
-| `PortfolioPage` | holdings table (2 portfolios, up to 40 holdings), late-listing cutoff, `SimulationCard` (`FanChart`), `CopulaCard` (`CopulaHeatmap`), `PortfolioReviewCard` |
+| `PortfolioPage` | `HoldingsTable` (2 portfolios, up to 40 holdings; sortable, two gain/loss windows and a 52-week range per holding from `lib/holdings.ts`, and an account total), late-listing cutoff, `SimulationCard` (`FanChart`), `CopulaCard` (`CopulaHeatmap`), `PortfolioReviewCard` (one portfolio, or both together) |
 | `BacktestPage` | Single stock: built-in rules or custom code, with "Also trade" for several symbols. Across tickers: `CrossSectionalBacktest` (rank by a signal), or the same component with `across` (code that trades every ticker it names, `lib/tickers.ts`) |
 | `ScreenerPage`, `SettingsPage`, `SignInPage`, `PrivacyPage` | |
 

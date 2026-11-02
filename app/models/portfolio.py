@@ -277,6 +277,59 @@ class HoldingsResponse(BaseModel):
     )
 
 
+GainWindow = Literal["1d", "1w", "1mo", "3mo", "6mo", "ytd", "1y", "2y", "3y", "5y", "10y"]
+"""Windows a holding's gain or loss may be measured over, back from its latest close."""
+
+ChangeUnavailable = Literal["cash", "too_new", "no_data"]
+"""Why a holding has no change over a window: a money-market fund, whose price holds at $1
+and whose return is paid as interest; a listing newer than the window; or no prices."""
+
+
+class HoldingChange(BaseModel):
+    """One holding's total return over a window, or why it has none."""
+
+    symbol: str
+    start: date | None = Field(
+        default=None, description="Date of the close the change is measured from."
+    )
+    change: float | None = Field(
+        default=None,
+        description="Total return from ``start`` to the latest close, as a decimal, with "
+        "dividends reinvested; null when ``unavailable`` says why there is none.",
+    )
+    unavailable: ChangeUnavailable | None = None
+    detail: str | None = Field(default=None, description="Why there is no change, in words.")
+
+
+class HoldingChangesResponse(BaseModel):
+    """Each holding's total return since the same day, in the order asked."""
+
+    window: GainWindow | None = Field(
+        default=None, description="The preset window, or null for a custom ``since``."
+    )
+    start: date = Field(description="The window's first day.")
+    changes: list[HoldingChange]
+
+
+class HoldingRange(BaseModel):
+    """One holding's lowest and highest prices over the last 52 weeks."""
+
+    symbol: str
+    low: float | None = None
+    high: float | None = None
+    latest: float | None = Field(default=None, description="The latest daily close.")
+    unavailable: ChangeUnavailable | None = Field(
+        default=None, description="Why there is no range: ``cash`` or ``no_data``."
+    )
+    detail: str | None = None
+
+
+class HoldingRangesResponse(BaseModel):
+    """Each holding's 52-week range, in the order asked."""
+
+    ranges: list[HoldingRange]
+
+
 class PortfolioSummary(BaseModel):
     """One of the account's portfolio slots, without prices."""
 

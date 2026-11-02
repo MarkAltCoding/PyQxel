@@ -677,6 +677,112 @@ table.data .muted {
   color: var(--text-muted);
 }
 
+/* ── Holdings table (Portfolio): laid out like a broker's positions view ── */
+.holdings-table th,
+.holdings-table td {
+  padding: 8px 7px;
+  vertical-align: middle;
+}
+
+.holdings-table .name-col {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A gain/loss column's title over its window menu, both right-aligned like its numbers. */
+.holdings-table .gain-header {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.holdings-table .window-picker {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.holdings-table .window-picker select,
+.holdings-table .window-picker input {
+  max-width: 104px;
+  height: 26px;
+  padding: 0 6px;
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+
+/* Dollars over percent, as a broker shows a gain or loss. */
+.gain-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.3;
+}
+
+.gain-cell .gain-percent {
+  font-size: 0.8rem;
+}
+
+.unavailable {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.holdings-table .range-col {
+  min-width: 190px;
+}
+
+.holdings-table .remove-holding {
+  width: 32px;
+  padding: 0;
+}
+
+/* The 52-week low and high at the ends of a line, with a dot at the latest price. */
+.range-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.range-end {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.range-track {
+  position: relative;
+  display: inline-block;
+  width: 56px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--border-strong);
+}
+
+.range-dot {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  transform: translate(-50%, -50%);
+}
+
+.holdings-table tfoot .total-row th,
+.holdings-table tfoot .total-row td {
+  border-top: 2px solid var(--border-strong);
+  border-bottom: none;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
 /* ── Messages ── */
 .notice {
   display: flex;
@@ -1334,12 +1440,6 @@ table.data .muted {
   margin-left: 4px;
 }
 
-/* An open box sits above neighbouring cards and chart canvases, yet below the sticky top
-   bar, so neither the "i" nor its box ever covers the bar while the page scrolls. */
-.info-tip.open {
-  z-index: 10;
-}
-
 .info-tip-button {
   width: 15px;
   height: 15px;
@@ -1368,9 +1468,10 @@ table.data .muted {
 }
 
 .info-tip-box {
+  /* Placed in page coordinates by InfoTip, at the end of the page. It sits above cards and
+     chart canvases, yet below the sticky top bar, so it never covers the bar. */
   position: absolute;
-  top: 100%;
-  left: 0;
+  z-index: 10;
   width: min(320px, calc(100vw - 32px));
   /* The padding bridges the gap to the "i", so the cursor can move into the box. */
   margin-top: 0;
@@ -1388,11 +1489,6 @@ table.data .muted {
   text-transform: none;
   letter-spacing: normal;
   white-space: normal;
-}
-
-.info-tip-box.align-right {
-  left: auto;
-  right: 0;
 }
 
 .info-tip-box p {

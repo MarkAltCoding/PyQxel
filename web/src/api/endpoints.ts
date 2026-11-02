@@ -27,6 +27,9 @@ import type {
   FactorRegression,
   HoldingShares,
   HoldingsResponse,
+  GainWindow,
+  HoldingChangesResponse,
+  HoldingRangesResponse,
   PortfolioList,
   MarketSignals,
   NewsResponse,
@@ -114,13 +117,28 @@ export const deleteBacktest = (id: string) =>
 export const getPortfolios = () => api<PortfolioList>(`${V1}/portfolio/portfolios`)
 export const getHoldings = (portfolio: number) =>
   api<HoldingsResponse>(`${V1}/portfolio/holdings`, { query: { portfolio } })
-/** The latest stored review of a portfolio, or null when there is none yet. */
+/** Each holding's gain or loss over a preset window, or since a custom first day. */
+export const getHoldingChanges = (symbols: string[], window: GainWindow | { since: string }) =>
+  api<HoldingChangesResponse>(`${V1}/portfolio/changes`, {
+    query: {
+      symbols: symbols.join(','),
+      ...(typeof window === 'string' ? { window } : { since: window.since }),
+    },
+  })
+/** Each holding's lowest and highest price over the last 52 weeks. */
+export const getHoldingRanges = (symbols: string[]) =>
+  api<HoldingRangesResponse>(`${V1}/portfolio/ranges`, {
+    query: { symbols: symbols.join(',') },
+  })
+/** The latest stored review of a portfolio, or of every one together when `combined`, or
+ * null when there is none yet. */
 export const getPortfolioReview = async (
   portfolio: number,
+  combined = false,
 ): Promise<PortfolioAnalysisResponse | null> => {
   try {
     return await api<PortfolioAnalysisResponse>(`${V1}/portfolio/analysis`, {
-      query: { portfolio },
+      query: { portfolio, combined },
     })
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null

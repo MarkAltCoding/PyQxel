@@ -58,7 +58,7 @@ const review = (headline: string) => ({
   disclaimer: 'Not investment advice.',
 })
 
-function renderCard(props: { hasHoldings: boolean; stale: boolean }) {
+function renderCard(props: { hasHoldings: boolean; stale: boolean; canCombine?: boolean }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
@@ -94,11 +94,56 @@ describe('PortfolioReviewCard', () => {
     expect(posted).toEqual([
       {
         portfolio: 2,
+        combined: false,
         period: '1y',
         refresh: true,
         profile: { risk_tolerance: null, horizon_years: null, cash_to_invest: 0, notes: null },
       },
     ])
+  })
+
+  it('reviews both portfolios together when chosen, and keeps that review apart', async () => {
+    const posted: Record<string, unknown>[] = []
+    const read: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (init?.method === 'POST') {
+        posted.push(JSON.parse(String(init.body)))
+        const result = {
+          ...review('One household portfolio.'),
+          cached: false,
+          context: {
+            ...review('').context,
+            accounts: [
+              { account: 'Brokerage', value: 6000, holdings: 3 },
+              { account: 'Roth IRA', value: 4000, holdings: 2 },
+            ],
+          },
+        }
+        return new Response(`event: result\ndata: ${JSON.stringify(result)}\n\n`)
+      }
+      read.push(String(input))
+      return new Response(JSON.stringify({ detail: 'No portfolio review yet.' }), { status: 404 })
+    })
+    renderCard({ hasHoldings: true, stale: false, canCombine: true })
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Both together' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Review both together' }))
+
+    expect(await screen.findByText('One household portfolio.')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Covers Brokerage \(\$6,000\) and Roth IRA \(\$4,000\) together/),
+    ).toBeInTheDocument()
+    expect(posted[0]).toMatchObject({ combined: true })
+    expect(read.at(-1)).toContain('combined=true')
+  })
+
+  it('offers no combined review until both portfolios have holdings', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ detail: 'No portfolio review yet.' }), { status: 404 }),
+    )
+    renderCard({ hasHoldings: true, stale: false })
+    expect(await screen.findByText('No review yet.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Both together' })).toBeNull()
   })
 
   it('saves a review pasted from Claude outside the app with its exported data', async () => {

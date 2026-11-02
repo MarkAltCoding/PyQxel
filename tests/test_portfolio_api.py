@@ -386,3 +386,115 @@ def test_portfolio_dual_momentum_compares_each_holding_with_one_benchmark(
     assert response.status_code == 200
     assert fetched == [("SPY", "5y", "1d")]
     assert response.json()["strategy"]["benchmark"] == "SPY"
+
+
+# Each holding's gain or loss over a window, and its 52-week range.
+
+
+def _bars(days: int, jump_days_ago: int | None = None) -> pd.DataFrame:
+    """Daily bars ending on the last business day: 100 until ``jump_days_ago`` calendar
+    days before the end, then 125; highs and lows 10% either side."""
+    index = pd.bdate_range(end=pd.Timestamp.now().normalize(), periods=days, tz="America/New_York")
+    closes = pd.Series(100.0, index=index)
+    if jump_days_ago is not None:
+        closes[index > index[-1] - pd.Timedelta(days=jump_days_ago)] = 125.0
+    return pd.DataFrame({"Close": closes, "High": closes * 1.1, "Low": closes * 0.9})
+
+
+def _serve_histories(
+    monkeypatch: pytest.MonkeyPatch, histories: dict[str, pd.DataFrame | Exception]
+) -> list[tuple[str, str]]:
+    """Fake each symbol's history download; return the (symbol, period) requested."""
+    calls: list[tuple[str, str]] = []
+
+    async def fake(symbol: str, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
+        calls.append((symbol, period))
+        result = histories[symbol]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(portfolio, "fetch_price_history", fake)
+    return calls
+
+
+def test_changes_cover_each_window_and_say_why_one_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _serve_histories(
+        monkeypatch,
+        {
+            "AAPL": _bars(600, jump_days_ago=200),
+            "NEWCO": _bars(40),
+            "GONE": DataFetchError("Provider timed out."),
+        },
+    )
+
+    year = client.get(
+        "/api/v1/portfolio/changes", params={"symbols": "aapl,NEWCO,SPAXX,GONE", "window": "1y"}
+    )
+    month = client.get("/api/v1/portfolio/changes", params={"symbols": "AAPL", "window": "1mo"})
+
+    assert year.status_code == 200
+    body = year.json()
+    assert body["window"] == "1y"
+    changes = {c["symbol"]: c for c in body["changes"]}
+    assert list(changes) == ["AAPL", "NEWCO", "SPAXX", "GONE"]
+    assert changes["AAPL"]["change"] == pytest.approx(0.25)
+    assert changes["NEWCO"]["unavailable"] == "too_new"
+    assert "after the window starts" in changes["NEWCO"]["detail"]
+    assert changes["SPAXX"]["unavailable"] == "cash"
+    assert changes["GONE"] == {**changes["GONE"], "unavailable": "no_data", "change": None}
+    assert month.json()["changes"][0]["change"] == pytest.approx(0.0)
+    # Cash is never downloaded; a year shares the 2-year download, a month the 3-month one.
+    assert ("SPAXX", "2y") not in calls
+    assert ("AAPL", "2y") in calls and ("AAPL", "3mo") in calls
+
+
+def test_changes_since_a_chosen_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    _serve_histories(monkeypatch, {"AAPL": _bars(900, jump_days_ago=200)})
+    since = (pd.Timestamp.now() - pd.Timedelta(days=500)).date().isoformat()
+
+    body = client.get("/api/v1/portfolio/changes", params={"symbols": "AAPL", "since": since})
+
+    assert body.status_code == 200
+    assert body.json()["window"] is None and body.json()["start"] == since
+    assert body.json()["changes"][0]["change"] == pytest.approx(0.25)
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"symbols": "AAPL", "since": "2999-01-01"},
+        {"symbols": "AAPL", "since": "1960-01-01"},
+        {"symbols": "AAPL;DROP"},
+        {"symbols": ",".join(f"S{i}" for i in range(MAX_SYMBOLS + 1))},
+        {"symbols": "AAPL", "window": "7y"},
+    ],
+)
+def test_changes_reject_bad_requests(params: dict[str, str]) -> None:
+    assert client.get("/api/v1/portfolio/changes", params=params).status_code == 422
+
+
+def test_changes_fail_with_the_provider_status_when_nothing_can_be_priced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _serve_histories(monkeypatch, {"AAPL": SymbolNotFoundError("Unknown symbol AAPL.")})
+    response = client.get("/api/v1/portfolio/changes", params={"symbols": "AAPL"})
+    assert response.status_code == 404
+
+
+def test_ranges_span_52_weeks_with_the_latest_close(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _serve_histories(
+        monkeypatch, {"AAPL": _bars(600, jump_days_ago=200), "GONE": DataFetchError("Timed out.")}
+    )
+
+    body = client.get("/api/v1/portfolio/ranges", params={"symbols": "AAPL,SPAXX,GONE"}).json()
+
+    ranges = {r["symbol"]: r for r in body["ranges"]}
+    assert ranges["AAPL"]["low"] == pytest.approx(90.0)
+    assert ranges["AAPL"]["high"] == pytest.approx(137.5)
+    assert ranges["AAPL"]["latest"] == pytest.approx(125.0)
+    assert ranges["SPAXX"]["unavailable"] == "cash"
+    assert ranges["GONE"]["unavailable"] == "no_data"
+    assert calls == [("AAPL", "2y"), ("GONE", "2y")]

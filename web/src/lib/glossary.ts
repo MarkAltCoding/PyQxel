@@ -538,6 +538,44 @@ const entries = {
     what: 'The holding’s share of the portfolio’s value at the latest prices.',
     bad: 'One holding above about 20–25% concentrates a lot of risk in a single company.',
   },
+  holdingGainLoss: {
+    title: 'Gain/loss over a window',
+    what: 'How much each holding’s value rose or fell over the window you pick, in dollars and as a percent, with dividends counted as if reinvested. Pick the window in the column’s menu, or choose “Since a date…” for any start you like.',
+    note: 'PyQxel doesn’t know when you bought or what you paid, so the dollars assume you held today’s shares for the whole window. That makes this how the position performed, not your broker’s “total gain/loss” since you bought.',
+  },
+  gainUnavailableCash: {
+    title: 'No gain or loss: cash',
+    what: 'A money-market fund keeps its price at $1 a share and pays what it earns as interest, so its price never shows a gain or loss.',
+    note: 'Its interest, recently about 3–5% a year, still adds to your account: your broker lists it as dividends.',
+  },
+  gainUnavailableNew: {
+    title: 'No gain or loss: too new',
+    what: 'This holding started trading after the window began, so there is no price to measure the whole window from.',
+    note: 'Pick a shorter window, or a custom start after its first trading day, to see its change.',
+  },
+  gainUnavailableData: {
+    title: 'No gain or loss: no prices',
+    what: 'Its prices over the window could not be fetched, or your market data keys cover only part of the window.',
+    note: 'Settings shows what your keys cover; adding a key there often fills this in.',
+  },
+  holding52WeekRange: {
+    title: '52-week range',
+    what: 'The lowest and highest prices of the last 52 weeks, at the ends of the line. The dot shows where the latest price sits between them.',
+    good: 'Near the middle is ordinary. A dot near the high means the stock has been rising; near the low, falling.',
+    bad: 'A dot pinned at the low can be a warning sign worth a look, but it is not by itself a reason to buy or sell.',
+    note: 'Prices are adjusted for splits and dividends, so the ends can differ slightly from your broker’s.',
+  },
+  accountTotal: {
+    title: 'Account total',
+    what: 'The whole portfolio: the value of every priced holding, and the gains or losses of its holdings over each window, added up. The percent is that gain against what the portfolio was worth at the window’s start.',
+    note: 'Cash counts as no gain. Holdings without a gain or loss (too new, or no prices) are left out of the totals’ gains.',
+  },
+  combinedReview: {
+    title: 'Review both portfolios together',
+    what: 'One review of all your saved portfolios as a single, overall portfolio, such as a brokerage account and a Roth IRA together. Claude sees which account holds what, and says which account each change belongs in, with taxes in mind.',
+    good: 'Cheaper than reviewing each one, and better advice: overlap and gaps across accounts show up only when they are seen together.',
+    note: 'Say what each account is (taxable, Roth IRA, 401(k)…) in its name or in “Anything else”, so the plan can account for taxes.',
+  },
   moneyMarketCash: {
     title: 'Cash (money-market fund)',
     what: 'A money-market fund, such as SPAXX or VMFXX, holds short-term government debt and keeps its price at $1 a share; its return comes as interest paid out. PyQxel treats it as cash: valued at $1 a share, held at a steady value in simulations, and left out of how the holdings move together, since its price never moves.',

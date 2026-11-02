@@ -18,6 +18,7 @@ import type {
 } from '../api/types'
 import { dateTime, money, number, percent } from '../lib/format'
 import { keepExport, keptExport } from '../lib/exportedPrompts'
+import { readStored, writeStored } from '../lib/storage'
 import { useReportView } from '../lib/reportView'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
 import { ExternalClaude } from './ExternalClaude'
@@ -82,21 +83,41 @@ const RISKS: { value: Risk; label: string }[] = [
   { value: 'aggressive', label: 'Aggressive' },
 ]
 
+type Scope = 'one' | 'both'
+
+const SCOPES: { value: Scope; label: string }[] = [
+  { value: 'one', label: 'This portfolio' },
+  { value: 'both', label: 'Both together' },
+]
+
+const SCOPE_KEY = 'pyqxel.reviewScope'
+
 /**
- * Claude's review of the saved portfolio: the latest one stored, and writing a new one,
- * billed to the account's own Anthropic key, so one is only written when asked for.
+ * Claude's review of the saved portfolio, or of both together: the latest one stored, and
+ * writing a new one, billed to the account's own Anthropic key, so one is only written
+ * when asked for.
  */
 export function PortfolioReviewCard({
   portfolio,
   hasHoldings,
+  canCombine = false,
   stale,
 }: {
   /** Which saved portfolio to review. */
   portfolio: number
   hasHoldings: boolean
+  /** Whether every portfolio has saved holdings, so they can be reviewed together. */
+  canCombine?: boolean
   stale: boolean
 }) {
   const queryClient = useQueryClient()
+  const [scope, setScope] = useState<Scope>(() =>
+    readStored(SCOPE_KEY) === 'both' ? 'both' : 'one',
+  )
+  const combined = canCombine && scope === 'both'
+  // Reviews are stored per portfolio, and the review of both together apart from either.
+  const reviewKey = ['portfolio-review', combined ? 'all' : portfolio]
+  const exportKey = combined ? 'portfolio-all' : `portfolio-${portfolio}`
   const [months, setMonths] = useState(12)
   const [risk, setRisk] = useState<Risk>('unset')
   const [horizon, setHorizon] = useState('')
@@ -108,8 +129,8 @@ export function PortfolioReviewCard({
   useEffect(() => () => abort.current?.abort(), [])
 
   const latest = useQuery({
-    queryKey: ['portfolio-review', portfolio],
-    queryFn: () => getPortfolioReview(portfolio),
+    queryKey: reviewKey,
+    queryFn: () => getPortfolioReview(portfolio, combined),
   })
   const review = latest.data ?? null
 
@@ -124,22 +145,20 @@ export function PortfolioReviewCard({
   const getPrompt = async () => {
     const request: PortfolioAnalysisRequest = {
       portfolio,
+      combined,
       ...historyRequest(months),
       profile: profile(),
     }
     const exported = await exportPortfolioPrompt(request)
-    keepExport(`portfolio-${portfolio}`, { request, context: exported.context })
+    keepExport(exportKey, { request, context: exported.context })
     return exported
   }
   const pasteAnswer = async (response: string) => {
     const kept = keptExport<{ request: PortfolioAnalysisRequest; context: PortfolioContext }>(
-      `portfolio-${portfolio}`,
+      exportKey,
     )
     if (!kept) throw new Error('Get the prompt first: the answer is saved with its data.')
-    queryClient.setQueryData(
-      ['portfolio-review', portfolio],
-      await importPortfolioReview({ ...kept, response }),
-    )
+    queryClient.setQueryData(reviewKey, await importPortfolioReview({ ...kept, response }))
   }
 
   const write = async () => {
@@ -151,6 +170,7 @@ export function PortfolioReviewCard({
       const response = await streamPortfolioReview(
         {
           portfolio,
+          combined,
           ...historyRequest(months),
           profile: profile(),
           refresh:
@@ -159,7 +179,7 @@ export function PortfolioReviewCard({
         controller.signal,
       )
       const result = await readAiStream<PortfolioAnalysisResponse>(response, setProgress)
-      queryClient.setQueryData(['portfolio-review', portfolio], result)
+      queryClient.setQueryData(reviewKey, result)
     } catch (failure) {
       if (!controller.signal.aborted) setError(failure)
     } finally {
@@ -169,7 +189,7 @@ export function PortfolioReviewCard({
   }
 
   const writing = progress !== null
-  const blocked = !hasHoldings || stale
+  const blocked = !(hasHoldings || combined) || stale
   return (
     <section id="ai-review" className="card">
       <div className="card-header">
@@ -185,6 +205,23 @@ export function PortfolioReviewCard({
           </div>
         </div>
         <div className="filter-row">
+          {canCombine && (
+            <div className="field">
+              <span className="heading-with-info">
+                What to review
+                <InfoTip topic="combinedReview" />
+              </span>
+              <Segmented
+                label="What to review"
+                value={scope}
+                options={SCOPES}
+                onChange={(next) => {
+                  writeStored(SCOPE_KEY, next)
+                  setScope(next)
+                }}
+              />
+            </div>
+          )}
           <div className="field">
             <span className="heading-with-info">
               Price history to measure
@@ -211,7 +248,11 @@ export function PortfolioReviewCard({
               disabled={blocked}
               onClick={() => void write()}
             >
-              {review ? 'Write a new review' : 'Review my portfolio'}
+              {review
+                ? 'Write a new review'
+                : combined
+                  ? 'Review both together'
+                  : 'Review my portfolio'}
             </button>
           )}
         </div>
@@ -298,6 +339,8 @@ function Review({ response }: { response: PortfolioAnalysisResponse }) {
       <ReportViewToggle view={view} onChange={setView} />
       {view === 'text' ? <TextReview response={response} /> : <VisualReview response={response} />}
       <p className="disclaimer" style={{ marginTop: 16 }}>
+        {(response.context.accounts?.length ?? 0) > 1 &&
+          `Covers ${response.context.accounts!.map((a) => `${a.account} (${money(a.value, 'USD', 0)})`).join(' and ')} together · `}
         {response.model} · {dateTime(response.generated_at)} · {historyLabel(response)} of price
         history
         {response.cached && ' · reused, not billed again'} · {response.disclaimer}

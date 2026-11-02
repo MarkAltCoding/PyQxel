@@ -188,6 +188,15 @@ plan to it and follow the notes. Where it is silent, choose a reasonable assumpt
 (for instance a moderate, long-term investor), state it in the plan summary, and say \
 how the plan would differ under another.
 
+The snapshot may cover several of their accounts together, such as a taxable \
+brokerage account and a Roth IRA: then accounts lists each one's value, and each \
+holding's accounts says how many shares each account holds. Review them as one \
+portfolio, with weights of all the accounts combined, and in each position's rationale \
+say which account to make the change in. Mind how each account is taxed, as its name or \
+the notes suggest: selling at a gain costs tax in a taxable account but not in a \
+retirement account like a Roth IRA, and holdings that pay out a lot in taxable income \
+usually fit better in one.
+
 Give a target_allocation covering every current holding (0 to sell it all) and any \
 investment you recommend adding, with weights summing to 1 after the new cash; use \
 CASH for money to keep uninvested. You may recommend specific securities to add, such \

@@ -484,8 +484,9 @@ export interface paths {
     }
     /**
      * Your latest portfolio review
-     * @description Return your newest stored review of ``portfolio``, whatever it was written for, so
-     *     it can be shown again without a charge. Returns 404 when you have none.
+     * @description Return your newest stored review of ``portfolio``, or with ``combined`` of every
+     *     portfolio together, whatever it was written for, so it can be shown again without a
+     *     charge. Returns 404 when you have none.
      */
     get: operations['read_portfolio_review_api_v1_portfolio_analysis_get']
     put?: never
@@ -623,6 +624,34 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/portfolio/changes': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Each holding's gain or loss over a window
+     * @description Return each holding's total return over ``window`` (or since ``since``): from the
+     *     last close on or before the window's first day to the latest close, with dividends
+     *     reinvested, as the adjusted daily closes give it.
+     *
+     *     A holding has no change, with ``unavailable`` saying why, when it is a money-market
+     *     fund (``cash``), when it was listed after the window began (``too_new``), or when its
+     *     prices could not be fetched (``no_data``). Returns 422 for a list that is not ticker
+     *     symbols or a ``since`` in the future or before 1970, and the statuses of
+     *     :func:`upstream_error` when no holding's prices can be fetched.
+     */
+    get: operations['read_changes_api_v1_portfolio_changes_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/portfolio/copula': {
     parameters: {
       query?: never
@@ -701,6 +730,32 @@ export interface paths {
      *     each has; one never saved has none. Returns 503 when the database is unavailable.
      */
     get: operations['read_portfolios_api_v1_portfolio_portfolios_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/portfolio/ranges': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Each holding's 52-week range
+     * @description Return each holding's lowest and highest price over the last 52 weeks, from daily
+     *     lows and highs adjusted for splits and dividends, with its latest close.
+     *
+     *     A money-market fund has no range (``unavailable`` is ``cash``), nor does a holding
+     *     whose prices could not be fetched (``no_data``). Returns 422 for a list that is not
+     *     ticker symbols, and the statuses of :func:`upstream_error` when no holding's prices
+     *     can be fetched.
+     */
+    get: operations['read_ranges_api_v1_portfolio_ranges_get']
     put?: never
     post?: never
     delete?: never
@@ -1450,6 +1505,37 @@ export interface components {
       usage: components['schemas']['AiUsage']
     }
     /**
+     * AccountShares
+     * @description How many shares of a holding one account holds, in a review of several accounts.
+     */
+    AccountShares: {
+      /**
+       * Account
+       * @description The account's name, as the person saved it.
+       */
+      account: string
+      /** Shares */
+      shares: number
+    }
+    /**
+     * AccountValue
+     * @description One of the accounts reviewed together, with its value at the latest prices.
+     */
+    AccountValue: {
+      /**
+       * Account
+       * @description The account's name, as the person saved it.
+       */
+      account: string
+      /**
+       * Holdings
+       * @description How many holdings it has.
+       */
+      holdings: number
+      /** Value */
+      value: number
+    }
+    /**
      * AgencyTotal
      * @description What one federal agency awarded the company over the window.
      */
@@ -1875,6 +1961,11 @@ export interface components {
      *     Returns and volatilities are decimals (0.25 = 25%), annualized from daily returns.
      */
     AssetRisk: {
+      /**
+       * Accounts
+       * @description In a review of several accounts together: the shares each account holds, which sum to ``shares``; empty when one portfolio is reviewed.
+       */
+      accounts?: components['schemas']['AccountShares'][]
       /** Annualized Return */
       annualized_return: number
       /**
@@ -3583,6 +3674,83 @@ export interface components {
       weight: number
     }
     /**
+     * HoldingChange
+     * @description One holding's total return over a window, or why it has none.
+     */
+    HoldingChange: {
+      /**
+       * Change
+       * @description Total return from ``start`` to the latest close, as a decimal, with dividends reinvested; null when ``unavailable`` says why there is none.
+       */
+      change?: number | null
+      /**
+       * Detail
+       * @description Why there is no change, in words.
+       */
+      detail?: string | null
+      /**
+       * Start
+       * @description Date of the close the change is measured from.
+       */
+      start?: string | null
+      /** Symbol */
+      symbol: string
+      /** Unavailable */
+      unavailable?: ('cash' | 'too_new' | 'no_data') | null
+    }
+    /**
+     * HoldingChangesResponse
+     * @description Each holding's total return since the same day, in the order asked.
+     */
+    HoldingChangesResponse: {
+      /** Changes */
+      changes: components['schemas']['HoldingChange'][]
+      /**
+       * Start
+       * Format: date
+       * @description The window's first day.
+       */
+      start: string
+      /**
+       * Window
+       * @description The preset window, or null for a custom ``since``.
+       */
+      window?:
+        ('1d' | '1w' | '1mo' | '3mo' | '6mo' | 'ytd' | '1y' | '2y' | '3y' | '5y' | '10y') | null
+    }
+    /**
+     * HoldingRange
+     * @description One holding's lowest and highest prices over the last 52 weeks.
+     */
+    HoldingRange: {
+      /** Detail */
+      detail?: string | null
+      /** High */
+      high?: number | null
+      /**
+       * Latest
+       * @description The latest daily close.
+       */
+      latest?: number | null
+      /** Low */
+      low?: number | null
+      /** Symbol */
+      symbol: string
+      /**
+       * Unavailable
+       * @description Why there is no range: ``cash`` or ``no_data``.
+       */
+      unavailable?: ('cash' | 'too_new' | 'no_data') | null
+    }
+    /**
+     * HoldingRangesResponse
+     * @description Each holding's 52-week range, in the order asked.
+     */
+    HoldingRangesResponse: {
+      /** Ranges */
+      ranges: components['schemas']['HoldingRange'][]
+    }
+    /**
      * HoldingShares
      * @description A saved position: how many shares of a symbol the account holds.
      */
@@ -4999,6 +5167,12 @@ export interface components {
      */
     PortfolioAnalysisRequest: {
       /**
+       * Combined
+       * @description Review every saved portfolio together, as one, in place of ``portfolio``: one review of the whole picture, telling Claude which account holds what.
+       * @default false
+       */
+      combined?: boolean
+      /**
        * History Months
        * @description A custom window of daily returns, in months, used instead of ``period``.
        */
@@ -5192,6 +5366,11 @@ export interface components {
      * @description The data a portfolio review is written from, sent to Claude verbatim.
      */
     PortfolioContext: {
+      /**
+       * Accounts
+       * @description The accounts reviewed together as one portfolio, with their values; empty when one portfolio is reviewed. Weights are shares of all of them combined.
+       */
+      accounts?: components['schemas']['AccountValue'][]
       /**
        * History Months
        * @description The custom window, in months, the statistics cover; null when they cover ``period``.
@@ -7500,6 +7679,8 @@ export interface operations {
       query?: {
         /** @description Which of your saved portfolios: 1 or 2. */
         portfolio?: number
+        /** @description The review of every portfolio together, not ``portfolio``. */
+        combined?: boolean
       }
       header?: never
       path?: never
@@ -7692,6 +7873,42 @@ export interface operations {
       }
     }
   }
+  read_changes_api_v1_portfolio_changes_get: {
+    parameters: {
+      query: {
+        /** @description Up to 40 ticker symbols, separated by commas. */
+        symbols: string
+        /** @description How far back to measure, from each latest close. */
+        window?: '1d' | '1w' | '1mo' | '3mo' | '6mo' | 'ytd' | '1y' | '2y' | '3y' | '5y' | '10y'
+        /** @description A custom first day, used instead of ``window``. */
+        since?: string | null
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HoldingChangesResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
   create_copula_fit_api_v1_portfolio_copula_post: {
     parameters: {
       query?: never
@@ -7809,6 +8026,38 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['PortfolioList']
+        }
+      }
+    }
+  }
+  read_ranges_api_v1_portfolio_ranges_get: {
+    parameters: {
+      query: {
+        /** @description Up to 40 ticker symbols, separated by commas. */
+        symbols: string
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HoldingRangesResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
         }
       }
     }

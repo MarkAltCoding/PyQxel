@@ -328,6 +328,64 @@ def test_the_second_portfolio_is_reviewed_with_its_cash(
     assert latest["id"] == second["id"]
 
 
+def test_both_portfolios_are_reviewed_together_with_their_accounts(
+    market: list[PortfolioContext],
+) -> None:
+    brokerage = {
+        "name": "Brokerage",
+        "holdings": [{"symbol": "AAPL", "shares": 10}, {"symbol": "MSFT", "shares": 5}],
+    }
+    roth: dict[str, Any] = {
+        "name": "Roth IRA",
+        "holdings": [
+            {"symbol": "AAPL", "shares": 5},
+            {"symbol": "XOM", "shares": 20},
+            {"symbol": "SPAXX", "shares": 1000},
+        ],
+    }
+    client.put("/api/v1/portfolio/holdings", params={"portfolio": 1}, json=brokerage)
+    client.put("/api/v1/portfolio/holdings", params={"portfolio": 2}, json=roth)
+
+    body = client.post("/api/v1/portfolio/analysis", json={"combined": True}).json()
+    again = client.post("/api/v1/portfolio/analysis", json={"combined": True}).json()
+    latest = client.get("/api/v1/portfolio/analysis", params={"combined": True}).json()
+    first_alone = client.get("/api/v1/portfolio/analysis", params={"portfolio": 1})
+
+    context = market[0]
+    # $4,000 in each: AAPL $2,000 + MSFT $2,000, and AAPL $1,000 + XOM $2,000 + $1,000 cash.
+    assert context.total_value == pytest.approx(8000.0)
+    assert [(a.account, round(a.value), a.holdings) for a in context.accounts] == [
+        ("Brokerage", 4000, 2),
+        ("Roth IRA", 4000, 3),
+    ]
+    apple = next(h for h in context.holdings if h.symbol == "AAPL")
+    assert apple.shares == 15 and apple.weight == pytest.approx(3000 / 8000)
+    assert [(a.account, a.shares) for a in apple.accounts] == [("Brokerage", 10), ("Roth IRA", 5)]
+    assert any("accounts combined" in note for note in body["plan"]["notes"])
+    assert again["cached"] is True and latest["id"] == body["id"]
+    assert first_alone.status_code == 404, "the combined review is kept apart from portfolio 1's"
+
+    roth["holdings"][1]["shares"] = 25
+    client.put("/api/v1/portfolio/holdings", params={"portfolio": 2}, json=roth)
+    changed = client.post("/api/v1/portfolio/analysis", json={"combined": True}).json()
+    assert changed["cached"] is False, "a change to either account is a new review"
+
+
+def test_the_combined_prompt_names_each_account(market: list[PortfolioContext]) -> None:
+    _save({"AAPL": 10})
+    client.put(
+        "/api/v1/portfolio/holdings",
+        params={"portfolio": 2},
+        json={"name": "Roth IRA", "holdings": [{"symbol": "XOM", "shares": 20}]},
+    )
+
+    exported = client.post("/api/v1/portfolio/analysis/prompt", json={"combined": True}).json()
+
+    assert '"account": "Roth IRA"' in exported["prompt"]
+    assert "Roth IRA" in exported["prompt"] and "several of their accounts" in exported["prompt"]
+    assert {h["symbol"] for h in exported["context"]["holdings"]} == {"AAPL", "XOM"}
+
+
 def test_a_custom_history_window_trims_the_returns(market: list[PortfolioContext]) -> None:
     _save({"AAPL": 10, "XOM": 20})
 

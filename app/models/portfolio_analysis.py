@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.portfolio import MAX_SYMBOLS, PortfolioNumber, PortfolioPeriod
+from app.models.portfolio import MAX_PORTFOLIOS, MAX_SYMBOLS, PortfolioNumber, PortfolioPeriod
 from app.models.research import RiskFactor
 
 
@@ -46,6 +46,12 @@ class PortfolioAnalysisRequest(BaseModel):
     """Options for a review of one of the saved portfolios."""
 
     portfolio: PortfolioNumber = Field(default=1, description="Which saved portfolio to review.")
+    combined: bool = Field(
+        default=False,
+        description="Review every saved portfolio together, as one, in place of "
+        "``portfolio``: one review of the whole picture, telling Claude which account "
+        "holds what.",
+    )
     profile: InvestorProfile = Field(default_factory=InvestorProfile)
     period: PortfolioPeriod = Field(
         default="1y", description="Window of daily returns the statistics are computed on."
@@ -69,6 +75,21 @@ class PortfolioAnalysisRequest(BaseModel):
         if self.history_months is None:
             return self.period
         return next(p for p, months in PERIOD_MONTHS.items() if self.history_months <= months)
+
+
+class AccountShares(BaseModel):
+    """How many shares of a holding one account holds, in a review of several accounts."""
+
+    account: str = Field(description="The account's name, as the person saved it.")
+    shares: float = Field(gt=0, allow_inf_nan=False)
+
+
+class AccountValue(BaseModel):
+    """One of the accounts reviewed together, with its value at the latest prices."""
+
+    account: str = Field(description="The account's name, as the person saved it.")
+    value: float = Field(ge=0, allow_inf_nan=False)
+    holdings: int = Field(ge=0, description="How many holdings it has.")
 
 
 class AssetRisk(BaseModel):
@@ -102,6 +123,11 @@ class AssetRisk(BaseModel):
         default=False,
         description="A money-market fund, counted as cash: its price stays at $1, so its "
         "statistics are zero.",
+    )
+    accounts: list[AccountShares] = Field(
+        default_factory=list,
+        description="In a review of several accounts together: the shares each account "
+        "holds, which sum to ``shares``; empty when one portfolio is reviewed.",
     )
 
 
@@ -159,7 +185,12 @@ class PortfolioContext(BaseModel):
     total_value: float = Field(
         gt=0, allow_inf_nan=False, description="Value of the priced holdings, at latest prices."
     )
-    holdings: list[AssetRisk] = Field(min_length=1, max_length=MAX_SYMBOLS)
+    holdings: list[AssetRisk] = Field(min_length=1, max_length=MAX_SYMBOLS * MAX_PORTFOLIOS)
+    accounts: list[AccountValue] = Field(
+        default_factory=list,
+        description="The accounts reviewed together as one portfolio, with their values; "
+        "empty when one portfolio is reviewed. Weights are shares of all of them combined.",
+    )
     sectors: dict[str, float] = Field(
         description="Weight in each sector, by the providers' classification; holdings "
         "without one are under Unclassified."
