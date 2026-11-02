@@ -21,8 +21,7 @@
 #                             and Nasdaq data, for a deployment only you use; when unset,
 #                             the running service's value is kept (false when deploying
 #                             for the first time)
-#   ADMIN_EMAIL               the account that sees admin settings, where it can turn the
-#                             yfinance fallback on for its own requests only; kept when unset
+#   ADMIN_EMAIL               the owner's account email; kept when unset
 #   GITHUB_CLIENT_ID          the GitHub OAuth app people sign in with, beside the
 #                             pyqxel-github-client-secret secret; kept when unset
 #   GOOGLE_CLIENT_ID          the Google OAuth client people sign in with, beside the
