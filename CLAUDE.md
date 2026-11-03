@@ -21,7 +21,7 @@ side you are changing before searching the code.
 | `app/ai/` | Claude: prompts (`prompts.py`), streaming, the coding assistant |
 | `app/models/` | Pydantic request/response schemas, the API contract |
 | `app/db/` | SQLAlchemy async tables (`tables.py`), storage helpers, Alembic `migrations/` |
-| `app/jobs/` | CLIs: `users` (accounts, keys), `screener` (nightly refresh), `openapi` |
+| `app/jobs/` | CLIs: `users` (accounts, keys), `screener` (the shared screener's nightly refresh), `nightly` (each user's own screener, hourly), `openapi` |
 | `tests/` | pytest, offline: every provider is monkeypatched |
 | `web/src/pages/` | One component per route: Stock, Markets, Portfolio, Backtest, Screener, Settings |
 | `web/src/runners/` | In-browser Python/C++ strategy runners (Web Workers) |
