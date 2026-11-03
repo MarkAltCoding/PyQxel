@@ -15,7 +15,7 @@ from app.data.news import (
     fetch_company_news,
 )
 from app.models.news import NewsResponse
-from app.stats.news import summarize_news
+from app.stats.news import score_company_news, summarize_news
 
 router = APIRouter()
 
@@ -46,11 +46,14 @@ async def get_news(
     """Return the last two weeks of news about ``symbol`` from Finnhub, newest first.
 
     ``overview`` counts every article in the window by day and by publisher, while
-    ``articles`` holds the newest ``limit`` of them. Copies of a syndicated story under
-    the same headline count once. News is fetched on your own Finnhub key
-    (``X-Finnhub-Key``), whose free plan covers North American companies, and
-    reused for ten minutes. When Finnhub cannot be reached, the last news fetched in the
-    past day is returned with a ``notice``.
+    ``articles`` holds the newest ``limit`` of them. Each article's ``importance``, from 0
+    to 1, scores how much it looks to matter for the company's shares: the company events
+    its headline names (results and guidance, analyst ratings, deals, leadership, legal
+    and regulatory news), whether it names the ticker, its publisher, and how recent it
+    is. Copies of a syndicated story under the same headline count once. News is fetched
+    on your own Finnhub key (``X-Finnhub-Key``), whose free plan covers North American
+    companies, and reused for ten minutes. When Finnhub cannot be reached, the last news
+    fetched in the past day is returned with a ``notice``.
 
     Returns 403 without a valid Finnhub key, 402 when your plan does not cover the
     company, 503 when Finnhub rate limits your key, and 502 when Finnhub fails.
@@ -70,7 +73,7 @@ async def get_news(
         start=news.start,
         end=news.end,
         overview=summarize_news(news, datetime.now(timezone.utc)),
-        articles=news.articles[:limit],
+        articles=score_company_news(news.articles[:limit], news.symbol, datetime.now(timezone.utc)),
         fetched_at=news.fetched_at,
         notice=notice,
     )

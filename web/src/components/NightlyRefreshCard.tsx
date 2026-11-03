@@ -4,7 +4,14 @@ import { disableNightlyRefresh, enableNightlyRefresh, getNightlyRefresh } from '
 import type { Account, NightlyRefreshStatus } from '../api/types'
 import { dateTime, shortDate } from '../lib/format'
 import { DATA_PROVIDER_NAMES } from '../lib/keyCoverage'
-import { browserTimeZone, NIGHTLY_QUERY_KEY } from '../lib/nightlyRefresh'
+import {
+  DEFAULT_TIME_ZONE,
+  inTimeZone,
+  NIGHTLY_QUERY_KEY,
+  otherTimeZones,
+  timeZoneLabel,
+  US_TIME_ZONES,
+} from '../lib/nightlyRefresh'
 import { InfoTip } from './InfoTip'
 import { ErrorNotice, Notice } from './Notice'
 import { Stat } from './Stat'
@@ -14,13 +21,15 @@ export function NightlyRefreshCard({ account }: { account: Account }) {
   const queryClient = useQueryClient()
   const status = useQuery({ queryKey: NIGHTLY_QUERY_KEY, queryFn: getNightlyRefresh })
   const [time, setTime] = useState<string | null>(null)
+  const [zone, setZone] = useState<string | null>(null)
   const onChanged = (data: NightlyRefreshStatus) => {
     queryClient.setQueryData(NIGHTLY_QUERY_KEY, data)
     setTime(null)
+    setZone(null)
   }
   const enable = useMutation({
-    mutationFn: (refresh_time: string) =>
-      enableNightlyRefresh({ refresh_time, time_zone: browserTimeZone() }),
+    mutationFn: ({ refresh_time, time_zone }: { refresh_time: string; time_zone: string }) =>
+      enableNightlyRefresh({ refresh_time, time_zone }),
     onSuccess: onChanged,
   })
   const disable = useMutation({ mutationFn: disableNightlyRefresh, onSuccess: onChanged })
@@ -28,6 +37,10 @@ export function NightlyRefreshCard({ account }: { account: Account }) {
   const busy = enable.isPending || disable.isPending
   const hasFinnhub = Boolean(account.finnhub?.configured)
   const shownTime = time ?? data?.refresh_time ?? '19:00'
+  const shownZone = zone ?? data?.time_zone ?? DEFAULT_TIME_ZONE
+  const changed =
+    (time !== null && time !== data?.refresh_time) || (zone !== null && zone !== data?.time_zone)
+  const choice = { refresh_time: shownTime, time_zone: shownZone }
   const error = enable.error ?? disable.error ?? status.error
 
   return (
@@ -63,14 +76,12 @@ export function NightlyRefreshCard({ account }: { account: Account }) {
             type="checkbox"
             checked={Boolean(data?.enabled)}
             disabled={!data?.available || busy || (!data.enabled && !hasFinnhub)}
-            onChange={(event) =>
-              event.target.checked ? enable.mutate(shownTime) : disable.mutate()
-            }
+            onChange={(event) => (event.target.checked ? enable.mutate(choice) : disable.mutate())}
           />
           <span>Refresh my own screener every night</span>
         </label>
         <label className="field" style={{ width: 150 }}>
-          <span>Start at ({browserTimeZone()})</span>
+          <span>Start at</span>
           <input
             type="time"
             value={shownTime}
@@ -78,22 +89,40 @@ export function NightlyRefreshCard({ account }: { account: Account }) {
             onChange={(event) => setTime(event.target.value)}
           />
         </label>
-        {data?.enabled && time !== null && time !== data.refresh_time && (
+        <label className="field" style={{ width: 300, maxWidth: '100%' }}>
+          <span>Time zone</span>
+          <select
+            value={shownZone}
+            disabled={!data?.available || busy}
+            onChange={(event) => setZone(event.target.value)}
+          >
+            <optgroup label="United States">
+              {US_TIME_ZONES.map((us) => (
+                <option key={us.value} value={us.value}>
+                  {us.label}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Elsewhere">
+              {otherTimeZones().map((other) => (
+                <option key={other} value={other}>
+                  {timeZoneLabel(other)}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+        </label>
+        {data?.enabled && changed && (
           <button
             type="button"
             className="button primary"
-            disabled={busy || !time}
-            onClick={() => enable.mutate(time)}
+            disabled={busy || !shownTime}
+            onClick={() => enable.mutate(choice)}
           >
             Save time
           </button>
         )}
       </div>
-      {data?.enabled && data.time_zone && data.time_zone !== browserTimeZone() && (
-        <p className="disclaimer">
-          Saved in {data.time_zone}. Saving the time again uses this browser’s time zone.
-        </p>
-      )}
 
       {data && <RefreshStatus status={data} />}
       {error !== null && <ErrorNotice error={error} />}
@@ -148,7 +177,11 @@ function RefreshStatus({ status }: { status: NightlyRefreshStatus }) {
             <Stat
               info="nightlyNextRefresh"
               label="Next refresh"
-              value={status.next_run_at ? dateTime(status.next_run_at) : '–'}
+              value={
+                status.next_run_at
+                  ? inTimeZone(status.next_run_at, status.time_zone ?? DEFAULT_TIME_ZONE)
+                  : '–'
+              }
               detail="Starts within the hour after"
             />
           )}

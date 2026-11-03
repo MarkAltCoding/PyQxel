@@ -27,7 +27,13 @@ from app.data.news import (
 )
 from app.main import app
 from app.models.news import CompanyNews, NewsArticle
-from app.stats.news import CONTEXT_ARTICLES, news_context, summarize_news
+from app.stats.news import (
+    CONTEXT_ARTICLES,
+    company_headline_importance,
+    news_context,
+    score_company_news,
+    summarize_news,
+)
 
 KEY = "fh-user-key"
 NOW = datetime(2026, 10, 22, 15, 0, tzinfo=timezone.utc)
@@ -407,3 +413,34 @@ def test_publisher_suffix_is_dropped_from_headlines() -> None:
     )
 
     assert [a.headline for a in articles] == ["Stocks rise", "Rates - fall"]
+
+
+def test_company_headlines_are_scored_by_what_they_mean_for_the_shares() -> None:
+    """Results, guidance and deals that name the ticker, from a major publisher, score above
+    a passing mention; older headlines fade."""
+    now = datetime(2026, 11, 3, 12, tzinfo=timezone.utc)
+
+    def article(headline: str, source: str = "Reuters", hours: float = 1) -> NewsArticle:
+        return NewsArticle(
+            published_at=now - timedelta(hours=hours),
+            headline=headline,
+            source=source,
+            url=f"https://example.com/{len(headline)}-{hours}",
+        )
+
+    big = company_headline_importance(
+        article("AAPL beats earnings estimates and raises guidance"), "AAPL", now
+    )
+    passing = company_headline_importance(
+        article("Five gadgets to buy this holiday", source="Yahoo"), "AAPL", now
+    )
+    stale = company_headline_importance(
+        article("AAPL beats earnings estimates and raises guidance", hours=120), "AAPL", now
+    )
+
+    assert 0 <= passing < stale < big <= 1
+    assert big > 0.95
+    scored = score_company_news(
+        [article("Apple to buy a chip maker in $3 billion deal")], "AAPL", now
+    )
+    assert scored[0].importance is not None and scored[0].importance > passing

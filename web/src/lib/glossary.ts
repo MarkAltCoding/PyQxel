@@ -743,6 +743,18 @@ const entries = {
     what: 'How many requests your account may make to PyQxel each minute, across every page. It keeps the server responsive for everyone.',
   },
 
+  // ── News order ──
+  marketNewsOrder: {
+    title: 'Most important market news',
+    what: 'Most important puts first the headlines that look most likely to move markets as a whole. PyQxel scores each one from what it is about (the Fed, interest rates, inflation, jobs and the economy count most, then big market moves, trade and large company events such as mergers and earnings), whether a major publisher such as Reuters, Bloomberg or The Wall Street Journal ran it, and how recent it is: a headline counts about half as much after a day. Newest simply lists them by time.',
+    note: 'It is a rule of thumb that reads headlines for key words, not a judgement of each story, so an important story with a plain headline can rank low.',
+  },
+  companyNewsOrder: {
+    title: 'Most important company news',
+    what: 'Most important puts first the headlines that look most likely to matter for this company’s shares. PyQxel scores each one from what it is about (results and guidance count most, then analyst upgrades and downgrades, mergers and deals, buybacks and dividends, leadership changes, lawsuits and regulators, and drug approvals), whether the headline names the ticker, whether a major publisher such as Reuters or Bloomberg ran it, and how recent it is: a headline counts about half as much after two days. Newest simply lists them by time.',
+    note: 'It is a rule of thumb that reads headlines for key words, not a judgement of each story, so an important story with a plain headline can rank low, and a market-wide story that mentions the company can rank high.',
+  },
+
   // ── Nightly screener refresh ──
   nightlyRefresh: {
     title: 'Nightly screener refresh',

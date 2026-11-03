@@ -70,4 +70,25 @@ describe('NewsCard', () => {
     expect(screen.getByText('1–20 of 25 headlines')).toBeInTheDocument()
     expect(window.localStorage.getItem('pyqxel.marketNewsPerPage')).toBe('20')
   })
+
+  it('puts the most important headlines first, or the newest, and explains how', async () => {
+    const scored: NewsResponse = {
+      ...NEWS,
+      articles: NEWS.articles.slice(0, 3).map((article, i) => ({
+        ...article,
+        importance: [0.2, 0.9, 0.5][i],
+      })),
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () => new Response(JSON.stringify(scored)),
+    )
+    renderCard()
+
+    await waitFor(() => expect(headlines()).toHaveLength(3))
+    expect(headlines()).toEqual(['Apple headline 2', 'Apple headline 3', 'Apple headline 1'])
+    expect(screen.getByRole('button', { name: /Most important company news/ })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Newest' }))
+    expect(headlines()).toEqual(['Apple headline 1', 'Apple headline 2', 'Apple headline 3'])
+  })
 })

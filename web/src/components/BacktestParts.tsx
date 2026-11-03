@@ -1,4 +1,4 @@
-// Pieces the single-stock and cross-sectional backtests share.
+// Pieces the single-security and cross-sectional backtests share.
 import type { ReactNode } from 'react'
 import type { BacktestResponse, PerformanceMetrics } from '../api/types'
 import { FACTOR_INFO, FACTOR_NAMES } from '../lib/factors'

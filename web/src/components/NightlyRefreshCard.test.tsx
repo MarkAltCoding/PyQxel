@@ -65,7 +65,10 @@ describe('NightlyRefreshCard', () => {
     await waitFor(() => expect(box).toBeChecked())
     const put = fetch.mock.calls.find(([, init]) => init?.method === 'PUT')
     expect(put).toBeDefined()
-    expect(JSON.parse(String(put![1]!.body))).toMatchObject({ refresh_time: '19:00' })
+    expect(JSON.parse(String(put![1]!.body))).toEqual({
+      refresh_time: '19:00',
+      time_zone: 'America/New_York',
+    })
     expect(screen.getByText(/Stored, encrypted: Finnhub, Tiingo/)).toBeInTheDocument()
     expect(screen.getByText(/Finnhub rejected your API key/)).toBeInTheDocument()
     expect(screen.getByText('3,120')).toBeInTheDocument()
@@ -95,5 +98,25 @@ describe('NightlyRefreshCard', () => {
     const box = await screen.findByRole('checkbox', { name: /refresh my own screener/i })
     await screen.findByText(/Add your Finnhub key above first/)
     expect(box).toBeDisabled()
+  })
+
+  it('saves a time zone the user picks', async () => {
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response(JSON.stringify(ON)))
+    renderCard()
+    const zone = await screen.findByRole('combobox', { name: 'Time zone' })
+    await waitFor(() => expect(zone).toHaveValue('America/Chicago'))
+
+    await userEvent.selectOptions(zone, 'America/Los_Angeles')
+    await userEvent.click(screen.getByRole('button', { name: 'Save time' }))
+
+    await waitFor(() => {
+      const put = fetch.mock.calls.find(([, init]) => init?.method === 'PUT')
+      expect(JSON.parse(String(put![1]!.body))).toEqual({
+        refresh_time: '19:00',
+        time_zone: 'America/Los_Angeles',
+      })
+    })
   })
 })

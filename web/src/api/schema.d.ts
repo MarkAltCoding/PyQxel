@@ -1392,11 +1392,14 @@ export interface paths {
      * @description Return the last two weeks of news about ``symbol`` from Finnhub, newest first.
      *
      *     ``overview`` counts every article in the window by day and by publisher, while
-     *     ``articles`` holds the newest ``limit`` of them. Copies of a syndicated story under
-     *     the same headline count once. News is fetched on your own Finnhub key
-     *     (``X-Finnhub-Key``), whose free plan covers North American companies, and
-     *     reused for ten minutes. When Finnhub cannot be reached, the last news fetched in the
-     *     past day is returned with a ``notice``.
+     *     ``articles`` holds the newest ``limit`` of them. Each article's ``importance``, from 0
+     *     to 1, scores how much it looks to matter for the company's shares: the company events
+     *     its headline names (results and guidance, analyst ratings, deals, leadership, legal
+     *     and regulatory news), whether it names the ticker, its publisher, and how recent it
+     *     is. Copies of a syndicated story under the same headline count once. News is fetched
+     *     on your own Finnhub key (``X-Finnhub-Key``), whose free plan covers North American
+     *     companies, and reused for ten minutes. When Finnhub cannot be reached, the last news
+     *     fetched in the past day is returned with a ``notice``.
      *
      *     Returns 403 without a valid Finnhub key, 402 when your plan does not cover the
      *     company, 503 when Finnhub rate limits your key, and 502 when Finnhub fails.
@@ -4740,7 +4743,7 @@ export interface components {
       headline: string
       /**
        * Importance
-       * @description How market-moving the headline looks, from 0 to 1: its publisher, the topics it names and how recent it is; null where not scored.
+       * @description How much the headline looks to matter, from 0 to 1: for market news, how market-moving it looks; for a company's news, how much it looks to matter for its shares. Both weigh the topics it names, its publisher and how recent it is; null where not scored.
        */
       importance?: number | null
       /**

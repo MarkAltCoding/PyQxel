@@ -1433,6 +1433,13 @@ table.data .muted {
 
 /* ── Information tips beside stats, models and charts ── */
 /* A heading with its "i" beside it, outside the heading so its name stays clean. */
+/* A control with the "i" explaining it beside it, kept on one line. */
+.control-with-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .heading-with-info {
   display: flex;
   align-items: center;

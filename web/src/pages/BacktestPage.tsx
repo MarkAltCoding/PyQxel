@@ -325,12 +325,13 @@ function strategyOf(form: Form): Strategy {
 type Mode = 'stock' | 'universe'
 
 const MODES: { value: Mode; label: string }[] = [
-  { value: 'stock', label: 'Single stock' },
+  { value: 'stock', label: 'Single security' },
   { value: 'universe', label: 'Across tickers' },
 ]
 
 const SUBTITLES: Record<Mode, string> = {
-  stock: 'Run a trading rule over history and compare it with buying and holding.',
+  stock:
+    'Run a trading rule over the history of a stock, ETF or fund and compare it with buying and holding.',
   universe:
     'Rank a set of stocks against one another and hold the best, or write code that trades any tickers it names, and compare it with holding them all.',
 }

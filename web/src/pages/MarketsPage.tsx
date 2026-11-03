@@ -5,11 +5,13 @@ import { ApiError } from '../api/client'
 import { getMarketCalendar, getMarketNews } from '../api/endpoints'
 import type { MarketCalendar, MarketNewsCategory, NewsArticle } from '../api/types'
 import { calendarRows, type CalendarRow } from '../lib/calendar'
+import { InfoTip } from '../components/InfoTip'
 import { MultiToggle } from '../components/MultiToggle'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { Pager } from '../components/Pager'
 import { PresetOrCustom } from '../components/PresetOrCustom'
 import { Segmented } from '../components/Segmented'
+import { NEWS_ORDERS, sortNews, type NewsOrder } from '../lib/newsOrder'
 import { timeAgo } from '../lib/format'
 import { safeUrl } from '../lib/safeUrl'
 import { PAGE_SIZES, storedPageSize } from '../lib/paging'
@@ -51,13 +53,6 @@ const CATEGORIES: { value: MarketNewsCategory; label: string }[] = [
   { value: 'merger', label: 'Mergers' },
   { value: 'forex', label: 'Forex' },
   { value: 'crypto', label: 'Crypto' },
-]
-
-type NewsOrder = 'importance' | 'newest'
-
-const ORDERS: { value: NewsOrder; label: string }[] = [
-  { value: 'importance', label: 'Most important' },
-  { value: 'newest', label: 'Newest' },
 ]
 
 const PAGE_SIZE_KEY = 'pyqxel.marketNewsPerPage'
@@ -197,10 +192,7 @@ function CalendarList({ calendar, kinds }: { calendar: MarketCalendar; kinds: Ki
 function mergeNews(lists: NewsArticle[][], order: NewsOrder): NewsArticle[] {
   const byUrl = new Map<string, NewsArticle>()
   for (const article of lists.flat()) if (!byUrl.has(article.url)) byUrl.set(article.url, article)
-  const newest = (a: NewsArticle, b: NewsArticle) => b.published_at.localeCompare(a.published_at)
-  return [...byUrl.values()].sort((a, b) =>
-    order === 'newest' ? newest(a, b) : (b.importance ?? 0) - (a.importance ?? 0) || newest(a, b),
-  )
+  return sortNews([...byUrl.values()], order)
 }
 
 function MarketNewsCard({
@@ -254,15 +246,18 @@ function MarketNewsCard({
               onCategories(next)
             }}
           />
-          <Segmented
-            label="Order"
-            value={order}
-            options={ORDERS}
-            onChange={(next) => {
-              setPage(1)
-              setOrder(next)
-            }}
-          />
+          <span className="control-with-info">
+            <Segmented
+              label="Order"
+              value={order}
+              options={NEWS_ORDERS}
+              onChange={(next) => {
+                setPage(1)
+                setOrder(next)
+              }}
+            />
+            <InfoTip topic="marketNewsOrder" />
+          </span>
         </div>
       </div>
       {categories.length === 0 ? (

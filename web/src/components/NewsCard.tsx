@@ -9,17 +9,21 @@ import { NewsChart, NewsTable } from '../charts/NewsChart'
 import { number, shortDate, timeAgo } from '../lib/format'
 import { PAGE_SIZES, storedPageSize } from '../lib/paging'
 import { writeStored } from '../lib/storage'
+import { InfoTip } from './InfoTip'
 import { Notice } from './Notice'
 import { Pager } from './Pager'
 import { Stat } from './Stat'
 import { safeUrl } from '../lib/safeUrl'
+import { NEWS_ORDERS, sortNews, type NewsOrder } from '../lib/newsOrder'
+import { Segmented } from './Segmented'
 
 /** Shared with the market news, so a viewer's choice of page size holds for both. */
 const PAGE_SIZE_KEY = 'pyqxel.marketNewsPerPage'
 
 /**
  * The last two weeks of news about a stock, from Finnhub on the account's own key: how
- * much coverage it drew, from whom, and the newest headlines.
+ * much coverage it drew, from whom, and its headlines, the most important or the newest
+ * first.
  */
 export function NewsCard({ symbol }: { symbol: string }) {
   const news = useQuery({
@@ -27,12 +31,13 @@ export function NewsCard({ symbol }: { symbol: string }) {
     queryFn: () => getNews(symbol),
     retry: (count, error) => !(error instanceof ApiError && error.status < 500) && count < 2,
   })
+  const [order, setOrder] = useState<NewsOrder>('importance')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(() => storedPageSize(PAGE_SIZE_KEY))
   const noKey = news.error instanceof ApiError && news.error.status === 403
   const data = news.data
   const overview = data?.overview
-  const articles = data?.articles ?? []
+  const articles = sortNews(data?.articles ?? [], order)
   const pages = Math.max(1, Math.ceil(articles.length / pageSize))
   const current = Math.min(page, pages)
   const shown = articles.slice((current - 1) * pageSize, current * pageSize)
@@ -103,6 +108,18 @@ export function NewsCard({ symbol }: { symbol: string }) {
                     </span>
                   ))}
                 </div>
+                <span className="control-with-info" style={{ alignSelf: 'flex-start' }}>
+                  <Segmented
+                    label="Order"
+                    value={order}
+                    options={NEWS_ORDERS}
+                    onChange={(next) => {
+                      setPage(1)
+                      setOrder(next)
+                    }}
+                  />
+                  <InfoTip topic="companyNewsOrder" />
+                </span>
                 <ul className="news-list">
                   {shown.map((article) => (
                     <Article key={article.url} article={article} />
