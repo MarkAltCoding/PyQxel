@@ -47,6 +47,13 @@ side you are changing before searching the code.
   come from `web/src-tauri/app-icon.svg`:
   `npx tauri icon src-tauri/app-icon.svg --ios-color "#2a78d6"` (in `web/`). The server
   allows the app's origins (`tauri://localhost`, `http://tauri.localhost`) in `cors_origins`.
+- **iOS app:** the Xcode project is `web/src-tauri/gen/apple` (from `tauri ios init`; it
+  needs `xcodegen`). Xcode builds it only while a `tauri ios` command runs, which
+  compiles the Rust side. For the Simulator against a local API:
+  `VITE_API_ORIGIN=http://localhost:8000 npx tauri ios build --target aarch64-sim --debug --no-sign`,
+  then `xcrun simctl install booted src-tauri/gen/apple/build/arm64-sim/PyQxel.app`. A
+  debug build's web view is inspectable (`ios_webkit_debug_proxy`). On a phone it runs at
+  `tauri://localhost`, an origin the server already allows.
 - **Migrations:** `venv/bin/alembic upgrade head` (local Postgres from `.env`). A test
   fails if the models and migrations differ, so every table change needs a new revision
   in `app/db/migrations/versions/` (numbered `00NN_...`; use `batch_alter_table`, since
