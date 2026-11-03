@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.v1.endpoints.stocks import Symbol
 from app.data.alpha_vantage import fetch_financials_filled
-from app.data.exchange_rates import fetch_exchange_rate
+from app.data.exchange_rates import ExchangeRate, fetch_sourced_exchange_rate
 from app.data.fetcher import DataFetchError, SymbolNotFoundError, fetch_ticker_info
 from app.data.fundamentals import FinancialsNotFoundError
 from app.data.sec_edgar import CompanyNotFoundError, EdgarNotConfiguredError, FilingFetchError
@@ -128,13 +128,15 @@ def listing_currency(info: TickerInfo) -> str:
     return (info.currency or DEFAULT_LISTING_CURRENCY).upper()
 
 
-async def statement_exchange_rate(financials: Financials, info: TickerInfo | None) -> float | None:
-    """Listing currency per unit of the statements' currency, when they differ and a rate
-    is available; ``None`` otherwise."""
+async def statement_exchange_rate(
+    financials: Financials, info: TickerInfo | None
+) -> ExchangeRate | None:
+    """Listing currency per unit of the statements' currency, with its source, when they
+    differ and a rate is available; ``None`` otherwise."""
     if info is None or financials.currency.upper() == listing_currency(info):
         return None
     try:
-        return await fetch_exchange_rate(financials.currency, listing_currency(info))
+        return await fetch_sourced_exchange_rate(financials.currency, listing_currency(info))
     except DataFetchError:
         return None
 
@@ -142,22 +144,29 @@ async def statement_exchange_rate(financials: Financials, info: TickerInfo | Non
 def build_fundamentals(
     financials: Financials,
     info: TickerInfo | None,
-    exchange_rate: float | None = None,
+    exchange_rate: ExchangeRate | float | None = None,
     today: date | None = None,
 ) -> tuple[Fundamentals, list[str]]:
     """Value the company from ``info`` and say what is missing or stale.
 
     The valuation is left out when there is no market value. Statements in a currency
-    other than the listing's are converted at ``exchange_rate``; see
-    :func:`~app.stats.valuation.value_company`.
+    other than the listing's are converted at ``exchange_rate``, whose source the
+    valuation's notes name; see :func:`~app.stats.valuation.value_company`.
     """
+    if isinstance(exchange_rate, float):
+        exchange_rate = ExchangeRate(rate=exchange_rate, source="")
     notices = _freshness_notices(financials, today or date.today())
     valuation = None
     if info is None:
         notices.append("No market value is available, so valuation multiples were left out.")
     else:
         valuation = value_company(
-            financials, info.price, info.market_cap, listing_currency(info), exchange_rate
+            financials,
+            info.price,
+            info.market_cap,
+            listing_currency(info),
+            None if exchange_rate is None else exchange_rate.rate,
+            None if exchange_rate is None else exchange_rate.source or None,
         )
         if valuation is None:
             notices.append(

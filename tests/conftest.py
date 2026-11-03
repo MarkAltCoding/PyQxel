@@ -36,7 +36,12 @@ from app.core.config import get_settings  # noqa: E402
 from app.core.credentials import ProviderKeys, use_provider_keys  # noqa: E402
 from app.core.rate_limit import clear_local_counts  # noqa: E402
 from app.data.factors import clear_factor_memory  # noqa: E402
-from app.data.fetcher import clear_alpha_vantage_memory, clear_quote_cache  # noqa: E402
+from app.data import exchange_rates  # noqa: E402
+from app.data.fetcher import (  # noqa: E402
+    DataFetchError,
+    clear_alpha_vantage_memory,
+    clear_quote_cache,
+)  # noqa: E402
 from app.api.v1.endpoints import markets as markets_route  # noqa: E402
 from app.api.v1.endpoints import search as search_route  # noqa: E402
 from app.data.finnhub import clear_signals_memory  # noqa: E402
@@ -85,6 +90,17 @@ def no_fed_calendar(monkeypatch: pytest.MonkeyPatch) -> None:
         return FALLBACK_MEETINGS
 
     monkeypatch.setattr(markets_route, "fetch_fomc_meetings", fallback)
+
+
+@pytest.fixture(autouse=True)
+def no_ecb_rates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ECB's reference rates are unreachable, so no test reaches ecb.europa.eu and rates
+    come from the providers; tests of the ECB's rates serve them themselves."""
+
+    async def unreachable() -> None:
+        raise DataFetchError("The ECB is not reached in tests.")
+
+    monkeypatch.setattr(exchange_rates, "fetch_ecb_rates", unreachable)
 
 
 @pytest.fixture(autouse=True)

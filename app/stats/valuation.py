@@ -33,6 +33,7 @@ def value_company(
     market_cap: float | None,
     listing_currency: str = "USD",
     exchange_rate: float | None = None,
+    exchange_rate_source: str | None = None,
 ) -> Valuation | None:
     """Combine the market value with ``financials`` into multiples, margins and returns.
 
@@ -47,6 +48,9 @@ def value_company(
         exchange_rate: Units of ``listing_currency`` per unit of the statements'
             currency, when the two differ. Without it, the multiples comparing statement
             figures with the market value are null; margins and returns are unaffected.
+        exchange_rate_source: Where ``exchange_rate`` came from, named in the note that
+            says it was used, e.g. "the European Central Bank's reference rate for Oct 30,
+            2026", as the ECB's terms ask.
 
     Returns:
         The valuation, or ``None`` when no market value can be established.
@@ -72,8 +76,9 @@ def value_company(
     elif not same_currency:
         notes.append(
             f"The financial statements are in {financials.currency}; they are compared with "
-            f"the market value at the latest rate of {rate:.6g} {listing_currency} per "
-            f"{financials.currency}, not the rates of the periods they cover."
+            f"the market value at {exchange_rate_source or 'the latest rate'} "
+            f"({rate:.6g} {listing_currency} per {financials.currency}), not the rates of the "
+            "periods they cover."
         )
 
     def converted(amount: float | None) -> float | None:

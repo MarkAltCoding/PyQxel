@@ -37,7 +37,7 @@ So PyQxel follows these rules:
 | Intraday bars (1–90 min) | Stock page chart, intraday backtests | yfinance |
 | Quotes | Holdings, stock page | Finnhub (free plan, US); yfinance otherwise |
 | Company info: name, sector, industry, market cap, type | Stock page, portfolio sectors, cash detection | FMP or Finnhub where covered; yfinance otherwise |
-| Exchange rates | Converting foreign filers' financials to dollars | yfinance (`EURUSD=X`) |
+| Exchange rates | Converting foreign filers' financials to dollars | **Done:** the European Central Bank's reference rates since November 2, 2026; the user's own keys for currencies the ECB does not publish |
 | Screener: market caps, sectors, industries | The nightly screener refresh | Nasdaq's public feed |
 | Screener: about 13 months of daily prices per stock | Momentum, volatility, drawdown, factor betas | yfinance |
 | Financial statements | Fundamentals, valuation, screener | SEC EDGAR (public; no change needed) |

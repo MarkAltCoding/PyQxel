@@ -127,3 +127,119 @@ async def test_no_key_and_no_fallback_means_no_rate(monkeypatch: pytest.MonkeyPa
 
     with pytest.raises(ProviderNotConfiguredError):
         await fetch_exchange_rate("EUR")
+
+
+# The European Central Bank's reference rates.
+
+ECB_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
+<gesmes:Envelope xmlns:gesmes="http://www.gesmes.org/xml/2002-08-01"
+    xmlns="http://www.ecb.int/vocabulary/2002-08-01/eurofxref">
+  <gesmes:subject>Reference rates</gesmes:subject>
+  <Cube>
+    <Cube time='2026-10-30'>
+      <Cube currency='USD' rate='1.1200'/>
+      <Cube currency='JPY' rate='176.00'/>
+      <Cube currency='GBP' rate='0.8400'/>
+    </Cube>
+  </Cube>
+</gesmes:Envelope>"""
+
+
+@pytest.fixture
+def ecb(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Serve :data:`ECB_XML` as the ECB's feed, through the real fetcher; return the URLs
+    asked for."""
+    requested: list[str] = []
+    monkeypatch.setattr(exchange_rates, "fetch_ecb_rates", ECB_FETCH)
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requested.append(str(request.url))
+        return httpx2.Response(200, content=ECB_XML)
+
+    real_client = httpx2.AsyncClient
+
+    def client(*args: Any, **kwargs: Any) -> httpx2.AsyncClient:
+        return real_client(transport=httpx2.MockTransport(handler))
+
+    monkeypatch.setattr(httpx2, "AsyncClient", client)
+    return requested
+
+
+ECB_FETCH = exchange_rates.fetch_ecb_rates
+"""The real fetcher, kept before the test setup makes the ECB unreachable."""
+
+
+def test_the_ecb_feed_is_read_with_the_euro_itself() -> None:
+    rates = exchange_rates.parse_ecb_rates(ECB_XML)
+    assert rates.day.isoformat() == "2026-10-30"
+    assert rates.per_euro == {"EUR": 1.0, "USD": 1.12, "JPY": 176.0, "GBP": 0.84}
+    with pytest.raises(DataFetchError):
+        exchange_rates.parse_ecb_rates(b"<html>Service unavailable</html>")
+
+
+@pytest.mark.asyncio
+async def test_the_ecb_answers_first_with_cross_rates_and_its_credit(
+    ecb: list[str], _fake_yfinance: list[tuple[str, str]]
+) -> None:
+    eur = await exchange_rates.fetch_sourced_exchange_rate("EUR", "USD")
+    jpy = await exchange_rates.fetch_sourced_exchange_rate("jpy")
+    gbp_in_yen = await exchange_rates.fetch_sourced_exchange_rate("GBP", "JPY")
+
+    assert eur.rate == pytest.approx(1.12)
+    assert jpy.rate == pytest.approx(1.12 / 176.0)
+    assert gbp_in_yen.rate == pytest.approx(176.0 / 0.84)
+    assert eur.source == "the European Central Bank's reference rate for Oct 30, 2026"
+    # The ECB publishes rates per euro; any other pair is calculated, and says so.
+    assert jpy.source == (
+        "a rate worked out from the European Central Bank's euro reference rates for "
+        "Oct 30, 2026"
+    )
+    assert _fake_yfinance == [], "no provider is asked for a pair the ECB publishes"
+    assert len(ecb) == 1, "the day's rates are fetched once and reused"
+
+
+@pytest.mark.asyncio
+async def test_currencies_the_ecb_does_not_publish_come_from_the_providers(
+    ecb: list[str], _fake_yfinance: list[tuple[str, str]]
+) -> None:
+    twd = await exchange_rates.fetch_sourced_exchange_rate("TWD")
+    assert twd.rate == 0.031 and twd.source == "yfinance's latest quote"
+    assert _fake_yfinance == [("TWD", "USD")]
+
+
+@pytest.mark.asyncio
+async def test_when_the_ecb_is_down_the_providers_answer(
+    monkeypatch: pytest.MonkeyPatch, _fake_yfinance: list[tuple[str, str]]
+) -> None:
+    monkeypatch.setattr(exchange_rates, "fetch_ecb_rates", ECB_FETCH)
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(503)
+
+    real_client = httpx2.AsyncClient
+    monkeypatch.setattr(
+        httpx2,
+        "AsyncClient",
+        lambda *args, **kwargs: real_client(transport=httpx2.MockTransport(handler)),
+    )
+
+    assert await fetch_exchange_rate("EUR") == 1.12
+    assert _fake_yfinance == [("EUR", "USD")]
+
+
+def test_a_converted_valuation_credits_the_rates_source() -> None:
+    from app.api.v1.endpoints.fundamentals import build_fundamentals
+    from app.models.stock import TickerInfo
+    from tests.financials import sample_financials
+
+    info = TickerInfo(symbol="SAP", price=200.0, market_cap=1e9, currency="USD", source="fmp")
+    rate = exchange_rates.ExchangeRate(
+        rate=1.12, source="the European Central Bank's reference rate for Oct 30, 2026"
+    )
+    fundamentals, _ = build_fundamentals(sample_financials(currency="EUR"), info, rate)
+
+    assert fundamentals.valuation is not None
+    assert any(
+        "European Central Bank's reference rate for Oct 30, 2026 (1.12 USD per EUR)" in note
+        for note in fundamentals.valuation.notes
+    )

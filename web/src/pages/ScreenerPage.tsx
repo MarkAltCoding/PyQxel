@@ -427,6 +427,13 @@ export function ScreenerPage() {
         {results.data && results.data.items.length === 0 && (
           <div className="empty">No stocks match these filters.</div>
         )}
+        {!empty && (
+          <p className="disclaimer" style={{ marginTop: 12 }}>
+            Companies that report in another currency are converted to US dollars at rates worked
+            out from the European Central Bank&apos;s euro reference rates (source: European Central
+            Bank), or at a market data provider&apos;s rate for currencies the ECB does not publish.
+          </p>
+        )}
       </section>
     </div>
   )

@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import fundamentals as fundamentals_route
+from app.data.exchange_rates import ExchangeRate
 from app.api.v1.endpoints.fundamentals import build_fundamentals
 from app.data.fetcher import DataFetchError
 from app.data.fundamentals import FinancialsNotFoundError
@@ -38,14 +39,14 @@ def _serve(
             raise info
         return info
 
-    async def fake_rate(base: str, quote: str = "USD") -> float:
+    async def fake_rate(base: str, quote: str = "USD") -> ExchangeRate:
         if (base, quote) not in (rates or {}):
             raise DataFetchError(f"No {base}/{quote} rate.")
-        return (rates or {})[base, quote]
+        return ExchangeRate(rate=(rates or {})[base, quote], source="the test's rate")
 
     monkeypatch.setattr(fundamentals_route, "fetch_financials_filled", fake_financials)
     monkeypatch.setattr(fundamentals_route, "fetch_ticker_info", fake_info)
-    monkeypatch.setattr(fundamentals_route, "fetch_exchange_rate", fake_rate)
+    monkeypatch.setattr(fundamentals_route, "fetch_sourced_exchange_rate", fake_rate)
 
 
 def test_fundamentals_and_valuation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -112,7 +113,7 @@ def test_statements_in_another_currency_are_converted(monkeypatch: pytest.Monkey
     assert valuation["enterprise_value"] == 1_100.0
     assert valuation["ev_to_ebitda"] == pytest.approx(1_100.0 / 300.0)
     assert valuation["net_margin"] == 0.25
-    assert "latest rate of 2 USD per EUR" in valuation["notes"][0]
+    assert "at the test's rate (2 USD per EUR)" in valuation["notes"][0]
 
 
 def test_without_an_exchange_rate_only_market_multiples_are_left_out(
