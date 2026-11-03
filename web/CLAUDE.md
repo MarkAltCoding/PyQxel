@@ -32,7 +32,7 @@ even through signing in): Stock `price`, `factors`, `volatility`, `news`, `signa
 `simulation`, `comovement`, `ai-review`; Markets `calendar`, `market-news`; Backtest
 `backtest-form` (or `ranking-form`), `strategy-code`, `result`, `performance`,
 `allocation`, `stocks`, `saved-backtests`; Screener `screen`, `matches`; Settings
-`key-coverage`, `provider-keys`, `ai-limits`, `delete-account`. Give a new card
+`key-coverage`, `data-coverage`, `provider-keys`, `ai-limits`, `delete-account`. Give a new card
 one too (`ChartCard` takes `id`).
 
 AI reports (`AnalysisPanel`, `PortfolioReviewCard`) share `components/ReportParts.tsx`: a

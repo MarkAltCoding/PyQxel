@@ -576,6 +576,13 @@ const entries = {
     good: 'Cheaper than reviewing each one, and better advice: overlap and gaps across accounts show up only when they are seen together.',
     note: 'Say what each account is (taxable, Roth IRA, 401(k)…) in its name or in “Anything else”, so the plan can account for taxes.',
   },
+  dataCoverage: {
+    title: 'Market data, by kind',
+    what: 'Each kind of market data PyQxel uses, and which of your keys give it. PyQxel tries your keys in order, cheapest first, and uses the first that has the data.',
+    good: 'Covered: one of your keys gives it in full on its free plan.',
+    bad: 'Partly: your keys give some of it, such as a year of history instead of thirty. Off: none of your keys gives it.',
+    note: 'A paid plan of yours may cover more than its free plan; the paid line says what it adds.',
+  },
   planCash: {
     title: 'Cash in the plan',
     what: 'The money the plan leaves uninvested. When you hold a money-market fund such as SPAXX, your cash sits in it, so the plan shows cash under that fund; otherwise it is shown as Cash. Cash never needs an order: it is what is left after the sells and buys.',

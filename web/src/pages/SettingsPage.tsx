@@ -7,6 +7,14 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { Stat } from '../components/Stat'
 import { shortDate } from '../lib/format'
+import {
+  coverage,
+  DATA_FEATURES,
+  DATA_PROVIDER_NAMES,
+  hasKey,
+  type DataProvider,
+} from '../lib/keyCoverage'
+import { InfoTip } from '../components/InfoTip'
 import { setProviderKey, type ProviderName } from '../lib/providerKeys'
 
 type ProviderAccount = ProviderName
@@ -23,7 +31,13 @@ interface ProviderInfo {
   without: (account: Account) => string | null
 }
 
-const has = (account: Account, provider: ProviderAccount) => account[provider].configured
+const has = (account: Account, provider: ProviderAccount) => Boolean(account[provider]?.configured)
+
+/** The user's price-history keys other than ``except``, by name. */
+const otherPriceKeys = (account: Account, except: DataProvider) =>
+  (['tiingo', 'fmp', 'eodhd', 'alpha_vantage'] as const)
+    .filter((provider) => provider !== except && hasKey(account, provider))
+    .map((provider) => DATA_PROVIDER_NAMES[provider])
 
 const PROVIDERS: ProviderInfo[] = [
   {
@@ -37,20 +51,44 @@ const PROVIDERS: ProviderInfo[] = [
       'No AI research reports, portfolio reviews or coding assistant. Everything else works.',
   },
   {
+    name: 'Tiingo',
+    account: 'tiingo',
+    about:
+      'The first source of price history for US stocks, ETFs and funds: 30+ years, adjusted for splits and dividends. Also intraday charts, live US quotes and company names.',
+    signUp: 'https://www.tiingo.com/account/api/token',
+    free: 'The free plan covers most people: 30+ years of daily prices, 500 different symbols a month, 50 requests an hour.',
+    without: (account) => {
+      const others = otherPriceKeys(account, 'tiingo')
+      return others.length
+        ? `US price history comes from ${others.join(' and ')}, which on free plans cover less: see what works above. Intraday charts need a paid key.`
+        : 'No US price history unless you add another price key: charts, volatility, factor exposures, backtests, portfolio tools and AI reports need one. A free Tiingo key is the simplest.'
+    },
+  },
+  {
     name: 'Financial Modeling Prep',
     account: 'fmp',
-    about: 'Licensed market data: prices, quotes and company profiles, on your FMP plan.',
+    about:
+      'Company profiles (sector, industry, market cap), quotes and index quotes, and price history on paid plans.',
     signUp: 'https://site.financialmodelingprep.com/developer/docs',
     free: 'The free plan allows 250 requests a day, and serves prices for a sample of large US stocks only.',
     without: (account) => {
-      if (has(account, 'alpha_vantage')) {
-        return 'Price history comes from Alpha Vantage alone: on its free plan, the latest 100 daily bars, not adjusted for splits or dividends, and 25 requests a day. Longer charts, five-year volatility models and long backtests lack history.'
-      }
-      if (account.market_data_fallback) {
+      if (account.market_data_fallback && otherPriceKeys(account, 'fmp').length === 0) {
         return 'Price history comes from yfinance, which is unlicensed and can break without notice.'
       }
-      return `With neither this nor an Alpha Vantage key there is no price history: charts, volatility, factor exposures, backtests, portfolio tools and AI reports don't work.${has(account, 'finnhub') ? ' Finnhub still gives live quotes and company profiles.' : ''}`
+      return has(account, 'finnhub')
+        ? 'Sectors come from your other keys where they can: Finnhub gives industries and market caps, and Tiingo sectors for the Dow 30 only.'
+        : 'No sector names or market caps for most stocks unless Finnhub or a paid key gives them.'
     },
+  },
+  {
+    name: 'EODHD',
+    account: 'eodhd',
+    about:
+      'Index history such as the S&P 500, listings outside the US, and delayed quotes on every exchange.',
+    signUp: 'https://eodhd.com/register',
+    free: 'The free plan gives the last year of prices on every exchange, 20 requests a day; its $19.99 Historian plan gives 30+ years.',
+    without: () =>
+      'No index history, and no prices for listings outside the US, unless another key covers them: see what works above.',
   },
   {
     name: 'Alpha Vantage',
@@ -83,23 +121,26 @@ interface Feature {
 }
 
 const hasPrices = (account: Account) =>
-  has(account, 'fmp') || has(account, 'alpha_vantage') || account.market_data_fallback
+  (['tiingo', 'fmp', 'eodhd', 'alpha_vantage'] as const).some((provider) =>
+    hasKey(account, provider),
+  ) || account.market_data_fallback
 
 const FEATURES: Feature[] = [
   {
     name: 'Price charts, volatility, factor exposures, backtests and portfolio tools',
     works: hasPrices,
-    needs: 'a Financial Modeling Prep or Alpha Vantage key',
+    needs:
+      'a price key: Tiingo (free) is the simplest, or Financial Modeling Prep, EODHD or Alpha Vantage',
   },
   {
     name: 'Live quotes and company profiles',
     works: (account) => hasPrices(account) || has(account, 'finnhub'),
-    needs: 'a Finnhub, Financial Modeling Prep or Alpha Vantage key',
+    needs: 'a Finnhub or Tiingo key (both free), or another price key',
   },
   {
     name: 'AI research reports and portfolio reviews',
     works: (account) => has(account, 'anthropic') && hasPrices(account),
-    needs: 'an Anthropic key, and a price source (Financial Modeling Prep or Alpha Vantage)',
+    needs: 'an Anthropic key, and a price key (Tiingo is free)',
   },
   {
     name: 'AI coding assistant for custom strategies',
@@ -160,6 +201,7 @@ export function SettingsPage() {
       {account.data && (
         <>
           <FeatureSummary account={account.data} />
+          <DataCoverage account={account.data} />
           <section id="provider-keys" className="card stack" style={{ gap: 16 }}>
             <div>
               <h2>Provider keys</h2>
@@ -219,6 +261,70 @@ function FeatureSummary({ account }: { account: Account }) {
   )
 }
 
+const LEVELS = {
+  full: { label: '✓ Covered', tone: 'good' },
+  fallback: { label: '✓ Covered', tone: 'good' },
+  partial: { label: '◐ Partly', tone: 'warning' },
+  none: { label: '! Off', tone: 'warning' },
+} as const
+
+/** For each kind of market data: which of the user's keys give it, and the cheapest key
+ * that would add more. */
+function DataCoverage({ account }: { account: Account }) {
+  return (
+    <section id="data-coverage" className="card stack" style={{ gap: 12 }}>
+      <div>
+        <div className="heading-with-info">
+          <h2>Market data, by kind</h2>
+          <InfoTip topic="dataCoverage" />
+        </div>
+        <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
+          Each kind of data comes from whichever of your keys covers it, cheapest first. Free plans
+          are assumed; a paid plan of yours covers more where it says so.
+        </p>
+      </div>
+      <ul className="coverage-list">
+        {DATA_FEATURES.map((feature) => {
+          const { level, from, next } = coverage(feature, account)
+          return (
+            <li key={feature.id}>
+              <div className="coverage-head">
+                <span className={`badge ${LEVELS[level].tone}`}>{LEVELS[level].label}</span>
+                <strong>{feature.name}</strong>
+              </div>
+              {from.length > 0 ? (
+                <ul className="coverage-sources">
+                  {from.map((step) => (
+                    <li key={step.provider}>
+                      <strong>{DATA_PROVIDER_NAMES[step.provider]}</strong>:{' '}
+                      {step.free ? `free plan, ${step.free}` : 'needs a paid plan'}
+                      {step.paid && <span className="muted"> · paid: {step.paid}</span>}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted">
+                  {level === 'fallback'
+                    ? 'None of your keys covers it; the server fills it in for your account.'
+                    : 'None of your keys covers it.'}
+                </p>
+              )}
+              {next && (
+                <p className="coverage-next">
+                  Add {/^[AEIOU]/.test(DATA_PROVIDER_NAMES[next.provider]) ? 'an' : 'a'}{' '}
+                  {DATA_PROVIDER_NAMES[next.provider]} key:{' '}
+                  {next.free ? `its free plan gives ${next.free}` : 'it needs a paid plan'}
+                  {next.paid ? `; paid, ${next.paid}` : ''}.
+                </p>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
 function KeyForm({
   provider,
   account,
@@ -228,7 +334,8 @@ function KeyForm({
   account: Account
   onChanged: () => void
 }) {
-  const current = account[provider.account]
+  // A server from before a provider was added sends nothing for it: no key was added.
+  const current = account[provider.account] ?? { configured: false, hint: null }
   const lost = current.configured ? null : provider.without(account)
   const [value, setValue] = useState('')
   const save = (key: string | null) => {

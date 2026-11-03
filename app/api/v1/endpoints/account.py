@@ -78,6 +78,8 @@ async def _account(session: AsyncSession, user: User) -> Account:
         fmp=_sent(keys, "fmp"),
         alpha_vantage=_sent(keys, "alpha_vantage"),
         finnhub=_sent(keys, "finnhub"),
+        tiingo=_sent(keys, "tiingo"),
+        eodhd=_sent(keys, "eodhd"),
         limits=user.limits,
         usage=await ai_usage(session, user.id),
         rate_limit_per_minute=get_settings().rate_limit_per_minute,

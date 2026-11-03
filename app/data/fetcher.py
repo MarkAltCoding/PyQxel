@@ -33,10 +33,11 @@ import math
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal, TypeVar
 
 import httpx2
+import numpy as np
 import pandas as pd
 import yfinance as yf
 
@@ -51,6 +52,8 @@ logger = logging.getLogger(__name__)
 FMP_BASE_URL: str = "https://financialmodelingprep.com/stable"
 ALPHA_VANTAGE_URL: str = "https://www.alphavantage.co/query"
 FINNHUB_URL: str = "https://finnhub.io/api/v1"
+TIINGO_URL: str = "https://api.tiingo.com"
+EODHD_URL: str = "https://eodhd.com/api"
 HTTP_TIMEOUT_SECONDS: float = 10.0
 OHLCV_COLUMNS: list[str] = ["Open", "High", "Low", "Close", "Volume"]
 QUOTE_TTL_SECONDS: float = 5.0
@@ -111,15 +114,70 @@ FINNHUB_LIMIT_PAUSE_SECONDS: float = 60
 """How long Finnhub is left out for a key after it answers that the rate limit is reached."""
 FINNHUB_PROFILE_TTL_SECONDS: float = 24 * 60 * 60
 """How long a Finnhub company profile, used to fill in ticker info, is reused."""
+TIINGO_REFUSAL_TTL_SECONDS: float = 24 * 60 * 60
+"""How long a Tiingo key's plan is taken not to cover a request before asking again."""
+TIINGO_LIMIT_PAUSE_SECONDS: float = 60 * 60
+"""How long Tiingo is left out once a key's limit is reached: its free plan allows 50
+requests an hour, 1,000 a day and 500 different symbols a month."""
+EODHD_REFUSAL_TTL_SECONDS: float = 24 * 60 * 60
+"""How long an EODHD key's plan is taken not to cover a request before asking again."""
+EODHD_LIMIT_PAUSE_SECONDS: float = 6 * 60 * 60
+"""How long EODHD is left out once a key's daily limit is reached: its free plan allows 20
+requests a day."""
+EODHD_FREE_HISTORY_DAYS: int = 366
+"""Days of daily bars EODHD's free plan serves, back from today."""
 RECALL_MEMORY_SIZE: int = 4096
 """Refusals and pauses kept in process memory, in front of Redis."""
 HISTORY_NOTICE: str = "notice"
 """Key in a history frame's ``attrs`` for a provider's note on what the bars lack."""
 
-Provider = Literal["fmp", "finnhub", "alpha_vantage", "yfinance"]
+Provider = Literal["tiingo", "fmp", "eodhd", "finnhub", "alpha_vantage", "yfinance"]
 
-DataKind = Literal["history", "quote", "info"]
-"""What is asked of the providers: Finnhub's free plan serves quotes and profiles only."""
+DataKind = Literal["history", "intraday", "quote", "info", "fx"]
+"""What is asked of the providers: daily (or longer) bars, intraday bars, a quote, a
+company profile, or an exchange rate."""
+
+SymbolKind = Literal["us", "index", "international"]
+"""A US listing (stocks, ETFs and funds), an index such as ^GSPC, or a listing abroad,
+which carries an exchange suffix such as .L."""
+
+PROVIDER_ORDER: dict[tuple[DataKind, SymbolKind], tuple[Provider, ...]] = {
+    ("history", "us"): ("tiingo", "fmp", "eodhd", "alpha_vantage", "finnhub"),
+    ("history", "index"): ("eodhd", "fmp"),
+    ("history", "international"): ("eodhd", "alpha_vantage", "fmp", "finnhub"),
+    ("intraday", "us"): ("tiingo", "eodhd", "fmp", "alpha_vantage", "finnhub"),
+    ("intraday", "index"): ("eodhd", "fmp"),
+    ("intraday", "international"): ("eodhd", "fmp", "alpha_vantage"),
+    ("quote", "us"): ("finnhub", "tiingo", "fmp", "eodhd", "alpha_vantage"),
+    ("quote", "index"): ("fmp", "eodhd"),
+    ("quote", "international"): ("eodhd", "fmp", "alpha_vantage", "finnhub"),
+    ("info", "us"): ("fmp", "finnhub", "tiingo", "alpha_vantage", "eodhd"),
+    ("info", "index"): ("fmp", "eodhd"),
+    ("info", "international"): ("fmp", "eodhd", "alpha_vantage", "finnhub"),
+    ("fx", "us"): ("fmp", "alpha_vantage"),
+}
+"""The providers that can answer each kind of data for each kind of symbol, cheapest
+first, as ``docs/data-sources.md`` sets out: a provider whose free plan covers the request
+comes before one that needs a paid plan for it. Each is tried only with the user's own
+key, and one whose plan refuses passes the request on to the next. yfinance follows them
+all for a request allowed to use it."""
+
+PROVIDER_NAMES: dict[Provider, str] = {
+    "tiingo": "Tiingo",
+    "fmp": "Financial Modeling Prep",
+    "eodhd": "EODHD",
+    "finnhub": "Finnhub",
+    "alpha_vantage": "Alpha Vantage",
+    "yfinance": "yfinance",
+}
+
+KIND_NAMES: dict[DataKind, str] = {
+    "history": "Price history",
+    "intraday": "Intraday prices",
+    "quote": "Live quotes",
+    "info": "Company profiles",
+    "fx": "Exchange rates",
+}
 
 DEFAULT_TIMEZONE: str = "America/New_York"
 SUFFIX_TIMEZONES: dict[str, str] = {
@@ -246,6 +304,16 @@ def finnhub_free_covers(symbol: str) -> bool:
     return bool(symbol) and "." not in symbol and not symbol.startswith("^") and "=" not in symbol
 
 
+def symbol_kind(symbol: str) -> SymbolKind:
+    """Whether ``symbol`` is a US listing, an index, or a listing abroad."""
+    symbol = symbol.strip().upper()
+    if symbol.startswith("^"):
+        return "index"
+    if "." in symbol or "=" in symbol:
+        return "international"
+    return "us"
+
+
 def yfinance_fallback_on() -> bool:
     """Whether yfinance answers the current request: only when its user may see unlicensed
     data and has it on (see :func:`app.api.auth.uses_yfinance`), or for a screener refresh
@@ -257,44 +325,42 @@ def yfinance_fallback_on() -> bool:
 def available_providers(
     kind: DataKind = "history", symbol: str = ""
 ) -> list[tuple[Provider, str | None]]:
-    """The providers to try for the current user, in order, with the key to use.
-
-    Finnhub is tried for quotes and ticker info only: first for quotes of US listings,
-    after FMP for their info, and after the other licensed providers for anything else.
+    """The providers to try for the current user, in order, with the key to use: those of
+    :data:`PROVIDER_ORDER` the user has a key for, then yfinance where it is allowed.
 
     Raises:
-        ProviderNotConfiguredError: If the user has no key for this kind of data and the
-            fallback is off.
+        ProviderNotConfiguredError: If the user has no key that can answer, naming the
+            ones that would.
     """
     keys = current_provider_keys()
-    finnhub: tuple[Provider, str | None] | None = None
-    if keys.finnhub is not None and kind != "history":
-        finnhub = ("finnhub", keys.finnhub.get_secret_value())
-    covered = finnhub_free_covers(symbol)
+    order = PROVIDER_ORDER.get((kind, symbol_kind(symbol)), PROVIDER_ORDER.get((kind, "us"), ()))
     providers: list[tuple[Provider, str | None]] = []
-    if finnhub and covered and kind == "quote":
-        providers.append(finnhub)
-    if keys.fmp is not None:
-        providers.append(("fmp", keys.fmp.get_secret_value()))
-    if finnhub and covered and kind == "info":
-        providers.append(finnhub)
-    if keys.alpha_vantage is not None:
-        providers.append(("alpha_vantage", keys.alpha_vantage.get_secret_value()))
-    if finnhub and not covered:
-        providers.append(finnhub)
+    for provider in order:
+        secret = getattr(keys, provider, None)
+        if secret is not None:
+            providers.append((provider, secret.get_secret_value()))
     if yfinance_fallback_on():
         providers.append(("yfinance", None))
     if not providers:
-        if kind == "history":
-            raise ProviderNotConfiguredError(
-                "Price history is billed to your own Financial Modeling Prep or Alpha "
-                "Vantage plan (Finnhub's free plan has none): add your API key in Settings."
-            )
+        names = [PROVIDER_NAMES[provider] for provider in order]
+        listed = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else names[0]
         raise ProviderNotConfiguredError(
-            "Market data is billed to your own Financial Modeling Prep, Finnhub or Alpha "
-            "Vantage plan: add your API key in Settings."
+            f"{KIND_NAMES[kind]} come from your own market data keys: add a {listed} key "
+            "in Settings."
         )
     return providers
+
+
+def keys_to_add(kind: DataKind, symbol: str = "") -> str:
+    """A sentence naming the providers that could answer ``kind`` for ``symbol`` whose keys
+    the user has not given, cheapest first; empty when they have given every one."""
+    keys = current_provider_keys()
+    order = PROVIDER_ORDER.get((kind, symbol_kind(symbol)), ())
+    names = [PROVIDER_NAMES[p] for p in order if getattr(keys, p, None) is None]
+    if not names:
+        return ""
+    listed = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else names[0]
+    return f"A {listed} key may cover it: add one in Settings."
 
 
 def finnhub_key() -> str | None:
@@ -313,8 +379,12 @@ async def first_success(
     symbol: str,
     what: str,
     attempts: list[tuple[Provider, Callable[[], Awaitable[T]]]],
+    partial: Callable[[T], bool] | None = None,
 ) -> T:
     """Return the first provider's answer, trying the next when one fails.
+
+    With ``partial``, an answer it marks as partial, such as a free plan's short history,
+    is kept while the later providers are tried, and returned only if none does better.
 
     Raises:
         SymbolNotFoundError: If every provider answered that it has no such symbol.
@@ -322,12 +392,20 @@ async def first_success(
             :class:`ProviderPlanError`, or a general one when several failed.
     """
     errors: list[Exception] = []
+    fallback: T | None = None
     for provider, attempt in attempts:
         try:
-            return await attempt()
+            answer = await attempt()
         except Exception as exc:
             errors.append(exc)
             logger.warning("%s %s lookup failed for %s: %s", provider, what, symbol, exc)
+            continue
+        if partial is None or not partial(answer):
+            return answer
+        if fallback is None:
+            fallback = answer
+    if fallback is not None:
+        return fallback
     if errors and all(isinstance(error, SymbolNotFoundError) for error in errors):
         raise SymbolNotFoundError(f"Unknown ticker symbol {symbol!r}.") from errors[-1]
     if len(errors) == 1 and isinstance(errors[0], DataFetchError):
@@ -511,6 +589,176 @@ async def finnhub_get(
         return response.json()
     except ValueError as exc:
         raise DataFetchError("Finnhub returned an unreadable answer.") from exc
+
+
+def tiingo_symbol(symbol: str) -> str:
+    """``symbol`` as Tiingo names it: lower case, share classes with a dash, as in brk-b."""
+    return symbol.strip().lower().replace(".", "-")
+
+
+def _tiingo_detail(response: httpx2.Response) -> str:
+    """The message in a Tiingo error answer, or its status."""
+    try:
+        body: Any = response.json()
+    except ValueError:
+        return response.text[:200]
+    if isinstance(body, dict):
+        return str(body.get("detail") or body.get("message") or body)[:200]
+    return str(body)[:200]
+
+
+async def tiingo_get(
+    path: str, params: dict[str, str], api_key: str, client: httpx2.AsyncClient | None = None
+) -> Any:
+    """GET a Tiingo endpoint with the user's key, classifying key, plan and limit errors.
+
+    The key travels in a header, so it stays out of logs. A refusal of the request is
+    remembered for :data:`TIINGO_REFUSAL_TTL_SECONDS`, and a reached limit leaves Tiingo
+    out for :data:`TIINGO_LIMIT_PAUSE_SECONDS`; either is answered at once, without a
+    request.
+    """
+    digest = _key_digest(api_key)
+    refused, paused = f"tiingo:refused:{digest}:{path}", f"tiingo:paused:{digest}"
+    if await _recall(paused):
+        raise DataFetchError("Your Tiingo plan's limit was reached; it resets within the hour.")
+    if await _recall(refused):
+        raise ProviderPlanError(
+            f"Your Tiingo plan does not cover this request ({path}).", remembered=True
+        )
+
+    async def get(http: httpx2.AsyncClient) -> httpx2.Response:
+        return await http.get(
+            f"{TIINGO_URL}/{path}",
+            params=params,
+            headers={"Authorization": f"Token {api_key}", "Content-Type": "application/json"},
+        )
+
+    try:
+        if client is not None:
+            response = await get(client)
+        else:
+            async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
+                response = await get(own_client)
+    except httpx2.HTTPError as exc:
+        raise DataFetchError("Tiingo could not be reached.") from exc
+    if response.status_code < 400:
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise DataFetchError("Tiingo returned an unreadable answer.") from exc
+    detail = _tiingo_detail(response)
+    lowered = detail.lower()
+    if response.status_code == 404 or "not found" in lowered:
+        raise SymbolNotFoundError(f"Tiingo has no data for this symbol ({path}).")
+    if response.status_code == 429 or "limit" in lowered and "plan" not in lowered:
+        await _remember(paused, TIINGO_LIMIT_PAUSE_SECONDS)
+        raise DataFetchError(f"Your Tiingo plan's limit was reached: {detail}")
+    if response.status_code in (401, 403) and "plan" not in lowered and "subscri" not in lowered:
+        raise ProviderNotConfiguredError("Tiingo rejected your API key; update it in Settings.")
+    if response.status_code in (400, 402, 403):
+        await _remember(refused, TIINGO_REFUSAL_TTL_SECONDS)
+        raise ProviderPlanError(f"Your Tiingo plan does not cover this request: {detail}")
+    raise DataFetchError(f"Tiingo returned an error ({response.status_code}).")
+
+
+EODHD_EXCHANGES: dict[str, str] = {
+    "L": "LSE",
+    "DE": "XETRA",
+    "F": "F",
+    "PA": "PA",
+    "AS": "AS",
+    "BR": "BR",
+    "SW": "SW",
+    "MC": "MC",
+    "MI": "MI",
+    "ST": "ST",
+    "OL": "OL",
+    "CO": "CO",
+    "HE": "HE",
+    "TO": "TO",
+    "V": "V",
+    "MX": "MX",
+    "SA": "SA",
+    "T": "TSE",
+    "HK": "HK",
+    "SS": "SHG",
+    "SZ": "SHE",
+    "KS": "KO",
+    "KQ": "KQ",
+    "NS": "NSE",
+    "BO": "BSE",
+    "AX": "AU",
+    "NZ": "NZ",
+    "TW": "TW",
+    "SI": "SG",
+    "JK": "JK",
+}
+"""EODHD's exchange code for each Yahoo-style symbol suffix."""
+
+
+def eodhd_symbol(symbol: str) -> str:
+    """``symbol`` as EODHD names it: AAPL.US, SHEL.LSE, GSPC.INDX or EURUSD.FOREX."""
+    symbol = symbol.strip().upper()
+    if symbol.startswith("^"):
+        return f"{symbol[1:]}.INDX"
+    if symbol.endswith("=X"):
+        return f"{symbol[:-2]}.FOREX"
+    if "." in symbol:
+        code, suffix = symbol.rsplit(".", 1)
+        return f"{code}.{EODHD_EXCHANGES.get(suffix, suffix)}"
+    return f"{symbol}.US"
+
+
+async def eodhd_get(
+    path: str, params: dict[str, str], api_key: str, client: httpx2.AsyncClient | None = None
+) -> Any:
+    """GET an EODHD endpoint with the user's key, classifying key, plan and limit errors.
+
+    EODHD takes the key only in the URL, so no error message repeats the URL. A refusal of
+    the request, such as intraday bars on the free plan, is remembered for
+    :data:`EODHD_REFUSAL_TTL_SECONDS`, and a reached daily limit leaves EODHD out for
+    :data:`EODHD_LIMIT_PAUSE_SECONDS`; either is answered at once, without a request.
+    """
+    digest = _key_digest(api_key)
+    endpoint = path.split("/", 1)[0]
+    refused, paused = f"eodhd:refused:{digest}:{endpoint}", f"eodhd:paused:{digest}"
+    if await _recall(paused):
+        raise DataFetchError("Your EODHD plan's daily limit was reached.")
+    if await _recall(refused):
+        raise ProviderPlanError(
+            f"Your EODHD plan does not cover this request ({endpoint}).", remembered=True
+        )
+
+    async def get(http: httpx2.AsyncClient) -> httpx2.Response:
+        return await http.get(
+            f"{EODHD_URL}/{path}", params=params | {"api_token": api_key, "fmt": "json"}
+        )
+
+    try:
+        if client is not None:
+            response = await get(client)
+        else:
+            async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
+                response = await get(own_client)
+    except httpx2.HTTPError:
+        raise DataFetchError("EODHD could not be reached.") from None
+    text = response.text[:200].lower()
+    if response.status_code == 404:
+        raise SymbolNotFoundError(f"EODHD has no data for this symbol ({endpoint}).")
+    if response.status_code == 401:
+        raise ProviderNotConfiguredError("EODHD rejected your API key; update it in Settings.")
+    if response.status_code == 402 or response.status_code == 429 or "exceeded" in text:
+        await _remember(paused, EODHD_LIMIT_PAUSE_SECONDS)
+        raise DataFetchError("Your EODHD plan's daily limit was reached.")
+    if response.status_code == 403:
+        await _remember(refused, EODHD_REFUSAL_TTL_SECONDS)
+        raise ProviderPlanError(f"Your EODHD plan does not cover this request ({endpoint}).")
+    if response.status_code >= 400:
+        raise DataFetchError(f"EODHD returned an error ({response.status_code}).")
+    try:
+        return response.json()
+    except ValueError:
+        raise DataFetchError("EODHD returned an unreadable answer.") from None
 
 
 def _alpha_vantage_error(
@@ -782,6 +1030,128 @@ async def _finnhub_info(symbol: str, api_key: str, client: httpx2.AsyncClient | 
     return profile.model_copy(update={"price": quote.price})
 
 
+async def _tiingo_meta(
+    symbol: str, api_key: str, client: httpx2.AsyncClient | None
+) -> dict[str, Any]:
+    """Tiingo's company meta for ``symbol``: its name for any US ticker, and its sector and
+    industry, which the free plan fills in for the Dow 30 alone; a field it withholds, which
+    it answers with a "not available" placeholder, is left out."""
+    rows = await tiingo_get(
+        "tiingo/fundamentals/meta", {"tickers": tiingo_symbol(symbol)}, api_key, client
+    )
+    if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+        raise SymbolNotFoundError(f"Tiingo has no company profile for {symbol!r}.")
+    meta: dict[str, Any] = {
+        field: value
+        for field, value in rows[0].items()
+        if not (isinstance(value, str) and "not available" in value.lower())
+    }
+    return meta
+
+
+TIINGO_EXCHANGES: dict[str, str] = {"NASDAQ": "NASDAQ", "NYSE": "NYSE", "NYSE ARCA": "NYSEArca"}
+"""Exchange names for Tiingo's exchange codes, as the other providers write them."""
+
+
+async def _tiingo_info(symbol: str, api_key: str, client: httpx2.AsyncClient | None) -> TickerInfo:
+    """Fetch the name and exchange of any US listing Tiingo prices, stocks, ETFs and funds
+    alike, with its sector and industry where the plan gives them (the Dow 30, on the free
+    plan); prices and market caps are left to other providers."""
+    listing = await tiingo_get(f"tiingo/daily/{tiingo_symbol(symbol)}", {}, api_key, client)
+    if not isinstance(listing, dict) or not listing.get("ticker"):
+        raise SymbolNotFoundError(f"Tiingo has no listing {symbol!r}.")
+    try:
+        meta = await _tiingo_meta(symbol, api_key, client)
+    except DataFetchError:
+        meta = {}
+    exchange = str(listing.get("exchangeCode") or "")
+    return TickerInfo(
+        symbol=symbol,
+        name=listing.get("name") or meta.get("name") or None,
+        currency="USD",
+        exchange=TIINGO_EXCHANGES.get(exchange.upper(), exchange) or None,
+        sector=meta.get("sector") or None,
+        industry=meta.get("industry") or None,
+        source="tiingo",
+    )
+
+
+EODHD_QUOTE_TYPES: dict[str, str] = {
+    "common stock": "EQUITY",
+    "preferred stock": "EQUITY",
+    "etf": "ETF",
+    "fund": "MUTUALFUND",
+    "mutual fund": "MUTUALFUND",
+    "index": "INDEX",
+}
+"""Yahoo-style quote types for EODHD's ``Type``, as the rest of the app uses them."""
+
+
+async def _eodhd_info(symbol: str, api_key: str, client: httpx2.AsyncClient | None) -> TickerInfo:
+    """Fetch a profile from EODHD: its fundamentals on a paid plan, with sector, industry and
+    market cap; else, on the free plan, its search for the name, exchange, currency and
+    type, or for an index, which search leaves out, its delayed quote."""
+    try:
+        return await _eodhd_fundamentals_info(symbol, api_key, client)
+    except ProviderPlanError:
+        pass
+    code = eodhd_symbol(symbol)
+    ticker, exchange = code.rsplit(".", 1)
+    found = await eodhd_get(f"search/{ticker}", {"limit": "20"}, api_key, client)
+    for row in found if isinstance(found, list) else []:
+        if isinstance(row, dict) and row.get("Code") == ticker and row.get("Exchange") == exchange:
+            return TickerInfo(
+                symbol=symbol,
+                name=row.get("Name") or None,
+                currency=row.get("Currency") or None,
+                exchange=row.get("Exchange") or None,
+                price=_positive(_finite(row.get("previousClose"))),
+                quote_type=EODHD_QUOTE_TYPES.get(str(row.get("Type") or "").lower()),
+                source="eodhd",
+            )
+    quote = await _eodhd_quote(symbol, api_key, client)
+    return TickerInfo(
+        symbol=symbol,
+        price=quote.price,
+        quote_type="INDEX" if symbol_kind(symbol) == "index" else None,
+        source="eodhd",
+    )
+
+
+async def _eodhd_fundamentals_info(
+    symbol: str, api_key: str, client: httpx2.AsyncClient | None
+) -> TickerInfo:
+    """A company profile from EODHD's fundamentals, which need a paid plan; a free key's
+    refusal is remembered."""
+    payload = await eodhd_get(
+        f"fundamentals/{eodhd_symbol(symbol)}",
+        {"filter": "General,Highlights::MarketCapitalization"},
+        api_key,
+        client,
+    )
+    general: dict[str, Any] = (
+        (payload or {}).get("General") or {} if isinstance(payload, dict) else {}
+    )
+    if not general:
+        raise SymbolNotFoundError(f"EODHD has no company profile for {symbol!r}.")
+    cap = payload.get("Highlights::MarketCapitalization") if isinstance(payload, dict) else None
+    return TickerInfo(
+        symbol=symbol,
+        name=general.get("Name") or None,
+        currency=general.get("CurrencyCode") or None,
+        exchange=general.get("Exchange") or None,
+        sector=general.get("Sector") or None,
+        industry=general.get("Industry") or None,
+        market_cap=_positive(_finite(cap)),
+        quote_type=EODHD_QUOTE_TYPES.get(str(general.get("Type") or "").lower()),
+        source="eodhd",
+    )
+
+
+TIINGO_GAP_FIELDS: tuple[str, ...] = ("name", "sector", "industry")
+"""Ticker info fields Tiingo's free company meta fills in when another provider leaves them
+empty."""
+
 FINNHUB_GAP_FIELDS: tuple[str, ...] = ("name", "currency", "exchange", "industry", "market_cap")
 """Ticker info fields Finnhub's free company profile fills in when another provider leaves
 them empty."""
@@ -823,10 +1193,31 @@ async def _fill_from_finnhub(info: TickerInfo, client: httpx2.AsyncClient | None
     )
 
 
+async def _fill_from_tiingo(info: TickerInfo, client: httpx2.AsyncClient | None) -> TickerInfo:
+    """Fill the name, sector and industry ``info``'s provider left empty from Tiingo's meta,
+    for a US listing, if the user has a Tiingo key."""
+    key = current_provider_keys().tiingo
+    missing = [field for field in TIINGO_GAP_FIELDS if getattr(info, field) is None]
+    if key is None or info.source == "tiingo" or not missing or symbol_kind(info.symbol) != "us":
+        return info
+    try:
+        meta = await _tiingo_meta(info.symbol, key.get_secret_value(), client)
+    except DataFetchError as exc:
+        logger.info("Tiingo could not fill %s's info: %s", info.symbol, exc)
+        return info
+    filled = {field: value for field in missing if (value := meta.get(field))}
+    if not filled:
+        return info
+    return info.model_copy(
+        update=filled | {"filled_fields": [*info.filled_fields, *sorted(filled)]}
+    )
+
+
 async def _fill_info(info: TickerInfo, client: httpx2.AsyncClient | None) -> TickerInfo:
-    """Fill the fields ``info``'s provider left empty from Finnhub, then Alpha Vantage, if
-    the user has keys for them."""
+    """Fill the fields ``info``'s provider left empty from Finnhub, Tiingo, then Alpha
+    Vantage, if the user has keys for them."""
     info = await _fill_from_finnhub(info, client)
+    info = await _fill_from_tiingo(info, client)
     api_key = alpha_vantage_key()
     missing = [field for field in INFO_GAP_FIELDS if getattr(info, field) is None]
     if api_key is None or info.source == "alpha_vantage" or not missing:
@@ -923,6 +1314,12 @@ async def fetch_ticker_info(symbol: str, client: httpx2.AsyncClient | None = Non
             elif provider == "alpha_vantage":
                 assert api_key is not None
                 info = await _alpha_vantage_info(symbol, api_key, client)
+            elif provider == "tiingo":
+                assert api_key is not None
+                info = await _tiingo_info(symbol, api_key, client)
+            elif provider == "eodhd":
+                assert api_key is not None
+                info = await _eodhd_info(symbol, api_key, client)
             else:
                 info = await asyncio.to_thread(_yfinance_info, symbol)
             await cache_set(key, info.model_dump_json(), INFO_TTL_SECONDS)
@@ -1078,13 +1475,11 @@ async def _alpha_vantage_history(
 
     Adjusted daily bars also need a paid plan. On a free key, the latest
     :data:`ALPHA_VANTAGE_FREE_DAILY_BARS` daily bars are served instead, unadjusted, and
-    the frame's ``attrs`` carry a :data:`HISTORY_NOTICE` saying so; unless the yfinance
-    fallback is on, which has the full adjusted history, so the plan error is passed on
-    for it to answer.
+    the frame's ``attrs`` carry a :data:`HISTORY_NOTICE` saying so, and a later provider
+    with the full adjusted history is preferred (see :func:`first_success`).
     """
     end = today or date.today()
     start = pd.Timestamp(_window_start(period, end))
-    limited = not yfinance_fallback_on()
     notice: str | None = None
     if interval in ALPHA_VANTAGE_INTRADAY:
         size, resample_to = ALPHA_VANTAGE_INTRADAY[interval]
@@ -1103,8 +1498,6 @@ async def _alpha_vantage_history(
         )
         adjusted = True
     except ProviderPlanError:
-        if not limited:
-            raise
         payload = await alpha_vantage_get(
             "TIME_SERIES_DAILY", {"symbol": symbol, "outputsize": "compact"}, api_key
         )
@@ -1127,6 +1520,233 @@ async def _alpha_vantage_history(
         frame = _resample(frame, LONG_INTERVALS[interval])
         if notice is not None:
             frame.attrs[HISTORY_NOTICE] = notice
+    return frame
+
+
+TIINGO_INTRADAY: dict[str, tuple[str, str | None]] = {
+    "1m": ("1min", None),
+    "2m": ("1min", "2min"),
+    "5m": ("5min", None),
+    "15m": ("15min", None),
+    "30m": ("30min", None),
+    "60m": ("1hour", None),
+    "1h": ("1hour", None),
+    "90m": ("30min", "90min"),
+}
+"""Tiingo's IEX bar size for each intraday bar size, and the size to resample to, if any."""
+
+IEX_VOLUME_NOTICE: str = (
+    "Intraday bars from Tiingo's IEX feed: prices follow the whole market, but volume counts "
+    "only trades on IEX, a small share of the total."
+)
+
+
+def _row_frame(
+    rows: list[dict[str, Any]], fields: dict[str, str], date_field: str, zone: str
+) -> pd.DataFrame:
+    """Build an OHLCV frame from rows of a provider's JSON, stamped in ``zone``: a naive
+    date is taken as ``zone``'s, and a dated time with an offset is converted to it."""
+    rows = [row for row in rows if isinstance(row, dict) and row.get(date_field)]
+    if not rows:
+        return pd.DataFrame(columns=OHLCV_COLUMNS, index=pd.DatetimeIndex([]), dtype=float)
+    frame = pd.DataFrame(rows)
+    stamps = pd.DatetimeIndex(pd.to_datetime(frame[date_field], utc=False, format="mixed"))
+    index = stamps.tz_localize(zone) if stamps.tz is None else stamps.tz_convert(zone)
+    columns = {
+        column: (
+            pd.to_numeric(frame[field], errors="coerce").to_numpy()
+            if field in frame
+            else np.full(len(frame), np.nan)
+        )
+        for column, field in fields.items()
+    }
+    return pd.DataFrame(columns, index=index).sort_index()
+
+
+async def _tiingo_history(
+    symbol: str, period: str, interval: str, api_key: str, today: date | None = None
+) -> pd.DataFrame:
+    """Fetch OHLCV history from Tiingo: split- and dividend-adjusted daily bars, back as far
+    as 30 years on the free plan, or intraday bars from the IEX exchange.
+
+    Bars longer than a day are built from daily bars. Intraday volume counts IEX trades
+    alone, and the frame's ``attrs`` carry a :data:`HISTORY_NOTICE` saying so.
+    """
+    end = today or date.today()
+    start = _window_start(period, end)
+    ticker = tiingo_symbol(symbol)
+    zone = DEFAULT_TIMEZONE
+    if interval in TIINGO_INTRADAY:
+        size, resample_to = TIINGO_INTRADAY[interval]
+        rows = await tiingo_get(
+            f"iex/{ticker}/prices",
+            {
+                "startDate": start.isoformat(),
+                "resampleFreq": size,
+                "columns": "open,high,low,close,volume",
+            },
+            api_key,
+        )
+        fields = {"Open": "open", "High": "high", "Low": "low", "Close": "close"}
+        frame = _row_frame(
+            rows if isinstance(rows, list) else [], fields | {"Volume": "volume"}, "date", zone
+        )
+        if resample_to is not None and not frame.empty:
+            frame = _resample(frame, resample_to)
+        frame.attrs[HISTORY_NOTICE] = IEX_VOLUME_NOTICE
+        return frame
+    rows = await tiingo_get(
+        f"tiingo/daily/{ticker}/prices",
+        {"startDate": start.isoformat(), "endDate": end.isoformat()},
+        api_key,
+    )
+    fields = {"Open": "adjOpen", "High": "adjHigh", "Low": "adjLow", "Close": "adjClose"}
+    frame = _row_frame(
+        rows if isinstance(rows, list) else [], fields | {"Volume": "adjVolume"}, "date", "UTC"
+    )
+    # Tiingo dates its daily bars at midnight UTC; they are the exchange's calendar days.
+    frame.index = pd.DatetimeIndex(frame.index).tz_localize(None).tz_localize(zone)
+    if period in ("1d", "5d") and not frame.empty:
+        frame = frame.tail(int(period[0]))
+    if interval in LONG_INTERVALS and not frame.empty:
+        frame = _resample(frame, LONG_INTERVALS[interval])
+    return frame
+
+
+EODHD_INTRADAY: dict[str, tuple[str, str | None]] = {
+    "1m": ("1m", None),
+    "2m": ("1m", "2min"),
+    "5m": ("5m", None),
+    "15m": ("5m", "15min"),
+    "30m": ("5m", "30min"),
+    "60m": ("1h", None),
+    "1h": ("1h", None),
+    "90m": ("5m", "90min"),
+}
+"""EODHD's intraday bar size for each bar size, and the size to resample to, if any."""
+
+
+async def _eodhd_history(
+    symbol: str, period: str, interval: str, api_key: str, today: date | None = None
+) -> pd.DataFrame:
+    """Fetch OHLCV history from EODHD: daily bars adjusted for splits and dividends, for
+    listings, ETFs, funds and indices on exchanges worldwide, or intraday bars.
+
+    Daily bars are scaled by EODHD's adjusted close over the close. Its free plan serves
+    the last year of daily bars only; when a longer window was asked for, the frame's
+    ``attrs`` carry a :data:`HISTORY_NOTICE` saying so. Intraday bars need a paid plan,
+    and are not adjusted.
+    """
+    end = today or date.today()
+    start = _window_start(period, end)
+    code = eodhd_symbol(symbol)
+    zone = exchange_timezone(symbol)
+    if interval in EODHD_INTRADAY:
+        size, resample_to = EODHD_INTRADAY[interval]
+        first = int(pd.Timestamp(start, tz=zone).timestamp())
+        rows = await eodhd_get(
+            f"intraday/{code}",
+            {"interval": size, "from": str(first), "to": str(int(time.time()))},
+            api_key,
+        )
+        fields = {"Open": "open", "High": "high", "Low": "low", "Close": "close"}
+        frame = _row_frame(
+            rows if isinstance(rows, list) else [], fields | {"Volume": "volume"}, "datetime", "UTC"
+        )
+        frame.index = pd.DatetimeIndex(frame.index).tz_convert(zone)
+        return frame if resample_to is None or frame.empty else _resample(frame, resample_to)
+    rows = await eodhd_get(
+        f"eod/{code}", {"from": start.isoformat(), "to": end.isoformat(), "period": "d"}, api_key
+    )
+    raw = _row_frame(
+        rows if isinstance(rows, list) else [],
+        {
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close",
+            "Volume": "volume",
+            "Adjusted": "adjusted_close",
+        },
+        "date",
+        zone,
+    )
+    factor = (raw["Adjusted"] / raw["Close"]).where(raw["Close"] > 0)
+    frame = raw[OHLCV_COLUMNS].copy()
+    for column in ("Open", "High", "Low", "Close"):
+        frame[column] = raw[column] * factor
+    if not frame.empty:
+        first_day = pd.Timestamp(frame.index[0]).date()
+        free_start = end - timedelta(days=EODHD_FREE_HISTORY_DAYS)
+        if (first_day - start).days > 14 and abs((first_day - free_start).days) <= 10:
+            frame.attrs[HISTORY_NOTICE] = (
+                f"EODHD's free plan serves only the last year of {symbol}'s prices."
+            )
+    if period in ("1d", "5d") and not frame.empty:
+        frame = frame.tail(int(period[0]))
+    if interval in LONG_INTERVALS and not frame.empty:
+        notice = frame.attrs.get(HISTORY_NOTICE)
+        frame = _resample(frame, LONG_INTERVALS[interval])
+        if notice is not None:
+            frame.attrs[HISTORY_NOTICE] = notice
+    return frame
+
+
+FINNHUB_RESOLUTIONS: dict[str, tuple[str, str | None]] = {
+    "1m": ("1", None),
+    "2m": ("1", "2min"),
+    "5m": ("5", None),
+    "15m": ("15", None),
+    "30m": ("30", None),
+    "60m": ("60", None),
+    "1h": ("60", None),
+    "90m": ("30", "90min"),
+}
+"""Finnhub's candle resolution for each intraday bar size, and the size to resample to."""
+
+
+async def _finnhub_history(
+    symbol: str, period: str, interval: str, api_key: str, today: date | None = None
+) -> pd.DataFrame:
+    """Fetch OHLCV candles from Finnhub, which a paid plan serves; its free plan refuses
+    them, and the refusal is remembered. Candles are adjusted for splits but not for
+    dividends, and the frame's ``attrs`` carry a :data:`HISTORY_NOTICE` saying so, so a
+    provider with adjusted bars is preferred."""
+    end = today or date.today()
+    start = _window_start(period, end)
+    zone = exchange_timezone(symbol)
+    resolution, resample_to = FINNHUB_RESOLUTIONS.get(interval, ("D", None))
+    payload = await finnhub_get(
+        "stock/candle",
+        {
+            "symbol": finnhub_symbol(symbol),
+            "resolution": resolution,
+            "from": str(int(pd.Timestamp(start, tz=zone).timestamp())),
+            "to": str(int(time.time())),
+        },
+        api_key,
+        None,
+    )
+    if not isinstance(payload, dict) or payload.get("s") != "ok":
+        return pd.DataFrame(columns=OHLCV_COLUMNS, index=pd.DatetimeIndex([]), dtype=float)
+    index = pd.DatetimeIndex(pd.to_datetime(payload.get("t") or [], unit="s", utc=True))
+    frame = pd.DataFrame(
+        {
+            column: pd.to_numeric(pd.Series(payload.get(field) or []), errors="coerce").to_numpy()
+            for column, field in zip(OHLCV_COLUMNS, ("o", "h", "l", "c", "v"), strict=True)
+        },
+        index=index.tz_convert(zone),
+    ).sort_index()
+    if resolution == "D":
+        frame.index = pd.DatetimeIndex(frame.index).normalize()
+        if interval in LONG_INTERVALS and not frame.empty:
+            frame = _resample(frame, LONG_INTERVALS[interval])
+    elif resample_to is not None and not frame.empty:
+        frame = _resample(frame, resample_to)
+    frame.attrs[HISTORY_NOTICE] = (
+        "Finnhub's candles are adjusted for splits but not for dividends, so returns leave "
+        "dividends out."
+    )
     return frame
 
 
@@ -1218,14 +1838,21 @@ async def fetch_price_history(
                 except ValueError, KeyError, TypeError:
                     logger.warning("Ignoring unreadable cached history for %s.", symbol)
             try:
-                if provider == "fmp":
-                    assert api_key is not None
-                    raw = await _fmp_history(symbol, period, interval, api_key)
-                elif provider == "alpha_vantage":
-                    assert api_key is not None
-                    raw = await _alpha_vantage_history(symbol, period, interval, api_key)
-                else:
+                if provider == "yfinance":
                     raw = await asyncio.to_thread(_yfinance_history, symbol, period, interval)
+                else:
+                    assert api_key is not None
+                    if provider == "tiingo":
+                        read = _tiingo_history
+                    elif provider == "fmp":
+                        read = _fmp_history
+                    elif provider == "eodhd":
+                        read = _eodhd_history
+                    elif provider == "alpha_vantage":
+                        read = _alpha_vantage_history
+                    else:
+                        read = _finnhub_history
+                    raw = await read(symbol, period, interval, api_key)
             except DataFetchError:
                 raise
             except Exception as exc:
@@ -1239,9 +1866,20 @@ async def fetch_price_history(
 
         return run
 
-    frame = await first_success(
-        symbol, "price history", [(p, attempt(p, k)) for p, k in available_providers()]
-    )
+    kind: DataKind = "intraday" if interval in INTRADAY_INTERVALS else "history"
+    try:
+        frame = await first_success(
+            symbol,
+            "price history",
+            [(p, attempt(p, k)) for p, k in available_providers(kind, symbol)],
+            # A free plan's short or unadjusted history is used only if no key does better.
+            partial=lambda found: found is not None and HISTORY_NOTICE in found.attrs,
+        )
+    except ProviderPlanError as exc:
+        hint = keys_to_add(kind, symbol)
+        if not hint:
+            raise
+        raise ProviderPlanError(f"{exc} {hint}") from exc
     if frame is None:
         # Providers return the same empty answer for an unknown symbol and for a real
         # one with no bars in the window, so ask for a snapshot to tell the two apart.
@@ -1359,6 +1997,40 @@ async def _alpha_vantage_quote(
     )
 
 
+async def _tiingo_quote(symbol: str, api_key: str, client: httpx2.AsyncClient | None) -> Quote:
+    """Fetch the latest price of a US listing from Tiingo: its own last price, built from
+    the whole market, which its free plan serves."""
+    rows = await tiingo_get("iex/", {"tickers": tiingo_symbol(symbol)}, api_key, client)
+    if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+        raise SymbolNotFoundError(f"Tiingo has no quote for {symbol!r}.")
+    quote: dict[str, Any] = rows[0]
+    return _build_quote(
+        symbol,
+        price=_positive(_finite(quote.get("tngoLast") or quote.get("last"))),
+        previous_close=_positive(_finite(quote.get("prevClose"))),
+        source="tiingo",
+        day_high=_positive(_finite(quote.get("high"))),
+        day_low=_positive(_finite(quote.get("low"))),
+    )
+
+
+async def _eodhd_quote(symbol: str, api_key: str, client: httpx2.AsyncClient | None) -> Quote:
+    """Fetch the latest price from EODHD, delayed 15 to 20 minutes, for listings, funds and
+    indices worldwide."""
+    quote = await eodhd_get(f"real-time/{eodhd_symbol(symbol)}", {}, api_key, client)
+    if not isinstance(quote, dict):
+        raise SymbolNotFoundError(f"EODHD has no quote for {symbol!r}.")
+    return _build_quote(
+        symbol,
+        price=_positive(_finite(quote.get("close"))),
+        previous_close=_positive(_finite(quote.get("previousClose"))),
+        source="eodhd",
+        day_high=_positive(_finite(quote.get("high"))),
+        day_low=_positive(_finite(quote.get("low"))),
+        volume=_finite(quote.get("volume")),
+    )
+
+
 async def fetch_quote(symbol: str, client: httpx2.AsyncClient | None = None) -> Quote:
     """Fetch the latest price of ``symbol`` and its change since the previous close.
 
@@ -1409,6 +2081,12 @@ async def fetch_quote(symbol: str, client: httpx2.AsyncClient | None = None) -> 
             elif provider == "alpha_vantage":
                 assert api_key is not None
                 quote = await _alpha_vantage_quote(symbol, api_key, client)
+            elif provider == "tiingo":
+                assert api_key is not None
+                quote = await _tiingo_quote(symbol, api_key, client)
+            elif provider == "eodhd":
+                assert api_key is not None
+                quote = await _eodhd_quote(symbol, api_key, client)
             else:
                 try:
                     quote = await asyncio.to_thread(_yfinance_quote, symbol)

@@ -64,12 +64,12 @@ export function PrivacyPage() {
             </li>
           </ul>
           <p>
-            Keys you add for Anthropic, Financial Modeling Prep, Alpha Vantage or Finnhub are not
-            part of your account: they stay in your browser, and PyQxel never stores them. Each of
-            your requests carries them over an encrypted connection, and the server uses them for
-            that request only, keeps them out of its logs and error messages, and forgets them when
-            it answers. Those services bill your usage to you. Signing out removes them from your
-            browser.
+            Keys you add for Anthropic, Tiingo, Financial Modeling Prep, EODHD, Alpha Vantage or
+            Finnhub are not part of your account: they stay in your browser, and PyQxel never stores
+            them. Each of your requests carries them over an encrypted connection, and the server
+            uses them for that request only, keeps them out of its logs and error messages, and
+            forgets them when it answers. Those services bill your usage to you. Signing out removes
+            them from your browser.
           </p>
           <p>
             Custom strategy code runs in your own browser. When you backtest it, its code and the
@@ -83,8 +83,9 @@ export function PrivacyPage() {
               PyQxel runs on Google Cloud, keeps its database at Neon and its cache at Upstash.
             </li>
             <li>
-              The symbols you look up are sent to market data providers with your own keys:
-              Financial Modeling Prep, Alpha Vantage and Finnhub. Company filings come from the SEC.
+              The symbols you look up are sent to market data providers with your own keys: Tiingo,
+              Financial Modeling Prep, EODHD, Alpha Vantage and Finnhub. Company filings come from
+              the SEC, and exchange rates from the European Central Bank.
             </li>
             <li>
               When you use an AI feature, what it needs is sent to Anthropic with your own key,

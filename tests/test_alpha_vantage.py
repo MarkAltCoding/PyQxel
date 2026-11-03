@@ -341,8 +341,10 @@ async def test_with_yfinance_on_it_answers_instead_of_the_free_bars(
 
     history = await fetcher.fetch_price_history("ACME", period="1y", interval="1d")
 
+    # The free bars are kept only as a fallback: yfinance's full history answers.
     assert fetcher.HISTORY_NOTICE not in history.attrs
-    assert [params["function"] for params in requests] == ["TIME_SERIES_DAILY_ADJUSTED"]
+    assert len(history) == len(full)
+    assert requests[0]["function"] == "TIME_SERIES_DAILY_ADJUSTED"
 
 
 async def test_alpha_vantage_answers_when_the_fmp_plan_does_not_cover_a_request(

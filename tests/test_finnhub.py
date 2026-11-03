@@ -248,7 +248,32 @@ def test_finnhub_comes_first_for_us_quotes_only() -> None:
     assert order("quote", "AAPL") == ["finnhub", "fmp", "alpha_vantage"]
     assert order("info", "AAPL") == ["fmp", "finnhub", "alpha_vantage"]
     assert order("quote", "SAP.DE") == ["fmp", "alpha_vantage", "finnhub"]
-    assert order("history", "AAPL") == ["fmp", "alpha_vantage"]
+    # Finnhub's candles need a paid plan, so it is tried last for history.
+    assert order("history", "AAPL") == ["fmp", "alpha_vantage", "finnhub"]
+
+
+def test_each_kind_of_data_tries_every_key_cheapest_first() -> None:
+    """With all five keys, each kind of data and symbol follows docs/data-sources.md."""
+    use_provider_keys(
+        ProviderKeys(
+            tiingo=SecretStr("tiingo"),
+            fmp=SecretStr("fmp"),
+            eodhd=SecretStr("eodhd"),
+            alpha_vantage=SecretStr("av"),
+            finnhub=SecretStr(KEY),
+        )
+    )
+
+    def order(kind: Any, symbol: str) -> list[str]:
+        return [provider for provider, _ in available_providers(kind, symbol)]
+
+    assert order("history", "VOO") == ["tiingo", "fmp", "eodhd", "alpha_vantage", "finnhub"]
+    assert order("history", "^GSPC") == ["eodhd", "fmp"]
+    assert order("history", "SHEL.L") == ["eodhd", "alpha_vantage", "fmp", "finnhub"]
+    assert order("intraday", "AAPL") == ["tiingo", "eodhd", "fmp", "alpha_vantage", "finnhub"]
+    assert order("quote", "AAPL") == ["finnhub", "tiingo", "fmp", "eodhd", "alpha_vantage"]
+    assert order("info", "AAPL") == ["fmp", "finnhub", "tiingo", "alpha_vantage", "eodhd"]
+    assert order("fx", "EURUSD") == ["fmp", "alpha_vantage"]
 
 
 @pytest.mark.asyncio
@@ -327,9 +352,17 @@ async def test_market_cap_is_not_filled_across_currencies(
 
 
 @pytest.mark.asyncio
-async def test_price_history_needs_fmp_or_alpha_vantage() -> None:
-    """Finnhub's free plan has no history, so a Finnhub-only user is told which key to add."""
-    with pytest.raises(ProviderNotConfiguredError, match="Financial Modeling Prep or Alpha"):
+async def test_price_history_names_the_keys_that_would_cover_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finnhub's free plan refuses candles, so a Finnhub-only user is told which keys to
+    add, cheapest first."""
+
+    async def refused(*args: Any) -> None:
+        raise ProviderPlanError("Your Finnhub plan does not cover this request.")
+
+    monkeypatch.setattr(fetcher, "_finnhub_history", refused)
+    with pytest.raises(ProviderPlanError, match="Tiingo, Financial Modeling Prep, EODHD or Alpha"):
         await fetch_price_history("AAPL", period="1y", interval="1d")
 
 

@@ -57,7 +57,7 @@ The cells below record what happened when each free key requested that kind of d
 | Intraday bars | None | None | Premium | **5-minute bars from IEX** (IEX volume only) | None |
 | Quote, US | Large-cap sample | **Yes, real time** | End of day only | Yes (Tiingo's last price) | Yes, 15–20 min delayed |
 | Quote, international | Refused | None | Not tested | None | Delayed |
-| Company info, US | Sector, industry and market cap for the sample (ETFs included) | **Industry and market cap, any US stock** | Premium | **Sector and industry, any US stock**; market cap only for the Dow 30 | None (paid add-on) |
+| Company info, US | Sector, industry and market cap for the sample (ETFs included) | **Industry and market cap, any US stock** | Premium | Name for any US stock; sector, industry and market cap only for the Dow 30 | None (paid add-on) |
 | Exchange rates | Quote only | None | **Current rate**, plus 100 days of history | **Daily history, 5+ years** | Last 1 year |
 | Screener: bulk market caps or sectors | Refused | One call per stock (see below) | None | None | None |
 | Screener: per-stock metrics | None | **Yes: market cap, P/E, P/S, beta, 13/26/52-week returns, 3-month return volatility, average volume, 52-week high and low, margins, ROE** | None | None | None |
@@ -104,7 +104,7 @@ and use the first one that covers the request. "Free" means the provider's free 
 | Intraday bars | Tiingo IEX (free) → EODHD Active trader ($29.99) → Alpha Vantage premium | **5-minute bars from Tiingo** (IEX's volume only). Other bar sizes and full volume need a paid key |
 | Quotes, US | Finnhub (free, real time) → Tiingo (free) → FMP (free sample) → EODHD (free, delayed) → Alpha Vantage (free, end of day) | **Covered** |
 | Quotes, international | EODHD (free, delayed; Historian for volume) | 20 requests a day |
-| Company info, US: name, sector, industry | Tiingo fundamentals meta (free) → Finnhub profile (free) → FMP profile (free sample) | **Covered** |
+| Company info, US: name, sector, industry | FMP profile (free sample) → Finnhub profile (free: industry, any US stock) → Tiingo meta (free: the Dow 30's sectors) → EODHD Fundamentals ($59.99) | **Name and industry covered**; a sector name for most stocks needs FMP's sample or a paid key |
 | Market cap, US | Finnhub (free) → FMP (free sample) | **Covered** |
 | Company info, international | EODHD Fundamentals ($59.99) → FMP Premium | No free source |
 | Exchange rates | ECB reference rates (public) → Tiingo FX (free) → Alpha Vantage (free) | **Covered, with no key at all** |
@@ -127,8 +127,9 @@ and use the first one that covers the request. "Free" means the provider's free 
 - **FMP's free history covers a fixed sample of popular symbols.** The app's code comment
   says the free plan has no price history at all. That is wrong: the free plan has
   history, but only for symbols in the sample.
-- **Tiingo's free plan includes fundamentals only for the Dow 30.** Its sector and
-  industry lookup (`fundamentals/meta`) works for any US ticker.
+- **Tiingo's free plan includes fundamentals only for the Dow 30.** Its
+  `fundamentals/meta` lookup gives any US ticker's name, but answers "Field not available
+  for free/evaluation" for the sector and industry of stocks outside the Dow 30.
 - **Tiingo's IEX feed has gaps since IEX changed its rules in February 2025.** Bid, ask
   and last sale come back empty without a direct agreement with IEX. Tiingo's own last
   price and its 5-minute bars work.

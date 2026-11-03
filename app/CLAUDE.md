@@ -9,9 +9,14 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
   `Authorization: Bearer <key>` header, rate-limited per user. Provider keys come per
   request (`core/credentials.py`: `current_provider_keys()`), never from the database.
 - **Market data:** `data/fetcher.py`. `fetch_price_history`, `fetch_ticker_info` and
-  quotes try `available_providers()` in order (Finnhub for quotes or info where its free
-  plan covers the symbol, then FMP, Alpha Vantage, then yfinance when
-  `YFINANCE_FALLBACK` is on, see `CLAUDE.local.md`) through `first_success()`. Results
+  quotes try `available_providers(kind, symbol)`: the user's keys in the order
+  `PROVIDER_ORDER` sets for each kind of data (daily, intraday, quote, profile, exchange
+  rate) and kind of symbol (US, index, abroad), cheapest first as `docs/data-sources.md`
+  explains, then yfinance (see `CLAUDE.local.md`), through `first_success()`. A plan's
+  refusal or reached limit is remembered per key and passes the request on; a free plan's
+  partial history (a `HISTORY_NOTICE`) is kept only if no later key does better. Providers:
+  Tiingo, FMP, EODHD, Finnhub, Alpha Vantage. `web/src/lib/keyCoverage.ts` mirrors the order
+  for Settings, and a test checks they match. Results
   are cached in Redis when `REDIS_URL` is set (`core/cache.py`); without it every lookup
   goes to the provider. Several symbols at once:
   `data/panel.py: fetch_close_panel` (pass `tolerate_failures=True` to leave out the

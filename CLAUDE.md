@@ -2,8 +2,9 @@
 
 A personal investment-research web app: a FastAPI backend (`app/`, Python 3.14, with R
 for GARCH) and a React + TypeScript frontend (`web/`, Vite) that FastAPI serves in
-production. Market data comes from FMP, Finnhub and Alpha Vantage on each user's own
-keys, with yfinance as a fallback. Claude writes stock reports, portfolio reviews and
+production. Market data comes from Tiingo, FMP, EODHD, Finnhub and Alpha Vantage on each
+user's own keys, cheapest first for each kind of data (`docs/data-sources.md`), with
+yfinance as a fallback. Claude writes stock reports, portfolio reviews and
 strategy code. Custom strategies run in the browser (Pyodide for Python, Clang compiled
 to WebAssembly for C++). Only their positions go to the server, which scores them.
 

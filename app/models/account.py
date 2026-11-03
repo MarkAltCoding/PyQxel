@@ -54,6 +54,8 @@ class Account(BaseModel):
     fmp: ProviderCredential
     alpha_vantage: ProviderCredential
     finnhub: ProviderCredential
+    tiingo: ProviderCredential = Field(default_factory=lambda: ProviderCredential(configured=False))
+    eodhd: ProviderCredential = Field(default_factory=lambda: ProviderCredential(configured=False))
     limits: AiLimits
     usage: AiUsage
     rate_limit_per_minute: int = Field(description="Requests allowed per minute, server-wide.")

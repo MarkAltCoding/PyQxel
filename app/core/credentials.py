@@ -19,6 +19,8 @@ PROVIDER_HEADERS: dict[str, str] = {
     "fmp": "X-FMP-Key",
     "alpha_vantage": "X-Alpha-Vantage-Key",
     "finnhub": "X-Finnhub-Key",
+    "tiingo": "X-Tiingo-Key",
+    "eodhd": "X-EODHD-Key",
 }
 """The header each provider's key is sent in."""
 
@@ -40,6 +42,8 @@ class ProviderKeys:
     fmp: SecretStr | None = None
     alpha_vantage: SecretStr | None = None
     finnhub: SecretStr | None = None
+    tiingo: SecretStr | None = None
+    eodhd: SecretStr | None = None
     yfinance: bool = False
     unlicensed: bool = False
 

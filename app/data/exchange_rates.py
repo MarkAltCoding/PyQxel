@@ -317,7 +317,7 @@ async def fetch_sourced_exchange_rate(base: str, quote: str = "USD") -> Exchange
     return await first_success(
         f"{base}/{quote}",
         "an exchange rate",
-        [(provider, attempt(provider, key)) for provider, key in available_providers()],
+        [(provider, attempt(provider, key)) for provider, key in available_providers("fx")],
     )
 
 

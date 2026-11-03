@@ -1479,6 +1479,7 @@ export interface components {
       created_at: string
       /** Email */
       email: string
+      eodhd?: components['schemas']['ProviderCredential']
       finnhub: components['schemas']['ProviderCredential']
       fmp: components['schemas']['ProviderCredential']
       /**
@@ -1502,6 +1503,7 @@ export interface components {
        * @description Whether the server reads financial statements and filings from SEC EDGAR, which needs no account key.
        */
       sec_filings: boolean
+      tiingo?: components['schemas']['ProviderCredential']
       usage: components['schemas']['AiUsage']
     }
     /**

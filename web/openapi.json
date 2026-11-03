@@ -19,6 +19,9 @@
             "title": "Email",
             "type": "string"
           },
+          "eodhd": {
+            "$ref": "#/components/schemas/ProviderCredential"
+          },
           "finnhub": {
             "$ref": "#/components/schemas/ProviderCredential"
           },
@@ -47,6 +50,9 @@
             "description": "Whether the server reads financial statements and filings from SEC EDGAR, which needs no account key.",
             "title": "Sec Filings",
             "type": "boolean"
+          },
+          "tiingo": {
+            "$ref": "#/components/schemas/ProviderCredential"
           },
           "usage": {
             "$ref": "#/components/schemas/AiUsage"

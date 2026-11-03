@@ -1752,6 +1752,38 @@ table.data .muted {
   color: var(--text-muted);
 }
 
+/* Settings: each kind of market data, the user's keys that give it, and the next to add. */
+.coverage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.coverage-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.coverage-sources {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+}
+
+.coverage-list p {
+  margin: 6px 0 0;
+  font-size: 0.88rem;
+}
+
+.coverage-next {
+  color: var(--accent);
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
