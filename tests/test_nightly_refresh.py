@@ -123,7 +123,11 @@ def test_opting_in_needs_a_finnhub_key(user: User, key: str) -> None:
     assert _stored(user) is None
 
 
-def test_opting_in_needs_the_server_to_have_an_encryption_key(user: User, key: str) -> None:
+def test_opting_in_needs_the_server_to_have_an_encryption_key(
+    user: User, key: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Whatever the developer's .env holds.
+    monkeypatch.setattr(get_settings(), "credentials_encryption_key", None)
     status = client.get("/api/v1/me/nightly-refresh", headers=_headers(key))
     response = client.put(
         "/api/v1/me/nightly-refresh", headers=_headers(key, finnhub=FINNHUB), json={}
