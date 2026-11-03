@@ -17,8 +17,13 @@ from app.core.config import get_settings
 from app.core.credentials import current_provider_keys
 from app.data.fetcher import DataFetchError, ProviderNotConfiguredError
 from app.data.universe import FmpSession, Listing, Profile
-from app.db.screener import finish_run, load_fundamentals, start_run, universe_status
-from app.db.app_settings import set_yfinance_for_everyone
+from app.db.screener import (
+    finish_run,
+    load_fundamentals,
+    start_run,
+    universe_is_licensed,
+    universe_status,
+)
 from app.db.session import get_sessionmaker
 from app.db.tables import ScreenerRunRecord, ScreenerStockRecord
 from app.jobs import screener as job
@@ -306,19 +311,22 @@ async def test_refresh_needs_a_licensed_key_in_production(
 
 
 @pytest.mark.asyncio
-async def test_refresh_follows_the_admins_switch_for_everyone(
+async def test_a_refresh_is_recorded_as_licensed_only_on_the_screeners_key(
     fakes: Fakes, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With the fallback off in the environment, the admin's app-wide switch lets the
-    refresh run on yfinance."""
-    monkeypatch.setattr(get_settings(), "yfinance_fallback", False)
+    """A refresh on yfinance and Nasdaq's feed is recorded as unlicensed, so its universe
+    is shown only to an account allowed to see such data; one on the screener's FMP key is
+    licensed, and shown to everyone."""
+    monkeypatch.setattr(get_settings(), "yfinance_fallback", True)
     monkeypatch.setattr(get_settings(), "screener_fmp_api_key", None)
-    async with get_sessionmaker()() as session:
-        await set_yfinance_for_everyone(session, True)
-
     await job.refresh_universe()
+    async with get_sessionmaker()() as session:
+        assert await universe_is_licensed(session) is False
 
-    assert fakes.priced != []
+    monkeypatch.setattr(get_settings(), "screener_fmp_api_key", SecretStr("screener-key"))
+    await job.refresh_universe()
+    async with get_sessionmaker()() as session:
+        assert await universe_is_licensed(session) is True
 
 
 @pytest.mark.asyncio

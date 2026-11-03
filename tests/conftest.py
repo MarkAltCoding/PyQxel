@@ -20,6 +20,7 @@ live tests reach data the owner's FMP plan excludes.
 
 import asyncio
 import os
+from dataclasses import replace
 from collections.abc import Iterator
 
 import pytest
@@ -29,7 +30,7 @@ from pydantic import SecretStr
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite://"
 os.environ["YFINANCE_FALLBACK"] = "true"
 
-from app.api.auth import authenticate  # noqa: E402
+from app.api.auth import authenticate, sees_unlicensed_data, uses_yfinance  # noqa: E402
 from app.core.cache import configure_cache  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 from app.core.credentials import ProviderKeys, use_provider_keys  # noqa: E402
@@ -48,7 +49,6 @@ from app.db.session import (  # noqa: E402
     get_sessionmaker,
     init_db,
 )
-from app.db.app_settings import clear_app_settings_memory  # noqa: E402
 from app.db.users import User, create_user  # noqa: E402
 from app.main import app  # noqa: E402
 
@@ -113,7 +113,6 @@ def isolated_storage() -> Iterator[None]:
     clear_signals_memory()
     clear_fomc_memory()
     clear_local_counts()
-    clear_app_settings_memory()
     yield
     configure_cache(None)
     clear_factor_memory()
@@ -141,7 +140,14 @@ def user(isolated_storage: None) -> Iterator[User]:
     keys = ProviderKeys(anthropic=anthropic or SecretStr(PLACEHOLDER_ANTHROPIC_KEY), fmp=fmp)
 
     async def signed_in() -> User:
-        use_provider_keys(keys)
+        # Marked as production marks a request, from the settings at the time it is made.
+        use_provider_keys(
+            replace(
+                keys,
+                yfinance=uses_yfinance(account),
+                unlicensed=sees_unlicensed_data(account),
+            )
+        )
         return account
 
     app.dependency_overrides[authenticate] = signed_in

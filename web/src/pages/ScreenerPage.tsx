@@ -175,10 +175,13 @@ export function ScreenerPage() {
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
   }
+  // An empty universe has nothing to screen; the notice above the screen says so, once.
+  const empty = status.data?.stocks === 0
   const results = useQuery({
     queryKey: ['screen', request],
     queryFn: () => screen(request),
     placeholderData: keepPreviousData,
+    enabled: !empty,
   })
 
   const columns = [
@@ -202,7 +205,7 @@ export function ScreenerPage() {
         <div>
           <h1>Screener</h1>
           <div className="subtitle">
-            {status.data
+            {status.data && !empty
               ? `${status.data.stocks.toLocaleString()} US stocks · prices as of ${shortDate(status.data.prices_as_of)} · refreshed ${dateTime(status.data.refreshed_at)}`
               : 'US-listed common stocks, refreshed after each trading day'}
           </div>
@@ -212,10 +215,10 @@ export function ScreenerPage() {
       {status.data?.last_error && (
         <Notice tone="warning">The latest refresh failed: {status.data.last_error}</Notice>
       )}
-      {status.data && status.data.stocks === 0 && (
+      {empty && (
         <Notice>
-          The universe is empty. Run <code>python -m app.jobs.screener</code> on the server to build
-          it.
+          The stock screener is not available yet. Once it is, it lists US stocks you can filter and
+          rank by their valuation, growth, momentum and risk.
         </Notice>
       )}
 
@@ -357,7 +360,7 @@ export function ScreenerPage() {
             </button>
           </div>
         </div>
-        {results.error !== null && <ErrorNotice error={results.error} />}
+        {results.error !== null && !empty && <ErrorNotice error={results.error} />}
         <div className={`table-wrap${results.isPlaceholderData ? ' card-body refreshing' : ''}`}>
           <table className="data">
             <thead>

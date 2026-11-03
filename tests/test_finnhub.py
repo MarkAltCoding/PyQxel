@@ -15,7 +15,6 @@ from pydantic import SecretStr
 
 from app.api.v1.endpoints import search as search_route
 from app.api.v1.endpoints import signals as signals_route
-from app.core.config import Settings
 from app.core.credentials import ProviderKeys, use_provider_keys
 from app.data import fetcher, finnhub
 from app.data.fetcher import (
@@ -149,8 +148,7 @@ def _paths(requests: list[httpx2.Request]) -> list[str]:
 @pytest.fixture(autouse=True)
 def finnhub_only(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Act as a user with only a Finnhub key, the yfinance fallback off."""
-    settings = Settings(yfinance_fallback=False)
-    monkeypatch.setattr(fetcher, "get_settings", lambda: settings)
+    monkeypatch.setattr(fetcher, "yfinance_fallback_on", lambda: False)
     fetcher.clear_alpha_vantage_memory()
     finnhub.clear_signals_memory()
     use_provider_keys(ProviderKeys(finnhub=SecretStr(KEY)))
@@ -545,7 +543,9 @@ def test_search_adds_finnhub_matches_after_the_universe(
 ) -> None:
     """Finnhub fills the list after the universe's matches, without repeating them."""
 
-    async def universe(session: object, query: str, limit: int) -> list[SearchMatch]:
+    async def universe(
+        session: object, query: str, limit: int, details: bool = True
+    ) -> list[SearchMatch]:
         return [SearchMatch(symbol="AAPL", name="Apple Inc.", exchange="NASDAQ", market_cap=3e12)]
 
     async def finnhub_search(query: str, limit: int) -> list[SearchMatch]:
@@ -572,7 +572,9 @@ def test_search_without_finnhub_key_uses_the_universe_only(
 ) -> None:
     """Without a key, Finnhub is not asked."""
 
-    async def universe(session: object, query: str, limit: int) -> list[SearchMatch]:
+    async def universe(
+        session: object, query: str, limit: int, details: bool = True
+    ) -> list[SearchMatch]:
         return []
 
     async def finnhub_search(query: str, limit: int) -> list[SearchMatch]:

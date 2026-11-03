@@ -41,7 +41,6 @@ import pandas as pd
 import yfinance as yf
 
 from app.core.cache import cache_get, cache_increment, cache_set
-from app.core.config import get_settings
 from app.core.credentials import current_provider_keys
 from app.core.redact import redact
 from app.models.quote import Quote
@@ -248,10 +247,11 @@ def finnhub_free_covers(symbol: str) -> bool:
 
 
 def yfinance_fallback_on() -> bool:
-    """Whether yfinance answers for the current user: server-wide with
-    ``YFINANCE_FALLBACK``, or as the admin's settings say, for everyone or for the admin
-    alone."""
-    return get_settings().yfinance_fallback or current_provider_keys().yfinance
+    """Whether yfinance answers the current request: only when its user may see unlicensed
+    data and has it on (see :func:`app.api.auth.uses_yfinance`), or for a screener refresh
+    built for that user alone. Never from ``YFINANCE_FALLBACK`` by itself, so a request
+    that is not marked never gets yfinance data, cached or not."""
+    return current_provider_keys().yfinance
 
 
 def available_providers(

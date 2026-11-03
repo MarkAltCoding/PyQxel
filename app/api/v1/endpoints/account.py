@@ -18,11 +18,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.routing import Match
 
-from app.api.auth import CurrentUser, authenticate
+from app.api.auth import CurrentUser, authenticate, uses_yfinance
 from app.core.config import get_settings
 from app.core.credentials import ProviderKeys, current_provider_keys
 from app.core.security import key_hint
-from app.db.app_settings import set_yfinance_for_everyone, yfinance_for_everyone
 from app.db.session import get_session
 from app.db.users import (
     User,
@@ -71,9 +70,6 @@ def _sent(keys: ProviderKeys, provider: str) -> ProviderCredential:
 
 async def _account(session: AsyncSession, user: User) -> Account:
     keys = current_provider_keys()
-    server = get_settings().yfinance_fallback
-    everyone = await yfinance_for_everyone(session)
-    mine = user.is_admin and user.yfinance_fallback
     return Account(
         id=UUID(user.id),
         email=user.email,
@@ -85,13 +81,12 @@ async def _account(session: AsyncSession, user: User) -> Account:
         limits=user.limits,
         usage=await ai_usage(session, user.id),
         rate_limit_per_minute=get_settings().rate_limit_per_minute,
-        market_data_fallback=server or everyone or mine,
+        market_data_fallback=uses_yfinance(user),
         sec_filings=bool(get_settings().sec_user_agent),
         admin=(
             {
                 "yfinance_fallback": user.yfinance_fallback,
-                "yfinance_fallback_for_everyone": everyone,
-                "yfinance_fallback_from_server": server,
+                "yfinance_fallback_from_server": get_settings().yfinance_fallback,
             }
             if user.is_admin
             else None
@@ -215,9 +210,9 @@ def _as_if_missing(request: Request) -> HTTPException:
 
 
 async def store_admin_settings(request: Request, session: Session) -> Account:
-    """Turn the yfinance fallback on or off, with ``PUT``: for the admin's own requests
-    (``yfinance_fallback``), or for every account and the screener refresh
-    (``yfinance_fallback_for_everyone``). Omitted fields are left as they are.
+    """Turn the yfinance fallback for the admin's own requests on or off, with ``PUT``
+    (``yfinance_fallback``); an omitted field is left as it is. It never reaches another
+    account.
 
     Only the account ``ADMIN_EMAIL`` names may. Everyone else, signed in or not, gets the
     answer a path that does not exist gets, and the route is left out of the API schema,
@@ -236,8 +231,6 @@ async def store_admin_settings(request: Request, session: Session) -> Account:
     try:
         if changes.yfinance_fallback is not None:
             user = await update_yfinance_fallback(session, user.id, changes.yfinance_fallback)
-        if changes.yfinance_fallback_for_everyone is not None:
-            await set_yfinance_for_everyone(session, changes.yfinance_fallback_for_everyone)
         logger.info("Admin %s changed admin settings: %s.", user.id, changes.model_dump())
         return await _account(session, user)
     except SQLAlchemyError as exc:

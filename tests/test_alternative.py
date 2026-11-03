@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.api.v1.endpoints import alternative as alternative_route
-from app.core.config import Settings
 from app.core.credentials import ProviderKeys, use_provider_keys
 from app.data import alpha_vantage, fetcher, finnhub
 from app.data.alternative import fetch_alternative
@@ -86,7 +85,7 @@ def _finnhub(
 @pytest.fixture(autouse=True)
 def finnhub_user(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Act as a user with a Finnhub key, and nothing kept."""
-    monkeypatch.setattr(fetcher, "get_settings", lambda: Settings(yfinance_fallback=False))
+    monkeypatch.setattr(fetcher, "yfinance_fallback_on", lambda: False)
     fetcher.clear_alpha_vantage_memory()
     finnhub.clear_signals_memory()
     use_provider_keys(ProviderKeys(finnhub=SecretStr(KEY)))

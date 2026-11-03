@@ -80,7 +80,7 @@ from app.data.sec_edgar import (
     fetch_latest_filings,
 )
 from app.db.analyses import get_analysis, list_analyses, save_analysis
-from app.db.screener import PeerGroup, peer_group
+from app.db.screener import PeerGroup, peer_group, shows_universe
 from app.db.session import get_session, get_sessionmaker
 from app.db.users import User, ai_usage
 from app.models.fundamentals import Financials, Fundamentals
@@ -222,8 +222,11 @@ def _garch_context(
 
 
 async def _peer_group(symbol: str) -> PeerGroup | None:
-    """``symbol`` and its peers from the screened universe."""
+    """``symbol`` and its peers from the screened universe; ``None`` when the universe may not
+    be shown to the current account."""
     async with get_sessionmaker()() as session:
+        if not await shows_universe(session):
+            return None
         return await peer_group(session, symbol)
 
 

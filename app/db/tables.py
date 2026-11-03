@@ -47,16 +47,6 @@ class UserRecord(Base):
     for every other account."""
 
 
-class AppSettingsRecord(Base):
-    """Settings for the whole server, which the admin changes; one row, ``id`` 1."""
-
-    __tablename__ = "app_settings"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    yfinance_fallback: Mapped[bool] = mapped_column(Boolean, server_default=false())
-    """Whether every account's requests, and the screener refresh, fall back to yfinance."""
-
-
 class ApiKeyRecord(Base):
     """A PyQxel API key, stored as the SHA-256 hash of the key."""
 
@@ -345,3 +335,6 @@ class ScreenerRunRecord(Base):
     fundamentals_refreshed: Mapped[bool] = mapped_column(Boolean, server_default=false())
     factor_data_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    licensed: Mapped[bool] = mapped_column(Boolean, server_default=false())
+    """Whether the refresh used licensed market data alone. One that used yfinance and
+    Nasdaq's feed is shown only to an account that may see unlicensed data."""

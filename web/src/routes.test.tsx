@@ -313,11 +313,7 @@ describe('admin settings', () => {
     expect(screen.queryByText(/Fall back to yfinance/)).toBeNull()
   })
 
-  const ADMIN = {
-    yfinance_fallback: false,
-    yfinance_fallback_for_everyone: false,
-    yfinance_fallback_from_server: false,
-  }
+  const ADMIN = { yfinance_fallback: false, yfinance_fallback_from_server: false }
 
   it('turn the yfinance fallback on for the admin alone', async () => {
     window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
@@ -337,36 +333,14 @@ describe('admin settings', () => {
     await userEvent.click(mine)
 
     await waitFor(() => expect(mine).toBeChecked())
-    expect(screen.getByRole('checkbox', { name: /for everyone/ })).not.toBeChecked()
+    // There is no way to turn it on for anyone else.
+    expect(screen.queryByRole('checkbox', { name: /for everyone/ })).toBeNull()
     expect(sent).toEqual([{ yfinance_fallback: true }])
     expect(calls.find((call) => call.path === '/api/v1/me/admin')).toEqual({
       path: '/api/v1/me/admin',
       method: 'PUT',
       authorization: 'Bearer pq_mine',
     })
-  })
-
-  it('turn the yfinance fallback on for everyone', async () => {
-    window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
-    const admin = { ...ACCOUNT, admin: ADMIN }
-    const sent: unknown[] = []
-    serve({
-      '/api/v1/me': () => json(admin),
-      '/api/v1/me/admin': (init) => {
-        sent.push(JSON.parse(String(init?.body)))
-        return json({ ...admin, admin: { ...ADMIN, yfinance_fallback_for_everyone: true } })
-      },
-    })
-    renderAt('/settings')
-
-    const everyone = await screen.findByRole('checkbox', { name: /for everyone/ })
-    await userEvent.click(everyone)
-
-    await waitFor(() => expect(everyone).toBeChecked())
-    expect(sent).toEqual([{ yfinance_fallback_for_everyone: true }])
-    // Everyone includes the admin, so their own switch shows on and is locked.
-    expect(screen.getByRole('checkbox', { name: /for my own requests/ })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: /for my own requests/ })).toBeDisabled()
   })
 
   it('say when the server forces the fallback on', async () => {
@@ -376,7 +350,9 @@ describe('admin settings', () => {
     renderAt('/settings')
 
     expect(await screen.findByText(/YFINANCE_FALLBACK is on/)).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: /for everyone/ })).toBeDisabled()
+    const mine = screen.getByRole('checkbox', { name: /for my own requests/ })
+    expect(mine).toBeChecked()
+    expect(mine).toBeDisabled()
   })
 })
 

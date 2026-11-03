@@ -30,8 +30,10 @@ MAX_KEY_LENGTH: int = 512
 class ProviderKeys:
     """The provider keys a request carried; ``None`` for each one it did not.
 
-    ``yfinance`` is whether the request may fall back to yfinance: when the admin turned
-    it on for everyone, or for themselves.
+    ``yfinance`` is whether the request may fall back to yfinance, and ``unlicensed``
+    whether it may be shown data built from unlicensed sources, such as a screener refreshed
+    with yfinance: both only for an account allowed to see such data (see
+    :func:`app.api.auth.sees_unlicensed_data`).
     """
 
     anthropic: SecretStr | None = None
@@ -39,6 +41,7 @@ class ProviderKeys:
     alpha_vantage: SecretStr | None = None
     finnhub: SecretStr | None = None
     yfinance: bool = False
+    unlicensed: bool = False
 
 
 def _key(value: str | None) -> SecretStr | None:
@@ -49,11 +52,14 @@ def _key(value: str | None) -> SecretStr | None:
     return SecretStr(value)
 
 
-def provider_keys_from(headers: Mapping[str, str], yfinance: bool = False) -> ProviderKeys:
+def provider_keys_from(
+    headers: Mapping[str, str], yfinance: bool = False, unlicensed: bool = False
+) -> ProviderKeys:
     """The provider keys in a request's ``headers``."""
     return ProviderKeys(
         **{name: _key(headers.get(header)) for name, header in PROVIDER_HEADERS.items()},
         yfinance=yfinance,
+        unlicensed=unlicensed,
     )
 
 

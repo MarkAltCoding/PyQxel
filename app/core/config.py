@@ -77,10 +77,11 @@ class Settings(BaseSettings):
     google_client_secret: SecretStr | None = None
     yfinance_fallback: bool = Field(
         default=False,
-        description="For development or personal use: use yfinance when a user has no FMP "
-        "key, or FMP fails or their plan does not cover a request, and yfinance and Nasdaq's "
-        "public feed for the screener refresh when SCREENER_FMP_API_KEY is unset. These "
-        "sources are unlicensed: keep it off once anyone else uses the deployment.",
+        description="Use yfinance when no licensed provider answers, and yfinance and "
+        "Nasdaq's public feed for the screener refresh when SCREENER_FMP_API_KEY is unset. "
+        "These sources are unlicensed, so with ADMIN_EMAIL set they answer that account "
+        "alone, and a screener built from them is shown to it alone; without ADMIN_EMAIL, "
+        "for development, they answer everyone.",
     )
     admin_email: str | None = Field(
         default=None,

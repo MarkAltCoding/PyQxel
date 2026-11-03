@@ -15,7 +15,6 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.api.v1.endpoints import markets as markets_route
-from app.core.config import Settings
 from app.core.credentials import ProviderKeys, use_provider_keys
 from app.data import fetcher, finnhub, fomc, markets
 from app.data.fomc import FALLBACK_MEETINGS, fetch_fomc_meetings, parse_meetings
@@ -75,7 +74,7 @@ def _json(payload: Any) -> Callable[[httpx2.Request], httpx2.Response]:
 @pytest.fixture(autouse=True)
 def finnhub_user(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Act as a user with a Finnhub key, the yfinance fallback off, and nothing kept."""
-    monkeypatch.setattr(fetcher, "get_settings", lambda: Settings(yfinance_fallback=False))
+    monkeypatch.setattr(fetcher, "yfinance_fallback_on", lambda: False)
     fetcher.clear_alpha_vantage_memory()
     finnhub.clear_signals_memory()
     fomc.clear_fomc_memory()

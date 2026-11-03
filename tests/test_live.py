@@ -17,7 +17,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings, get_settings
+from app.core.config import get_settings
 from app.core.credentials import ProviderKeys, use_provider_keys
 from app.db.users import User
 from app.api.v1.endpoints.research import prepare_analysis
@@ -409,8 +409,7 @@ async def test_alpha_vantage_serves_everything_on_its_own_key(
     """
     key = settings.alpha_vantage_api_key
     assert key is not None
-    no_fallback = Settings(yfinance_fallback=False)
-    monkeypatch.setattr(fetcher, "get_settings", lambda: no_fallback)
+    monkeypatch.setattr(fetcher, "yfinance_fallback_on", lambda: False)
     use_provider_keys(ProviderKeys(alpha_vantage=key))
 
     info = await fetcher.fetch_ticker_info("IBM")
@@ -442,8 +441,7 @@ async def test_finnhub_free_plan_covers_everything_used(
     """
     key = settings.finnhub_api_key
     assert key is not None
-    no_fallback = Settings(yfinance_fallback=False)
-    monkeypatch.setattr(fetcher, "get_settings", lambda: no_fallback)
+    monkeypatch.setattr(fetcher, "yfinance_fallback_on", lambda: False)
     use_provider_keys(ProviderKeys(finnhub=key))
 
     quote = await fetcher.fetch_quote("AAPL")
@@ -487,7 +485,7 @@ async def test_finnhub_free_plan_covers_market_and_alternative_data(
     """
     key = settings.finnhub_api_key
     assert key is not None
-    monkeypatch.setattr(fetcher, "get_settings", lambda: Settings(yfinance_fallback=False))
+    monkeypatch.setattr(fetcher, "yfinance_fallback_on", lambda: False)
     use_provider_keys(ProviderKeys(finnhub=key))
     today = date.today()
 

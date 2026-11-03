@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.data.fetcher import DataFetchError, finnhub_key
 from app.data.finnhub import search_symbols
 from app.data.sec_edgar import FilingFetchError, search_tickers
-from app.db.screener import search_stocks
+from app.db.screener import search_stocks, shows_universe
 from app.db.session import get_session
 from app.models.screener import SearchMatch, SearchResponse
 
@@ -65,7 +65,7 @@ async def search(
     Returns 503 when the database is unavailable and Finnhub finds nothing.
     """
     try:
-        items = await search_stocks(session, q, limit)
+        items = await search_stocks(session, q, limit, details=await shows_universe(session))
     except SQLAlchemyError as exc:
         logger.error("Search failed: %s", exc)
         items = None

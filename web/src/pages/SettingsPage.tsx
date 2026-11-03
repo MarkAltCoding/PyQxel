@@ -374,28 +374,22 @@ function AdminSettingsForm({
       </div>
       <AdminSwitch
         label="Fall back to yfinance for my own requests"
-        on={admin.yfinance_fallback || admin.yfinance_fallback_for_everyone || forced}
-        disabled={save.isPending || admin.yfinance_fallback_for_everyone || forced}
-        onChange={(on) => save.mutate({ yfinance_fallback: on })}
-      />
-      <AdminSwitch
-        label="Fall back to yfinance for everyone"
-        on={admin.yfinance_fallback_for_everyone || forced}
+        on={admin.yfinance_fallback || forced}
         disabled={save.isPending || forced}
-        onChange={(on) => save.mutate({ yfinance_fallback_for_everyone: on })}
+        onChange={(on) => save.mutate({ yfinance_fallback: on })}
       />
       {forced && (
         <Notice tone="warning">
-          YFINANCE_FALLBACK is on where the server is deployed, so yfinance is on for everyone
-          whatever these say. Deploy with YFINANCE_FALLBACK=false to control it here.
+          YFINANCE_FALLBACK is on where the server is deployed, so yfinance is on for your requests
+          whatever this says. Deploy with YFINANCE_FALLBACK=false to control it here.
         </Notice>
       )}
       <p className="disclaimer">
         yfinance fills the gaps in free FMP and Alpha Vantage plans (full adjusted price history,
         ETFs, indices, foreign listings, intraday bars and exchange rates) with Yahoo data, which is
-        unlicensed and can break without notice. For yourself it is personal use. For everyone it
-        also refreshes the screener with yfinance and Nasdaq data, and shows Yahoo&apos;s data to
-        other people, which Yahoo&apos;s terms do not allow.
+        unlicensed and can break without notice, so it is for your personal use only. It never
+        reaches another account: their requests use their own keys alone, and a screener refreshed
+        with yfinance and Nasdaq data is shown to you alone.
       </p>
       {save.error !== null && <ErrorNotice error={save.error} />}
     </section>

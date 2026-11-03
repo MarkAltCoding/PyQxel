@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.screener import screen, universe_status
+from app.db.screener import screen, shows_universe, universe_status
 from app.db.session import get_session
 from app.models.screener import ScreenRequest, ScreenResponse, UniverseStatus
 
@@ -51,9 +51,15 @@ async def screen_stocks(
     Returns 503 when the universe has not been built yet or the database is unavailable.
     """
     try:
-        result = await screen(session, request)
+        shown = await shows_universe(session)
+        result = await screen(session, request) if shown else None
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The stock screener is not available yet.",
+        )
     if result.refreshed_at is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -70,6 +76,8 @@ async def read_status(session: Session) -> UniverseStatus:
     Returns 503 when the database is unavailable.
     """
     try:
+        if not await shows_universe(session):
+            return UniverseStatus(stocks=0)
         return await universe_status(session)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc

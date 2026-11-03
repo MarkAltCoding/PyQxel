@@ -18,7 +18,6 @@ from fakeredis import FakeAsyncRedis
 from pydantic import SecretStr
 
 from app.core.cache import KEY_PREFIX, configure_cache
-from app.core.config import Settings
 from app.core.credentials import ProviderKeys, current_provider_keys, use_provider_keys
 from app.data import fetcher
 from app.data.fetcher import (
@@ -45,9 +44,8 @@ def no_provider_keys() -> Iterator[None]:
 
 
 def _fallback(monkeypatch: pytest.MonkeyPatch, enabled: bool) -> None:
-    """Turn the yfinance development fallback on or off."""
-    settings = Settings(yfinance_fallback=enabled)
-    monkeypatch.setattr(fetcher, "get_settings", lambda: settings)
+    """Turn the yfinance fallback on or off for the current request, as signing in does."""
+    monkeypatch.setattr(fetcher, "yfinance_fallback_on", lambda: enabled)
 
 
 def _fmp_key(key: str = "fmp-user-key") -> None:
@@ -719,3 +717,24 @@ async def test_an_unknown_symbols_refused_quote_is_not_kept(
         fetcher.clear_quote_cache()
 
     assert [path for path, _ in requests] == ["quote", "profile", "quote", "profile"]
+
+
+async def test_yfinance_data_cached_for_one_request_never_reaches_another() -> None:
+    """A request marked for yfinance caches its answer under yfinance's name; a request not
+    marked, as every other account's is, never reads it, even through the shared cache."""
+    configure_cache(FakeAsyncRedis())
+    fake, calls = _yfinance_history_counting(_new_york_bars())
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(fetcher, "_yfinance_history", fake)
+        use_provider_keys(ProviderKeys(yfinance=True, unlicensed=True))
+        assert not (await fetcher.fetch_price_history("GOOG", period="1y")).empty
+
+        use_provider_keys(ProviderKeys())
+        with pytest.raises(ProviderNotConfiguredError):
+            await fetcher.fetch_price_history("GOOG", period="1y")
+        use_provider_keys(ProviderKeys(fmp=SecretStr("someone-elses-key")))
+        _serve_fmp(patch, lambda path, params: [])
+        with pytest.raises(fetcher.DataFetchError):
+            await fetcher.fetch_price_history("GOOG", period="1y")
+
+    assert calls == ["GOOG"]

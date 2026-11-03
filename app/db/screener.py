@@ -10,6 +10,7 @@ from sqlalchemy import and_, case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
+from app.core.credentials import current_provider_keys
 from app.db.tables import (
     ScreenerFundamentalsRecord,
     ScreenerRunRecord,
@@ -130,8 +131,10 @@ async def finish_run(
     prices_as_of: date | None = None,
     fundamentals_refreshed: bool = False,
     factor_data_end: date | None = None,
+    licensed: bool = False,
 ) -> None:
-    """Record a refresh as finished: failed with ``error``, or succeeded with its results."""
+    """Record a refresh as finished: failed with ``error``, or succeeded with its results,
+    and whether it used licensed market data alone."""
     run = await session.get(ScreenerRunRecord, run_id)
     if run is None:
         return
@@ -142,6 +145,7 @@ async def finish_run(
     run.prices_as_of = prices_as_of
     run.fundamentals_refreshed = fundamentals_refreshed
     run.factor_data_end = factor_data_end
+    run.licensed = licensed
     await session.commit()
 
 
@@ -154,6 +158,20 @@ async def _latest_run(session: AsyncSession, status: str | None = None) -> Scree
         query.order_by(ScreenerRunRecord.started_at.desc()).limit(1)
     )
     return run
+
+
+async def universe_is_licensed(session: AsyncSession) -> bool:
+    """Whether the stored universe was built from licensed market data alone, and so may be
+    shown to every account; ``False`` when it has never been built."""
+    succeeded = await _latest_run(session, SUCCEEDED)
+    return succeeded is not None and succeeded.licensed
+
+
+async def shows_universe(session: AsyncSession) -> bool:
+    """Whether the current request may be shown the stored universe: always when it was
+    built from licensed data, and otherwise only to an account allowed to see unlicensed
+    data (see :class:`app.core.credentials.ProviderKeys`)."""
+    return current_provider_keys().unlicensed or await universe_is_licensed(session)
 
 
 async def universe_status(session: AsyncSession) -> UniverseStatus:
@@ -248,11 +266,15 @@ def _like_pattern(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-async def search_stocks(session: AsyncSession, query: str, limit: int) -> list[SearchMatch]:
+async def search_stocks(
+    session: AsyncSession, query: str, limit: int, details: bool = True
+) -> list[SearchMatch]:
     """Return up to ``limit`` stocks whose symbol starts with or name contains ``query``.
 
     An exact symbol comes first, then symbols starting with ``query``, then names
-    containing it; within each, larger companies first. Matching ignores case.
+    containing it; within each, larger companies first. Matching ignores case. Without
+    ``details``, matches carry only their symbol, name and exchange, which come from the
+    SEC's list of listings, in alphabetical order within each group.
     """
     text = query.strip().lower()
     if not text:
@@ -263,13 +285,17 @@ async def search_stocks(session: AsyncSession, query: str, limit: int) -> list[S
     starts = symbol.like(f"{escaped}%", escape="\\")
     contains = name.like(f"%{escaped}%", escape="\\")
     relevance = case((symbol == text, 0), (starts, 1), else_=2)
+    size = ScreenerStockRecord.market_cap.desc() if details else ScreenerStockRecord.symbol
     records = await session.scalars(
         select(ScreenerStockRecord)
         .where(or_(starts, contains))
-        .order_by(relevance, ScreenerStockRecord.market_cap.desc())
+        .order_by(relevance, size)
         .limit(limit)
     )
-    return [SearchMatch.model_validate(record, from_attributes=True) for record in records]
+    matches = [SearchMatch.model_validate(record, from_attributes=True) for record in records]
+    if details:
+        return matches
+    return [match.model_copy(update={"sector": None, "market_cap": None}) for match in matches]
 
 
 async def market_caps(

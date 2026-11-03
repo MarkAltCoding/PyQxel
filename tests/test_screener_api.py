@@ -1,15 +1,20 @@
 """Tests for screening the stored universe through the API."""
 
 import asyncio
+from datetime import date
 from typing import Any, get_args
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.v1.endpoints import markets, research
+from app.core.config import get_settings
+from app.core.credentials import ProviderKeys, use_provider_keys
 from app.db.screener import finish_run, replace_universe, start_run
 from app.db.session import get_sessionmaker
 from app.db.tables import ScreenerStockRecord
 from app.main import app
+from app.models.markets import EarningsEvent
 from app.models.screener import ScreenedStock, ScreenField, ScreenMetrics
 
 client = TestClient(app)
@@ -206,3 +211,71 @@ def test_status_reports_the_universe_and_failures() -> None:
     assert status["stocks"] == 4
     assert status["refreshed_at"] is not None
     assert status["last_error"] == "RuntimeError: SEC down"
+
+
+# A universe built from unlicensed data is shown only to the account allowed to see it.
+
+
+def _store_run(stocks: list[ScreenedStock], licensed: bool) -> None:
+    """Store ``stocks`` as the universe, from a refresh that was or was not licensed."""
+
+    async def run() -> None:
+        async with get_sessionmaker()() as session:
+            await replace_universe(session, stocks)
+            run_id = await start_run(session)
+            await finish_run(session, run_id, stocks=len(stocks), licensed=licensed)
+
+    asyncio.run(run())
+
+
+def test_an_unlicensed_universe_is_hidden_from_other_accounts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Other accounts get no screen, an empty status, and search without sizes or sectors,
+    and nothing names where the data came from."""
+    monkeypatch.setattr(get_settings(), "admin_email", "owner@example.com")
+    _store_run(STOCKS, licensed=False)
+
+    screened = client.post("/api/v1/screener", json={})
+    status = client.get("/api/v1/screener/status").json()
+    found = client.get("/api/v1/search", params={"q": "BIG"}).json()["items"]
+
+    assert screened.status_code == 503
+    assert screened.json()["detail"] == "The stock screener is not available yet."
+    assert status == {**status, "stocks": 0, "sectors": [], "refreshed_at": None}
+    assert found[0]["symbol"] == "BIG"
+    assert found[0]["market_cap"] is None and found[0]["sector"] is None
+    shown = (screened.text + str(status) + str(found)).lower()
+    assert "yfinance" not in shown and "yahoo" not in shown and "nasdaq" not in shown
+
+
+def test_the_admin_sees_an_unlicensed_universe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(get_settings(), "admin_email", "tester@example.com")
+    _store_run(STOCKS, licensed=False)
+
+    assert _symbols(_screen())[:2] == ["BIG", "CHEAP"]
+    assert client.get("/api/v1/search", params={"q": "BIG"}).json()["items"][0]["market_cap"]
+
+
+def test_a_licensed_universe_is_shown_to_every_account(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(get_settings(), "admin_email", "owner@example.com")
+    _store_run(STOCKS, licensed=True)
+
+    assert _symbols(_screen())[:2] == ["BIG", "CHEAP"]
+    assert client.get("/api/v1/screener/status").json()["stocks"] == len(STOCKS)
+
+
+def test_reports_and_the_calendar_leave_out_an_unlicensed_universe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Outside a request's handler too: peers for AI reports, sizes for the calendar."""
+    _store_run(STOCKS, licensed=False)
+    use_provider_keys(ProviderKeys(unlicensed=False))
+    assert asyncio.run(research._peer_group("BIG")) is None
+    event = EarningsEvent(symbol="BIG", date=date.today())
+    assert asyncio.run(markets._major([event], min_market_cap=1.0)) == []
+
+    use_provider_keys(ProviderKeys(unlicensed=True))
+    assert asyncio.run(research._peer_group("BIG")) is not None
+    assert [e.symbol for e in asyncio.run(markets._major([event], min_market_cap=1.0))] == ["BIG"]
+    use_provider_keys(ProviderKeys())

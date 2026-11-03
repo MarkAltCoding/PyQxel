@@ -23,9 +23,10 @@ Each run:
 
 Every account sees the universe, so market data is fetched on the screener's own key,
 ``SCREENER_FMP_API_KEY``, which must be on an FMP plan licensed for showing its data to
-your users, never on an account's key. Without that key the run fails, unless the
-yfinance fallback is on for everyone (``YFINANCE_FALLBACK``, or the admin's switch), when
-yfinance and Nasdaq's public screener feed stand in.
+your users, never on an account's key. Without that key the run fails, unless
+``YFINANCE_FALLBACK`` is on, when yfinance and Nasdaq's public screener feed stand in. Such
+a run is recorded as unlicensed, and its universe is shown only to an account allowed to
+see unlicensed data (see :func:`app.db.screener.shows_universe`).
 
 A full run takes one FMP request per listed stock, about 20 minutes at 300 requests a
 minute (``SCREENER_FMP_REQUESTS_PER_MINUTE``), plus a 1.3 GB download on the days
@@ -67,7 +68,6 @@ from app.data.universe import (
     fetch_share_counts,
     is_common_name,
 )
-from app.db.app_settings import yfinance_for_everyone
 from app.db.screener import (
     finish_run,
     fundamentals_refreshed_at,
@@ -125,6 +125,8 @@ class RefreshResult:
     prices_as_of: date | None
     fundamentals_refreshed: bool
     factor_data_end: date | None
+    licensed: bool = False
+    """Whether licensed market data alone built it, so every account may see it."""
 
 
 def _liquid(listings: list[Listing], prices: dict[str, pd.DataFrame]) -> list[Candidate]:
@@ -360,35 +362,35 @@ async def refresh_universe(force_fundamentals: bool = False) -> RefreshResult:
             prices_as_of=result.prices_as_of,
             fundamentals_refreshed=result.fundamentals_refreshed,
             factor_data_end=result.factor_data_end,
+            licensed=result.licensed,
         )
     return result
 
 
 @asynccontextmanager
 async def _market_data() -> AsyncIterator[FmpSession | None]:
-    """The screener's FMP session, or ``None`` to use yfinance in development.
+    """The screener's FMP session, or ``None`` to use yfinance and Nasdaq's feed.
 
     The screener's key also becomes the current provider key, so exchange rates are
-    fetched on it.
+    fetched on it; without it, exchange rates come from yfinance too.
 
     Raises:
-        ProviderNotConfiguredError: If ``SCREENER_FMP_API_KEY`` is unset and the yfinance
-            fallback is off, both in ``YFINANCE_FALLBACK`` and in the admin's settings.
+        ProviderNotConfiguredError: If ``SCREENER_FMP_API_KEY`` is unset and
+            ``YFINANCE_FALLBACK`` is off.
     """
     settings = get_settings()
     key = settings.screener_fmp_api_key
     if key is None:
-        async with get_sessionmaker()() as session:
-            everyone = await yfinance_for_everyone(session)
-        if not settings.yfinance_fallback and not everyone:
+        if not settings.yfinance_fallback:
             raise ProviderNotConfiguredError(
                 "The screener needs SCREENER_FMP_API_KEY: a Financial Modeling Prep key on a "
                 "plan licensed for showing its data to your users."
             )
         logger.warning(
-            "SCREENER_FMP_API_KEY is unset, so unlicensed yfinance and Nasdaq data stand in "
-            "(development and personal use only)."
+            "SCREENER_FMP_API_KEY is unset, so unlicensed yfinance and Nasdaq data stand in; "
+            "the universe is recorded as unlicensed."
         )
+        use_provider_keys(ProviderKeys(yfinance=True, unlicensed=True))
         yield None
         return
     use_provider_keys(ProviderKeys(fmp=key))
@@ -484,6 +486,7 @@ async def _refresh_with(market: FmpSession | None, force_fundamentals: bool) -> 
         prices_as_of=max(last_closes, default=None),
         fundamentals_refreshed=refreshed,
         factor_data_end=None if factors is None else pd.Timestamp(factors.index[-1]).date(),
+        licensed=market is not None,
     )
 
 

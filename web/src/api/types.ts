@@ -7,14 +7,11 @@ type Schemas = components['schemas']
 export interface AdminSettings {
   /** The yfinance fallback for the admin's own requests. */
   yfinance_fallback: boolean
-  /** The yfinance fallback for every account and the screener refresh. */
-  yfinance_fallback_for_everyone: boolean
-  /** YFINANCE_FALLBACK, set where the server is deployed; read-only here. */
+  /** YFINANCE_FALLBACK, set where the server is deployed; read-only here. It too reaches
+   * the admin's requests alone. */
   yfinance_fallback_from_server: boolean
 }
-export type AdminSettingsUpdate = Partial<
-  Pick<AdminSettings, 'yfinance_fallback' | 'yfinance_fallback_for_everyone'>
->
+export type AdminSettingsUpdate = Partial<Pick<AdminSettings, 'yfinance_fallback'>>
 export type Account = Schemas['Account'] & { admin?: AdminSettings }
 export type AssistantReply = Schemas['AssistantReply']
 export type AnalysisImport = Schemas['AnalysisImport']

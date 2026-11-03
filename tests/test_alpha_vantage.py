@@ -13,7 +13,6 @@ import pandas as pd
 import pytest
 from pydantic import SecretStr
 
-from app.core.config import Settings
 from app.api.v1.endpoints.stocks import history_coverage
 from app.core.credentials import ProviderKeys, use_provider_keys
 from app.data import alpha_vantage, exchange_rates, fetcher
@@ -47,8 +46,7 @@ Answer = Callable[[dict[str, str]], object]
 @pytest.fixture(autouse=True)
 def alpha_vantage_only(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Act as a user with only an Alpha Vantage key, the yfinance fallback off."""
-    settings = Settings(yfinance_fallback=False)
-    monkeypatch.setattr(fetcher, "get_settings", lambda: settings)
+    monkeypatch.setattr(fetcher, "yfinance_fallback_on", lambda: False)
     monkeypatch.setattr(fetcher, "ALPHA_VANTAGE_SPACING_SECONDS", 0.0)
     fetcher.clear_alpha_vantage_memory()
     exchange_rates.clear_memory()
@@ -332,8 +330,7 @@ async def test_with_yfinance_on_it_answers_instead_of_the_free_bars(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """yfinance has the full adjusted history, so it beats 100 unadjusted days."""
-    settings = Settings(yfinance_fallback=True)
-    monkeypatch.setattr(fetcher, "get_settings", lambda: settings)
+    monkeypatch.setattr(fetcher, "yfinance_fallback_on", lambda: True)
     requests = _serve(monkeypatch, lambda params: PREMIUM)
     full = fetcher._alpha_vantage_frame(
         {day: bar | {"5. adjusted close": bar["4. close"]} for day, bar in FREE_DAILY.items()},

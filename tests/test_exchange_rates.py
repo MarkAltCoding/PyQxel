@@ -10,7 +10,7 @@ from pydantic import SecretStr
 from app.core.cache import configure_cache
 from app.core.config import get_settings
 from app.core.credentials import ProviderKeys, current_provider_keys, use_provider_keys
-from app.data import exchange_rates
+from app.data import exchange_rates, fetcher
 from app.data.exchange_rates import fetch_exchange_rate, fetch_exchange_rates
 from app.data.fetcher import DataFetchError, ProviderNotConfiguredError, ProviderPlanError
 
@@ -31,6 +31,8 @@ def _fake_yfinance(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[tuple[str, 
     configure_cache(None)
     exchange_rates.clear_memory()
     monkeypatch.setattr(exchange_rates, "_yfinance_rate", fake_rate)
+    # As for the admin's own requests: yfinance answers when YFINANCE_FALLBACK is on.
+    monkeypatch.setattr(fetcher, "yfinance_fallback_on", lambda: get_settings().yfinance_fallback)
     yield lookups
     exchange_rates.clear_memory()
 

@@ -34,7 +34,7 @@
             "$ref": "#/components/schemas/AiLimits"
           },
           "market_data_fallback": {
-            "description": "Whether your requests fall back to yfinance when no licensed provider answers.",
+            "description": "Whether your requests have a price source beyond the provider keys they carry.",
             "title": "Market Data Fallback",
             "type": "boolean"
           },

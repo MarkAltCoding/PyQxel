@@ -29,7 +29,7 @@ from app.data.markets import (
     fetch_market_news,
     fetch_market_status,
 )
-from app.db.screener import market_caps
+from app.db.screener import market_caps, shows_universe
 from app.db.session import get_sessionmaker
 from app.models.markets import (
     EarningsEvent,
@@ -57,7 +57,11 @@ async def _major(events: list[EarningsEvent], min_market_cap: float) -> list[Ear
     """The major companies' reports among ``events``, sized from the screened universe."""
     try:
         async with get_sessionmaker()() as session:
-            caps = await market_caps(session, {event.symbol for event in events})
+            caps = (
+                await market_caps(session, {event.symbol for event in events})
+                if await shows_universe(session)
+                else {}
+            )
     except (SQLAlchemyError, OSError) as exc:
         logger.error("Could not read market caps for the earnings calendar: %s", exc)
         caps = {}

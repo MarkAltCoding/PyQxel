@@ -20,7 +20,6 @@ from app.core.config import get_settings
 from app.core.credentials import provider_keys_from, use_provider_keys
 from app.core.rate_limit import RateLimitExceeded, check_rate_limit
 from app.core.security import API_KEY_PREFIX
-from app.db.app_settings import yfinance_for_everyone
 from app.db.session import get_sessionmaker
 from app.db.users import User
 from app.db.users import authenticate as user_for_key
@@ -71,7 +70,6 @@ async def authenticate(connection: HTTPConnection) -> User:
     try:
         async with get_sessionmaker()() as session:
             user = await user_for_key(session, key)
-            everyone = user is not None and await yfinance_for_everyone(session)
     except SQLAlchemyError as exc:
         logger.error("Could not check an API key: %s", exc)
         raise _refuse(
@@ -95,9 +93,28 @@ async def authenticate(connection: HTTPConnection) -> User:
             {"Retry-After": str(exc.retry_after)},
         ) from exc
 
-    yfinance = everyone or (user.is_admin and user.yfinance_fallback)
-    use_provider_keys(provider_keys_from(connection.headers, yfinance=yfinance))
+    use_provider_keys(
+        provider_keys_from(
+            connection.headers,
+            yfinance=uses_yfinance(user),
+            unlicensed=sees_unlicensed_data(user),
+        )
+    )
     return user
+
+
+def sees_unlicensed_data(user: User) -> bool:
+    """Whether ``user`` may be shown data from unlicensed sources: the account
+    ``ADMIN_EMAIL`` names, or everyone on a development server, where it is unset."""
+    return user.is_admin or get_settings().admin_email is None
+
+
+def uses_yfinance(user: User) -> bool:
+    """Whether ``user``'s requests fall back to yfinance: only where they may see unlicensed
+    data, and only when ``YFINANCE_FALLBACK`` or the admin's own switch turns it on."""
+    return sees_unlicensed_data(user) and (
+        get_settings().yfinance_fallback or (user.is_admin and user.yfinance_fallback)
+    )
 
 
 CurrentUser = Annotated[User, Depends(authenticate)]

@@ -1489,7 +1489,7 @@ export interface components {
       limits: components['schemas']['AiLimits']
       /**
        * Market Data Fallback
-       * @description Whether your requests fall back to yfinance when no licensed provider answers.
+       * @description Whether your requests have a price source beyond the provider keys they carry.
        */
       market_data_fallback: boolean
       /**

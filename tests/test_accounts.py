@@ -658,16 +658,11 @@ def test_only_the_admin_can_turn_yfinance_on_and_only_for_themselves(
         "/api/v1/me/admin", headers=_headers(alice_key), json={"yfinance_fallback": True}
     ).json()
 
-    assert before["admin"] == {
-        "yfinance_fallback": False,
-        "yfinance_fallback_for_everyone": False,
-        "yfinance_fallback_from_server": False,
-    }
+    assert before["admin"] == {"yfinance_fallback": False, "yfinance_fallback_from_server": False}
     assert before["market_data_fallback"] is False
     assert "admin" not in client.get("/api/v1/me", headers=_headers(bob_key)).json()
     assert refused.status_code in (404, 405)
     assert turned_on["admin"]["yfinance_fallback"] is True
-    assert turned_on["admin"]["yfinance_fallback_for_everyone"] is False
     assert turned_on["market_data_fallback"] is True
     assert _yfinance_seen(monkeypatch, alice_key) is True
     assert _yfinance_seen(monkeypatch, bob_key) is False
@@ -690,31 +685,35 @@ def test_the_switch_does_nothing_for_an_account_that_is_not_admin(
         assert _yfinance_seen(monkeypatch, key) is False
 
 
-def test_the_admin_can_turn_yfinance_on_for_everyone(
+def test_the_server_setting_turns_yfinance_on_for_the_admin_alone(
     monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str], bob: tuple[User, str]
 ) -> None:
-    """The app-wide switch reaches every account, and only the admin can change it."""
-    monkeypatch.setattr(get_settings(), "yfinance_fallback", False)
+    """YFINANCE_FALLBACK answers the admin's requests only, and no request can turn it on
+    for anyone else; with no ADMIN_EMAIL, a development server, it answers everyone."""
+    monkeypatch.setattr(get_settings(), "yfinance_fallback", True)
     monkeypatch.setattr(get_settings(), "admin_email", "tester@example.com")
     (_, alice_key), (_, bob_key) = alice, bob
-    everyone = {"yfinance_fallback_for_everyone": True}
 
-    refused = client.put("/api/v1/me/admin", headers=_headers(bob_key), json=everyone)
-    assert refused.status_code in (404, 405)
-    assert _yfinance_seen(monkeypatch, bob_key) is False
-
-    turned_on = client.put("/api/v1/me/admin", headers=_headers(alice_key), json=everyone).json()
-    assert turned_on["admin"]["yfinance_fallback_for_everyone"] is True
-    assert turned_on["admin"]["yfinance_fallback"] is False, "omitted fields are kept"
-    assert _yfinance_seen(monkeypatch, bob_key) is True
-    assert client.get("/api/v1/me", headers=_headers(bob_key)).json()["market_data_fallback"]
-
-    client.put(
+    refused = client.put(
+        "/api/v1/me/admin",
+        headers=_headers(bob_key),
+        json={"yfinance_fallback": True, "yfinance_fallback_for_everyone": True},
+    )
+    ignored = client.put(
         "/api/v1/me/admin",
         headers=_headers(alice_key),
-        json={"yfinance_fallback_for_everyone": False},
-    )
+        json={"yfinance_fallback_for_everyone": True},
+    ).json()
+
+    assert refused.status_code in (404, 405)
+    assert "yfinance_fallback_for_everyone" not in ignored["admin"]
+    assert _yfinance_seen(monkeypatch, alice_key) is True
     assert _yfinance_seen(monkeypatch, bob_key) is False
+    bob_account = client.get("/api/v1/me", headers=_headers(bob_key)).json()
+    assert bob_account["market_data_fallback"] is False and "admin" not in bob_account
+
+    monkeypatch.setattr(get_settings(), "admin_email", None)
+    assert _yfinance_seen(monkeypatch, bob_key) is True
 
 
 def test_the_admin_sees_when_the_server_forces_the_fallback_on(
