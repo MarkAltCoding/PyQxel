@@ -65,6 +65,10 @@ Web Worker that goes off the network once loaded (`runners/lockdown.ts`).
   - `SearchBox` for picking a ticker.
 - **Formatting** goes through `lib/format.ts` (`percent`, `money`, `number`,
   `signedPercent`, `tone`). Decimals are fractions (0.25 = 25%).
+- **Phones and touch:** under 760px the main links are a bottom tab bar (`Layout.tsx`),
+  and the bars are padded by `env(safe-area-inset-*)`. Touch screens (`pointer: coarse`)
+  get 44px controls and 16px fields, since iOS zooms into smaller text: give a new
+  control's small size an override in that block of `global.css`.
 - **Browser storage** only through `lib/storage.ts` (`readStored`/`writeStored`, which
   never throw), under `pyqxel.*` keys.
 - **Lint:** oxlint fails on exporting non-components from a component file. Put shared

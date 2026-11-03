@@ -220,6 +220,8 @@ p {
   flex-direction: column;
 }
 
+/* The page is drawn under an iPhone's notch and home bar (viewport-fit=cover), so the bars
+   and the page's sides are padded by the safe-area insets, which are 0 everywhere else. */
 .topbar {
   position: sticky;
   top: 0;
@@ -227,7 +229,8 @@ p {
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 10px 24px;
+  padding: calc(10px + env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) 10px
+    max(24px, env(safe-area-inset-left));
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
@@ -262,6 +265,12 @@ p {
   font-weight: 500;
 }
 
+/* The tab bar's icons, and its Settings tab (the top bar has a Settings button instead). */
+.nav-icon,
+.nav a.nav-settings {
+  display: none;
+}
+
 .nav a:hover {
   background: var(--surface-sunken);
   text-decoration: none;
@@ -289,21 +298,35 @@ main {
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 24px max(24px, env(safe-area-inset-right)) 24px max(24px, env(safe-area-inset-left));
+}
+
+/* The sign-in and privacy pages have no top bar, so their own top edge clears the notch. */
+#root > main {
+  padding-top: max(24px, calc(env(safe-area-inset-top) + 12px));
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
 }
 
 .footer {
-  padding: 16px 24px 24px;
+  padding: 16px max(24px, env(safe-area-inset-right)) 24px max(24px, env(safe-area-inset-left));
   color: var(--text-muted);
   font-size: 0.8rem;
   text-align: center;
 }
 
+/* On a phone the main links move to a tab bar along the bottom of the screen, within reach
+   of a thumb, and the top bar keeps the name, the search and the account buttons. */
 @media (max-width: 760px) {
   .topbar {
     flex-wrap: wrap;
     gap: 8px 12px;
-    padding: 10px 16px;
+    padding: calc(8px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 10px
+      max(16px, env(safe-area-inset-left));
+  }
+
+  .topbar-actions {
+    margin-left: auto;
+    gap: 4px;
   }
 
   .topbar-search {
@@ -312,12 +335,61 @@ main {
     max-width: none;
   }
 
+  .topbar-actions .topbar-settings {
+    display: none;
+  }
+
   .nav {
-    overflow-x: auto;
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0;
+    padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+  }
+
+  .nav a,
+  .nav a.nav-settings {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-height: 52px;
+    padding: 6px 2px 4px;
+    border-radius: 0;
+    font-size: 0.68rem;
+    line-height: 1.2;
+  }
+
+  .nav a.active,
+  .nav a:hover {
+    background: none;
+    color: var(--accent);
+  }
+
+  .nav-icon {
+    display: block;
+    width: 24px;
+    height: 24px;
+  }
+
+  /* Room below the footer for the tab bar, so the last lines are not hidden behind it. */
+  .shell {
+    padding-bottom: calc(53px + env(safe-area-inset-bottom));
   }
 
   main {
-    padding: 16px;
+    padding: 16px max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left));
+  }
+
+  .footer {
+    padding: 8px max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left));
   }
 }
 
@@ -359,6 +431,8 @@ main {
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 12px 16px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ── Cards ── */
@@ -453,6 +527,8 @@ input[type='text'],
 input[type='number'],
 input[type='password'],
 input[type='search'],
+input[type='email'],
+input[type='time'],
 select {
   height: 36px;
   padding: 0 10px;
@@ -536,9 +612,18 @@ select:disabled {
 
 .segmented {
   display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
   padding: 2px;
   background: var(--surface-sunken);
   border-radius: var(--radius-small);
+  /* Too many choices for a phone's width scroll sideways rather than spill out of the card. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.segmented button {
+  flex: none;
 }
 
 .segmented button {
@@ -570,7 +655,7 @@ select:disabled {
 
 .search-large input {
   height: 48px;
-  font-size: 1.05rem;
+  font-size: 16px;
   padding: 0 16px;
 }
 
@@ -1695,10 +1780,91 @@ table.data .muted {
   cursor: pointer;
 }
 
-/* iOS zooms the page into any focused text under 16px, so touch screens get 16px. */
+/* Touch screens: iOS zooms the page into any focused text under 16px, so fields get 16px,
+   and every control is at least 44px tall, the smallest target Apple's guidelines allow
+   for a fingertip. */
 @media (pointer: coarse) {
-  .strategy-editor .cm-editor {
+  .strategy-editor .cm-editor,
+  input,
+  select,
+  textarea {
     font-size: 16px;
+  }
+
+  input[type='text'],
+  input[type='number'],
+  input[type='password'],
+  input[type='search'],
+  input[type='email'],
+  input[type='time'],
+  select,
+  .button,
+  .button.small,
+  .checkbox,
+  .holdings-table .window-picker select,
+  .holdings-table .window-picker input {
+    height: 44px;
+  }
+
+  .holdings-table .window-picker select,
+  .holdings-table .window-picker input {
+    max-width: 120px;
+    font-size: 16px;
+  }
+
+  .brand,
+  label.filter-row {
+    min-height: 44px;
+  }
+
+  input[type='checkbox'] {
+    width: 20px;
+    height: 20px;
+  }
+
+  summary {
+    padding-block: 11px;
+  }
+
+  /* A ticker in a table takes a full row's height to tap, without making the row taller. */
+  table.data td {
+    padding-block: 12px;
+  }
+
+  table.data td a {
+    display: inline-block;
+    padding-block: 14px;
+    margin-block: -14px;
+  }
+
+  .button.small {
+    padding: 0 12px;
+  }
+
+  .segmented button {
+    height: 40px;
+    padding: 0 12px;
+  }
+
+  .report-tablist [role='tab'] {
+    min-height: 44px;
+  }
+
+  table.data th button.sort {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  /* The "i" stays small to look at, but a ring around it takes the tap. */
+  .info-tip-button {
+    position: relative;
+  }
+
+  .info-tip-button::before {
+    content: '';
+    position: absolute;
+    inset: -15px;
   }
 }
 
@@ -1868,6 +2034,9 @@ table.data td.award {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  /* May shrink below its presets' width, so they scroll inside it on a phone. */
+  min-width: 0;
+  max-width: 100%;
 }
 
 .custom-number {
@@ -1920,13 +2089,13 @@ table.data td.award {
 }
 
 /* A section a link scrolls to stops below the sticky top bar, not under it; on phones
- * the bar wraps to three rows. */
+ * the bar wraps to two rows, below the notch. */
 main [id] {
   scroll-margin-top: 80px;
 }
 
 @media (max-width: 760px) {
   main [id] {
-    scroll-margin-top: 190px;
+    scroll-margin-top: calc(130px + env(safe-area-inset-top));
   }
 }

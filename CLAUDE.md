@@ -43,7 +43,9 @@ side you are changing before searching the code.
     with `... users delete someone@example.invalid --yes`.
 - **Native app:** `cd web && npm run tauri dev` opens it on the dev server (local API);
   `npm run tauri build -- --bundles app` builds `src-tauri/target/release/bundle/macos/PyQxel.app`,
-  calling the server named in `web/.env.native`. Rust is in `~/.cargo/bin`. The server
+  calling the server named in `web/.env.native`. Rust is in `~/.cargo/bin`. The icons
+  come from `web/src-tauri/app-icon.svg`:
+  `npx tauri icon src-tauri/app-icon.svg --ios-color "#2a78d6"` (in `web/`). The server
   allows the app's origins (`tauri://localhost`, `http://tauri.localhost`) in `cors_origins`.
 - **Migrations:** `venv/bin/alembic upgrade head` (local Postgres from `.env`). A test
   fails if the models and migrations differ, so every table change needs a new revision
