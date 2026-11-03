@@ -31,7 +31,14 @@ class Settings(BaseSettings):
 
     app_name: str = "PyQxel"
     api_v1_prefix: str = "/api/v1"
-    cors_origins: list[str] = ["http://localhost", "http://localhost:3000"]
+    cors_origins: list[str] = [
+        "http://localhost",
+        "http://localhost:3000",
+        # The native apps (Tauri) load their bundled pages from these origins: the first
+        # on macOS and iOS, the second on Windows and Android.
+        "tauri://localhost",
+        "http://tauri.localhost",
+    ]
 
     anthropic_api_key: SecretStr | None = Field(
         default=None,

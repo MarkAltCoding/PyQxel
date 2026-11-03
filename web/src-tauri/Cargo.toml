@@ -1,0 +1,22 @@
+[package]
+name = "pyqxel"
+version = "0.1.0"
+description = "PyQxel, an investment-research app, as a native app for macOS, iOS and more"
+authors = ["MarkAltCoding"]
+license = "UNLICENSED"
+edition = "2024"
+rust-version = "1.90"
+
+[lib]
+name = "pyqxel_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.3", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.12.4", features = [] }
+tauri-plugin-log = "2"

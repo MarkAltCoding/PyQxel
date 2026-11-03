@@ -27,3 +27,4 @@ tests
 *.md
 !README.md
 .DS_Store
+web/src-tauri

@@ -24,6 +24,7 @@ side you are changing before searching the code.
 | `tests/` | pytest, offline: every provider is monkeypatched |
 | `web/src/pages/` | One component per route: Stock, Markets, Portfolio, Backtest, Screener, Settings |
 | `web/src/runners/` | In-browser Python/C++ strategy runners (Web Workers) |
+| `web/src-tauri/` | The native app (Tauri 2): macOS now, iOS next, then Windows, Android, Linux |
 | `web/openapi.json`, `web/src/api/schema.d.ts` | Generated from the API; never edit by hand |
 | `deploy/` | Cloud Run deploy script; production DB is Neon Postgres |
 
@@ -39,6 +40,10 @@ side you are changing before searching the code.
   - A throwaway account: `venv/bin/python -m app.jobs.users create someone@example.invalid`
     prints a key. A browser takes it as `localStorage['pyqxel.apiKey']`. Delete it after
     with `... users delete someone@example.invalid --yes`.
+- **Native app:** `cd web && npm run tauri dev` opens it on the dev server (local API);
+  `npm run tauri build -- --bundles app` builds `src-tauri/target/release/bundle/macos/PyQxel.app`,
+  calling the server named in `web/.env.native`. Rust is in `~/.cargo/bin`. The server
+  allows the app's origins (`tauri://localhost`, `http://tauri.localhost`) in `cors_origins`.
 - **Migrations:** `venv/bin/alembic upgrade head` (local Postgres from `.env`). A test
   fails if the models and migrations differ, so every table change needs a new revision
   in `app/db/migrations/versions/` (numbered `00NN_...`; use `batch_alter_table`, since

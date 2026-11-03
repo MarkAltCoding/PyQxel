@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
+import { apiUrl } from '../api/client'
 import { getSignInProviders } from '../api/endpoints'
 import {
   forgetSignInStarted,
@@ -113,7 +114,9 @@ export function SignInPage() {
                 key={provider.name}
                 className="button signin-provider"
                 onClick={markSignInStarted}
-                href={`/api/v1/auth/${provider.name}/start?${new URLSearchParams({ next: from })}`}
+                href={apiUrl(
+                  `/api/v1/auth/${provider.name}/start?${new URLSearchParams({ next: from })}`,
+                )}
               >
                 Continue with {provider.label}
               </a>

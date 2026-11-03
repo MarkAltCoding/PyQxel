@@ -1,4 +1,8 @@
 interface ImportMetaEnv {
+  /** The PyQxel server the app calls, such as `https://pyqxel.example`. Left unset, the
+   * web app calls the server that served it; a native app build sets it, since its pages
+   * are bundled and the server is elsewhere. */
+  readonly VITE_API_ORIGIN?: string
   /** Where the app's copy of Pyodide is served from; defaults to `pyodide/` under the base
    * URL. A native app build can point it at the files it bundles. */
   readonly VITE_PYODIDE_URL?: string

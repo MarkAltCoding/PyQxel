@@ -3,6 +3,14 @@
 
 import { providerKeyHeaders } from '../lib/providerKeys'
 
+/** The server's origin, empty when the server also serves the app (see `env.d.ts`). */
+const API_ORIGIN = (import.meta.env.VITE_API_ORIGIN ?? '').replace(/\/+$/, '')
+
+/** The full address of an API path, for requests and for links that leave the app. */
+export function apiUrl(path: string): string {
+  return API_ORIGIN + path
+}
+
 let apiKey: string | null = null
 let onUnauthorized: (() => void) | null = null
 
@@ -71,7 +79,7 @@ export async function send(path: string, options: RequestOptions = {}): Promise<
   const key = options.key ?? apiKey
   if (key) headers.Authorization = `Bearer ${key}`
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
-  const response = await fetch(buildUrl(path, options.query), {
+  const response = await fetch(apiUrl(buildUrl(path, options.query)), {
     method: options.method ?? 'GET',
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
