@@ -175,6 +175,23 @@ async def edgar_get(client: httpx2.AsyncClient, url: str) -> httpx2.Response:
     raise AssertionError("unreachable")
 
 
+async def fetch_industry_code(
+    client: httpx2.AsyncClient, cik: int
+) -> tuple[int | None, str | None]:
+    """A company's Standard Industrial Classification code and its title, from its EDGAR
+    submissions; ``None`` for each the SEC does not give."""
+    submissions: Any = (await edgar_get(client, SUBMISSIONS_URL.format(cik=cik))).json()
+    if not isinstance(submissions, dict):
+        return None, None
+    raw = submissions.get("sic")
+    try:
+        sic = int(raw) if raw not in (None, "") else None
+    except TypeError, ValueError:
+        sic = None
+    description = submissions.get("sicDescription")
+    return sic, (str(description) if description else None)
+
+
 def edgar_client() -> httpx2.AsyncClient:
     """Return a new client that identifies itself to the SEC as ``SEC_USER_AGENT`` says.
 

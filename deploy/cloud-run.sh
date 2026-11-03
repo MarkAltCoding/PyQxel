@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Deploy PyQxel to Google Cloud Run: the API as a service that scales to zero, and the
-# screener refresh as a job Cloud Scheduler runs after each US trading day.
+# Deploy PyQxel to Google Cloud Run: the API as a service that scales to zero, the
+# screener refresh as a job Cloud Scheduler runs after each US trading day, and users'
+# own nightly screener refreshes as a job it runs every hour.
 #
 # Run from the repository root after the one-time setup under "Google Cloud Run" in
 # README.md, which creates the project and stores the secrets:
@@ -17,6 +18,9 @@
 #   CORS_ORIGINS='["https://app.example"]'   browser origins allowed to call the API
 #   SCREENER_SCHEDULE="30 18 * * 1-5"        cron, New York time; "" skips scheduling
 #   SCREENER_FMP_REQUESTS_PER_MINUTE=300     the screener's FMP plan's rate limit
+#   NIGHTLY_SCHEDULE="7 * * * *"             cron, UTC, for users' own refreshes; ""
+#                             skips scheduling. The job is "$SERVICE-nightly", deployed
+#                             only once the pyqxel-credentials-key secret exists
 #   YFINANCE_FALLBACK         true fills gaps in FMP's free plan with unlicensed yfinance
 #                             and Nasdaq data, for a deployment only you use; when unset,
 #                             the running service's value is kept (false when deploying
@@ -37,6 +41,7 @@ MAX_INSTANCES="${MAX_INSTANCES:-2}"
 CORS_ORIGINS="${CORS_ORIGINS:-}"
 SCREENER_SCHEDULE="${SCREENER_SCHEDULE-30 18 * * 1-5}"
 SCREENER_FMP_REQUESTS_PER_MINUTE="${SCREENER_FMP_REQUESTS_PER_MINUTE:-300}"
+NIGHTLY_SCHEDULE="${NIGHTLY_SCHEDULE-7 * * * *}"
 YFINANCE_FALLBACK="${YFINANCE_FALLBACK:-}"
 GITHUB_CLIENT_ID="${GITHUB_CLIENT_ID:-}"
 GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
@@ -44,6 +49,7 @@ ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 
 REPOSITORY="$SERVICE"
 JOB="$SERVICE-screener"
+NIGHTLY_JOB="$SERVICE-nightly"
 RUN_ACCOUNT="$SERVICE-run@$PROJECT_ID.iam.gserviceaccount.com"
 SCHEDULER_ACCOUNT="$SERVICE-scheduler@$PROJECT_ID.iam.gserviceaccount.com"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$(git rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M%S)"
@@ -55,6 +61,9 @@ SECRET_NAMES=(pyqxel-database-url pyqxel-redis-url
 SECRET_VARIABLES=(DATABASE_URL REDIS_URL GITHUB_CLIENT_SECRET GOOGLE_CLIENT_SECRET)
 # The screener's licensed FMP key, given to the screener job only, never to the service.
 SCREENER_SECRET=pyqxel-screener-fmp-key
+# The key that encrypts the provider keys of users who opt in to the nightly refresh,
+# given to the service, which stores them, and the nightly job, which uses them.
+CREDENTIALS_SECRET=pyqxel-credentials-key
 
 gc() { gcloud --project "$PROJECT_ID" --quiet "$@"; }
 step() { printf '\n==> %s\n' "$*"; }
@@ -121,8 +130,18 @@ if gc secrets describe "$SCREENER_SECRET" >/dev/null 2>&1; then
     job_secret_flags+=",${screener_secrets[0]}"
 else
     if [[ "$YFINANCE_FALLBACK" != true ]]; then
-        echo "No $SCREENER_SECRET secret: screener refreshes will fail until it is created." >&2
+        echo "No $SCREENER_SECRET secret: the screener job runs only the SEC first stage, building no shared universe." >&2
     fi
+fi
+
+nightly_secrets=()
+nightly_secret_flags=""
+if gc secrets describe "$CREDENTIALS_SECRET" >/dev/null 2>&1; then
+    nightly_secrets+=("CREDENTIALS_ENCRYPTION_KEY=$CREDENTIALS_SECRET:latest")
+    secret_flags+=",${nightly_secrets[0]}"
+    nightly_secret_flags="$(IFS=,; echo "${job_secrets[*]}"),${nightly_secrets[0]}"
+else
+    echo "No $CREDENTIALS_SECRET secret: no one can turn on the nightly screener refresh; see README.md."
 fi
 
 step "Service accounts"
@@ -131,7 +150,8 @@ for account in "$RUN_ACCOUNT" "$SCHEDULER_ACCOUNT"; do
         gc iam service-accounts create "${account%%@*}" --display-name "PyQxel ${account%%@*}"
     fi
 done
-for flag in "${secrets[@]}" ${screener_secrets[@]+"${screener_secrets[@]}"}; do
+for flag in "${secrets[@]}" ${screener_secrets[@]+"${screener_secrets[@]}"} \
+    ${nightly_secrets[@]+"${nightly_secrets[@]}"}; do
     name="${flag#*=}"
     gc secrets add-iam-policy-binding "${name%:latest}" \
         --member "serviceAccount:$RUN_ACCOUNT" --role roles/secretmanager.secretAccessor \
@@ -219,6 +239,37 @@ if [[ -n "$SCREENER_SCHEDULE" ]]; then
         --uri "https://run.googleapis.com/v2/projects/$PROJECT_ID/locations/$REGION/jobs/$JOB:run" \
         --http-method POST \
         --oauth-service-account-email "$SCHEDULER_ACCOUNT"
+fi
+
+if [[ -n "$nightly_secret_flags" ]]; then
+    step "Deploying the $NIGHTLY_JOB job"
+    # Each user's refresh takes an hour or two, paced by their own Finnhub plan; a run left
+    # unfinished after eight hours is taken to have stopped, so the timeout matches it.
+    gc run jobs deploy "$NIGHTLY_JOB" \
+        --region "$REGION" \
+        --image "$IMAGE" \
+        --service-account "$RUN_ACCOUNT" \
+        --cpu 1 --memory 2Gi \
+        --task-timeout 28800 --max-retries 0 \
+        --command python --args=-m,app.jobs.nightly \
+        --set-env-vars "$env_vars" \
+        --set-secrets "$nightly_secret_flags"
+
+    if [[ -n "$NIGHTLY_SCHEDULE" ]]; then
+        step "Scheduling users' own refreshes: $NIGHTLY_SCHEDULE (UTC)"
+        gc run jobs add-iam-policy-binding "$NIGHTLY_JOB" --region "$REGION" \
+            --member "serviceAccount:$SCHEDULER_ACCOUNT" --role roles/run.invoker >/dev/null
+        action=create
+        if gc scheduler jobs describe "$NIGHTLY_JOB" --location "$REGION" >/dev/null 2>&1; then
+            action=update
+        fi
+        gc scheduler jobs "$action" http "$NIGHTLY_JOB" \
+            --location "$REGION" \
+            --schedule "$NIGHTLY_SCHEDULE" --time-zone UTC \
+            --uri "https://run.googleapis.com/v2/projects/$PROJECT_ID/locations/$REGION/jobs/$NIGHTLY_JOB:run" \
+            --http-method POST \
+            --oauth-service-account-email "$SCHEDULER_ACCOUNT"
+    fi
 fi
 
 url="$(gc run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')"

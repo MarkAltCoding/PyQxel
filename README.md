@@ -64,6 +64,7 @@ An AI-native research and quantitative analysis platform that helps investors ch
    Then fill in `.env`:
    * `ANTHROPIC_API_KEY`, `FINANCIAL_DATA_API_KEY`, `ALPHA_VANTAGE_API_KEY` and `FINNHUB_API_KEY` — optional; your own [Anthropic](https://console.anthropic.com/), [Financial Modeling Prep](https://site.financialmodelingprep.com/developer/docs), [Alpha Vantage](https://www.alphavantage.co/support/#api-key) and [Finnhub](https://finnhub.io/register) keys, read only by tests marked `live` or `paid`. The server never uses them to serve requests: every account pays for its own usage with the keys its requests carry.
    * `SCREENER_FMP_API_KEY` — the FMP key the [stock screener](#stock-screener)'s nightly refresh runs on. Every account sees the universe it builds, so this is the server's key, not an account's, and its plan must allow showing FMP data to your users (FMP's individual plans are for personal use; ask FMP about a data display license). Set `SCREENER_FMP_REQUESTS_PER_MINUTE` to the plan's rate limit (default 300).
+   * `CREDENTIALS_ENCRYPTION_KEY` — optional; encrypts the market data keys of users who opt in to the [nightly refresh of their own screener](#each-users-own-screener), the only provider keys PyQxel stores. Generate one with `python -m app.jobs.users generate-encryption-key`, and keep it outside the database: stored keys cannot be read without it. Without it, no one can opt in.
    * `YFINANCE_FALLBACK` — `true` for development: use `yfinance` for every account when a request carries no FMP key, or FMP fails or the account's plan does not cover a request (FMP's free plan excludes ETFs, indices, foreign listings and intraday bars), and for the screener when `SCREENER_FMP_API_KEY` is unset, with Nasdaq's public feed for its sectors. These sources are unlicensed, so leave it `false` on a deployment others use.
    * `SEC_USER_AGENT` — optional; your name and contact email (e.g. `PyQxel jane@example.com`), which the [SEC requires](https://www.sec.gov/os/accessing-edgar-data) of automated clients. When set, financial statements come straight from EDGAR, and AI analyses also read the Risk Factors and MD&A sections of the company's latest 10-K and 10-Q. Without it, accounts with a Finnhub key still get financial statements, relayed by Finnhub, but no filing text.
    * `R_HOME` — the output of `R RHOME` (e.g. `/Library/Frameworks/R.framework/Resources` on macOS).
@@ -154,6 +155,8 @@ One-time setup:
    gcloud secrets create pyqxel-database-url --data-file=-      # the Neon URL
    gcloud secrets create pyqxel-redis-url --data-file=-         # the Upstash rediss:// URL
    gcloud secrets create pyqxel-screener-fmp-key --data-file=-  # the screener's licensed FMP key
+   venv/bin/python -m app.jobs.users generate-encryption-key | \
+     gcloud secrets create pyqxel-credentials-key --data-file=-  # for nightly refreshes, if missing
    ```
    Read a secret back with `gcloud secrets versions access latest --secret pyqxel-database-url`. Provider keys need no secret: the server never stores them.
 
@@ -163,7 +166,8 @@ PROJECT_ID=YOUR_PROJECT_ID SEC_USER_AGENT="PyQxel you@example.com" deploy/cloud-
 ```
 The script enables the APIs it needs, builds the image on Cloud Build, and deploys:
 * the `pyqxel` service: 1 CPU and 2 GiB, at most 2 instances (`MAX_INSTANCES`), with the yfinance fallback off so market data comes only from each account's FMP plan. While you are its only user, deploy with `YFINANCE_FALLBACK=true` to fill the gaps in FMP's free plan and refresh the screener without a paid key. Once others use it, deploy with `YFINANCE_FALLBACK=false`; the screener then needs the `pyqxel-screener-fmp-key` secret to refresh. A new revision takes traffic only once `/health/ready` passes, so it never serves from an unreachable or unmigrated database; migrations run at startup, one instance at a time.
-* the `pyqxel-screener` job, which Cloud Scheduler runs at 6:30 pm New York time on weekdays (`SCREENER_SCHEDULE`; run it now with `gcloud run jobs execute pyqxel-screener --region us-central1`). Only the job reads `pyqxel-screener-fmp-key`, at `SCREENER_FMP_REQUESTS_PER_MINUTE` (default 300); without it, refreshes fail and the screener reports why.
+* the `pyqxel-screener` job, which Cloud Scheduler runs at 6:30 pm New York time on weekdays (`SCREENER_SCHEDULE`; run it now with `gcloud run jobs execute pyqxel-screener --region us-central1`). Only the job reads `pyqxel-screener-fmp-key`, at `SCREENER_FMP_REQUESTS_PER_MINUTE` (default 300); without it, the job runs only the SEC first stage, which users' own refreshes start from, and builds no shared universe.
+* the `pyqxel-nightly` job, which Cloud Scheduler runs every hour (`NIGHTLY_SCHEDULE`, UTC) to refresh the own screeners of users who opted in, each at the time they chose. It is deployed only once the `pyqxel-credentials-key` secret exists, and only it and the service read that secret.
 
 Set `CORS_ORIGINS='["https://your-client.example"]'` for browser clients, and `REGION` to deploy elsewhere than `us-central1`. Don't store `ANTHROPIC_API_KEY` or `FINANCIAL_DATA_API_KEY` on the server; accounts send their own.
 
@@ -255,6 +259,20 @@ curl -X POST http://127.0.0.1:8000/api/v1/screener \
 ```
 
 `universe` is `all`, `large_cap` (the 500 largest, standing in for the S&P 500), `broad_market` (the 3,000 largest, like the Russell 3000) or `liquid` ($5M or more a day); index memberships themselves are licensed. Filters take `min`, `max` or both and drop stocks without a value, `sectors` and `industries` narrow by FMP's classification (`GET /api/v1/screener/status` lists the sectors), and sorting puts missing values last. Sort on a beta to rank by factor exposure. `GET /api/v1/screener/status` reports the universe's size, when it was refreshed, and why the last refresh failed, if it did. Foreign markets are not covered, but US-listed foreign issuers are, with their IFRS financials converted to dollars.
+
+Each run starts with a shared first stage from the SEC's public data alone: the listings, their shares outstanding, every listed company's industry (SIC) code, and their financials. It always runs; the shared universe is built after it only with `SCREENER_FMP_API_KEY` or `YFINANCE_FALLBACK`.
+
+#### Each user's own screener
+
+FMP's, Finnhub's and the other providers' individual plans are for personal use, so a universe built on one user's keys may be shown to that user alone. A user who turns on **Nightly screener refresh** in Settings, and picks a time, gets their own universe, which their screener then shows (`own` is true in `/screener` and `/screener/status`):
+
+```bash
+python -m app.jobs.nightly   # every hour; refreshes each user whose time has come
+```
+
+Each user's refresh starts from the SEC first stage, reads every listed stock's market cap, valuation, margins, growth, 26- and 52-week returns, three-month volatility, beta and volume from Finnhub's free basic financials on their Finnhub key (one request per stock, about an hour and a half at 50 a minute), and then the price-history columns (1-month return, 12-1 momentum, volatility, drawdown and factor betas) from whichever price-history key they have, largest stocks first, until that plan's limit is reached for the night. Stocks without price history keep Finnhub's stand-ins: its 52-week return for 12-1 momentum, its three-month volatility, and its beta for the market beta; drawdown and the other betas stay empty. Where Finnhub leaves a ratio out, the SEC financials fill it, and sectors and industries come from each company's SEC industry (SIC) code, which the SEC first stage reads every 90 days. While a refresh runs, it uses most of the user's Finnhub allowance, so they choose an hour when they are not using PyQxel.
+
+The refresh runs with no browser open, so turning it on stores the user's market data keys, encrypted under `CREDENTIALS_ENCRYPTION_KEY` (never their Anthropic key). Turning it off, or deleting the account, deletes them at once. `GET`, `PUT` and `DELETE /api/v1/me/nightly-refresh` read, turn on (storing the keys the request carries) and turn off the refresh; `GET` also reports its latest runs.
 
 ### Factor exposures
 

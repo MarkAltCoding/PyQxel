@@ -13,7 +13,7 @@ import pandas as pd
 
 from app.models.factors import FactorName
 from app.models.fundamentals import Financials, FlowItem
-from app.models.screener import ScreenMetrics
+from app.models.screener import ProviderScreenMetrics, ScreenMetrics
 from app.stats.factors import fit_factor_model
 from app.stats.valuation import value_company
 from app.stats.volatility import InsufficientDataError
@@ -177,6 +177,92 @@ def screen_metrics(
         price=trading.price,
         market_cap=market_cap,
         avg_dollar_volume=trading.avg_dollar_volume,
+        **{name: _finite(value) for name, value in metrics.items()},
+    )
+
+
+PROVIDER_FIELDS: tuple[str, ...] = (
+    "pe_ratio",
+    "price_to_sales",
+    "ev_to_ebitda",
+    "fcf_yield",
+    "gross_margin",
+    "operating_margin",
+    "net_margin",
+    "return_on_equity",
+    "revenue_growth",
+    "earnings_growth",
+    "return_6m",
+)
+"""Metrics a provider's basic financials report, taken from them before SEC data."""
+
+
+def user_screen_metrics(
+    provider: ProviderScreenMetrics,
+    prices: pd.DataFrame | None,
+    shares_outstanding: float | None,
+    financials: Financials | None,
+    factors: pd.DataFrame | None,
+    today: date,
+    exchange_rates: dict[str, float] | None = None,
+) -> ScreenMetrics | None:
+    """One stock's metrics in a user's own universe, from three sources in turn.
+
+    1. The provider's metrics (Finnhub's free basic financials) come first, for market
+       cap, valuation, margins, growth and the six-month return.
+    2. The SEC financials fill what the provider left out, valued at its market cap.
+    3. Price history, when the user's keys could fetch it, gives the price-history
+       columns (returns, momentum, volatility, drawdown, factor betas), the price and the
+       dollar volume, computed as for the shared universe.
+
+    Without price history, the provider's figures stand in for what daily prices give:
+    its 52-week return for 12-1 momentum (which also counts the latest month), its
+    three-month volatility for the year's, and its beta for the market beta; drawdown and
+    the other betas stay empty. The price is the provider's quote, else the market cap over
+    the SEC's shares outstanding, and the dollar volume its average volume at that price,
+    so the stock is left out when neither price nor volume is known.
+
+    Returns:
+        The metrics, or ``None`` when the stock lacks a market cap, price or volume.
+    """
+    market_cap = provider.market_cap
+    if market_cap is None or market_cap <= 0:
+        return None
+    trading = None if prices is None else liquidity(prices)
+    history: dict[str, float | None] = {}
+    if trading is not None and prices is not None:
+        price, dollar_volume = trading.price, trading.avg_dollar_volume
+        closes = prices["Close"].dropna()
+        history = price_metrics(closes)
+        if factors is not None:
+            history |= factor_betas(closes, factors)
+    else:
+        price_or_none = provider.price or (
+            market_cap / shares_outstanding if shares_outstanding else None
+        )
+        if not price_or_none or provider.average_volume is None:
+            return None
+        price = price_or_none
+        dollar_volume = provider.average_volume * price
+        history = {
+            "momentum_12_1": provider.return_52w,
+            "volatility": provider.volatility_3m,
+            "beta_market": provider.beta,
+        }
+    metrics: dict[str, float | None] = {
+        field: getattr(provider, field) for field in PROVIDER_FIELDS
+    }
+    sec = fundamental_metrics(financials, price, market_cap, today, exchange_rates)
+    for field, value in sec.items():
+        if metrics.get(field) is None:
+            metrics[field] = value
+    for field, value in history.items():
+        if value is not None or field not in metrics:
+            metrics[field] = value
+    return ScreenMetrics(
+        price=price,
+        market_cap=market_cap,
+        avg_dollar_volume=dollar_volume,
         **{name: _finite(value) for name, value in metrics.items()},
     )
 

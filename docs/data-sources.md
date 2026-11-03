@@ -38,8 +38,8 @@ So PyQxel follows these rules:
 | Quotes | Holdings, stock page | Finnhub (free plan, US); yfinance otherwise |
 | Company info: name, sector, industry, market cap, type | Stock page, portfolio sectors, cash detection | FMP or Finnhub where covered; yfinance otherwise |
 | Exchange rates | Converting foreign filers' financials to dollars | **Done:** the European Central Bank's reference rates since November 2, 2026; the user's own keys for currencies the ECB does not publish |
-| Screener: market caps, sectors, industries | The nightly screener refresh | Nasdaq's public feed |
-| Screener: about 13 months of daily prices per stock | Momentum, volatility, drawdown, factor betas | yfinance |
+| Screener: market caps, sectors, industries | The nightly screener refresh | Nasdaq's public feed for the shared universe. **Done for each user's own screener** since November 3, 2026: Finnhub on their own key for market caps, and sectors and industries from each company's SEC industry (SIC) code |
+| Screener: about 13 months of daily prices per stock | Momentum, volatility, drawdown, factor betas | yfinance for the shared universe. **Done for each user's own screener:** their own price-history key, for as many stocks as its plan allows a night |
 | Financial statements | Fundamentals, valuation, screener | SEC EDGAR (public; no change needed) |
 
 ## What each free plan covers (tested)

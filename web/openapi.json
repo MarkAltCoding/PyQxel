@@ -6981,6 +6981,224 @@
         "title": "NewsSource",
         "type": "object"
       },
+      "NightlyRefreshSettings": {
+        "description": "Turns on the nightly refresh, or changes when it runs.\n\nThe keys the request carries are encrypted and stored with it, replacing any stored\nearlier, so send this again after changing a key.",
+        "properties": {
+          "refresh_time": {
+            "default": "19:00",
+            "description": "Local time of day the refresh starts, as HH:MM in 24-hour time. It starts within the hour after it and takes an hour or two.",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Refresh Time",
+            "type": "string"
+          },
+          "time_zone": {
+            "default": "America/New_York",
+            "description": "IANA time zone ``refresh_time`` is in, e.g. America/Chicago.",
+            "maxLength": 64,
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "title": "NightlyRefreshSettings",
+        "type": "object"
+      },
+      "NightlyRefreshStatus": {
+        "description": "Whether the user's nightly refresh is on, what it stores, and how it last went.",
+        "properties": {
+          "available": {
+            "description": "Whether this server can store keys, which the refresh needs; false when its owner has not set CREDENTIALS_ENCRYPTION_KEY.",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "enabled": {
+            "description": "Whether the user has opted in.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "keys_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the stored keys were last replaced.",
+            "title": "Keys Updated At"
+          },
+          "last_success": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NightlyRun"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest refresh that succeeded, whose universe is shown."
+          },
+          "latest_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NightlyRun"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest refresh, running, finished or failed."
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the next refresh is due to start.",
+            "title": "Next Run At"
+          },
+          "providers": {
+            "description": "Providers whose keys are stored, encrypted.",
+            "items": {
+              "enum": [
+                "finnhub",
+                "tiingo",
+                "fmp",
+                "eodhd",
+                "alpha_vantage"
+              ],
+              "type": "string"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "refresh_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Local HH:MM it starts at.",
+            "title": "Refresh Time"
+          },
+          "time_zone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "IANA time zone of refresh_time.",
+            "title": "Time Zone"
+          }
+        },
+        "required": [
+          "available",
+          "enabled"
+        ],
+        "title": "NightlyRefreshStatus",
+        "type": "object"
+      },
+      "NightlyRun": {
+        "description": "One nightly refresh of the user's own screener.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the refresh failed, if it did.",
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null while it runs.",
+            "title": "Finished At"
+          },
+          "priced": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Of those, stocks whose price-history columns (momentum, volatility, drawdown, factor betas) the user's price-history key could fill.",
+            "title": "Priced"
+          },
+          "prices_as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Date of the latest closes.",
+            "title": "Prices As Of"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "stocks": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stocks in the universe built.",
+            "title": "Stocks"
+          }
+        },
+        "required": [
+          "status",
+          "started_at"
+        ],
+        "title": "NightlyRun",
+        "type": "object"
+      },
       "OHLCVBar": {
         "description": "A single adjusted price bar. Fields other than ``close`` may be missing upstream.",
         "properties": {
@@ -9625,6 +9843,12 @@
             "title": "Offset",
             "type": "integer"
           },
+          "own": {
+            "default": false,
+            "description": "Whether these come from your own universe, built by your nightly refresh from your keys, rather than the shared one.",
+            "title": "Own",
+            "type": "boolean"
+          },
           "refreshed_at": {
             "anyOf": [
               {
@@ -10831,6 +11055,12 @@
             "description": "Why the latest refresh failed, if it did.",
             "title": "Last Error"
           },
+          "own": {
+            "default": false,
+            "description": "Whether this is your own universe, built by your nightly refresh from your keys, rather than the shared one.",
+            "title": "Own",
+            "type": "boolean"
+          },
           "prices_as_of": {
             "anyOf": [
               {
@@ -12022,7 +12252,7 @@
     },
     "/api/v1/me": {
       "delete": {
-        "description": "Delete your account and everything it holds, at once and for good.\n\nYour provider keys, PyQxel API keys, sign-in links to GitHub and Google, holdings,\nand stored backtests, analyses and simulations are deleted, and every API key stops\nworking. Signing in again afterwards starts a new, empty account.",
+        "description": "Delete your account and everything it holds, at once and for good.\n\nYour PyQxel API keys, sign-in links to GitHub and Google, holdings, stored backtests,\nanalyses and simulations, and your nightly screener refresh with the keys it stored\nand the universe it built are deleted, and every API key stops\nworking. Signing in again afterwards starts a new, empty account.",
         "operationId": "delete_account_api_v1_me_delete",
         "responses": {
           "204": {
@@ -12195,6 +12425,88 @@
           }
         },
         "summary": "Set your AI request limits",
+        "tags": [
+          "account"
+        ]
+      }
+    },
+    "/api/v1/me/nightly-refresh": {
+      "delete": {
+        "description": "Opt out of the nightly refresh: your stored keys are deleted at once, and no more\nrefreshes run. Your last universe stays, with its date, until you delete your account.\n\nReturns 503 when the database is unavailable.",
+        "operationId": "remove_nightly_refresh_api_v1_me_nightly_refresh_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NightlyRefreshStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Turn off your nightly screener refresh",
+        "tags": [
+          "account"
+        ]
+      },
+      "get": {
+        "description": "Return whether your nightly screener refresh is on, when it runs, which of your\nkeys it stores, and how its latest runs went.\n\nReturns 503 when the database is unavailable.",
+        "operationId": "read_nightly_refresh_api_v1_me_nightly_refresh_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NightlyRefreshStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Your nightly screener refresh",
+        "tags": [
+          "account"
+        ]
+      },
+      "put": {
+        "description": "Opt in to a nightly refresh of your own screener, or change when it runs.\n\nEach night at ``refresh_time`` in ``time_zone``, your own universe is rebuilt from the\nSEC's shared list of stocks and financials, Finnhub's free metrics on your Finnhub key,\nand price-history columns from whichever price-history key you have (Tiingo, FMP,\nEODHD or Alpha Vantage). It runs with no browser open, so the market data keys this\nrequest carries are stored, encrypted, replacing any stored before; your Anthropic key\nis never stored. Send this again after changing a key.\n\nReturns 422 without a Finnhub key, or for an unknown time zone; 503 when this server\ncannot store keys or the database is unavailable.",
+        "operationId": "store_nightly_refresh_api_v1_me_nightly_refresh_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NightlyRefreshSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NightlyRefreshStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Turn on your nightly screener refresh",
         "tags": [
           "account"
         ]
@@ -13016,7 +13328,7 @@
     },
     "/api/v1/screener": {
       "post": {
-        "description": "Return the stocks matching ``request``'s filters, sorted and paged.\n\n``universe`` narrows the screen to ``large_cap`` (the 500 largest stocks, standing in\nfor the S&P 500), ``broad_market`` (the 3,000 largest, like the Russell 3000) or\n``liquid`` ($5M or more traded a day), or keeps ``all`` stocks that passed the\nbaseline filter. Each filter keeps stocks whose ``field`` is within ``min`` and\n``max`` and drops those without a value. Results are sorted by ``sort.field``, stocks\nwithout it last; ``rank`` is each stock's place in that order.\n\nRank by factor exposure by sorting on a beta: ``{\"field\": \"beta_market\",\n\"descending\": false}`` lists the lowest market betas first.\n\nReturns 503 when the universe has not been built yet or the database is unavailable.",
+        "description": "Return the stocks matching ``request``'s filters, sorted and paged.\n\n``universe`` narrows the screen to ``large_cap`` (the 500 largest stocks, standing in\nfor the S&P 500), ``broad_market`` (the 3,000 largest, like the Russell 3000) or\n``liquid`` ($5M or more traded a day), or keeps ``all`` stocks that passed the\nbaseline filter. Each filter keeps stocks whose ``field`` is within ``min`` and\n``max`` and drops those without a value. Results are sorted by ``sort.field``, stocks\nwithout it last; ``rank`` is each stock's place in that order.\n\nRank by factor exposure by sorting on a beta: ``{\"field\": \"beta_market\",\n\"descending\": false}`` lists the lowest market betas first.\n\nThe user's own universe is screened when their nightly refresh has built one\n(``own`` is then true), and the shared one otherwise.\n\nReturns 503 when the universe has not been built yet or the database is unavailable.",
         "operationId": "screen_stocks_api_v1_screener_post",
         "requestBody": {
           "content": {
@@ -13069,7 +13381,7 @@
     },
     "/api/v1/screener/status": {
       "get": {
-        "description": "Return how many stocks the universe holds, when it was refreshed, and any failure.\n\nReturns 503 when the database is unavailable.",
+        "description": "Return how many stocks the universe holds, when it was refreshed, and any failure.\n\nIt describes the user's own universe when their nightly refresh has built one.\n\nReturns 503 when the database is unavailable.",
         "operationId": "read_status_api_v1_screener_status_get",
         "responses": {
           "200": {

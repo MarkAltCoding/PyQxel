@@ -97,6 +97,37 @@ class ScreenMetrics(BaseModel):
     )
 
 
+class ProviderScreenMetrics(BaseModel):
+    """A stock's metrics as a market data provider reports them, from Finnhub's free basic
+    financials, before they are combined with SEC data and price history."""
+
+    market_cap: float | None = Field(default=None, description="US dollars.")
+    pe_ratio: float | None = None
+    price_to_sales: float | None = None
+    ev_to_ebitda: float | None = None
+    fcf_yield: float | None = Field(default=None, description="Inverse of price to FCF.")
+    gross_margin: float | None = None
+    operating_margin: float | None = None
+    net_margin: float | None = None
+    return_on_equity: float | None = None
+    revenue_growth: float | None = None
+    earnings_growth: float | None = Field(default=None, description="TTM EPS, year on year.")
+    return_6m: float | None = Field(default=None, description="26-week price return.")
+    return_52w: float | None = Field(
+        default=None, description="52-week price return, standing in for 12-1 momentum."
+    )
+    volatility_3m: float | None = Field(
+        default=None, description="Annualized volatility of daily returns over three months."
+    )
+    beta: float | None = Field(default=None, description="Beta against the market.")
+    average_volume: float | None = Field(
+        default=None, description="Shares traded a day, averaged over three months."
+    )
+    price: float | None = Field(
+        default=None, description="The latest price, from a quote, when one was fetched."
+    )
+
+
 class ScreenedStock(ScreenMetrics):
     """A stock in the screened universe and its metrics."""
 
@@ -179,6 +210,11 @@ class ScreenResponse(BaseModel):
     refreshed_at: datetime | None = Field(
         default=None, description="When the universe's metrics were last computed."
     )
+    own: bool = Field(
+        default=False,
+        description="Whether these come from your own universe, built by your nightly "
+        "refresh from your keys, rather than the shared one.",
+    )
 
 
 class UniverseStatus(BaseModel):
@@ -195,6 +231,11 @@ class UniverseStatus(BaseModel):
     )
     last_error: str | None = Field(
         default=None, description="Why the latest refresh failed, if it did."
+    )
+    own: bool = Field(
+        default=False,
+        description="Whether this is your own universe, built by your nightly refresh from "
+        "your keys, rather than the shared one.",
     )
     sectors: list[str] = Field(
         default_factory=list, description="Sectors in the universe, for the ``sectors`` filter."

@@ -264,16 +264,13 @@ class AssistantRequestRecord(Base):
     model: Mapped[str] = mapped_column(String(64))
 
 
-class ScreenerStockRecord(Base):
-    """One stock in the screened universe and its precomputed metrics.
+class ScreenedStockColumns:
+    """The columns of a stock in a screened universe and its precomputed metrics, shared by
+    the universe every account may see and each user's own.
 
-    The table holds one snapshot: each refresh replaces every row. Metric columns are
-    named as :data:`~app.models.screener.ScreenField` names them.
+    Metric columns are named as :data:`~app.models.screener.ScreenField` names them.
     """
 
-    __tablename__ = "screener_stocks"
-
-    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
     name: Mapped[str] = mapped_column(Text)
     exchange: Mapped[str] = mapped_column(String(16))
     sector: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -307,6 +304,63 @@ class ScreenerStockRecord(Base):
     factor_r_squared: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
+class ScreenerStockRecord(ScreenedStockColumns, Base):
+    """One stock in the shared screened universe and its precomputed metrics.
+
+    The table holds one snapshot: each refresh replaces every row.
+    """
+
+    __tablename__ = "screener_stocks"
+
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+
+
+class UserScreenerStockRecord(ScreenedStockColumns, Base):
+    """One stock in a user's own screened universe, built by their nightly refresh from
+    their own keys and shown only to them.
+
+    Each of the user's refreshes replaces all of their rows.
+    """
+
+    __tablename__ = "user_screener_stocks"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+
+
+class ScreenerListingRecord(Base):
+    """A common stock listed on a US exchange, from the SEC's ticker list.
+
+    The shared first stage of the screener refresh stores them, public data every user's
+    nightly refresh starts from. Each refresh replaces every row.
+    """
+
+    __tablename__ = "screener_listings"
+
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    cik: Mapped[int] = mapped_column(Integer, index=True)
+    name: Mapped[str] = mapped_column(Text)
+    exchange: Mapped[str] = mapped_column(String(16))
+    shares_outstanding: Mapped[float | None] = mapped_column(Float, nullable=True)
+    """Shares outstanding from the company's SEC filings, kept only for a company with a
+    single listed share class, whose market cap is then price times shares."""
+
+
+class ScreenerCompanyRecord(Base):
+    """A listed company's Standard Industrial Classification (SIC) code and its title, from
+    its EDGAR submissions: public data, shared by every user's own screener, where the code
+    gives the sector and its title the industry. Read again every 90 days."""
+
+    __tablename__ = "screener_companies"
+
+    cik: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    sic: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sic_description: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ScreenerFundamentalsRecord(Base):
     """A company's normalized financials, refreshed weekly for the screened universe.
 
@@ -338,3 +392,45 @@ class ScreenerRunRecord(Base):
     licensed: Mapped[bool] = mapped_column(Boolean, server_default=false())
     """Whether the refresh used licensed market data alone. One that used yfinance and
     Nasdaq's feed is shown only to an account that may see unlicensed data."""
+
+
+class NightlyRefreshRecord(Base):
+    """A user's opt-in to the nightly refresh of their own screener.
+
+    The refresh runs while no browser is open, so it needs the user's keys: ``credentials``
+    holds them as JSON encrypted with :func:`app.core.security.encrypt_secret`. This is the
+    only place PyQxel stores provider keys, and the row is deleted when the user opts out
+    or deletes the account. ``refresh_time`` is a local ``HH:MM`` in ``time_zone``.
+    """
+
+    __tablename__ = "nightly_refreshes"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    refresh_time: Mapped[str] = mapped_column(String(5))
+    time_zone: Mapped[str] = mapped_column(String(64))
+    credentials: Mapped[str] = mapped_column(Text)
+    providers: Mapped[list[str]] = mapped_column(JSON)
+    """Which providers' keys ``credentials`` holds, so they can be listed unencrypted."""
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    keys_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class UserScreenerRunRecord(Base):
+    """One nightly refresh of a user's own screener, kept so its status can be shown."""
+
+    __tablename__ = "user_screener_runs"
+    __table_args__ = (Index("ix_user_screener_runs_user_started_at", "user_id", "started_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(16))
+    stocks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    """Stocks in the universe the run built."""
+    priced: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    """Of those, the stocks whose price-history columns the user's keys could fill."""
+    prices_as_of: Mapped[date | None] = mapped_column(Date, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)

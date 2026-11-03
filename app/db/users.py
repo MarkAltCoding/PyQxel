@@ -19,10 +19,13 @@ from app.db.tables import (
     BacktestRecord,
     HoldingRecord,
     IdentityRecord,
+    NightlyRefreshRecord,
     PortfolioAnalysisRecord,
     PortfolioRecord,
     SimulationRecord,
     UserRecord,
+    UserScreenerRunRecord,
+    UserScreenerStockRecord,
     as_utc,
 )
 from app.models.account import AiLimits, AiUsage, ApiKeyInfo, NewApiKey
@@ -293,9 +296,10 @@ async def delete_user(session: AsyncSession, user_id: str) -> bool:
     """Delete the account and everything it holds; return whether it existed.
 
     Its API keys, sign-in identities, portfolios and their holdings, stored backtests,
-    analyses, portfolio reviews and simulations, and its count of assistant answers go
-    with it. Rows are deleted explicitly rather than left to the foreign keys' cascades,
-    which SQLite does not enforce by default.
+    analyses, portfolio reviews and simulations, its count of assistant answers, and its
+    nightly screener refresh, with the encrypted keys it stored, its runs and its own
+    screened universe go with it. Rows are deleted explicitly rather than left to the
+    foreign keys' cascades, which SQLite does not enforce by default.
     """
     record = await session.get(UserRecord, user_id)
     if record is None:
@@ -310,6 +314,9 @@ async def delete_user(session: AsyncSession, user_id: str) -> bool:
         PortfolioAnalysisRecord,
         AssistantRequestRecord,
         SimulationRecord,
+        NightlyRefreshRecord,
+        UserScreenerRunRecord,
+        UserScreenerStockRecord,
     ):
         await session.execute(delete(table).where(table.user_id == user_id))
     await session.delete(record)

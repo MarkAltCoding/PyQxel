@@ -4,27 +4,34 @@ Run it daily, after the US close, with::
 
     python -m app.jobs.screener
 
-Each run:
+Each run has a shared first stage, from the SEC's public data alone, which every user's
+own nightly refresh (:mod:`app.jobs.nightly`) starts from:
 
 1. Reads every common stock listed on NYSE, Nasdaq and Cboe from the SEC's ticker list,
-   leaving out preferreds, notes, warrants, units and rights by ticker and by name.
-2. Reads market caps, sectors and industries from Financial Modeling Prep's company
+   leaving out preferreds, notes, warrants, units and rights by ticker and by name, and
+   stores them with the SEC's shares outstanding.
+2. Reads each listed company's industry code (SIC) from its EDGAR submissions, which
+   gives users' own screeners their sectors and industries, every 90 days.
+3. Rebuilds the listed companies' financials from the SEC's bulk company facts archive
+   when the stored ones are older than ``SCREENER_FUNDAMENTALS_REFRESH_DAYS`` (weekly by
+   default), fetches any company that is new on its own, and refetches companies whose
+   financials look a period behind, reading filings company facts left out.
+
+Then, when it has a market data source, it builds the shared universe:
+
+4. Reads market caps, sectors and industries from Financial Modeling Prep's company
    screener, and downloads about 13 months of daily prices from FMP for every stock not
    already known to be below the market cap floor.
-3. Keeps those passing the baseline filter: price, average daily dollar volume and market
+5. Keeps those passing the baseline filter: price, average daily dollar volume and market
    cap above the ``SCREENER_MIN_*`` settings. Market caps FMP's company screener lacks
    come from SEC share counts, the last refresh, or FMP company profiles.
-4. Rebuilds their financials from the SEC's bulk company facts archive when the stored
-   ones are older than ``SCREENER_FUNDAMENTALS_REFRESH_DAYS`` (weekly by default),
-   fetches any company that is new to the universe on its own, and refetches companies
-   whose financials look a period behind, reading filings company facts left out.
-5. Computes valuation, growth, momentum, volatility and Carhart factor betas, and
+6. Computes valuation, growth, momentum, volatility and Carhart factor betas, and
    replaces the stored universe with the result.
 
 Every account sees the universe, so market data is fetched on the screener's own key,
 ``SCREENER_FMP_API_KEY``, which must be on an FMP plan licensed for showing its data to
-your users, never on an account's key. Without that key the run fails, unless
-``YFINANCE_FALLBACK`` is on, when yfinance and Nasdaq's public screener feed stand in. Such
+your users, never on an account's key. Without that key the shared universe is not built,
+unless ``YFINANCE_FALLBACK`` is on, when yfinance and Nasdaq's public screener feed stand in. Such
 a run is recorded as unlicensed, and its universe is shown only to an account allowed to
 see unlicensed data (see :func:`app.db.screener.shows_universe`).
 
@@ -43,6 +50,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import httpx2
 import pandas as pd
 
 from app.core.config import PROJECT_ROOT, get_settings
@@ -56,7 +64,7 @@ from app.data.fundamentals import (
     fetch_financials,
     read_bulk_financials,
 )
-from app.data.sec_edgar import FilingFetchError, edgar_client
+from app.data.sec_edgar import FilingFetchError, edgar_client, fetch_industry_code
 from app.data.universe import (
     FmpSession,
     Listing,
@@ -71,9 +79,12 @@ from app.data.universe import (
 from app.db.screener import (
     finish_run,
     fundamentals_refreshed_at,
+    load_companies,
     load_fundamentals,
     previous_share_counts,
+    replace_listings,
     replace_universe,
+    save_companies,
     save_fundamentals,
     start_run,
 )
@@ -100,6 +111,14 @@ MAX_SINGLE_FETCHES: int = 200
 rebuilds; more wait for the next rebuild."""
 
 MAX_CATCH_UPS: int = 500
+COMPANY_REFRESH_DAYS: int = 90
+"""Days a company's SEC industry code is kept before it is read again."""
+MAX_COMPANY_FETCHES: int = 3000
+"""Industry codes read in one run: the first runs read most listed companies, about ten
+minutes each within the SEC's ten requests a second, and later runs only new listings
+and stale codes."""
+COMPANY_CONCURRENCY: int = 5
+"""Industry codes read at once, which stays under the SEC's rate limit."""
 """Companies whose financials look behind that are refetched in one run; each takes two
 or three EDGAR requests, so 500 take about three minutes."""
 
@@ -121,12 +140,23 @@ class Candidate:
 class RefreshResult:
     """What a refresh produced."""
 
-    stocks: int
+    stocks: int | None
+    """Stocks in the shared universe; ``None`` when only the SEC first stage ran."""
     prices_as_of: date | None
     fundamentals_refreshed: bool
     factor_data_end: date | None
     licensed: bool = False
     """Whether licensed market data alone built it, so every account may see it."""
+
+
+@dataclass(frozen=True)
+class SecStage:
+    """What the shared first stage read from the SEC."""
+
+    listings: list[Listing]
+    shares: dict[int, float]
+    """Shares outstanding by CIK, from the SEC's latest filings."""
+    fundamentals_refreshed: bool
 
 
 def _liquid(listings: list[Listing], prices: dict[str, pd.DataFrame]) -> list[Candidate]:
@@ -151,6 +181,7 @@ async def _market_caps(
     all_listings: list[Listing],
     profiles: dict[str, Profile],
     market: FmpSession | None,
+    shares: dict[int, float],
 ) -> dict[str, tuple[float, MarketCapSource]]:
     """Market caps from FMP's company screener, then SEC shares, then the last refresh,
     then company profiles.
@@ -173,8 +204,6 @@ async def _market_caps(
     from_screener = len(caps)
 
     classes = Counter(listing.cik for listing in all_listings)
-    async with edgar_client() as client:
-        shares = await fetch_share_counts(client)
     async with get_sessionmaker()() as session:
         previous = await previous_share_counts(session)
     rest: list[Candidate] = []
@@ -207,7 +236,7 @@ async def _market_caps(
     return caps
 
 
-def _completed_sessions(prices: dict[str, pd.DataFrame], now: datetime) -> dict[str, pd.DataFrame]:
+def completed_sessions(prices: dict[str, pd.DataFrame], now: datetime) -> dict[str, pd.DataFrame]:
     """Drop today's bar while the US market is still open: its close and volume are partial."""
     eastern = now.astimezone(US_EASTERN)
     if eastern.time() >= SESSION_SETTLED:
@@ -400,18 +429,93 @@ async def _market_data() -> AsyncIterator[FmpSession | None]:
         yield session
 
 
-async def _refresh(force_fundamentals: bool) -> RefreshResult:
-    """The steps of :func:`refresh_universe`."""
-    async with _market_data() as market:
-        return await _refresh_with(market, force_fundamentals)
-
-
-async def _refresh_with(market: FmpSession | None, force_fundamentals: bool) -> RefreshResult:
-    """:func:`_refresh` with its market data source open."""
+def market_source_available() -> bool:
+    """Whether the shared universe can be built: the screener's FMP key is set, or the
+    yfinance fallback stands in for it."""
     settings = get_settings()
+    return settings.screener_fmp_api_key is not None or settings.yfinance_fallback
+
+
+async def _refresh(force_fundamentals: bool) -> RefreshResult:
+    """The steps of :func:`refresh_universe`: the SEC first stage, then the shared
+    universe when a market data source is available."""
     today = date.today()
+    sec = await _sec_stage(force_fundamentals, today)
+    if not market_source_available():
+        logger.warning(
+            "SCREENER_FMP_API_KEY is unset and YFINANCE_FALLBACK is off, so only the SEC "
+            "first stage ran; the shared universe was kept as it was."
+        )
+        return RefreshResult(
+            stocks=None,
+            prices_as_of=None,
+            fundamentals_refreshed=sec.fundamentals_refreshed,
+            factor_data_end=None,
+        )
+    async with _market_data() as market:
+        return await _refresh_with(market, sec, today)
+
+
+async def _sec_stage(force_fundamentals: bool, today: date) -> SecStage:
+    """The shared first stage, from the SEC alone: store the listings with their shares
+    outstanding, and bring the listed companies' financials up to date."""
     async with edgar_client() as client:
         listings = await fetch_listings(client)
+        shares = await fetch_share_counts(client)
+    classes = Counter(listing.cik for listing in listings)
+    single_class = {
+        listing.symbol: shares[listing.cik]
+        for listing in listings
+        if listing.cik in shares and classes[listing.cik] == 1
+    }
+    async with get_sessionmaker()() as session:
+        stored = await replace_listings(session, listings, single_class)
+    logger.info("Stored %d SEC listings, %d with shares outstanding.", stored, len(single_class))
+
+    ciks = {listing.cik for listing in listings}
+    symbols: dict[int, str] = {}
+    for listing in listings:
+        symbols.setdefault(listing.cik, listing.symbol)
+    await _refresh_companies(ciks)
+    refreshed = await _refresh_fundamentals(ciks, force_fundamentals)
+    if not refreshed:
+        await _fill_missing_fundamentals(ciks, symbols)
+    await _catch_up_fundamentals(ciks, symbols, today)
+    return SecStage(listings=listings, shares=shares, fundamentals_refreshed=refreshed)
+
+
+async def _refresh_companies(ciks: set[int]) -> None:
+    """Read the SEC industry code of each company with none stored, or one older than
+    :data:`COMPANY_REFRESH_DAYS`, up to :data:`MAX_COMPANY_FETCHES` a run."""
+    now = datetime.now(timezone.utc)
+    async with get_sessionmaker()() as session:
+        stored = await load_companies(session, ciks)
+    stale = now - timedelta(days=COMPANY_REFRESH_DAYS)
+    wanted = sorted(cik for cik in ciks if cik not in stored or stored[cik][2] < stale)
+    wanted = wanted[:MAX_COMPANY_FETCHES]
+    if not wanted:
+        return
+    slots = asyncio.Semaphore(COMPANY_CONCURRENCY)
+    codes: dict[int, tuple[int | None, str | None]] = {}
+    async with edgar_client() as client:
+
+        async def read(cik: int) -> None:
+            async with slots:
+                try:
+                    codes[cik] = await fetch_industry_code(client, cik)
+                except (httpx2.HTTPError, ValueError) as exc:
+                    logger.debug("No SEC industry code for CIK %d: %s", cik, exc)
+
+        await asyncio.gather(*(read(cik) for cik in wanted))
+    async with get_sessionmaker()() as session:
+        await save_companies(session, codes, now)
+    logger.info("Read %d companies' SEC industry codes.", len(codes))
+
+
+async def _refresh_with(market: FmpSession | None, sec: SecStage, today: date) -> RefreshResult:
+    """Build the shared universe from ``sec`` with its market data source open."""
+    settings = get_settings()
+    listings = sec.listings
     try:
         profiles = await fetch_profiles(market)
     except ProviderNotConfiguredError, ProviderPlanError:
@@ -438,11 +542,11 @@ async def _refresh_with(market: FmpSession | None, force_fundamentals: bool) -> 
         today - timedelta(days=PRICE_HISTORY_DAYS),
         market,
     )
-    prices = _completed_sessions(prices, datetime.now(timezone.utc))
+    prices = completed_sessions(prices, datetime.now(timezone.utc))
     candidates = _liquid(listings, prices)
     logger.info("%d pass the price and dollar volume floors.", len(candidates))
 
-    caps = await _market_caps(candidates, listings, profiles, market)
+    caps = await _market_caps(candidates, listings, profiles, market, sec.shares)
     universe = [
         candidate
         for candidate in candidates
@@ -454,11 +558,6 @@ async def _refresh_with(market: FmpSession | None, force_fundamentals: bool) -> 
         raise RuntimeError("No stock passed the baseline filters; the universe was kept.")
 
     ciks = {candidate.listing.cik for candidate in universe}
-    symbols = {candidate.listing.cik: candidate.listing.symbol for candidate in universe}
-    refreshed = await _refresh_fundamentals(ciks, force_fundamentals)
-    if not refreshed:
-        await _fill_missing_fundamentals(ciks, symbols)
-    await _catch_up_fundamentals(ciks, symbols, today)
     async with get_sessionmaker()() as session:
         financials = await load_fundamentals(session, ciks)
 
@@ -484,7 +583,7 @@ async def _refresh_with(market: FmpSession | None, force_fundamentals: bool) -> 
     return RefreshResult(
         stocks=count,
         prices_as_of=max(last_closes, default=None),
-        fundamentals_refreshed=refreshed,
+        fundamentals_refreshed=sec.fundamentals_refreshed,
         factor_data_end=None if factors is None else pd.Timestamp(factors.index[-1]).date(),
         licensed=market is not None,
     )
@@ -497,6 +596,9 @@ async def _main(force_fundamentals: bool) -> None:
     finally:
         await close_database()
     fundamentals = "rebuilt" if result.fundamentals_refreshed else "reused"
+    if result.stocks is None:
+        print(f"SEC first stage refreshed, fundamentals {fundamentals}; no shared universe.")
+        return
     print(
         f"Screened universe refreshed: {result.stocks} stocks, prices as of "
         f"{result.prices_as_of}, fundamentals {fundamentals}."

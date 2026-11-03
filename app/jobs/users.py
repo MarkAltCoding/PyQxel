@@ -6,11 +6,14 @@ There is no public sign-up: whoever runs the server creates accounts::
     python -m app.jobs.users create me@example.com --claim-unowned
     python -m app.jobs.users add-key jane@example.com --name laptop
     python -m app.jobs.users delete jane@example.com
+    python -m app.jobs.users generate-encryption-key
 
 ``create`` and ``add-key`` print the new API key once; give it to the account's owner.
 ``delete`` removes an account and everything it holds, for deletion requests made
 without signing in; owners can also delete their own with ``DELETE /api/v1/me``.
-Provider keys are never stored: owners send theirs with each request.
+Provider keys are stored only for owners who opt in to the nightly screener refresh,
+encrypted under ``CREDENTIALS_ENCRYPTION_KEY``; ``generate-encryption-key`` prints a new
+one. Everyone else sends theirs with each request.
 """
 
 import argparse
@@ -18,6 +21,7 @@ import asyncio
 from collections.abc import Coroutine
 from typing import Any
 
+from app.core.security import generate_encryption_key
 from app.db.session import close_database, get_sessionmaker, init_db
 from app.db.users import (
     EmailTakenError,
@@ -98,9 +102,15 @@ def main() -> None:
     delete = commands.add_parser("delete", help="Delete an account and everything it holds.")
     delete.add_argument("email")
     delete.add_argument("--yes", action="store_true", help="Delete without asking to confirm.")
+    commands.add_parser(
+        "generate-encryption-key",
+        help="Print a new key for CREDENTIALS_ENCRYPTION_KEY, which encrypts stored keys.",
+    )
     arguments = parser.parse_args()
 
-    if arguments.command == "create":
+    if arguments.command == "generate-encryption-key":
+        print(generate_encryption_key())
+    elif arguments.command == "create":
         asyncio.run(
             _run(
                 _create(

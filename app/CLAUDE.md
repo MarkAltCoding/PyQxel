@@ -8,6 +8,10 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
 - **Auth:** every `/api/v1` route takes `user: CurrentUser` (`api/auth.py`), from the
   `Authorization: Bearer <key>` header, rate-limited per user. Provider keys come per
   request (`core/credentials.py`: `current_provider_keys()`), never from the database.
+  The one exception is the nightly refresh of a user's own screener (`jobs/nightly.py`),
+  which runs with no request: users who opt in have their market data keys stored,
+  Fernet-encrypted under `CREDENTIALS_ENCRYPTION_KEY` (`core/security.py`), in
+  `nightly_refreshes`, deleted on opt-out or account deletion (`db/nightly.py`).
 - **Market data:** `data/fetcher.py`. `fetch_price_history`, `fetch_ticker_info` and
   quotes try `available_providers(kind, symbol)`: the user's keys in the order
   `PROVIDER_ORDER` sets for each kind of data (daily, intraday, quote, profile, exchange
@@ -41,7 +45,8 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
 | Fundamentals, valuation | `fundamentals.py` | `sec_edgar.py`, `fundamentals.py`, `xbrl_instance.py`, `alpha_vantage.py`, `finnhub_financials.py`, `exchange_rates.py` | `valuation.py` | `fundamentals.py` | |
 | News, signals, metrics, alternative data | `news.py`, `signals.py`, `metrics.py`, `alternative.py` | `news.py`, `finnhub.py`, `alternative.py` | `stats/news.py`, `signals.py`, `alternative.py` | same names | |
 | Markets page | `markets.py` | `data/markets.py`, `fomc.py` | `stats/markets.py` | `markets.py` | |
-| Screener, search | `screener.py`, `search.py` | `universe.py` | `screening.py`, `peers.py` | `screener.py` | `db/screener.py`; refreshed by `jobs/screener.py` |
+| Screener, search | `screener.py`, `search.py` | `universe.py` | `screening.py`, `peers.py` | `screener.py` | `db/screener.py`; refreshed by `jobs/screener.py` (shared SEC first stage, then the shared universe) |
+| A user's own screener (nightly refresh) | `account.py` (`/me/nightly-refresh`); `screener.py` reads it | `screener_metrics.py` (Finnhub metrics, price histories) | `screening.py: user_screen_metrics` | `nightly.py`, `screener.py` | `db/nightly.py`, `user_screener_*` tables; run hourly by `jobs/nightly.py` |
 | AI stock report | `research.py` | everything above | | `research.py` | `db/analyses.py` |
 | Backtests | `backtest.py` | `fetcher.py`, `panel.py`, `factors.py` | `backtest.py` (one asset, a portfolio, replayed custom weights), `cross_section.py` (rank a universe), `metrics.py` | `backtest.py` | `db/backtests.py` |
 | Portfolio | `portfolio.py` (also each holding's gain over a window, `/changes`, and 52-week range, `/ranges`; reviews of one portfolio or both together, `combined`) | `panel.py`, `cash.py` (money-market funds) | `panel.py` (aligned returns, `usable_return_panel` drops what it cannot use), `copulas.py`, `monte_carlo.py`, `portfolio_risk.py`, `rebalance.py` (orders), `performance.py` (window changes, 52-week ranges) | `portfolio.py`, `simulation.py`, `portfolio_analysis.py` | `db/holdings.py` (2 portfolios per account), `simulations.py`, `portfolio_analyses.py` |

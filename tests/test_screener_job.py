@@ -15,9 +15,11 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.credentials import current_provider_keys
-from app.data.fetcher import DataFetchError, ProviderNotConfiguredError
+from app.data.fetcher import DataFetchError
 from app.data.universe import FmpSession, Listing, Profile
 from app.db.screener import (
+    load_companies,
+    load_listings,
     finish_run,
     load_fundamentals,
     start_run,
@@ -78,6 +80,7 @@ class Fakes:
         self.single_fetches: list[str] = []
         self.cap_lookups: list[str] = []
         self.priced: list[str] = []
+        self.industry_reads: list[int] = []
 
 
 @pytest.fixture
@@ -146,6 +149,12 @@ def fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Fakes]:
     monkeypatch.setattr(job, "fetch_factors", fake_factors)
     monkeypatch.setattr(job, "fetch_exchange_rates", fake_rates)
     monkeypatch.setattr(job, "ARCHIVE_PATH", tmp_path / "companyfacts.zip")
+
+    async def fake_industry(client: object, cik: int) -> tuple[int, str]:
+        recorded.industry_reads.append(cik)
+        return 7372, "SERVICES-PREPACKAGED SOFTWARE"
+
+    monkeypatch.setattr(job, "fetch_industry_code", fake_industry)
     yield recorded
 
 
@@ -187,7 +196,8 @@ async def test_refresh_builds_the_filtered_universe(fakes: Fakes, tmp_path: Path
 
 @pytest.mark.asyncio
 async def test_recent_fundamentals_are_reused_and_new_companies_fetched(fakes: Fakes) -> None:
-    """Within the week only companies without stored financials are fetched, one by one."""
+    """Within the week only companies without stored financials are fetched, one by one:
+    every listed company, since each user's own universe may include any of them."""
     async with get_sessionmaker()() as session:
         run_id = await start_run(session)
         await finish_run(session, run_id, fundamentals_refreshed=True)
@@ -196,7 +206,7 @@ async def test_recent_fundamentals_are_reused_and_new_companies_fetched(fakes: F
 
     assert not result.fundamentals_refreshed
     assert fakes.bulk_downloads == 0
-    assert sorted(fakes.single_fetches) == ["BIG", "ONE"]
+    assert sorted(fakes.single_fetches) == ["BIG", "DUO-A", "ONE", "PENNY", "SMALL", "THIN"]
 
 
 @pytest.mark.asyncio
@@ -294,19 +304,25 @@ async def test_failed_lookups_reuse_the_last_share_count(
 
 
 @pytest.mark.asyncio
-async def test_refresh_needs_a_licensed_key_in_production(
+async def test_without_a_licensed_key_only_the_sec_stage_runs(
     fakes: Fakes, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Without the screener's FMP key and the fallback, the run fails and says why."""
+    """Without the screener's FMP key and the fallback, the SEC first stage still runs,
+    storing listings and financials for users' own refreshes, and no shared universe is
+    built or shown."""
     monkeypatch.setattr(get_settings(), "yfinance_fallback", False)
     monkeypatch.setattr(get_settings(), "screener_fmp_api_key", None)
 
-    with pytest.raises(ProviderNotConfiguredError):
-        await job.refresh_universe()
+    result = await job.refresh_universe()
 
+    assert result.stocks is None and result.fundamentals_refreshed
+    assert fakes.priced == []
     async with get_sessionmaker()() as session:
+        listings = dict(await load_listings(session))
         status = await universe_status(session)
-    assert status.last_error is not None and "SCREENER_FMP_API_KEY" in status.last_error
+        assert set(await load_fundamentals(session, [1, 5])) == {1, 5}
+    assert {listing.symbol for listing in listings} >= {"BIG", "ONE"}
+    assert status.stocks == 0 and status.refreshed_at is None and status.last_error is None
     assert fakes.priced == []
 
 
@@ -357,8 +373,8 @@ def test_open_sessions_are_dropped_until_prices_settle() -> None:
     open_market = datetime(2026, 10, 5, 15, 0, tzinfo=timezone.utc)  # 11:00 in New York.
     after_close = datetime(2026, 10, 5, 21, 0, tzinfo=timezone.utc)
 
-    assert len(job._completed_sessions(prices, open_market)["AAA"]) == 1
-    assert len(job._completed_sessions(prices, after_close)["AAA"]) == 2
+    assert len(job.completed_sessions(prices, open_market)["AAA"]) == 1
+    assert len(job.completed_sessions(prices, after_close)["AAA"]) == 2
 
 
 def test_command_line_runs_a_refresh(fakes: Fakes, capsys: pytest.CaptureFixture[str]) -> None:
@@ -366,3 +382,24 @@ def test_command_line_runs_a_refresh(fakes: Fakes, capsys: pytest.CaptureFixture
     asyncio.run(job._main(force_fundamentals=False))
 
     assert "Screened universe refreshed: 2 stocks" in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_the_sec_stage_keeps_each_companys_industry_code(
+    fakes: Fakes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every listed company's SEC industry code is stored, for users' own screeners'
+    sectors, and is not read again while it is fresh."""
+    monkeypatch.setattr(get_settings(), "yfinance_fallback", False)
+    monkeypatch.setattr(get_settings(), "screener_fmp_api_key", None)
+
+    await job.refresh_universe()
+    first = list(fakes.industry_reads)
+    await job.refresh_universe()
+
+    ciks = {listing.cik for listing in LISTINGS}
+    assert sorted(first) == sorted(ciks)
+    assert fakes.industry_reads == first, "fresh codes are not read again"
+    async with get_sessionmaker()() as session:
+        stored = await load_companies(session, ciks)
+    assert {code[:2] for code in stored.values()} == {(7372, "SERVICES-PREPACKAGED SOFTWARE")}

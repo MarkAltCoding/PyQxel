@@ -5,6 +5,10 @@ Each account pays for its own usage, with provider keys PyQxel never stores: the
 keeps them and sends them with each request (see :mod:`app.core.credentials`), so AI
 analyses run on the Anthropic key the request carries, market data on its Financial
 Modeling Prep key, the gaps on its Alpha Vantage key, and news on its Finnhub key.
+
+The one exception is the nightly screener refresh, which runs while no browser is open: a
+user who opts in has their market data keys stored, encrypted, until they opt out or
+delete the account (see :mod:`app.db.nightly`).
 """
 
 import logging
@@ -21,7 +25,8 @@ from starlette.routing import Match
 from app.api.auth import CurrentUser, authenticate, uses_yfinance
 from app.core.config import get_settings
 from app.core.credentials import ProviderKeys, current_provider_keys
-from app.core.security import key_hint
+from app.core.security import CredentialsUnavailableError, encryption_available, key_hint
+from app.db.nightly import MissingFinnhubKeyError, disable, enable, refresh_status
 from app.db.session import get_session
 from app.db.users import (
     User,
@@ -42,6 +47,7 @@ from app.models.account import (
     NewApiKey,
     ProviderCredential,
 )
+from app.models.nightly import NightlyRefreshSettings, NightlyRefreshStatus
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +173,78 @@ async def remove_api_key(key_id: UUID, user: CurrentUser, session: Session) -> R
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.get(
+    "/nightly-refresh",
+    response_model=NightlyRefreshStatus,
+    summary="Your nightly screener refresh",
+)
+async def read_nightly_refresh(user: CurrentUser, session: Session) -> NightlyRefreshStatus:
+    """Return whether your nightly screener refresh is on, when it runs, which of your
+    keys it stores, and how its latest runs went.
+
+    Returns 503 when the database is unavailable.
+    """
+    try:
+        return await refresh_status(session, user.id, encryption_available())
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+
+
+@router.put(
+    "/nightly-refresh",
+    response_model=NightlyRefreshStatus,
+    summary="Turn on your nightly screener refresh",
+)
+async def store_nightly_refresh(
+    user: CurrentUser, session: Session, settings: Annotated[NightlyRefreshSettings, Body()]
+) -> NightlyRefreshStatus:
+    """Opt in to a nightly refresh of your own screener, or change when it runs.
+
+    Each night at ``refresh_time`` in ``time_zone``, your own universe is rebuilt from the
+    SEC's shared list of stocks and financials, Finnhub's free metrics on your Finnhub key,
+    and price-history columns from whichever price-history key you have (Tiingo, FMP,
+    EODHD or Alpha Vantage). It runs with no browser open, so the market data keys this
+    request carries are stored, encrypted, replacing any stored before; your Anthropic key
+    is never stored. Send this again after changing a key.
+
+    Returns 422 without a Finnhub key, or for an unknown time zone; 503 when this server
+    cannot store keys or the database is unavailable.
+    """
+    try:
+        await enable(session, user.id, settings, current_provider_keys())
+        return await refresh_status(session, user.id, encryption_available())
+    except MissingFinnhubKeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    except CredentialsUnavailableError as exc:
+        logger.error("Cannot store keys for a nightly refresh: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="This server cannot store keys, so the nightly refresh is not available.",
+        ) from None
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+
+
+@router.delete(
+    "/nightly-refresh",
+    response_model=NightlyRefreshStatus,
+    summary="Turn off your nightly screener refresh",
+)
+async def remove_nightly_refresh(user: CurrentUser, session: Session) -> NightlyRefreshStatus:
+    """Opt out of the nightly refresh: your stored keys are deleted at once, and no more
+    refreshes run. Your last universe stays, with its date, until you delete your account.
+
+    Returns 503 when the database is unavailable.
+    """
+    try:
+        await disable(session, user.id)
+        return await refresh_status(session, user.id, encryption_available())
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+
+
 @router.delete(
     "",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -176,8 +254,9 @@ async def remove_api_key(key_id: UUID, user: CurrentUser, session: Session) -> R
 async def delete_account(user: CurrentUser, session: Session) -> Response:
     """Delete your account and everything it holds, at once and for good.
 
-    Your provider keys, PyQxel API keys, sign-in links to GitHub and Google, holdings,
-    and stored backtests, analyses and simulations are deleted, and every API key stops
+    Your PyQxel API keys, sign-in links to GitHub and Google, holdings, stored backtests,
+    analyses and simulations, and your nightly screener refresh with the keys it stored
+    and the universe it built are deleted, and every API key stops
     working. Signing in again afterwards starts a new, empty account.
     """
     try:

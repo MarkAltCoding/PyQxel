@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { getUniverseStatus, screen } from '../api/endpoints'
+import { getNightlyRefresh, getUniverseStatus, screen } from '../api/endpoints'
 import type { RankedStock, ScreenField, ScreenFilter, ScreenRequest } from '../api/types'
 import { InfoTip } from '../components/InfoTip'
 import { ErrorNotice, Notice } from '../components/Notice'
 import type { InfoKey } from '../lib/glossary'
 import { compact, dateTime, money, number, percent, shortDate } from '../lib/format'
+import { NIGHTLY_QUERY_KEY } from '../lib/nightlyRefresh'
 import { readStored, writeStored } from '../lib/storage'
 
 type Kind = 'percent' | 'ratio' | 'money' | 'compact' | 'beta'
@@ -160,6 +161,8 @@ export function ScreenerPage() {
   }
 
   const status = useQuery({ queryKey: ['universe-status'], queryFn: getUniverseStatus })
+  const nightly = useQuery({ queryKey: NIGHTLY_QUERY_KEY, queryFn: getNightlyRefresh })
+  const latestRun = nightly.data?.latest_run
   const filters: ScreenFilter[] = state.filters
     .map((row) => ({
       field: row.field,
@@ -206,8 +209,9 @@ export function ScreenerPage() {
           <h1>Screener</h1>
           <div className="subtitle">
             {status.data && !empty
-              ? `${status.data.stocks.toLocaleString()} US stocks · prices as of ${shortDate(status.data.prices_as_of)} · refreshed ${dateTime(status.data.refreshed_at)}`
+              ? `${status.data.own ? 'Your own universe · ' : ''}${status.data.stocks.toLocaleString()} US stocks · prices as of ${shortDate(status.data.prices_as_of)} · refreshed ${dateTime(status.data.refreshed_at)}`
               : 'US-listed common stocks, refreshed after each trading day'}
+            {status.data?.own && <InfoTip topic="nightlyRefresh" />}
           </div>
         </div>
       </header>
@@ -215,10 +219,29 @@ export function ScreenerPage() {
       {status.data?.last_error && (
         <Notice tone="warning">The latest refresh failed: {status.data.last_error}</Notice>
       )}
+      {latestRun?.status === 'running' && (
+        <Notice>
+          Your nightly refresh is running, since {dateTime(latestRun.started_at)}. Until it
+          finishes, this shows your last universe.
+        </Notice>
+      )}
+      {latestRun?.status === 'failed' && (
+        <Notice tone="warning">
+          Your latest nightly refresh failed: {latestRun.error}{' '}
+          <Link to="/settings#nightly-refresh">Check it in Settings</Link>.
+        </Notice>
+      )}
       {empty && (
         <Notice>
           The stock screener is not available yet. Once it is, it lists US stocks you can filter and
           rank by their valuation, growth, momentum and risk.
+          {nightly.data?.available && !nightly.data.enabled && (
+            <>
+              {' '}
+              To build your own from your keys each night, turn on the{' '}
+              <Link to="/settings#nightly-refresh">nightly screener refresh</Link>.
+            </>
+          )}
         </Notice>
       )}
 

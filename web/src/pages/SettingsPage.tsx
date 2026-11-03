@@ -1,7 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { deleteAccount, getAccount, updateAdminSettings, updateLimits } from '../api/endpoints'
-import type { Account, AdminSettings, AdminSettingsUpdate } from '../api/types'
+import type {
+  Account,
+  AdminSettings,
+  AdminSettingsUpdate,
+  NightlyRefreshStatus,
+} from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorNotice, Notice } from '../components/Notice'
@@ -15,6 +20,8 @@ import {
   type DataProvider,
 } from '../lib/keyCoverage'
 import { InfoTip } from '../components/InfoTip'
+import { NightlyRefreshCard } from '../components/NightlyRefreshCard'
+import { NIGHTLY_QUERY_KEY, resyncNightlyKeys } from '../lib/nightlyRefresh'
 import { setProviderKey, type ProviderName } from '../lib/providerKeys'
 
 type ProviderAccount = ProviderName
@@ -182,8 +189,14 @@ export function SettingsPage() {
     // Data and reports depend on the settings; refetch what was loaded with the old ones.
     void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] !== 'account' })
   }
-  // The account reports the keys each request carries, so it is refetched too.
-  const onKeysChanged = () => void queryClient.invalidateQueries()
+  // The account reports the keys each request carries, so it is refetched too. A nightly
+  // refresh the user opted in to gets the changed keys, so its stored copy matches.
+  const onKeysChanged = () => {
+    const nightly = queryClient.getQueryData<NightlyRefreshStatus>(NIGHTLY_QUERY_KEY)
+    void resyncNightlyKeys(nightly)
+      .catch(() => undefined)
+      .finally(() => void queryClient.invalidateQueries())
+  }
 
   return (
     <div className="stack">
@@ -207,8 +220,9 @@ export function SettingsPage() {
               <h2>Provider keys</h2>
               <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
                 You pay for your own usage. Keys stay in this browser and are sent with each of your
-                requests; PyQxel's server never stores them, so no one else, not even whoever runs
-                PyQxel, can read them. Add them on each device you use. Signing out removes them.
+                requests; PyQxel's server does not store them, so no one else, not even whoever runs
+                PyQxel, can read them, unless you turn on the nightly screener refresh below. Add
+                them on each device you use. Signing out removes them from this browser.
               </p>
             </div>
             {PROVIDERS.map((provider) => (
@@ -220,6 +234,7 @@ export function SettingsPage() {
               />
             ))}
           </section>
+          <NightlyRefreshCard account={account.data} />
           <LimitsForm account={account.data} onSaved={onSaved} />
           {account.data.admin && <AdminSettingsForm admin={account.data.admin} onSaved={onSaved} />}
           <DeleteAccount email={account.data.email} />
@@ -585,6 +600,10 @@ function DeleteAccount({ email }: { email: string }) {
             <li>Your AI research reports and portfolio reviews, including ones you pasted</li>
             <li>Your PyQxel API keys: any script using them stops working</li>
             <li>The link between this account and your GitHub or Google sign-in</li>
+            <li>
+              Your nightly screener refresh, the keys it stored on the server and the screener it
+              built
+            </li>
             <li>
               The provider keys kept in this browser (Anthropic, FMP, Alpha Vantage, Finnhub), which
               are removed from it. The keys themselves stay valid with those services.

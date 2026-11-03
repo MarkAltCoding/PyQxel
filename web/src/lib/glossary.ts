@@ -742,6 +742,34 @@ const entries = {
     title: 'Requests per minute',
     what: 'How many requests your account may make to PyQxel each minute, across every page. It keeps the server responsive for everyone.',
   },
+
+  // ── Nightly screener refresh ──
+  nightlyRefresh: {
+    title: 'Nightly screener refresh',
+    what: 'Rebuilds your own copy of the stock screener every night, on your own market data keys, so its numbers come from data you are licensed to see. Until it first runs, the screener shows the shared universe if there is one.',
+    note: 'Finnhub’s free plan allows about 60 requests a minute and the refresh makes one per listed stock, so it takes an hour or two. While it runs it uses most of your Finnhub allowance, so news, ratings and quotes may be slow or briefly unavailable: pick an hour when you are not using PyQxel. Free price-history plans cover only some stocks a night: the largest come first. Sectors come from each company’s SEC industry code, which can differ from a data provider’s.',
+  },
+  nightlyLastRefresh: {
+    title: 'Last refresh',
+    what: 'When your own screener was last rebuilt successfully, and the date of the closing prices it used.',
+    good: 'Within the last day or so, on trading days.',
+    bad: 'Several days old: check for a failed refresh above, such as a rejected key.',
+  },
+  nightlyStocks: {
+    title: 'Stocks in your screener',
+    what: 'How many US-listed stocks passed the screener’s floors (market cap, share price and trading volume) in your last refresh.',
+    note: 'Usually a few thousand. Fewer can mean Finnhub left some stocks out, for example when its limit was reached.',
+  },
+  nightlyPriced: {
+    title: 'With price history',
+    what: 'How many of those stocks also have the columns that need a year of daily prices: one-month return, 12-1 momentum, volatility, maximum drawdown and factor betas. They come from your Tiingo, FMP, EODHD or Alpha Vantage key.',
+    good: 'Close to the number of stocks, which takes a paid price-history plan.',
+    note: 'Free plans allow only some stocks a day, so this is often a few hundred or fewer. For the rest, Finnhub’s figures stand in: its 52-week return for 12-1 momentum (it also counts the latest month), its three-month volatility for the year’s, and its beta for the market beta. Maximum drawdown and the size, value and momentum betas stay empty for them.',
+  },
+  nightlyNextRefresh: {
+    title: 'Next refresh',
+    what: 'When your next nightly refresh is due to start, in your own time. It starts within the hour after this time.',
+  },
 } satisfies Record<string, Info>
 
 export type InfoKey = keyof typeof entries

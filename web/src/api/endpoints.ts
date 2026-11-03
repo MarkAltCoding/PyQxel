@@ -2,6 +2,8 @@
 import { api, ApiError, send } from './client'
 import type {
   Account,
+  NightlyRefreshSettings,
+  NightlyRefreshStatus,
   AnalysisImport,
   AnalysisPromptExport,
   AdminSettingsUpdate,
@@ -63,6 +65,13 @@ export const updateLimits = (body: AiLimits) =>
 export const updateAdminSettings = (body: AdminSettingsUpdate) =>
   api<Account>(`${V1}/me/admin`, { method: 'PUT', body })
 export const deleteAccount = () => api<void>(`${V1}/me`, { method: 'DELETE' })
+export const getNightlyRefresh = () => api<NightlyRefreshStatus>(`${V1}/me/nightly-refresh`)
+/** Opts in, or changes the time; the keys this request carries are stored, encrypted. */
+export const enableNightlyRefresh = (body: NightlyRefreshSettings) =>
+  api<NightlyRefreshStatus>(`${V1}/me/nightly-refresh`, { method: 'PUT', body })
+/** Opts out; the stored keys are deleted at once. */
+export const disableNightlyRefresh = () =>
+  api<NightlyRefreshStatus>(`${V1}/me/nightly-refresh`, { method: 'DELETE' })
 
 export const search = (q: string, signal?: AbortSignal) =>
   api<SearchResponse>(`${V1}/search`, { query: { q, limit: 8 }, signal })

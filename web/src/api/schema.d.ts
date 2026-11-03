@@ -396,8 +396,9 @@ export interface paths {
      * Delete your account
      * @description Delete your account and everything it holds, at once and for good.
      *
-     *     Your provider keys, PyQxel API keys, sign-in links to GitHub and Google, holdings,
-     *     and stored backtests, analyses and simulations are deleted, and every API key stops
+     *     Your PyQxel API keys, sign-in links to GitHub and Google, holdings, stored backtests,
+     *     analyses and simulations, and your nightly screener refresh with the keys it stored
+     *     and the universe it built are deleted, and every API key stops
      *     working. Signing in again afterwards starts a new, empty account.
      */
     delete: operations['delete_account_api_v1_me_delete']
@@ -470,6 +471,50 @@ export interface paths {
     put: operations['store_limits_api_v1_me_limits_put']
     post?: never
     delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/me/nightly-refresh': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Your nightly screener refresh
+     * @description Return whether your nightly screener refresh is on, when it runs, which of your
+     *     keys it stores, and how its latest runs went.
+     *
+     *     Returns 503 when the database is unavailable.
+     */
+    get: operations['read_nightly_refresh_api_v1_me_nightly_refresh_get']
+    /**
+     * Turn on your nightly screener refresh
+     * @description Opt in to a nightly refresh of your own screener, or change when it runs.
+     *
+     *     Each night at ``refresh_time`` in ``time_zone``, your own universe is rebuilt from the
+     *     SEC's shared list of stocks and financials, Finnhub's free metrics on your Finnhub key,
+     *     and price-history columns from whichever price-history key you have (Tiingo, FMP,
+     *     EODHD or Alpha Vantage). It runs with no browser open, so the market data keys this
+     *     request carries are stored, encrypted, replacing any stored before; your Anthropic key
+     *     is never stored. Send this again after changing a key.
+     *
+     *     Returns 422 without a Finnhub key, or for an unknown time zone; 503 when this server
+     *     cannot store keys or the database is unavailable.
+     */
+    put: operations['store_nightly_refresh_api_v1_me_nightly_refresh_put']
+    post?: never
+    /**
+     * Turn off your nightly screener refresh
+     * @description Opt out of the nightly refresh: your stored keys are deleted at once, and no more
+     *     refreshes run. Your last universe stays, with its date, until you delete your account.
+     *
+     *     Returns 503 when the database is unavailable.
+     */
+    delete: operations['remove_nightly_refresh_api_v1_me_nightly_refresh_delete']
     options?: never
     head?: never
     patch?: never
@@ -882,6 +927,9 @@ export interface paths {
      *     Rank by factor exposure by sorting on a beta: ``{"field": "beta_market",
      *     "descending": false}`` lists the lowest market betas first.
      *
+     *     The user's own universe is screened when their nightly refresh has built one
+     *     (``own`` is then true), and the shared one otherwise.
+     *
      *     Returns 503 when the universe has not been built yet or the database is unavailable.
      */
     post: operations['screen_stocks_api_v1_screener_post']
@@ -901,6 +949,8 @@ export interface paths {
     /**
      * State of the screened universe
      * @description Return how many stocks the universe holds, when it was refreshed, and any failure.
+     *
+     *     It describes the user's own universe when their nightly refresh has built one.
      *
      *     Returns 503 when the database is unavailable.
      */
@@ -4855,6 +4905,113 @@ export interface components {
       source: string
     }
     /**
+     * NightlyRefreshSettings
+     * @description Turns on the nightly refresh, or changes when it runs.
+     *
+     *     The keys the request carries are encrypted and stored with it, replacing any stored
+     *     earlier, so send this again after changing a key.
+     */
+    NightlyRefreshSettings: {
+      /**
+       * Refresh Time
+       * @description Local time of day the refresh starts, as HH:MM in 24-hour time. It starts within the hour after it and takes an hour or two.
+       * @default 19:00
+       */
+      refresh_time?: string
+      /**
+       * Time Zone
+       * @description IANA time zone ``refresh_time`` is in, e.g. America/Chicago.
+       * @default America/New_York
+       */
+      time_zone?: string
+    }
+    /**
+     * NightlyRefreshStatus
+     * @description Whether the user's nightly refresh is on, what it stores, and how it last went.
+     */
+    NightlyRefreshStatus: {
+      /**
+       * Available
+       * @description Whether this server can store keys, which the refresh needs; false when its owner has not set CREDENTIALS_ENCRYPTION_KEY.
+       */
+      available: boolean
+      /**
+       * Enabled
+       * @description Whether the user has opted in.
+       */
+      enabled: boolean
+      /**
+       * Keys Updated At
+       * @description When the stored keys were last replaced.
+       */
+      keys_updated_at?: string | null
+      /** @description The latest refresh that succeeded, whose universe is shown. */
+      last_success?: components['schemas']['NightlyRun'] | null
+      /** @description The latest refresh, running, finished or failed. */
+      latest_run?: components['schemas']['NightlyRun'] | null
+      /**
+       * Next Run At
+       * @description When the next refresh is due to start.
+       */
+      next_run_at?: string | null
+      /**
+       * Providers
+       * @description Providers whose keys are stored, encrypted.
+       */
+      providers?: ('finnhub' | 'tiingo' | 'fmp' | 'eodhd' | 'alpha_vantage')[]
+      /**
+       * Refresh Time
+       * @description Local HH:MM it starts at.
+       */
+      refresh_time?: string | null
+      /**
+       * Time Zone
+       * @description IANA time zone of refresh_time.
+       */
+      time_zone?: string | null
+    }
+    /**
+     * NightlyRun
+     * @description One nightly refresh of the user's own screener.
+     */
+    NightlyRun: {
+      /**
+       * Error
+       * @description Why the refresh failed, if it did.
+       */
+      error?: string | null
+      /**
+       * Finished At
+       * @description Null while it runs.
+       */
+      finished_at?: string | null
+      /**
+       * Priced
+       * @description Of those, stocks whose price-history columns (momentum, volatility, drawdown, factor betas) the user's price-history key could fill.
+       */
+      priced?: number | null
+      /**
+       * Prices As Of
+       * @description Date of the latest closes.
+       */
+      prices_as_of?: string | null
+      /**
+       * Started At
+       * Format: date-time
+       */
+      started_at: string
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: 'running' | 'succeeded' | 'failed'
+      /**
+       * Stocks
+       * @description Stocks in the universe built.
+       */
+      stocks?: number | null
+    }
+    /**
      * OHLCVBar
      * @description A single adjusted price bar. Fields other than ``close`` may be missing upstream.
      */
@@ -6229,6 +6386,12 @@ export interface components {
       /** Offset */
       offset: number
       /**
+       * Own
+       * @description Whether these come from your own universe, built by your nightly refresh from your keys, rather than the shared one.
+       * @default false
+       */
+      own?: boolean
+      /**
        * Refreshed At
        * @description When the universe's metrics were last computed.
        */
@@ -6864,6 +7027,12 @@ export interface components {
        * @description Why the latest refresh failed, if it did.
        */
       last_error?: string | null
+      /**
+       * Own
+       * @description Whether this is your own universe, built by your nightly refresh from your keys, rather than the shared one.
+       * @default false
+       */
+      own?: boolean
       /**
        * Prices As Of
        * @description Date of the latest closes.
@@ -7702,6 +7871,79 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_nightly_refresh_api_v1_me_nightly_refresh_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['NightlyRefreshStatus']
+        }
+      }
+    }
+  }
+  store_nightly_refresh_api_v1_me_nightly_refresh_put: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NightlyRefreshSettings']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['NightlyRefreshStatus']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  remove_nightly_refresh_api_v1_me_nightly_refresh_delete: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['NightlyRefreshStatus']
         }
       }
     }

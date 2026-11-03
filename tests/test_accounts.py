@@ -32,9 +32,12 @@ from app.db.tables import (
     Base,
     HoldingRecord,
     IdentityRecord,
+    NightlyRefreshRecord,
     PortfolioAnalysisRecord,
     PortfolioRecord,
     UserRecord,
+    UserScreenerRunRecord,
+    UserScreenerStockRecord,
 )
 from app.db.users import User, create_api_key
 from app.jobs import users as users_cli
@@ -492,8 +495,8 @@ a new one cannot be forgotten."""
 
 
 def _give_data(user: User) -> None:
-    """Give ``user`` a sign-in identity, a holding, a portfolio review and an assistant
-    answer, beside the rows tests make."""
+    """Give ``user`` a sign-in identity, a holding, a portfolio review, an assistant
+    answer, and a nightly refresh with a run and a stock, beside the rows tests make."""
 
     async def add() -> None:
         async with get_sessionmaker()() as session:
@@ -529,6 +532,36 @@ def _give_data(user: User) -> None:
             session.add(
                 AssistantRequestRecord(
                     id=f"answer-{user.id}", user_id=user.id, created_at=now, model="m"
+                )
+            )
+            session.add(
+                NightlyRefreshRecord(
+                    user_id=user.id,
+                    refresh_time="19:00",
+                    time_zone="America/New_York",
+                    credentials="encrypted",
+                    providers=["finnhub"],
+                    created_at=now,
+                    keys_updated_at=now,
+                )
+            )
+            session.add(
+                UserScreenerRunRecord(
+                    id=f"run-{user.id}", user_id=user.id, started_at=now, status="succeeded"
+                )
+            )
+            session.add(
+                UserScreenerStockRecord(
+                    user_id=user.id,
+                    symbol="AAPL",
+                    name="Apple Inc.",
+                    exchange="Nasdaq",
+                    cik=320193,
+                    market_cap_source="provider",
+                    market_cap_rank=1,
+                    price=200.0,
+                    market_cap=3e12,
+                    avg_dollar_volume=1e10,
                 )
             )
             await session.commit()
@@ -586,6 +619,9 @@ def test_deleting_an_account_removes_everything_it_holds(
         "portfolio_analyses": 1,
         "assistant_requests": 1,
         "simulations": 0,
+        "nightly_refreshes": 1,
+        "user_screener_runs": 1,
+        "user_screener_stocks": 1,
         "users": 1,
     }
 

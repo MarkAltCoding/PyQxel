@@ -162,6 +162,18 @@ class Settings(BaseSettings):
         description="How often the universe's financials are rebuilt from the SEC's bulk "
         "archive; companies file quarterly, so weekly keeps them current.",
     )
+    credentials_encryption_key: SecretStr | None = Field(
+        default=None,
+        description="Fernet key that encrypts the provider keys of users who opt in to the "
+        "nightly screener refresh, the only keys PyQxel stores; generate one with "
+        "``python -m app.jobs.users generate-encryption-key``. Without it, no one can opt in.",
+    )
+    nightly_refresh_concurrency: int = Field(
+        default=8,
+        ge=1,
+        description="Users whose nightly screener refreshes run at once. Each runs on its "
+        "own keys and within its own providers' rate limits.",
+    )
     analysis_cache_ttl_seconds: float = Field(
         default=86_400.0,
         ge=0,

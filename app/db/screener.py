@@ -6,15 +6,21 @@ from datetime import date, datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import and_, case, delete, func, or_, select
+from sqlalchemy import ColumnElement, and_, case, delete, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from app.core.credentials import current_provider_keys
+from app.data.universe import Listing
+from app.db.nightly import latest_success
 from app.db.tables import (
+    ScreenedStockColumns,
+    ScreenerCompanyRecord,
     ScreenerFundamentalsRecord,
+    ScreenerListingRecord,
     ScreenerRunRecord,
     ScreenerStockRecord,
+    UserScreenerStockRecord,
     as_utc,
 )
 from app.models.fundamentals import Financials
@@ -39,10 +45,89 @@ MIN_PEERS: int = 10
 """Fewest other stocks an industry or sector needs to serve as a stock's peer group."""
 
 
-def _column(field: ScreenField) -> InstrumentedAttribute[Any]:
-    """The table column holding ``field``."""
-    column: InstrumentedAttribute[Any] = getattr(ScreenerStockRecord, field)
+def _column(
+    field: ScreenField, table: type[ScreenedStockColumns] = ScreenerStockRecord
+) -> InstrumentedAttribute[Any]:
+    """The column of ``table`` holding ``field``."""
+    column: InstrumentedAttribute[Any] = getattr(table, field)
     return column
+
+
+@dataclass(frozen=True)
+class Universe:
+    """A screened universe a screen reads: the shared one, or a user's own."""
+
+    table: type[ScreenedStockColumns]
+    rows: ColumnElement[bool]
+    """Selects the universe's rows in ``table``."""
+    refreshed_at: datetime | None
+    prices_as_of: date | None
+    own: bool
+    """Whether it is the user's own, built nightly from their keys."""
+
+
+async def user_universe(session: AsyncSession, user_id: str) -> Universe | None:
+    """``user_id``'s own universe, if a nightly refresh of theirs has succeeded."""
+    run = await latest_success(session, user_id)
+    if run is None:
+        return None
+    return Universe(
+        table=UserScreenerStockRecord,
+        rows=UserScreenerStockRecord.user_id == user_id,
+        refreshed_at=None if run.finished_at is None else as_utc(run.finished_at),
+        prices_as_of=run.prices_as_of,
+        own=True,
+    )
+
+
+async def shared_universe(session: AsyncSession) -> Universe:
+    """The universe every account may see, as the last full refresh built it."""
+    succeeded = await _latest_run(session, SUCCEEDED, with_universe=True)
+    return Universe(
+        table=ScreenerStockRecord,
+        rows=true(),
+        refreshed_at=(
+            None
+            if succeeded is None or succeeded.finished_at is None
+            else as_utc(succeeded.finished_at)
+        ),
+        prices_as_of=None if succeeded is None else succeeded.prices_as_of,
+        own=False,
+    )
+
+
+async def replace_listings(
+    session: AsyncSession, listings: Iterable[Listing], shares: dict[str, float]
+) -> int:
+    """Replace the stored SEC listings, with the shares of each listing in ``shares``."""
+    rows = [
+        ScreenerListingRecord(
+            symbol=listing.symbol,
+            cik=listing.cik,
+            name=listing.name,
+            exchange=listing.exchange,
+            shares_outstanding=shares.get(listing.symbol),
+        )
+        for listing in listings
+    ]
+    await session.execute(delete(ScreenerListingRecord))
+    session.add_all(rows)
+    await session.commit()
+    return len(rows)
+
+
+async def load_listings(session: AsyncSession) -> list[tuple[Listing, float | None]]:
+    """The stored SEC listings, each with its shares outstanding when known."""
+    records = await session.scalars(
+        select(ScreenerListingRecord).order_by(ScreenerListingRecord.symbol)
+    )
+    return [
+        (
+            Listing(symbol=r.symbol, cik=r.cik, name=r.name, exchange=r.exchange),
+            r.shares_outstanding,
+        )
+        for r in records
+    ]
 
 
 async def replace_universe(session: AsyncSession, stocks: Iterable[ScreenedStock]) -> int:
@@ -90,6 +175,38 @@ async def load_fundamentals(session: AsyncSession, ciks: Iterable[int]) -> dict[
         )
         for record in records:
             found[record.cik] = Financials.model_validate(record.financials)
+    return found
+
+
+async def save_companies(
+    session: AsyncSession, codes: dict[int, tuple[int | None, str | None]], fetched_at: datetime
+) -> None:
+    """Store each company's SEC industry code and title, replacing any stored earlier."""
+    for cik, (sic, description) in codes.items():
+        record = await session.get(ScreenerCompanyRecord, cik)
+        if record is None:
+            record = ScreenerCompanyRecord(cik=cik)
+            session.add(record)
+        record.sic = sic
+        record.sic_description = description[:160] if description else None
+        record.fetched_at = fetched_at
+    await session.commit()
+
+
+async def load_companies(
+    session: AsyncSession, ciks: Iterable[int]
+) -> dict[int, tuple[int | None, str | None, datetime]]:
+    """Each stored company's SEC industry code, its title, and when it was read."""
+    wanted = sorted(set(ciks))
+    found: dict[int, tuple[int | None, str | None, datetime]] = {}
+    # Databases limit how many values one IN clause may hold.
+    for start in range(0, len(wanted), 500):
+        records = await session.scalars(
+            select(ScreenerCompanyRecord).where(
+                ScreenerCompanyRecord.cik.in_(wanted[start : start + 500])
+            )
+        )
+        found.update({r.cik: (r.sic, r.sic_description, as_utc(r.fetched_at)) for r in records})
     return found
 
 
@@ -149,11 +266,16 @@ async def finish_run(
     await session.commit()
 
 
-async def _latest_run(session: AsyncSession, status: str | None = None) -> ScreenerRunRecord | None:
-    """The most recently started refresh, optionally only one in ``status``."""
+async def _latest_run(
+    session: AsyncSession, status: str | None = None, with_universe: bool = False
+) -> ScreenerRunRecord | None:
+    """The most recently started refresh, optionally only one in ``status``, and only one
+    that built the shared universe rather than just the SEC first stage."""
     query = select(ScreenerRunRecord)
     if status is not None:
         query = query.where(ScreenerRunRecord.status == status)
+    if with_universe:
+        query = query.where(ScreenerRunRecord.stocks.is_not(None))
     run: ScreenerRunRecord | None = await session.scalar(
         query.order_by(ScreenerRunRecord.started_at.desc()).limit(1)
     )
@@ -163,7 +285,7 @@ async def _latest_run(session: AsyncSession, status: str | None = None) -> Scree
 async def universe_is_licensed(session: AsyncSession) -> bool:
     """Whether the stored universe was built from licensed market data alone, and so may be
     shown to every account; ``False`` when it has never been built."""
-    succeeded = await _latest_run(session, SUCCEEDED)
+    succeeded = await _latest_run(session, SUCCEEDED, with_universe=True)
     return succeeded is not None and succeeded.licensed
 
 
@@ -174,68 +296,79 @@ async def shows_universe(session: AsyncSession) -> bool:
     return current_provider_keys().unlicensed or await universe_is_licensed(session)
 
 
-async def universe_status(session: AsyncSession) -> UniverseStatus:
-    """The size of the screened universe and what its last refreshes did."""
-    stocks = await session.scalar(select(func.count()).select_from(ScreenerStockRecord))
-    succeeded = await _latest_run(session, SUCCEEDED)
+async def universe_status(
+    session: AsyncSession, universe: Universe | None = None
+) -> UniverseStatus:
+    """The size of ``universe`` (the shared one by default) and what refreshed it."""
+    universe = universe or await shared_universe(session)
+    table = universe.table
+    sector: InstrumentedAttribute[Any] = getattr(table, "sector")
+    stocks = await session.scalar(select(func.count()).select_from(table).where(universe.rows))
     latest = await _latest_run(session)
     fundamentals = await fundamentals_refreshed_at(session)
+    succeeded = None if universe.own else await _latest_run(session, SUCCEEDED, with_universe=True)
     sectors = await session.scalars(
-        select(ScreenerStockRecord.sector)
-        .where(ScreenerStockRecord.sector.is_not(None))
-        .distinct()
-        .order_by(ScreenerStockRecord.sector)
+        select(sector).where(universe.rows, sector.is_not(None)).distinct().order_by(sector)
     )
     return UniverseStatus(
         stocks=stocks or 0,
-        refreshed_at=(
-            None
-            if succeeded is None or succeeded.finished_at is None
-            else as_utc(succeeded.finished_at)
-        ),
-        prices_as_of=None if succeeded is None else succeeded.prices_as_of,
+        refreshed_at=universe.refreshed_at,
+        prices_as_of=universe.prices_as_of,
         fundamentals_refreshed_at=fundamentals,
         factor_data_end=None if succeeded is None else succeeded.factor_data_end,
-        last_error=latest.error if latest is not None and latest.status == FAILED else None,
-        sectors=[sector for sector in sectors if sector is not None],
+        last_error=(
+            None if universe.own or latest is None or latest.status != FAILED else latest.error
+        ),
+        sectors=[name for name in sectors if name is not None],
+        own=universe.own,
     )
 
 
-async def screen(session: AsyncSession, request: ScreenRequest) -> ScreenResponse:
-    """Return the page of stocks matching ``request``, in its sort order."""
-    query = select(ScreenerStockRecord)
+async def screen(
+    session: AsyncSession, request: ScreenRequest, universe: Universe | None = None
+) -> ScreenResponse:
+    """Return the page of stocks in ``universe`` (the shared one by default) matching
+    ``request``, in its sort order."""
+    universe = universe or await shared_universe(session)
+    table = universe.table
+
+    def column(field: str) -> InstrumentedAttribute[Any]:
+        found: InstrumentedAttribute[Any] = getattr(table, field)
+        return found
+
+    query = select(table).where(universe.rows)
     if request.universe == "large_cap":
-        query = query.where(ScreenerStockRecord.market_cap_rank <= LARGE_CAP_COUNT)
+        query = query.where(column("market_cap_rank") <= LARGE_CAP_COUNT)
     elif request.universe == "broad_market":
-        query = query.where(ScreenerStockRecord.market_cap_rank <= BROAD_MARKET_COUNT)
+        query = query.where(column("market_cap_rank") <= BROAD_MARKET_COUNT)
     elif request.universe == "liquid":
-        query = query.where(ScreenerStockRecord.avg_dollar_volume >= LIQUID_DOLLAR_VOLUME)
+        query = query.where(column("avg_dollar_volume") >= LIQUID_DOLLAR_VOLUME)
     if request.sectors:
-        query = query.where(ScreenerStockRecord.sector.in_(request.sectors))
+        query = query.where(column("sector").in_(request.sectors))
     if request.industries:
-        query = query.where(ScreenerStockRecord.industry.in_(request.industries))
+        query = query.where(column("industry").in_(request.industries))
     for condition in request.filters:
-        column = _column(condition.field)
-        query = query.where(column.is_not(None))
+        field = _column(condition.field, table)
+        query = query.where(field.is_not(None))
         minimum = condition.min
         if condition.field == "pe_ratio" and minimum is None:
             # A P/E bound means a profitable company; screening for losses takes a negative min.
             minimum = 0.0
         if minimum is not None:
-            query = query.where(column >= minimum)
+            query = query.where(field >= minimum)
         if condition.max is not None:
-            query = query.where(column <= condition.max)
+            query = query.where(field <= condition.max)
 
     total = await session.scalar(select(func.count()).select_from(query.subquery()))
-    order = _column(request.sort.field)
+    order = _column(request.sort.field, table)
     # A negative P/E is a loss, not a bargain: losses follow every profitable company.
-    pe = ScreenerStockRecord.pe_ratio
+    pe = column("pe_ratio")
     losses_last = case((pe.is_(None), 2), (pe < 0, 1), else_=0)
     records = await session.scalars(
         query.order_by(
             *([losses_last] if request.sort.field == "pe_ratio" else []),
             (order.desc() if request.sort.descending else order.asc()).nulls_last(),
-            ScreenerStockRecord.symbol,
+            column("symbol"),
         )
         .limit(request.limit)
         .offset(request.offset)
@@ -247,17 +380,13 @@ async def screen(session: AsyncSession, request: ScreenRequest) -> ScreenRespons
         )
         for position, record in enumerate(records)
     ]
-    succeeded = await _latest_run(session, SUCCEEDED)
     return ScreenResponse(
         items=items,
         total=total or 0,
         limit=request.limit,
         offset=request.offset,
-        refreshed_at=(
-            None
-            if succeeded is None or succeeded.finished_at is None
-            else as_utc(succeeded.finished_at)
-        ),
+        refreshed_at=universe.refreshed_at,
+        own=universe.own,
     )
 
 
@@ -359,7 +488,7 @@ async def peer_group(session: AsyncSession, symbol: str) -> PeerGroup | None:
             break
 
     records = await session.scalars(select(ScreenerStockRecord).where(condition))
-    succeeded = await _latest_run(session, SUCCEEDED)
+    succeeded = await _latest_run(session, SUCCEEDED, with_universe=True)
     return PeerGroup(
         stock=stock,
         kind=kind,

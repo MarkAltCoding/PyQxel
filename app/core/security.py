@@ -1,19 +1,31 @@
-"""API keys that identify users.
+"""API keys that identify users, and encryption of the provider keys a few users store.
 
 PyQxel API keys are random tokens shown to their owner once; only their SHA-256 hash is
-stored, which suffices for tokens this long. Provider keys are not stored at all:
-browsers keep them and send them with each request.
+stored, which suffices for tokens this long. Provider keys are normally not stored at
+all: browsers keep them and send them with each request. The one exception is a user who
+opts in to the nightly screener refresh, which runs while no browser is open. Their keys
+must be used, not just checked, so they are encrypted with Fernet (AES in CBC mode with an
+HMAC) under ``CREDENTIALS_ENCRYPTION_KEY``, which lives outside the database.
 """
 
 import hashlib
 import hmac
 import secrets
 
+from cryptography.fernet import Fernet, InvalidToken
+from pydantic import SecretStr
+
+from app.core.config import get_settings
+
 API_KEY_PREFIX: str = "pq_"
 """Marks PyQxel API keys, so they are recognizable in configuration and secret scanners."""
 
 API_KEY_DISPLAY_LENGTH: int = 10
 """Leading characters of a key kept to tell keys apart in listings."""
+
+
+class CredentialsUnavailableError(RuntimeError):
+    """Raised when keys cannot be stored or read: no, or the wrong, encryption key."""
 
 
 def generate_api_key() -> str:
@@ -34,3 +46,56 @@ def same_hash(first: str, second: str) -> bool:
 def key_hint(secret: str) -> str:
     """The last four characters of a key, for recognizing it without revealing it."""
     return "…" + secret[-4:] if len(secret) > 8 else "…"
+
+
+def generate_encryption_key() -> str:
+    """A new Fernet key for ``CREDENTIALS_ENCRYPTION_KEY``."""
+    return Fernet.generate_key().decode()
+
+
+def encryption_available() -> bool:
+    """Whether the server can store keys: ``CREDENTIALS_ENCRYPTION_KEY`` is set."""
+    return get_settings().credentials_encryption_key is not None
+
+
+def _fernet() -> Fernet:
+    """The cipher keys are stored under.
+
+    Raises:
+        CredentialsUnavailableError: If ``CREDENTIALS_ENCRYPTION_KEY`` is unset or invalid.
+    """
+    key = get_settings().credentials_encryption_key
+    if key is None:
+        raise CredentialsUnavailableError(
+            "CREDENTIALS_ENCRYPTION_KEY is unset, so this server cannot store keys."
+        )
+    try:
+        return Fernet(key.get_secret_value().encode())
+    except ValueError as exc:
+        raise CredentialsUnavailableError(
+            "CREDENTIALS_ENCRYPTION_KEY is not a valid Fernet key."
+        ) from exc
+
+
+def encrypt_secret(secret: str) -> str:
+    """Encrypt ``secret`` for storage.
+
+    Raises:
+        CredentialsUnavailableError: If the encryption key is missing or invalid.
+    """
+    return _fernet().encrypt(secret.encode()).decode()
+
+
+def decrypt_secret(token: str) -> SecretStr:
+    """Decrypt a value :func:`encrypt_secret` produced.
+
+    Raises:
+        CredentialsUnavailableError: If the encryption key is missing, or is not the one
+            the value was encrypted with.
+    """
+    try:
+        return SecretStr(_fernet().decrypt(token.encode()).decode())
+    except InvalidToken as exc:
+        raise CredentialsUnavailableError(
+            "A stored key cannot be decrypted with the current CREDENTIALS_ENCRYPTION_KEY."
+        ) from exc

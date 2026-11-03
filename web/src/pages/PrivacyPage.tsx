@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
-const UPDATED = 'October 29, 2026'
+const UPDATED = 'November 3, 2026'
 const CONTACT = 'https://github.com/MarkAltCoding'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -65,11 +65,23 @@ export function PrivacyPage() {
           </ul>
           <p>
             Keys you add for Anthropic, Tiingo, Financial Modeling Prep, EODHD, Alpha Vantage or
-            Finnhub are not part of your account: they stay in your browser, and PyQxel never stores
-            them. Each of your requests carries them over an encrypted connection, and the server
-            uses them for that request only, keeps them out of its logs and error messages, and
-            forgets them when it answers. Those services bill your usage to you. Signing out removes
-            them from your browser.
+            Finnhub stay in your browser, and PyQxel does not store them unless you turn on the
+            nightly screener refresh. Each of your requests carries them over an encrypted
+            connection, and the server uses them for that request only, keeps them out of its logs
+            and error messages, and forgets them when it answers. Those services bill your usage to
+            you. Signing out removes them from your browser.
+          </p>
+          <p>
+            The nightly screener refresh, which is off unless you turn it on in Settings, builds
+            your own stock screener while your browser is closed, so it needs your keys when you are
+            not there. Turning it on stores your Finnhub key and any Tiingo, Financial Modeling
+            Prep, EODHD and Alpha Vantage keys you have added on PyQxel’s server, encrypted, along
+            with the time you chose and your time zone. Your Anthropic key is never stored. The keys
+            are decrypted only to run your refresh, used only for your own screener, and kept out of
+            logs. Each time you change a key in Settings, the stored copy is replaced. Turning the
+            refresh off, or deleting your account, deletes the stored keys at once. Your screener’s
+            results, and a record of each refresh (when it ran, how many stocks it found, and any
+            error), are kept with your account, seen only by you, until you delete it.
           </p>
           <p>
             Custom strategy code runs in your own browser. When you backtest it, its code and the
@@ -84,7 +96,9 @@ export function PrivacyPage() {
             </li>
             <li>
               The symbols you look up are sent to market data providers with your own keys: Tiingo,
-              Financial Modeling Prep, EODHD, Alpha Vantage and Finnhub. Company filings come from
+              Financial Modeling Prep, EODHD, Alpha Vantage and Finnhub. If you turn on the nightly
+              screener refresh, it requests every listed US stock from Finnhub, and as many as your
+              plan allows from your price-history provider, on your keys. Company filings come from
               the SEC, and exchange rates from the European Central Bank.
             </li>
             <li>
@@ -109,11 +123,12 @@ export function PrivacyPage() {
 
         <Section title="Deleting your data">
           <p>
-            To delete your account and everything it holds, use Delete account in Settings. It takes
-            effect at once and cannot be undone. If you can no longer sign in, contact me through{' '}
-            <a href={CONTACT}>GitHub</a> and I will delete it for you. Removing PyQxel’s access in
-            your GitHub or Google settings stops it signing you in, but does not by itself delete
-            your account.
+            To delete your account and everything it holds, including any keys the nightly screener
+            refresh stored, use Delete account in Settings. It takes effect at once and cannot be
+            undone. To delete only the stored keys, turn the nightly refresh off. If you can no
+            longer sign in, contact me through <a href={CONTACT}>GitHub</a> and I will delete it for
+            you. Removing PyQxel’s access in your GitHub or Google settings stops it signing you in,
+            but does not by itself delete your account.
           </p>
         </Section>
 

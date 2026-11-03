@@ -13,6 +13,9 @@ export interface AdminSettings {
 }
 export type AdminSettingsUpdate = Partial<Pick<AdminSettings, 'yfinance_fallback'>>
 export type Account = Schemas['Account'] & { admin?: AdminSettings }
+export type NightlyRefreshSettings = Schemas['NightlyRefreshSettings']
+export type NightlyRefreshStatus = Schemas['NightlyRefreshStatus']
+export type NightlyRun = Schemas['NightlyRun']
 export type AssistantReply = Schemas['AssistantReply']
 export type AnalysisImport = Schemas['AnalysisImport']
 export type AnalysisPromptExport = Schemas['AnalysisPromptExport']
