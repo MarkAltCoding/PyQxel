@@ -75,6 +75,25 @@ class Settings(BaseSettings):
         "sign-in is offered when it and ``google_client_secret`` are set.",
     )
     google_client_secret: SecretStr | None = None
+    apple_sign_in_enabled: bool = Field(
+        default=False,
+        description="Offer Sign in with Apple. Off by default; it also needs the four "
+        "``apple_*`` values below, from a paid Apple Developer account.",
+    )
+    apple_client_id: str | None = Field(
+        default=None, description="The Services ID people sign in to with Apple."
+    )
+    apple_team_id: str | None = Field(
+        default=None, description="The Apple Developer team that owns the Services ID."
+    )
+    apple_key_id: str | None = Field(
+        default=None, description="The ID of the Sign in with Apple key below."
+    )
+    apple_private_key: SecretStr | None = Field(
+        default=None,
+        description="The Sign in with Apple private key: the text of the ``.p8`` file Apple "
+        "issues, which signs a client secret for each sign-in.",
+    )
     yfinance_fallback: bool = Field(
         default=False,
         description="Use yfinance when no licensed provider answers, and yfinance and "

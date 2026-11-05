@@ -49,6 +49,27 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/auth/app/collect': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Collect the native app's sign-in
+     * @description Trade the one-time code a sign-in handed the native app, with the verifier the app
+     *     started it with, for an API key. Each code works once, within five minutes.
+     */
+    post: operations['collect_sign_in_api_v1_auth_app_collect_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/auth/providers': {
     parameters: {
       query?: never
@@ -1983,6 +2004,32 @@ export interface components {
       prefix: string
       /** Revoked At */
       revoked_at?: string | null
+    }
+    /**
+     * AppSignInCollect
+     * @description What the native app trades for its API key after signing in in the browser.
+     */
+    AppSignInCollect: {
+      /**
+       * Code
+       * @description The link's one-time code.
+       */
+      code: string
+      /**
+       * Verifier
+       * @description The secret whose SHA-256 challenge the app started the sign-in with.
+       */
+      verifier: string
+    }
+    /**
+     * AppSignInKey
+     * @description The API key a sign-in issued the native app, and the page to open.
+     */
+    AppSignInKey: {
+      /** Key */
+      key: string
+      /** Next */
+      next: string
     }
     /**
      * AssetBacktest
@@ -6531,7 +6578,7 @@ export interface components {
        * Name
        * @enum {string}
        */
-      name: 'github' | 'google'
+      name: 'github' | 'google' | 'apple'
     }
     /**
      * SignalsContext
@@ -7300,6 +7347,39 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['AnalysisResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  collect_sign_in_api_v1_auth_app_collect_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AppSignInCollect']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['AppSignInKey']
         }
       }
       /** @description Validation Error */

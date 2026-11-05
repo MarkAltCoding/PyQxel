@@ -25,6 +25,12 @@
       "csp": null
     }
   },
+  "plugins": {
+    "deep-link": {
+      "mobile": [{ "scheme": ["pyqxel"], "appLink": false }],
+      "desktop": { "schemes": ["pyqxel"] }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

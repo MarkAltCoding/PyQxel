@@ -8,6 +8,22 @@ import { clearProviderKeys, providerKeyHeaders, setProviderKey } from './lib/pro
 import { markSignInStarted, signInStartedRecently } from './auth/pendingSignIn'
 import { routes } from './routes'
 
+const native = vi.hoisted(() => ({
+  openUrl: vi.fn<(url: string) => Promise<void>>(async () => {}),
+  /** Opens the app with a link, as the system browser does once it is listening. */
+  openLink: null as ((urls: string[]) => void) | null,
+}))
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: native.openUrl }))
+vi.mock('@tauri-apps/plugin-deep-link', () => ({
+  getCurrent: async () => null,
+  onOpenUrl: async (handler: (urls: string[]) => void) => {
+    native.openLink = handler
+    return () => {
+      native.openLink = null
+    }
+  },
+}))
+
 function renderAt(path: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const router = createMemoryRouter(routes, { initialEntries: [path] })
@@ -214,6 +230,72 @@ describe('sign-in', () => {
     expect(await screen.findByRole('heading', { name: 'Privacy policy' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/privacy')
     expect(screen.getByText(/never sells data/)).toBeInTheDocument()
+  })
+})
+
+describe('signing in to the native app', () => {
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    native.openUrl.mockClear()
+  })
+
+  function inTheApp() {
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+  }
+
+  it('signs in through the system browser and a pyqxel:// link', async () => {
+    inTheApp()
+    const calls = serve({
+      '/api/v1/auth/providers': () => json(PROVIDERS),
+      '/api/v1/auth/app/collect': () => json({ key: 'pq_from_app', next: '/portfolio' }),
+      '/api/v1/me': () => json({ email: 'octo@example.com' }),
+    })
+    const router = renderAt('/signin')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Continue with GitHub' }))
+    expect(await screen.findByText(/Finish signing in with GitHub in your browser/)).toBeVisible()
+    const opened = new URL(native.openUrl.mock.lastCall?.[0] ?? '', 'http://localhost')
+    expect(opened.pathname).toBe('/api/v1/auth/github/start')
+    expect(opened.searchParams.get('app')).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    const verifier = JSON.parse(window.localStorage.getItem('pyqxel.appSignIn') ?? '{}').verifier
+
+    await waitFor(() => expect(native.openLink).not.toBeNull())
+    native.openLink?.(['pyqxel://signin#code=one-time&next=%2Fportfolio'])
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/portfolio'))
+    expect(window.localStorage.getItem('pyqxel.apiKey')).toBe('pq_from_app')
+    expect(window.localStorage.getItem('pyqxel.appSignIn')).toBeNull()
+    const collect = vi
+      .mocked(globalThis.fetch)
+      .mock.calls.find(([input]) => String(input).endsWith('/api/v1/auth/app/collect'))
+    expect(JSON.parse(String(collect?.[1]?.body))).toEqual({ code: 'one-time', verifier })
+    expect(calls.find((call) => call.path === '/api/v1/me')?.authorization).toBe(
+      'Bearer pq_from_app',
+    )
+  })
+
+  it('ignores a link when the app is not waiting for a sign-in', async () => {
+    inTheApp()
+    const calls = serve({ '/api/v1/auth/providers': () => json(PROVIDERS) })
+    const router = renderAt('/signin#code=someone-elses&next=%2Fportfolio')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('was not started in this app')
+    expect(router.state.location.pathname).toBe('/signin')
+    expect(calls.some((call) => call.path === '/api/v1/auth/app/collect')).toBe(false)
+  })
+
+  it('does not take a key from a link, only a code', async () => {
+    inTheApp()
+    const calls = serve({ '/api/v1/auth/providers': () => json(PROVIDERS) })
+    window.localStorage.setItem(
+      'pyqxel.appSignIn',
+      JSON.stringify({ verifier: 'v', started: Date.now() }),
+    )
+    renderAt('/signin#key=pq_attackers_key')
+
+    await screen.findByRole('button', { name: 'Continue with GitHub' })
+    expect(window.localStorage.getItem('pyqxel.apiKey')).toBeNull()
+    expect(calls.some((call) => call.authorization === 'Bearer pq_attackers_key')).toBe(false)
   })
 })
 

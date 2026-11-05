@@ -51,7 +51,7 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
 | Backtests | `backtest.py` | `fetcher.py`, `panel.py`, `factors.py` | `backtest.py` (one asset, a portfolio, replayed custom weights), `cross_section.py` (rank a universe), `metrics.py` | `backtest.py` | `db/backtests.py` |
 | Portfolio | `portfolio.py` (also each holding's gain over a window, `/changes`, and 52-week range, `/ranges`; reviews of one portfolio or both together, `combined`) | `panel.py`, `cash.py` (money-market funds) | `panel.py` (aligned returns, `usable_return_panel` drops what it cannot use), `copulas.py`, `monte_carlo.py`, `portfolio_risk.py`, `rebalance.py` (orders), `performance.py` (window changes, 52-week ranges) | `portfolio.py`, `simulation.py`, `portfolio_analysis.py` | `db/holdings.py` (2 portfolios per account), `simulations.py`, `portfolio_analyses.py` |
 | Coding assistant | `assistant.py` | |  | `assistant.py` | counted in `db/portfolio_analyses.py` |
-| Accounts, sign-in | `account.py`, `signin.py` | |  | `account.py` | `db/users.py`, `app_settings.py`; `core/oauth.py`, `core/security.py` |
+| Accounts, sign-in | `account.py`, `signin.py` (website and native app; the app's one-time codes) | |  | `account.py` | `db/users.py` (also `app_sign_ins`), `app_settings.py`; `core/oauth.py` (GitHub, Google, Apple, off by default), `core/security.py` |
 
 Custom strategies never run here. The browser runs them (see `web/CLAUDE.md`) and posts
 positions or weights to `/backtests/custom`. The server only scores them. The Python

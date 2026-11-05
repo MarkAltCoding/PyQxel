@@ -90,6 +90,29 @@ class IdentityRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class AppSignInRecord(Base):
+    """A sign-in finished in the system browser for the native app, waiting to be
+    collected by it.
+
+    The browser hands the app a one-time code through a ``pyqxel://`` link, which another
+    app could also claim, so the code alone is not enough: the app must also present the
+    verifier whose SHA-256 ``challenge`` it sent when the sign-in started. Only the code's
+    hash is stored, and a row is deleted when it is collected or soon after it expires.
+    """
+
+    __tablename__ = "app_sign_ins"
+
+    code_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    provider: Mapped[str] = mapped_column(String(16))
+    challenge: Mapped[str] = mapped_column(String(64))
+    destination: Mapped[str] = mapped_column(Text)
+    """The page of the app to open once signed in."""
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class BacktestRecord(Base):
     """One stored backtest.
 

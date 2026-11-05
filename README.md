@@ -193,6 +193,10 @@ Anyone can then make an account by signing in with GitHub or Google. Each needs 
 
 Deploy once with the client IDs, `GITHUB_CLIENT_ID=... GOOGLE_CLIENT_ID=... deploy/cloud-run.sh`; later deploys keep them. The sign-in page shows a button for each provider that has both its ID and secret. To try it locally, register a second client whose callback is `http://127.0.0.1:8000/api/v1/auth/<provider>/callback`, and set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` (or the `GOOGLE_` pair) in `.env`.
 
+The native app signs in with the same clients, through the system browser: when the sign-in finishes, the browser opens the app with a `pyqxel://signin` link carrying a one-time code, which the app trades for its key together with a secret it kept. Nothing more needs registering.
+
+**Sign in with Apple** is built but off. It needs a paid Apple Developer account: a *Services ID* with Sign in with Apple on and the return URL `https://<service-url>/api/v1/auth/apple/callback`, and a Sign in with Apple key (a `.p8` file). Set `APPLE_SIGN_IN_ENABLED=true`, `APPLE_CLIENT_ID` (the Services ID), `APPLE_TEAM_ID`, `APPLE_KEY_ID` and `APPLE_PRIVATE_KEY` (the `.p8` file's text) to turn it on.
+
 ## Accounts and Billing
 
 Every `/api/v1` request is made by an account, identified by its PyQxel API key in `Authorization: Bearer <key>` (or `X-API-Key`). Only a hash of each key is stored. Accounts pay for their own usage, and nothing one account does is billed to another or to the server:

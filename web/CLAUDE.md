@@ -24,7 +24,7 @@ colors.
 | `MarketsPage` | market news (paged), event calendar (`lib/calendar.ts`) |
 | `PortfolioPage` | `HoldingsTable` (2 portfolios, up to 40 holdings; sortable, two gain/loss windows and a 52-week range per holding from `lib/holdings.ts`, and an account total), late-listing cutoff, `SimulationCard` (`FanChart`), `CopulaCard` (`CopulaHeatmap`), `PortfolioReviewCard` (one portfolio, or both together) |
 | `BacktestPage` | Single security (a stock, ETF or fund): built-in rules or custom code, with "Also trade" for several symbols. Across tickers: `CrossSectionalBacktest` (rank by a signal), or the same component with `across` (code that trades every ticker it names, `lib/tickers.ts`) |
-| `ScreenerPage`, `SettingsPage`, `SignInPage`, `PrivacyPage` | Settings' `NightlyRefreshCard` opts in to the nightly refresh of the user's own screener (`lib/nightlyRefresh.ts`), and re-sends the keys after one changes |
+| `ScreenerPage`, `SettingsPage`, `SignInPage`, `PrivacyPage` | Settings' `NightlyRefreshCard` opts in to the nightly refresh of the user's own screener (`lib/nightlyRefresh.ts`), and re-sends the keys after one changes. In the native app, `SignInPage` signs in through the system browser (`auth/nativeSignIn.ts`); `auth/NativeSignInLinks` takes the `pyqxel://signin` link back to it |
 
 Each card has an id, so a link can end in `#id` (`lib/scrollToHash.ts` scrolls to it,
 even through signing in): Stock `price`, `factors`, `volatility`, `news`, `signals`,

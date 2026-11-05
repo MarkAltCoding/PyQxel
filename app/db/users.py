@@ -3,6 +3,10 @@
 Provider keys are not stored: browsers keep them and send them with each request.
 """
 
+import base64
+import hashlib
+import hmac
+import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
@@ -14,6 +18,7 @@ from app.core.config import get_settings
 from app.core.security import API_KEY_DISPLAY_LENGTH, generate_api_key, hash_api_key
 from app.db.tables import (
     AnalysisRecord,
+    AppSignInRecord,
     ApiKeyRecord,
     AssistantRequestRecord,
     BacktestRecord,
@@ -187,6 +192,66 @@ async def user_for_identity(session: AsyncSession, provider: str, subject: str, 
     return user
 
 
+APP_SIGN_IN_SECONDS: int = 5 * 60
+"""How long the native app has to collect a sign-in finished in the system browser."""
+
+
+@dataclass(frozen=True)
+class AppSignIn:
+    """A sign-in the native app collected: whose it is, how it was made, where to go."""
+
+    user_id: str
+    provider: str
+    destination: str
+
+
+def _challenge_for(verifier: str) -> str:
+    """The PKCE S256 challenge for ``verifier``, as the app computes it."""
+    digest = hashlib.sha256(verifier.encode()).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+
+async def hold_app_sign_in(
+    session: AsyncSession, user_id: str, provider: str, challenge: str, destination: str
+) -> str:
+    """Keep a sign-in finished for the native app until it collects it, and return the
+    one-time code it collects it with. Expired sign-ins nobody collected are deleted."""
+    now = datetime.now(timezone.utc)
+    await session.execute(delete(AppSignInRecord).where(AppSignInRecord.expires_at <= now))
+    code = secrets.token_urlsafe(32)
+    session.add(
+        AppSignInRecord(
+            code_hash=hash_api_key(code),
+            user_id=user_id,
+            provider=provider,
+            challenge=challenge,
+            destination=destination,
+            expires_at=now + timedelta(seconds=APP_SIGN_IN_SECONDS),
+        )
+    )
+    await session.commit()
+    return code
+
+
+async def collect_app_sign_in(session: AsyncSession, code: str, verifier: str) -> AppSignIn | None:
+    """The sign-in ``code`` stands for, if ``verifier`` matches the challenge it started
+    with and it has not expired; ``None`` otherwise.
+
+    A code is used up by the first attempt, right or wrong, so it cannot be guessed at.
+    """
+    record = await session.get(AppSignInRecord, hash_api_key(code))
+    if record is None:
+        return None
+    await session.delete(record)
+    await session.commit()
+    fresh = as_utc(record.expires_at) > datetime.now(timezone.utc)
+    if not fresh or not hmac.compare_digest(record.challenge, _challenge_for(verifier)):
+        return None
+    return AppSignIn(
+        user_id=record.user_id, provider=record.provider, destination=record.destination
+    )
+
+
 async def revoke_signed_in_key(session: AsyncSession, key: str) -> bool:
     """Revoke ``key`` if a sign-in issued it, as signing out does; keys made for scripts
     are left alone. Returns whether a key was revoked."""
@@ -295,17 +360,19 @@ async def claim_unowned(session: AsyncSession, user_id: str) -> dict[str, int]:
 async def delete_user(session: AsyncSession, user_id: str) -> bool:
     """Delete the account and everything it holds; return whether it existed.
 
-    Its API keys, sign-in identities, portfolios and their holdings, stored backtests,
-    analyses, portfolio reviews and simulations, its count of assistant answers, and its
-    nightly screener refresh, with the encrypted keys it stored, its runs and its own
-    screened universe go with it. Rows are deleted explicitly rather than left to the
-    foreign keys' cascades, which SQLite does not enforce by default.
+    Its API keys, sign-ins waiting for the native app, sign-in identities, portfolios and
+    their holdings, stored backtests, analyses, portfolio reviews and simulations, its
+    count of assistant answers, and its nightly screener refresh, with the encrypted keys
+    it stored, its runs and its own screened universe go with it. Rows are deleted
+    explicitly rather than left to the foreign keys' cascades, which SQLite does not
+    enforce by default.
     """
     record = await session.get(UserRecord, user_id)
     if record is None:
         return False
     for table in (
         ApiKeyRecord,
+        AppSignInRecord,
         IdentityRecord,
         HoldingRecord,
         PortfolioRecord,

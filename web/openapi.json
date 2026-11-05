@@ -946,6 +946,50 @@
         "title": "ApiKeyInfo",
         "type": "object"
       },
+      "AppSignInCollect": {
+        "description": "What the native app trades for its API key after signing in in the browser.",
+        "properties": {
+          "code": {
+            "description": "The link's one-time code.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "verifier": {
+            "description": "The secret whose SHA-256 challenge the app started the sign-in with.",
+            "maxLength": 128,
+            "minLength": 43,
+            "title": "Verifier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "verifier"
+        ],
+        "title": "AppSignInCollect",
+        "type": "object"
+      },
+      "AppSignInKey": {
+        "description": "The API key a sign-in issued the native app, and the page to open.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "next": {
+            "title": "Next",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "next"
+        ],
+        "title": "AppSignInKey",
+        "type": "object"
+      },
       "AssetBacktest": {
         "description": "One holding's part in a portfolio backtest.",
         "properties": {
@@ -10079,7 +10123,8 @@
           "name": {
             "enum": [
               "github",
-              "google"
+              "google",
+              "apple"
             ],
             "title": "Name",
             "type": "string"
@@ -11639,6 +11684,48 @@
         "summary": "A stored analysis in full",
         "tags": [
           "research"
+        ]
+      }
+    },
+    "/api/v1/auth/app/collect": {
+      "post": {
+        "description": "Trade the one-time code a sign-in handed the native app, with the verifier the app\nstarted it with, for an API key. Each code works once, within five minutes.",
+        "operationId": "collect_sign_in_api_v1_auth_app_collect_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppSignInCollect"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppSignInKey"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Collect the native app's sign-in",
+        "tags": [
+          "sign-in"
         ]
       }
     },

@@ -1,4 +1,5 @@
-"""Tests for signing in with GitHub or Google, and signing out.
+"""Tests for signing in with GitHub, Google or Apple, from the website or the native app,
+and signing out.
 
 The providers' HTTP APIs are replaced by a mock transport; everything else, the
 database included, is the app's own.
@@ -7,12 +8,16 @@ database included, is the app's own.
 import asyncio
 import base64
 import hashlib
+import json
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import httpx2
 import pytest
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from datetime import datetime, timedelta, timezone
@@ -21,8 +26,9 @@ from sqlalchemy import func, select, update
 
 from app.api.v1.endpoints import signin
 from app.core.config import Settings, get_settings
+from app.core.oauth import AppleProvider, configured_providers
 from app.db.session import get_sessionmaker
-from app.db.tables import ApiKeyRecord, IdentityRecord, UserRecord
+from app.db.tables import ApiKeyRecord, AppSignInRecord, IdentityRecord, UserRecord
 from app.db.users import authenticate, create_api_key, revoke_signed_in_key, user_for_identity
 from app.main import app
 
@@ -140,7 +146,8 @@ def test_starting_sends_the_browser_to_the_provider_with_state_and_pkce(
     assert query["redirect_uri"] == "http://testserver/api/v1/auth/github/callback"
     assert query["scope"] == "user:email"
     assert query["code_challenge_method"] == "S256"
-    state, verifier, _ = client.cookies["pyqxel_sign_in"].split(".")
+    state, verifier, _, app_challenge = client.cookies["pyqxel_sign_in"].split(".")
+    assert app_challenge == ""
     assert query["state"] == state
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
     assert query["code_challenge"] == challenge.rstrip(b"=").decode()
@@ -442,3 +449,261 @@ def test_admin_settings_stay_hidden_from_every_other_email(
     missing = client.put("/api/v1/me/missing", headers=headers, json={"yfinance_fallback": True})
     assert "admin" not in account
     assert (changed.status_code, changed.text) == (missing.status_code, missing.text)
+
+
+# --- The native app, through the system browser -----------------------------------------
+
+
+def _app_pair() -> tuple[str, str]:
+    """A PKCE verifier the app keeps, and the challenge it starts the sign-in with."""
+    verifier = "v" * 20 + base64.urlsafe_b64encode(b"app-secret-of-enough-length").decode()
+    digest = hashlib.sha256(verifier.encode()).digest()
+    return verifier, base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+
+def _app_link(response: Any) -> dict[str, str]:
+    """The fragment of the ``pyqxel://signin`` link the page sends the app."""
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    page = response.text
+    start = page.index("url=pyqxel://signin#") + len("url=pyqxel://signin#")
+    fragment = page[start : page.index('"', start)].replace("&amp;", "&")
+    return {name: values[0] for name, values in parse_qs(fragment).items()}
+
+
+def _app_sign_in(client: TestClient, challenge: str, next_page: str = "/") -> dict[str, str]:
+    response = client.get("/api/v1/auth/github/start", params={"next": next_page, "app": challenge})
+    state = parse_qs(urlsplit(response.headers["location"]).query)["state"][0]
+    callback = client.get(
+        "/api/v1/auth/github/callback", params={"code": "the-code", "state": state}
+    )
+    return _app_link(callback)
+
+
+def test_an_app_sign_in_hands_the_app_a_code_it_trades_once_for_a_key(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _providers(monkeypatch)
+    verifier, challenge = _app_pair()
+
+    link = _app_sign_in(client, challenge, next_page="/portfolio")
+
+    assert "key" not in link and link["next"] == "/portfolio"
+    assert "pyqxel_sign_in" not in client.cookies
+    collected = client.post(
+        "/api/v1/auth/app/collect", json={"code": link["code"], "verifier": verifier}
+    )
+    assert collected.status_code == 200
+    body = collected.json()
+    assert body["next"] == "/portfolio"
+    assert asyncio.run(_email_for(body["key"])) == "octo@example.com"
+    again = client.post(
+        "/api/v1/auth/app/collect", json={"code": link["code"], "verifier": verifier}
+    )
+    assert again.status_code == 400
+
+
+def test_an_app_code_is_useless_without_the_verifier(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Another app that claimed the link holds only the code; a wrong verifier also uses
+    the code up, so it cannot be guessed at."""
+    _providers(monkeypatch)
+    verifier, challenge = _app_pair()
+    link = _app_sign_in(client, challenge)
+    keys = asyncio.run(_count(ApiKeyRecord))
+
+    wrong = client.post(
+        "/api/v1/auth/app/collect", json={"code": link["code"], "verifier": "x" * 43}
+    )
+    right = client.post(
+        "/api/v1/auth/app/collect", json={"code": link["code"], "verifier": verifier}
+    )
+
+    assert wrong.status_code == 400 and right.status_code == 400
+    assert asyncio.run(_count(ApiKeyRecord)) == keys
+
+
+def test_an_expired_app_code_is_refused(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _providers(monkeypatch)
+    verifier, challenge = _app_pair()
+    link = _app_sign_in(client, challenge)
+
+    async def expire() -> None:
+        async with get_sessionmaker()() as session:
+            await session.execute(
+                update(AppSignInRecord).values(
+                    expires_at=datetime.now(timezone.utc) - timedelta(seconds=1)
+                )
+            )
+            await session.commit()
+
+    asyncio.run(expire())
+
+    response = client.post(
+        "/api/v1/auth/app/collect", json={"code": link["code"], "verifier": verifier}
+    )
+    assert response.status_code == 400 and "expired" in response.json()["detail"]
+
+
+def test_a_failed_app_sign_in_goes_back_to_the_app(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _providers(monkeypatch)
+    _, challenge = _app_pair()
+    client.get("/api/v1/auth/github/start", params={"app": challenge})
+
+    response = client.get("/api/v1/auth/github/callback", params={"error": "access_denied"})
+
+    link = _app_link(response)
+    assert link == {"error": "Signing in with GitHub was cancelled."}
+    assert "did not finish" in response.text
+
+
+def test_a_malformed_app_challenge_is_refused(client: TestClient) -> None:
+    response = client.get("/api/v1/auth/github/start", params={"app": "short"})
+
+    assert response.status_code == 400
+
+
+# --- Sign in with Apple -----------------------------------------------------------------
+
+
+def _apple_settings() -> tuple[Settings, ec.EllipticCurvePrivateKey]:
+    key = ec.generate_private_key(ec.SECP256R1())
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+    settings = Settings(
+        apple_sign_in_enabled=True,
+        apple_client_id="com.example.pyqxel.web",
+        apple_team_id="TEAM123456",
+        apple_key_id="KEY1234567",
+        apple_private_key=SecretStr(pem),
+    )
+    return settings, key
+
+
+def _jwt_part(part: str) -> dict[str, Any]:
+    return dict(json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))))
+
+
+def _id_token(claims: dict[str, Any]) -> str:
+    def encode(value: dict[str, Any]) -> str:
+        return base64.urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=").decode()
+
+    return f"{encode({'alg': 'RS256'})}.{encode(claims)}.signature"
+
+
+def test_apple_is_off_unless_switched_on_with_all_its_values() -> None:
+    settings, _ = _apple_settings()
+
+    assert "apple" in configured_providers(settings)
+    assert "apple" not in configured_providers(
+        settings.model_copy(update={"apple_sign_in_enabled": False})
+    )
+    assert "apple" not in configured_providers(settings.model_copy(update={"apple_key_id": None}))
+    assert "apple" not in configured_providers(Settings())
+
+
+def test_apple_client_secrets_are_signed_with_the_key_from_apple() -> None:
+    settings, key = _apple_settings()
+    apple = configured_providers(settings)["apple"]
+    assert isinstance(apple, AppleProvider)
+
+    secret = apple.signed_client_secret(now=1_000_000)
+
+    header, claims, signature = secret.split(".")
+    assert _jwt_part(header) == {"alg": "ES256", "kid": "KEY1234567"}
+    assert _jwt_part(claims) == {
+        "iss": "TEAM123456",
+        "iat": 1_000_000,
+        "exp": 1_000_300,
+        "aud": "https://appleid.apple.com",
+        "sub": "com.example.pyqxel.web",
+    }
+    raw = base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4))
+    der = encode_dss_signature(int.from_bytes(raw[:32]), int.from_bytes(raw[32:]))
+    key.public_key().verify(der, f"{header}.{claims}".encode(), ec.ECDSA(hashes.SHA256()))
+
+
+def test_apple_posts_back_and_signs_in_by_its_id_token(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Apple posts the code across sites, so the sign-in cookie must allow that; the
+    person comes from the ID token, and no PKCE is sent, since Apple takes none."""
+    settings, _ = _apple_settings()
+    monkeypatch.setattr(signin, "get_settings", lambda: settings)
+    claims = {
+        "iss": "https://appleid.apple.com",
+        "aud": "com.example.pyqxel.web",
+        "sub": "apple-sub-1",
+        "email": "octo@example.com",
+        "email_verified": "true",
+    }
+    requests = _providers(
+        monkeypatch,
+        lambda request: httpx2.Response(
+            200, json={"access_token": "t", "id_token": _id_token(claims)}
+        ),
+    )
+    secure = TestClient(app, base_url="https://testserver", follow_redirects=False)
+
+    started = secure.get("/api/v1/auth/apple/start", params={"next": "/screener"})
+    query = parse_qs(urlsplit(started.headers["location"]).query)
+    assert query["response_mode"] == ["form_post"] and "code_challenge" not in query
+    assert "samesite=none" in started.headers["set-cookie"].lower()
+    response = secure.post(
+        "/api/v1/auth/apple/callback",
+        content=f"code=the-code&state={query['state'][0]}",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+
+    assert response.status_code == 303
+    fragment = parse_qs(response.headers["location"].split("#", 1)[1])
+    assert fragment["next"] == ["/screener"]
+    assert asyncio.run(_email_for(fragment["key"][0])) == "octo@example.com"
+    token_request = parse_qs(requests[0].content.decode())
+    assert "code_verifier" not in token_request
+    assert token_request["client_secret"][0].count(".") == 2
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"email_verified": "false"}, "not verified"),
+        ({"aud": "someone-else"}, "did not say who signed in"),
+    ],
+)
+def test_apple_id_tokens_that_cannot_be_trusted_are_refused(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, change: dict[str, str], message: str
+) -> None:
+    settings, _ = _apple_settings()
+    monkeypatch.setattr(signin, "get_settings", lambda: settings)
+    claims = {
+        "iss": "https://appleid.apple.com",
+        "aud": "com.example.pyqxel.web",
+        "sub": "apple-sub-1",
+        "email": "octo@example.com",
+        "email_verified": True,
+        **change,
+    }
+    _providers(
+        monkeypatch,
+        lambda request: httpx2.Response(
+            200, json={"access_token": "t", "id_token": _id_token(claims)}
+        ),
+    )
+    state = _start(client, "apple")["state"][0]
+
+    response = client.post(
+        "/api/v1/auth/apple/callback",
+        content=f"code=c&state={state}",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+
+    assert message in parse_qs(response.headers["location"].split("#", 1)[1])["error"][0]

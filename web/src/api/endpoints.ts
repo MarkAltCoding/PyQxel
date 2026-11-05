@@ -2,6 +2,7 @@
 import { api, ApiError, send } from './client'
 import type {
   Account,
+  AppSignInKey,
   NightlyRefreshSettings,
   NightlyRefreshStatus,
   AnalysisImport,
@@ -57,6 +58,9 @@ const path = (symbol: string) => `${V1}/stocks/${encodeURIComponent(symbol)}`
 
 export const getAccount = (key?: string) => api<Account>(`${V1}/me`, { key })
 export const getSignInProviders = () => api<SignInProvider[]>(`${V1}/auth/providers`)
+/** Trades the one-time code a sign-in handed the native app, and its verifier, for a key. */
+export const collectAppSignIn = (code: string, verifier: string) =>
+  api<AppSignInKey>(`${V1}/auth/app/collect`, { method: 'POST', body: { code, verifier } })
 /** Revokes `key` if signing in issued it; keys made for scripts keep working. */
 export const revokeSignIn = (key: string) =>
   api<void>(`${V1}/auth/signout`, { method: 'POST', key })

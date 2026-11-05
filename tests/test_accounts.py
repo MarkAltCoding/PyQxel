@@ -28,6 +28,7 @@ from app.data.news import NewsNotConfiguredError
 from app.data.sec_edgar import FilingFetchError
 from app.db.session import get_sessionmaker
 from app.db.tables import (
+    AppSignInRecord,
     AssistantRequestRecord,
     Base,
     HoldingRecord,
@@ -495,8 +496,9 @@ a new one cannot be forgotten."""
 
 
 def _give_data(user: User) -> None:
-    """Give ``user`` a sign-in identity, a holding, a portfolio review, an assistant
-    answer, and a nightly refresh with a run and a stock, beside the rows tests make."""
+    """Give ``user`` a sign-in identity, a sign-in waiting for the app, a holding, a
+    portfolio review, an assistant answer, and a nightly refresh with a run and a stock,
+    beside the rows tests make."""
 
     async def add() -> None:
         async with get_sessionmaker()() as session:
@@ -548,6 +550,16 @@ def _give_data(user: User) -> None:
             session.add(
                 UserScreenerRunRecord(
                     id=f"run-{user.id}", user_id=user.id, started_at=now, status="succeeded"
+                )
+            )
+            session.add(
+                AppSignInRecord(
+                    code_hash=f"code-{user.id}",
+                    user_id=user.id,
+                    provider="github",
+                    challenge="c",
+                    destination="/",
+                    expires_at=now,
                 )
             )
             session.add(
@@ -611,6 +623,7 @@ def test_deleting_an_account_removes_everything_it_holds(
     assert client.get("/api/v1/me", headers=_headers(bob_key)).status_code == 200
     assert _rows_of(bob_user) | {"api_keys": 1} == {
         "api_keys": 1,
+        "app_sign_ins": 1,
         "identities": 1,
         "portfolio_holdings": 1,
         "portfolios": 1,
