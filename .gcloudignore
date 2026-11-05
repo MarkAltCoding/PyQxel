@@ -12,6 +12,9 @@ venv
 .venv
 web/node_modules
 web/dist
+# The native app's sources and its Rust and Xcode builds (gigabytes); the server image
+# does not use them.
+web/src-tauri
 **/__pycache__
 **/*.py[cod]
 .pytest_cache
