@@ -174,7 +174,9 @@ def test_a_refresh_is_due_at_its_local_time_once_a_day() -> None:
 
 @pytest.mark.usefixtures("encryption")
 def test_due_refreshes_skip_users_already_refreshed_or_running(user: User) -> None:
-    now = datetime.now(timezone.utc)
+    # Noon, so that jumping past STALE_AFTER and a day lands on the next calendar day
+    # whatever time the test runs.
+    now = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
     settings = NightlyRefreshSettings(
         refresh_time=(now - timedelta(minutes=1)).strftime("%H:%M"), time_zone="UTC"
     )
