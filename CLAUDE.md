@@ -54,6 +54,10 @@ side you are changing before searching the code.
   then `xcrun simctl install booted src-tauri/gen/apple/build/arm64-sim/PyQxel.app`. A
   debug build's web view is inspectable (`ios_webkit_debug_proxy`). On a phone it runs at
   `tauri://localhost`, an origin the server already allows.
+- **App Store:** not submitted; `docs/app-store.md` lists what is in place (advice notice,
+  privacy manifest `web/src-tauri/PrivacyInfo.xcprivacy`, Mac sandbox
+  `web/src-tauri/Entitlements.plist`, export compliance), the listing and review notes, and
+  the steps left. Keep the manifest, the privacy page and that doc in agreement.
 - **Migrations:** `venv/bin/alembic upgrade head` (local Postgres from `.env`). A test
   fails if the models and migrations differ, so every table change needs a new revision
   in `app/db/migrations/versions/` (numbered `00NN_...`; use `batch_alter_table`, since

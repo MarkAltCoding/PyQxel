@@ -41,6 +41,9 @@ targets:
         buildPhase: resources
         type: folder
       - path: LaunchScreen.storyboard
+      # The privacy manifest, shared with the macOS app.
+      - path: ../../PrivacyInfo.xcprivacy
+        buildPhase: resources
     info:
       path: pyqxel_iOS/Info.plist
       properties:
@@ -56,6 +59,9 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # Only HTTPS, through the system: exempt from export filings (see ../../Info.plist).
+        ITSAppUsesNonExemptEncryption: false
+        LSApplicationCategoryType: public.app-category.finance
         CFBundleShortVersionString: 0.1.0
         CFBundleVersion: "0.1.0"
     entitlements:

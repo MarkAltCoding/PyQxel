@@ -299,6 +299,31 @@ describe('signing in to the native app', () => {
   })
 })
 
+describe('the investment advice notice', () => {
+  it('asks once, before anything else, to acknowledge that PyQxel is not advice', async () => {
+    window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
+    serve({ '/api/v1/auth/providers': () => json(PROVIDERS) })
+    renderAt('/settings')
+
+    const notice = await screen.findByRole('dialog', { name: 'Not investment advice' })
+    expect(notice).toHaveTextContent('not recommendations to buy, sell or hold')
+    await userEvent.click(within(notice).getByRole('button', { name: 'I understand' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Not investment advice' })).toBeNull()
+    expect(window.localStorage.getItem('pyqxel.adviceNoticeAccepted')).not.toBeNull()
+  })
+
+  it('does not ask again once acknowledged', async () => {
+    window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
+    window.localStorage.setItem('pyqxel.adviceNoticeAccepted', '2026-11-05T00:00:00Z')
+    serve({ '/api/v1/auth/providers': () => json(PROVIDERS) })
+    renderAt('/settings')
+
+    await screen.findByRole('button', { name: 'Sign out' })
+    expect(screen.queryByRole('dialog', { name: 'Not investment advice' })).toBeNull()
+  })
+})
+
 describe('deleting the account', () => {
   const ACCOUNT = {
     id: '6f9619ff-8b86-d011-b42d-00c04fc964ff',

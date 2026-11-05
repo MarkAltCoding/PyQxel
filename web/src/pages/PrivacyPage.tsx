@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
-const UPDATED = 'November 3, 2026'
+const UPDATED = 'November 5, 2026'
 const CONTACT = 'https://github.com/MarkAltCoding'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -31,17 +31,19 @@ export function PrivacyPage() {
 
         <Section title="When you sign in">
           <p>
-            Signing in with GitHub or Google gives PyQxel two things: that provider’s permanent ID
-            for your account, and your verified email address. They identify your PyQxel account, so
-            the same person signing in with either provider reaches the same account. PyQxel asks
-            for nothing else, not even your name or profile picture, and does not keep the access
-            token the provider issues, which it uses once and discards. PyQxel does not log who
-            signs in.
+            Signing in with GitHub, Google or Apple (where offered) gives PyQxel two things: that
+            provider’s permanent ID for your account, and your verified email address. They identify
+            your PyQxel account, so the same person signing in with either provider reaches the same
+            account. PyQxel asks for nothing else, not even your name or profile picture, and does
+            not keep the access token the provider issues, which it uses once and discards. PyQxel
+            does not log who signs in.
           </p>
           <p>
             Signing in gives your browser a PyQxel API key that works for 30 days, and PyQxel stores
             only a one-way hash of it. A cookie holds the sign-in in progress for up to ten minutes
-            and is then deleted; PyQxel sets no other cookies.
+            and is then deleted; PyQxel sets no other cookies. The PyQxel app signs in through your
+            device’s browser, which hands the app a one-time code; PyQxel keeps a hash of that code
+            for up to five minutes, until the app trades it for its key.
           </p>
           <p>
             To slow down abuse, sign-in attempts are counted by IP address for a few minutes, then

@@ -227,6 +227,7 @@ export function SignInPage() {
           )}
         </form>
         <p className="disclaimer">
+          PyQxel is a research tool, not investment advice.{' '}
           <Link to="/privacy">Privacy policy</Link>
         </p>
       </section>

@@ -15,6 +15,7 @@
 		9704C5028C6AEFFCB9BF3105 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D2FF1231A796015FC269A1A6 /* Assets.xcassets */; };
 		A648214230A358B7FB3304B6 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = ED20E60ED74C8D70E6BE804C /* main.mm */; };
 		A901963EF3A1A86FD8CFDFE4 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 143DE0DFD08F3FC076AAE6B3 /* CoreGraphics.framework */; };
+		C901AE107B72486231139DB2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9CF0E7DCA264438694184062 /* PrivacyInfo.xcprivacy */; };
 		CC0B35CDA724D8E06D1EFB57 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CE61C00881C80DC5E6B9CC66 /* Metal.framework */; };
 		DA1DACA5971E3F9CC1AFD766 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EF4EBBEE0F11CE64998CAA34 /* QuartzCore.framework */; };
 		EA718B836A0FC291F877D049 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 13CA705C2225E8D42D34CD5C /* UIKit.framework */; };
@@ -30,6 +31,7 @@
 		6A61D542FEAFDF0F4134BF2D /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
 		8C6C1237BADBF225D33B77B1 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		93EC9A726B88D2BA0CA4A4BA /* pyqxel_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = pyqxel_iOS.entitlements; sourceTree = "<group>"; };
+		9CF0E7DCA264438694184062 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		B43A7F74A0CB9EEC31FB19C5 /* pyqxel_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = pyqxel_iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BF5C85F696F51DE1F96C92E6 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		CE340FD64291E5A092D1CDA1 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
@@ -86,9 +88,19 @@
 				67D2A7FE7E4BC3E1400B8A33 /* pyqxel_iOS */,
 				46CA9AF250FCADE2E1FA2860 /* Sources */,
 				4C32BA6448AEEA2042A0F986 /* src */,
+				16D695650448FDC9C9AA1835 /* src-tauri */,
 				0714F144D777BA2C2759CC42 /* Frameworks */,
 				4E746076640FFC66A556CE5E /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		16D695650448FDC9C9AA1835 /* src-tauri */ = {
+			isa = PBXGroup;
+			children = (
+				9CF0E7DCA264438694184062 /* PrivacyInfo.xcprivacy */,
+			);
+			name = "src-tauri";
+			path = ../..;
 			sourceTree = "<group>";
 		};
 		1E8462871D1E9817BCF63404 /* bindings */ = {
@@ -148,6 +160,20 @@
 			children = (
 			);
 			path = Externals;
+			sourceTree = "<group>";
+		};
+		"TEMP_8AC8AF06-3713-49FF-8D7B-4A9779EC67CB" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
+			sourceTree = "<group>";
+		};
+		"TEMP_F40B5868-99EA-451B-A9A7-4BEE0A00FF56" /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = arm64;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -210,6 +236,7 @@
 			files = (
 				9704C5028C6AEFFCB9BF3105 /* Assets.xcassets in Resources */,
 				1BC795AEE5F87920ED6394D6 /* LaunchScreen.storyboard in Resources */,
+				C901AE107B72486231139DB2 /* PrivacyInfo.xcprivacy in Resources */,
 				7AA3770B2B31A213393331C7 /* assets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the macOS app's Info.plist by `tauri build`. The iOS app sets the same key in
+  gen/apple/project.yml.
+
+  ITSAppUsesNonExemptEncryption: the app's only encryption is HTTPS, through the operating
+  system, which is exempt from US export filings, so App Store Connect asks nothing more.
+-->
+<plist version="1.0">
+<dict>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+</dict>
+</plist>

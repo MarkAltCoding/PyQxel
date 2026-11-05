@@ -27,8 +27,15 @@
   },
   "plugins": {
     "deep-link": {
-      "mobile": [{ "scheme": ["pyqxel"], "appLink": false }],
-      "desktop": { "schemes": ["pyqxel"] }
+      "mobile": [
+        {
+          "scheme": ["pyqxel"],
+          "appLink": false
+        }
+      ],
+      "desktop": {
+        "schemes": ["pyqxel"]
+      }
     }
   },
   "bundle": {
@@ -43,6 +50,15 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    },
+    "category": "Finance",
+    "copyright": "© 2026 Mark Altreuter",
+    "shortDescription": "Investment research: prices, backtests, portfolio risk and AI reports",
+    "macOS": {
+      "entitlements": "./Entitlements.plist",
+      "files": {
+        "Resources/PrivacyInfo.xcprivacy": "./PrivacyInfo.xcprivacy"
+      }
     }
   }
 }

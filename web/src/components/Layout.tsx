@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router'
 import { useAuth } from '../auth/useAuth'
 import { useScrollToHash } from '../lib/scrollToHash'
+import { AdviceNotice } from './AdviceNotice'
 import { SearchBox } from './SearchBox'
 import { ThemeToggle } from './ThemeToggle'
 
@@ -91,6 +92,7 @@ export function Layout() {
       <main>
         <Outlet />
       </main>
+      <AdviceNotice />
       <footer className="footer">
         PyQxel helps investors research securities. Analyses, backtests and simulations are built
         from historical data and are not investment advice. <Link to="/privacy">Privacy</Link>
