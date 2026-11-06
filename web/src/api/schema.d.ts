@@ -268,6 +268,10 @@ export interface paths {
      *     Returns 404 naming unknown symbols, 422 when no rebalance has enough stocks with the
      *     signal's history, and 502 when the price provider fails or the risk-free rate cannot
      *     be fetched.
+     *
+     *     Returns 409, saying which key ran out or which plan is short, when it resets and what
+     *     to do, when a plan served less history than the window asks for and
+     *     ``accept_short_history`` is false.
      */
     post: operations['create_cross_sectional_backtest_api_v1_backtests_cross_sectional_post']
     delete?: never
@@ -305,6 +309,10 @@ export interface paths {
      *     Returns 404 naming unknown symbols, 422 when a bar every symbol traded in that range
      *     has no weights or the range has too few bars, and 502 when the data provider fails
      *     or the risk-free rate cannot be fetched.
+     *
+     *     Returns 409, saying which key ran out or which plan is short, when it resets and what
+     *     to do, when a plan served less history than the window asks for and
+     *     ``accept_short_history`` is false.
      */
     post: operations['create_multi_asset_custom_backtest_api_v1_backtests_custom_post']
     delete?: never
@@ -507,7 +515,9 @@ export interface paths {
     /**
      * Your nightly screener refresh
      * @description Return whether your nightly screener refresh is on, when it runs, which of your
-     *     keys it stores, and how its latest runs went.
+     *     keys it stores, how its latest runs went, and about how many requests one refresh
+     *     sends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of
+     *     keys and of ``price_history_stocks`` before it is saved.
      *
      *     Returns 503 when the database is unavailable.
      */
@@ -764,7 +774,9 @@ export interface paths {
      * @description Return a saved portfolio's holdings valued at the latest prices, with their weights.
      *
      *     Holdings that cannot be priced are listed without a value or weight and named in
-     *     ``notice``. Returns 503 when the database is unavailable.
+     *     ``notice``. With ``priced`` false, only the saved symbols and shares are returned, so a
+     *     page can say what pricing them would cost first. Returns 503 when the database is
+     *     unavailable.
      */
     get: operations['read_holdings_api_v1_portfolio_holdings_get']
     /**
@@ -1238,6 +1250,10 @@ export interface paths {
      *     Returns 404 for unknown symbols, 422 when the window has too few bars for the
      *     strategy or dual momentum's benchmark is unknown, and 502 when the data provider
      *     fails, or the risk-free rate or dual momentum's benchmark cannot be fetched.
+     *
+     *     Returns 409, saying which key ran out or which plan is short, when it resets and what
+     *     to do, when a plan served less history than the window asks for and
+     *     ``accept_short_history`` is false.
      */
     post: operations['create_backtest_api_v1_stocks__symbol__backtest_post']
     delete?: never
@@ -1269,6 +1285,10 @@ export interface paths {
      *     Returns 404 for unknown symbols, 422 when a bar in that range has no position or the
      *     range has too few bars, and 502 when the data provider fails or the risk-free rate
      *     cannot be fetched.
+     *
+     *     Returns 409, saying which key ran out or which plan is short, when it resets and what
+     *     to do, when a plan served less history than the window asks for and
+     *     ``accept_short_history`` is false.
      */
     post: operations['create_custom_backtest_api_v1_stocks__symbol__backtest_custom_post']
     delete?: never
@@ -1487,6 +1507,78 @@ export interface paths {
     put?: never
     post?: never
     delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/usage': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Your keys' plan usage
+     * @description Return, for each key the request carries, its plan's limits (per second, minute,
+     *     hour, day or month, and different symbols a month where one applies), how much of
+     *     each is used and left, and when each resets.
+     *
+     *     EODHD's daily figures come from its account page, and Finnhub's, EODHD's and
+     *     Anthropic's per-minute figures from the headers of their latest answers, so they count
+     *     use from anywhere. Tiingo, FMP and Alpha Vantage report nothing, so their figures are
+     *     PyQxel's own count of its requests, labeled ``pyqxel``. Also says how much price
+     *     history PyQxel keeps for the user. Returns 503 when the database is unavailable.
+     */
+    get: operations['read_usage_api_v1_usage_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/usage/estimate': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * What loading a page would use
+     * @description Estimate how many requests fetching ``fetches`` would send on each key, cheapest
+     *     key first as the fetches themselves try them, and weigh them against each plan's
+     *     tightest limit. Histories the user's stored prices hold count as free. Nothing is
+     *     fetched. Returns 503 when the database is unavailable.
+     */
+    post: operations['estimate_usage_api_v1_usage_estimate_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/usage/stored-prices': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    /**
+     * Delete your stored prices
+     * @description Delete every price history PyQxel keeps for you. Later pages fetch prices again on
+     *     your keys. Returns 503 when the database is unavailable.
+     */
+    delete: operations['remove_stored_prices_api_v1_usage_stored_prices_delete']
     options?: never
     head?: never
     patch?: never
@@ -2258,6 +2350,12 @@ export interface components {
      */
     BacktestRequest: {
       /**
+       * Accept Short History
+       * @description Run even when a plan serves less history than the window asks for, after the user has read why. Without it such a run answers 409 with the reason.
+       * @default false
+       */
+      accept_short_history?: boolean
+      /**
        * Attribution
        * @description Factor model to regress the strategy's daily returns on, separating alpha from factor exposure; null to skip.
        * @default carhart4
@@ -2647,6 +2745,12 @@ export interface components {
      */
     CrossSectionalBacktestRequest: {
       /**
+       * Accept Short History
+       * @description Run even when a plan serves less history than the window asks for, after the user has read why. Without it such a run answers 409 with the reason.
+       * @default false
+       */
+      accept_short_history?: boolean
+      /**
        * Attribution
        * @description Factor model to regress the strategy's daily returns on; null to skip.
        * @default carhart4
@@ -2841,6 +2945,12 @@ export interface components {
      *     engine holds it over the next bar, as for built-in strategies.
      */
     CustomBacktestRequest: {
+      /**
+       * Accept Short History
+       * @description Run even when a plan serves less history than the window asks for, after the user has read why. Without it such a run answers 409 with the reason.
+       * @default false
+       */
+      accept_short_history?: boolean
       /**
        * Attribution
        * @description Factor model to regress the strategy's daily returns on, separating alpha from factor exposure; null to skip.
@@ -3770,6 +3880,29 @@ export interface components {
       version: string
     }
     /**
+     * HistoryShortfall
+     * @description Why one provider did not serve a fuller price history.
+     */
+    HistoryShortfall: {
+      /** Message */
+      message: string
+      /** Name */
+      name: string
+      /** Provider */
+      provider: string
+      /**
+       * Reason
+       * @description ``limit`` when the key has used its plan's requests for now, ``plan`` when the plan does not cover the symbol, ``failed`` when the provider failed.
+       * @enum {string}
+       */
+      reason: 'limit' | 'plan' | 'failed'
+      /**
+       * Resets At
+       * @description For ``limit``: when PyQxel will ask the provider again.
+       */
+      resets_at?: string | null
+    }
+    /**
      * Holding
      * @description One position in a portfolio.
      */
@@ -4680,6 +4813,12 @@ export interface components {
      */
     MultiAssetCustomBacktestRequest: {
       /**
+       * Accept Short History
+       * @description Run even when a plan serves less history than the window asks for, after the user has read why. Without it such a run answers 409 with the reason.
+       * @default false
+       */
+      accept_short_history?: boolean
+      /**
        * Attribution
        * @description Factor model to regress the strategy's daily returns on, separating alpha from factor exposure; null to skip.
        * @default carhart4
@@ -4955,6 +5094,27 @@ export interface components {
       source: string
     }
     /**
+     * NightlyKeyUse
+     * @description About how many requests one refresh sends on one key.
+     */
+    NightlyKeyUse: {
+      /**
+       * Detail
+       * @description What the requests are for.
+       */
+      detail: string
+      /**
+       * Provider
+       * @enum {string}
+       */
+      provider: 'finnhub' | 'tiingo' | 'fmp' | 'eodhd' | 'alpha_vantage'
+      /**
+       * Requests
+       * @description About how many requests one refresh sends.
+       */
+      requests: number
+    }
+    /**
      * NightlyRefreshSettings
      * @description Turns on the nightly refresh, or changes when it runs.
      *
@@ -4962,6 +5122,12 @@ export interface components {
      *     earlier, so send this again after changing a key.
      */
     NightlyRefreshSettings: {
+      /**
+       * Price History Stocks
+       * @description Most stocks to fetch price histories for each night, largest first, one request each on the price-history keys; null for as many as their plans allow, which can use up a free plan's day.
+       * @default 40
+       */
+      price_history_stocks?: number | null
       /**
        * Refresh Time
        * @description Local time of day the refresh starts, as HH:MM in 24-hour time. It starts within the hour after it and takes an hour or two.
@@ -4974,6 +5140,11 @@ export interface components {
        * @default America/New_York
        */
       time_zone?: string
+      /**
+       * Use Keys
+       * @description The keys the refresh may use and so stores, of those the request carries; Finnhub's is needed. Null for every one the request carries.
+       */
+      use_keys?: ('finnhub' | 'tiingo' | 'fmp' | 'eodhd' | 'alpha_vantage')[] | null
     }
     /**
      * NightlyRefreshStatus
@@ -4991,6 +5162,11 @@ export interface components {
        */
       enabled: boolean
       /**
+       * Key Use
+       * @description About how many requests one refresh sends on each stored key, to weigh against its plan's limits.
+       */
+      key_use?: components['schemas']['NightlyKeyUse'][]
+      /**
        * Keys Updated At
        * @description When the stored keys were last replaced.
        */
@@ -5004,6 +5180,12 @@ export interface components {
        * @description When the next refresh is due to start.
        */
       next_run_at?: string | null
+      /**
+       * Price History Stocks
+       * @description Most stocks given price histories each night; null for as many as the keys' plans allow.
+       * @default 40
+       */
+      price_history_stocks?: number | null
       /**
        * Providers
        * @description Providers whose keys are stored, encrypted.
@@ -5060,6 +5242,13 @@ export interface components {
        * @description Stocks in the universe built.
        */
       stocks?: number | null
+      /**
+       * Usage
+       * @description Requests the refresh sent on each key, by provider.
+       */
+      usage?: {
+        [key: string]: number
+      } | null
     }
     /**
      * OHLCVBar
@@ -5333,6 +5522,58 @@ export interface components {
        * @description Compounded return over the window.
        */
       total_return: number
+    }
+    /**
+     * PlanChoice
+     * @description A plan the user can say their key is on.
+     */
+    PlanChoice: {
+      /** Id */
+      id: string
+      /** Name */
+      name: string
+      /**
+       * Verified
+       * @description False when its limits come from third-party listings, as the provider's page could not be read.
+       */
+      verified: boolean
+    }
+    /**
+     * PlannedFetch
+     * @description Something a page would fetch as soon as it loads.
+     */
+    PlannedFetch: {
+      /**
+       * Interval
+       * @description For price history: bar size.
+       * @default 1d
+       */
+      interval?: string
+      /**
+       * Kind
+       * @enum {string}
+       */
+      kind:
+        | 'history'
+        | 'quote'
+        | 'info'
+        | 'news'
+        | 'metrics'
+        | 'signals'
+        | 'alternative'
+        | 'market_news'
+        | 'calendar'
+      /**
+       * Period
+       * @description For price history: the lookback window.
+       * @default 1y
+       */
+      period?: string
+      /**
+       * Symbols
+       * @description The symbols it is for, if any.
+       */
+      symbols?: string[]
     }
     /**
      * PlannedTrade
@@ -5834,6 +6075,22 @@ export interface components {
        * @enum {string}
        */
       period: '1d' | '5d' | '1mo' | '3mo' | '6mo' | '1y' | '2y' | '5y' | '10y' | 'ytd' | 'max'
+      /**
+       * Short History
+       * @description Set when a plan served less history than the window asks for, rather than the listing being younger: a plain warning naming the key that ran out or the plan that is short, when it resets, and what to do. A backtest should not run on these bars without the user agreeing.
+       */
+      short_history?: string | null
+      /**
+       * Shortfall
+       * @description Each provider passed over for a fuller history, and why.
+       */
+      shortfall?: components['schemas']['HistoryShortfall'][]
+      /**
+       * Stale
+       * @description True when the bars are a stored copy that ends before the latest close, since no key could fetch the days since.
+       * @default false
+       */
+      stale?: boolean
       /** Symbol */
       symbol: string
     }
@@ -5945,6 +6202,85 @@ export interface components {
        * @description Last four characters, e.g. …a1b2.
        */
       hint?: string | null
+    }
+    /**
+     * ProviderEstimate
+     * @description About how many requests a page would send on one key, against what is left.
+     */
+    ProviderEstimate: {
+      /** Name */
+      name: string
+      /**
+       * New Symbols
+       * @description For plans that limit different symbols a month: how many of the symbols have not been asked for this month.
+       */
+      new_symbols?: number | null
+      /**
+       * Provider
+       * @enum {string}
+       */
+      provider: 'tiingo' | 'fmp' | 'eodhd' | 'finnhub' | 'alpha_vantage' | 'anthropic'
+      /**
+       * Requests
+       * @description About how many requests; caches may save some.
+       */
+      requests: number
+      /** @description The limit with the smallest share left, to weigh the requests against. */
+      tightest?: components['schemas']['UsageLimit'] | null
+    }
+    /**
+     * ProviderUsage
+     * @description A key's plan, its limits, and how much of each is used.
+     */
+    ProviderUsage: {
+      /** Limits */
+      limits?: components['schemas']['UsageLimit'][]
+      /**
+       * Name
+       * @description The provider's name for people.
+       */
+      name: string
+      /**
+       * Note
+       * @description What to know about these figures.
+       */
+      note?: string | null
+      /**
+       * Plan
+       * @description The plan's id, from ``plans``.
+       */
+      plan?: string | null
+      /**
+       * Plan Detected
+       * @description True when the provider reported the plan's limits itself, so the user need not choose a plan.
+       */
+      plan_detected: boolean
+      /**
+       * Plan Name
+       * @description The plan's name for people.
+       */
+      plan_name?: string | null
+      /**
+       * Plans
+       * @description Plans the user can choose between for this key.
+       */
+      plans?: components['schemas']['PlanChoice'][]
+      /**
+       * Provider
+       * @enum {string}
+       */
+      provider: 'tiingo' | 'fmp' | 'eodhd' | 'finnhub' | 'alpha_vantage' | 'anthropic'
+      /**
+       * Reported At
+       * @description When the provider last reported figures, if it did.
+       */
+      reported_at?: string | null
+      /**
+       * Source
+       * @description Where the figures come from: all from the provider, all from PyQxel's own count, some of each, or nowhere yet.
+       * @enum {string}
+       */
+      source: 'provider' | 'pyqxel' | 'mixed' | 'none'
     }
     /**
      * RankedAsset
@@ -6899,6 +7235,32 @@ export interface components {
       type: 'sma_crossover'
     }
     /**
+     * StoredPrices
+     * @description The price history PyQxel keeps for the user.
+     */
+    StoredPrices: {
+      /**
+       * Bytes
+       * @description Their compressed size.
+       */
+      bytes: number
+      /**
+       * Histories
+       * @description Histories stored; one per symbol and provider.
+       */
+      histories: number
+      /**
+       * Oldest Fetch
+       * @description When the oldest of them was last fetched.
+       */
+      oldest_fetch?: string | null
+      /**
+       * Symbols
+       * @description Symbols with stored daily prices.
+       */
+      symbols: number
+    }
+    /**
      * StudentTCopula
      * @description A Student t copula: correlated, with joint extremes likelier at fewer degrees of freedom.
      */
@@ -7103,6 +7465,97 @@ export interface components {
        * @description Stocks in the universe.
        */
       stocks: number
+    }
+    /**
+     * UsageEstimate
+     * @description About how many requests loading a page would send on each key.
+     */
+    UsageEstimate: {
+      /**
+       * From Store
+       * @description Price histories that would be served from stored prices, free.
+       */
+      from_store: number
+      /** Providers */
+      providers: components['schemas']['ProviderEstimate'][]
+    }
+    /**
+     * UsageEstimateRequest
+     * @description What a page would fetch, to estimate the requests it would send on each key.
+     */
+    UsageEstimateRequest: {
+      /** Fetches */
+      fetches: components['schemas']['PlannedFetch'][]
+      /**
+       * Plans
+       * @description The plan the user says each key is on, by provider, as in ``GET /usage``.
+       */
+      plans?: {
+        [key: string]: string
+      }
+    }
+    /**
+     * UsageLimit
+     * @description One limit of a plan, how much of it is used, and when it resets.
+     */
+    UsageLimit: {
+      /**
+       * Limit
+       * @description Most allowed in the window.
+       */
+      limit?: number | null
+      /**
+       * Note
+       * @description A caveat about the figures, if any.
+       */
+      note?: string | null
+      /**
+       * Remaining
+       * @description Left in the window.
+       */
+      remaining?: number | null
+      /**
+       * Resets
+       * @description When the limit resets, in words.
+       */
+      resets: string
+      /**
+       * Resets At
+       * @description When the window ends.
+       */
+      resets_at?: string | null
+      /**
+       * Source
+       * @description ``provider`` when the provider reported the figures, which counts use from anywhere; ``pyqxel`` when they are PyQxel's own count of its requests alone.
+       * @enum {string}
+       */
+      source: 'provider' | 'pyqxel'
+      /**
+       * Unit
+       * @description What is counted: requests; EODHD's ``calls``, which weigh some requests more; different ``symbols``; ``bytes`` of answers; or Anthropic's tokens.
+       * @enum {string}
+       */
+      unit: 'requests' | 'calls' | 'symbols' | 'bytes' | 'tokens' | 'input_tokens' | 'output_tokens'
+      /**
+       * Used
+       * @description Used so far in the window.
+       */
+      used?: number | null
+      /**
+       * Window
+       * @description The span the limit counts over.
+       * @enum {string}
+       */
+      window: 'second' | 'minute' | 'hour' | 'day' | 'month'
+    }
+    /**
+     * UsageResponse
+     * @description Every key's plan usage, for the keys the request carried.
+     */
+    UsageResponse: {
+      /** Providers */
+      providers: components['schemas']['ProviderUsage'][]
+      stored_prices: components['schemas']['StoredPrices']
     }
     /** ValidationError */
     ValidationError: {
@@ -7960,7 +8413,12 @@ export interface operations {
   }
   read_nightly_refresh_api_v1_me_nightly_refresh_get: {
     parameters: {
-      query?: never
+      query?: {
+        /** @description Keys being considered, to preview what a refresh would use. */
+        use_key?: ('finnhub' | 'tiingo' | 'fmp' | 'eodhd' | 'alpha_vantage')[]
+        /** @description A price-history cap being considered, likewise. */
+        price_history_stocks?: number | null
+      }
       header?: never
       path?: never
       cookie?: never
@@ -7974,6 +8432,15 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['NightlyRefreshStatus']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
         }
       }
     }
@@ -8304,6 +8771,8 @@ export interface operations {
       query?: {
         /** @description Which of your saved portfolios: 1 or 2. */
         portfolio?: number
+        /** @description Value the holdings at the latest prices, which asks your keys' providers; false for the saved symbols and shares alone, with no request. */
+        priced?: boolean
       }
       header?: never
       path?: never
@@ -9172,6 +9641,89 @@ export interface operations {
         content: {
           'application/json': components['schemas']['HTTPValidationError']
         }
+      }
+    }
+  }
+  read_usage_api_v1_usage_get: {
+    parameters: {
+      query?: {
+        /** @description The plan each key is on, as ``provider:plan`` (e.g. ``tiingo:power``); a key not named is taken to be on the free plan. */
+        plan?: string[]
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['UsageResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  estimate_usage_api_v1_usage_estimate_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UsageEstimateRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['UsageEstimate']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  remove_stored_prices_api_v1_usage_stored_prices_delete: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
       }
     }
   }

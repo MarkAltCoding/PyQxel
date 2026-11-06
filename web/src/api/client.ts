@@ -32,7 +32,7 @@ export class ApiError extends Error {
   }
 }
 
-type Query = Record<string, string | number | boolean | null | undefined>
+type Query = Record<string, string | number | boolean | string[] | null | undefined>
 
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
@@ -46,7 +46,9 @@ export interface RequestOptions {
 export function buildUrl(path: string, query?: Query): string {
   const params = new URLSearchParams()
   for (const [name, value] of Object.entries(query ?? {})) {
-    if (value !== null && value !== undefined && value !== '') params.set(name, String(value))
+    // A list is sent as the name repeated, as FastAPI reads a list.
+    if (Array.isArray(value)) for (const item of value) params.append(name, item)
+    else if (value !== null && value !== undefined && value !== '') params.set(name, String(value))
   }
   const search = params.toString()
   return search ? `${path}?${search}` : path

@@ -37,6 +37,8 @@ import { starterCode, type CodeKind } from '../editor/starters'
 import { dateTime, number, percent, shortDate, signedPercent, tone } from '../lib/format'
 import { readStored, writeStored } from '../lib/storage'
 import { runnerFor, StrategyRunError } from '../runners'
+import { ShortHistoryError, shortHistoryMessage } from '../lib/shortHistory'
+import { ShortHistoryNotice } from '../components/ShortHistoryNotice'
 import { alignUniverse } from '../runners/types'
 import { tickersIn } from '../lib/tickers'
 
@@ -508,13 +510,19 @@ function SingleStockBacktest({ across = false }: { across?: boolean }) {
     enabled: Boolean(openId),
     staleTime: Infinity,
   })
+  /** Whether the user agreed to run on a shorter history than the window asks for. */
+  const acceptShort = useRef(false)
   const run = useMutation({
+    onSettled: () => {
+      acceptShort.current = false
+    },
     mutationFn: async (): Promise<BacktestResponse> => {
       const options = {
         period: form.period,
         interval: form.interval,
         cost_bps: Number(form.costBps),
         cash_interest: form.cashInterest,
+        accept_short_history: acceptShort.current,
       }
       if (!custom) {
         return runBacktest(form.symbol, { strategy: strategyOf(form), ...options })
@@ -530,6 +538,10 @@ function SingleStockBacktest({ across = false }: { across?: boolean }) {
         const history = await getHistory(form.symbol, form.period, form.interval)
         if (history.bars.length === 0) {
           throw new ApiError(422, history.notice ?? `${form.symbol} has no prices in this window.`)
+        }
+        // Said plainly before the code runs, not after: a shorter history changes the result.
+        if (history.short_history && !acceptShort.current) {
+          throw new ShortHistoryError(history.short_history)
         }
         const details = LANGUAGE_DETAILS[form.language]
         setPhase(details.loading)
@@ -570,6 +582,7 @@ function SingleStockBacktest({ across = false }: { across?: boolean }) {
     interval: Form['interval']
     cost_bps: number
     cash_interest: boolean
+    accept_short_history: boolean
   }): Promise<BacktestResponse> {
     const controller = new AbortController()
     stopper.current = controller
@@ -580,7 +593,8 @@ function SingleStockBacktest({ across = false }: { across?: boolean }) {
       const histories = await Promise.all(
         symbols.map(async (symbol) => {
           try {
-            return { symbol, bars: (await getHistory(symbol, form.period, form.interval)).bars }
+            const history = await getHistory(symbol, form.period, form.interval)
+            return { symbol, bars: history.bars, short: history.short_history }
           } catch (error) {
             if (across && error instanceof ApiError && error.status === 404) {
               throw new ApiError(
@@ -594,6 +608,10 @@ function SingleStockBacktest({ across = false }: { across?: boolean }) {
       )
       const empty = histories.find((history) => history.bars.length === 0)
       if (empty) throw new ApiError(422, `${empty.symbol} has no prices in this window.`)
+      const short = histories.flatMap((history) => (history.short ? [history.short] : []))
+      if (short.length > 0 && !options.accept_short_history) {
+        throw new ShortHistoryError(short.join(' '))
+      }
       const aligned = alignUniverse(histories)
       if (aligned.dates.length === 0) {
         throw new ApiError(422, `${symbols.join(', ')} share no trading days in this window.`)
@@ -1127,9 +1145,19 @@ function SingleStockBacktest({ across = false }: { across?: boolean }) {
           </div>
         )}
         {about && <p className="disclaimer">{about}</p>}
-        {run.error !== null && !(run.error instanceof StrategyRunError) && (
-          <ErrorNotice error={run.error} />
+        {run.error !== null && shortHistoryMessage(run.error) !== null && (
+          <ShortHistoryNotice
+            message={shortHistoryMessage(run.error)!}
+            busy={run.isPending}
+            onAccept={() => {
+              acceptShort.current = true
+              run.mutate()
+            }}
+          />
         )}
+        {run.error !== null &&
+          !(run.error instanceof StrategyRunError) &&
+          shortHistoryMessage(run.error) === null && <ErrorNotice error={run.error} />}
       </form>
 
       {opened.error !== null && <ErrorNotice error={opened.error} />}

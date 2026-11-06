@@ -16,12 +16,13 @@ import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel, SecretStr, ValidationError
 
 from app.ai.prompts import SYSTEM_PROMPT, TASKS, render_filings
 from app.core.config import get_settings
+from app.data import usage
 from app.models.research import (
     AnalysisContext,
     AnalysisDelta,
@@ -103,12 +104,22 @@ def anthropic_client(api_key: SecretStr) -> AsyncAnthropic:
     the environment or a saved login, and bill the server's owner. The SDK retries
     connection errors, 429s and 5xx responses with backoff. Close the client when done.
     """
-    from anthropic import AsyncAnthropic
+    from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
 
     secret = api_key.get_secret_value()
     if not secret:
         raise AINotConfiguredError("An Anthropic API key is required.")
-    return AsyncAnthropic(api_key=secret, timeout=get_settings().anthropic_timeout_seconds)
+
+    async def note_limits(response: Any) -> None:
+        # Anthropic reports the key's limits a minute in every answer's headers, which
+        # Settings shows under the key.
+        usage.record("anthropic", secret, headers=response.headers)
+
+    return AsyncAnthropic(
+        api_key=secret,
+        timeout=get_settings().anthropic_timeout_seconds,
+        http_client=DefaultAsyncHttpxClient(event_hooks={"response": [note_limits]}),
+    )
 
 
 def _retry_after(error: anthropic.RateLimitError) -> int | None:

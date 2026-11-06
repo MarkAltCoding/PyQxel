@@ -48,6 +48,7 @@ from app.data.finnhub import clear_signals_memory  # noqa: E402
 from app.data.fomc import FALLBACK_MEETINGS, clear_fomc_memory  # noqa: E402
 from app.models.markets import FomcMeeting  # noqa: E402
 from app.data.news import clear_news_memory  # noqa: E402
+from app.data.usage import clear_usage_memory  # noqa: E402
 from app.db.session import (  # noqa: E402
     close_database,
     configure_database,
@@ -129,6 +130,7 @@ def isolated_storage() -> Iterator[None]:
     clear_signals_memory()
     clear_fomc_memory()
     clear_local_counts()
+    clear_usage_memory()
     yield
     configure_cache(None)
     clear_factor_memory()
@@ -162,6 +164,7 @@ def user(isolated_storage: None) -> Iterator[User]:
                 keys,
                 yfinance=uses_yfinance(account),
                 unlicensed=sees_unlicensed_data(account),
+                user_id=account.id,
             )
         )
         return account

@@ -34,6 +34,7 @@ from app.db.tables import (
     HoldingRecord,
     IdentityRecord,
     NightlyRefreshRecord,
+    StoredHistoryRecord,
     PortfolioAnalysisRecord,
     PortfolioRecord,
     UserRecord,
@@ -553,6 +554,20 @@ def _give_data(user: User) -> None:
                 )
             )
             session.add(
+                StoredHistoryRecord(
+                    user_id=user.id,
+                    provider="tiingo",
+                    symbol="MU",
+                    requested_from=now.date(),
+                    first_day=now.date(),
+                    last_day=now.date(),
+                    bars=1,
+                    fetched_at=now,
+                    read_at=now,
+                    data=b"x",
+                )
+            )
+            session.add(
                 AppSignInRecord(
                     code_hash=f"code-{user.id}",
                     user_id=user.id,
@@ -635,6 +650,7 @@ def test_deleting_an_account_removes_everything_it_holds(
         "nightly_refreshes": 1,
         "user_screener_runs": 1,
         "user_screener_stocks": 1,
+        "stored_price_history": 1,
         "users": 1,
     }
 

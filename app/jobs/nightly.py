@@ -13,9 +13,10 @@ Each run refreshes every user whose chosen time has come since their last refres
    three-month volatility, beta and volume from Finnhub's free basic financials on the
    user's Finnhub key, one request per stock, paced under the free plan's limit: about an
    hour and a half for every listed stock.
-3. Keeps stocks above the market cap floor, and fetches their daily prices, largest
-   first, on whichever price-history key the user has (Tiingo, FMP, EODHD or Alpha
-   Vantage, cheapest first), until that key's plan stops answering for the night. Those
+3. Keeps stocks above the market cap floor, and fetches daily prices for as many of them
+   as the user chose, largest first, on the price-history keys they let it use (Tiingo,
+   FMP, EODHD or Alpha Vantage, cheapest first), stopping sooner if those keys' plans stop
+   answering for the night. The requests sent on each key are recorded with the run. Those
    stocks get the price-history columns: one-month return, 12-1 momentum, volatility,
    drawdown and Carhart factor betas. The rest keep Finnhub's stand-ins (see
    :func:`app.stats.screening.user_screen_metrics`), and those whose price is unknown
@@ -40,6 +41,7 @@ from app.api.auth import sees_unlicensed_data, uses_yfinance
 from app.core.config import get_settings
 from app.core.credentials import use_provider_keys
 from app.core.redact import install_log_redaction
+from app.data import usage
 from app.data.exchange_rates import fetch_exchange_rates
 from app.data.factors import fetch_factors
 from app.data.fetcher import DataFetchError
@@ -139,7 +141,9 @@ def _score(
     return universe
 
 
-async def build_user_universe(user_id: str, now: datetime) -> UserRefreshResult:
+async def build_user_universe(
+    user_id: str, now: datetime, price_history_stocks: int | None = None
+) -> UserRefreshResult:
     """Build and store ``user_id``'s own universe on the current provider keys.
 
     Raises:
@@ -170,9 +174,12 @@ async def build_user_universe(user_id: str, now: datetime) -> UserRefreshResult:
         len(stocks),
     )
 
-    histories = await fetch_histories(
-        (stock.listing.symbol for stock in stocks), today - timedelta(days=PRICE_HISTORY_DAYS)
-    )
+    # The user chose how many stocks get price histories: one request each on their
+    # price-history keys, which free plans allow only so many of a day.
+    priced_first = [stock.listing.symbol for stock in stocks]
+    if price_history_stocks is not None:
+        priced_first = priced_first[:price_history_stocks]
+    histories = await fetch_histories(priced_first, today - timedelta(days=PRICE_HISTORY_DAYS))
     histories = completed_sessions(histories, now)
 
     # A stock with neither price history nor SEC shares outstanding takes a quote for its
@@ -231,20 +238,28 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None) -> None:
         user = await get_user(session, due.user_id)
         run_id = await start_run(session, due.user_id, now)
     # The user's stored keys, with the same data access their own requests have.
+    # The user's stored keys, with the same data access their own requests have. Its
+    # thousands of price histories are not kept in the user's stored prices.
     use_provider_keys(
         replace(
             due.keys,
             yfinance=user is not None and uses_yfinance(user),
             unlicensed=user is not None and sees_unlicensed_data(user),
+            user_id=due.user_id,
+            store_history=False,
         )
     )
-    try:
-        result = await build_user_universe(due.user_id, now)
-    except Exception as exc:
-        logger.warning("User %s's nightly refresh failed: %s", due.user_id, exc)
-        async with get_sessionmaker()() as session:
-            await finish_run(session, run_id, error=str(exc) or type(exc).__name__)
-        return
+    with usage.track() as sent:
+        try:
+            result = await build_user_universe(due.user_id, now, due.price_history_stocks)
+        except Exception as exc:
+            logger.warning("User %s's nightly refresh failed: %s", due.user_id, exc)
+            async with get_sessionmaker()() as session:
+                await finish_run(
+                    session, run_id, error=str(exc) or type(exc).__name__, usage=dict(sent)
+                )
+            await usage.flush()
+            return
     async with get_sessionmaker()() as session:
         await finish_run(
             session,
@@ -252,7 +267,9 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None) -> None:
             stocks=result.stocks,
             priced=result.priced,
             prices_as_of=result.prices_as_of,
+            usage=dict(sent),
         )
+    await usage.flush()
     logger.info(
         "User %s: %d stocks, %d with price history.", due.user_id, result.stocks, result.priced
     )

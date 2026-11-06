@@ -33,6 +33,7 @@ from app.data.fetcher import (
     HISTORY_NOTICE,
     DataFetchError,
     fetch_price_history,
+    fetch_quote,
     fetch_ticker_info,
 )
 from app.data.panel import MAX_CONCURRENT_DOWNLOADS, fetch_close_panel
@@ -99,7 +100,7 @@ from app.models.portfolio_analysis import (
 )
 from app.models.research import AnalysisDelta, AnalysisStreamError
 from app.models.simulation import SimulationList, SimulationRequest, SimulationResponse
-from app.models.stock import SYMBOL_PATTERN
+from app.models.stock import SYMBOL_PATTERN, TickerInfo
 from app.stats.backtest import cash_returns, run_portfolio_backtest, strategy_for
 from app.stats.copulas import (
     CopulaFit,
@@ -676,8 +677,22 @@ async def _value_holdings(
 
     A money-market fund without a price is valued at the $1 a share it holds.
     """
+
+    async def priced_info(symbol: str) -> TickerInfo:
+        # A profile from a provider that gives no price, as Tiingo's for an ETF, takes a
+        # quote for its price.
+        info = await fetch_ticker_info(symbol)
+        if info.price is None and not is_money_market(symbol, info.quote_type):
+            try:
+                quote = await fetch_quote(symbol)
+            except DataFetchError as exc:
+                logger.info("No quote for %s either: %s", symbol, exc)
+            else:
+                info = info.model_copy(update={"price": quote.price})
+        return info
+
     results = await asyncio.gather(
-        *(fetch_ticker_info(holding.symbol) for holding in holdings), return_exceptions=True
+        *(priced_info(holding.symbol) for holding in holdings), return_exceptions=True
     )
     valued: list[HoldingValue] = []
     failures: list[str] = []
@@ -742,18 +757,37 @@ async def read_portfolios(session: Session, user: CurrentUser) -> PortfolioList:
 
 @router.get("/holdings", response_model=HoldingsResponse, summary="One of your saved portfolios")
 async def read_holdings(
-    session: Session, user: CurrentUser, portfolio: PortfolioQuery = 1
+    session: Session,
+    user: CurrentUser,
+    portfolio: PortfolioQuery = 1,
+    priced: Annotated[
+        bool,
+        Query(
+            description="Value the holdings at the latest prices, which asks your keys' "
+            "providers; false for the saved symbols and shares alone, with no request."
+        ),
+    ] = True,
 ) -> HoldingsResponse:
     """Return a saved portfolio's holdings valued at the latest prices, with their weights.
 
     Holdings that cannot be priced are listed without a value or weight and named in
-    ``notice``. Returns 503 when the database is unavailable.
+    ``notice``. With ``priced`` false, only the saved symbols and shares are returned, so a
+    page can say what pricing them would cost first. Returns 503 when the database is
+    unavailable.
     """
     try:
         holdings = await get_holdings(session, user.id, portfolio)
         name = await get_portfolio_name(session, user.id, portfolio)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
+    if not priced:
+        return HoldingsResponse(
+            portfolio=portfolio,
+            name=name or default_portfolio_name(portfolio),
+            holdings=[HoldingValue(symbol=h.symbol, shares=h.shares) for h in holdings],
+            total_value=0.0,
+            priced_at=datetime.now(timezone.utc),
+        )
     return await _value_holdings(holdings, portfolio, name)
 
 

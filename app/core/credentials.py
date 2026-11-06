@@ -36,6 +36,11 @@ class ProviderKeys:
     whether it may be shown data built from unlicensed sources, such as a screener refreshed
     with yfinance: both only for an account allowed to see such data (see
     :func:`app.api.auth.sees_unlicensed_data`).
+
+    ``user_id`` names the account the request is for, so price history fetched on its keys
+    can be kept for that account alone (see :mod:`app.db.price_store`); ``None`` outside
+    a signed-in request. ``store_history`` is false for bulk work, such as the nightly
+    refresh, whose thousands of histories are not worth keeping.
     """
 
     anthropic: SecretStr | None = None
@@ -46,6 +51,8 @@ class ProviderKeys:
     eodhd: SecretStr | None = None
     yfinance: bool = False
     unlicensed: bool = False
+    user_id: str | None = None
+    store_history: bool = True
 
 
 def _key(value: str | None) -> SecretStr | None:
@@ -57,13 +64,25 @@ def _key(value: str | None) -> SecretStr | None:
 
 
 def provider_keys_from(
-    headers: Mapping[str, str], yfinance: bool = False, unlicensed: bool = False
+    headers: Mapping[str, str],
+    yfinance: bool = False,
+    unlicensed: bool = False,
+    user_id: str | None = None,
 ) -> ProviderKeys:
-    """The provider keys in a request's ``headers``."""
+    """The provider keys in a request's ``headers``, for ``user_id``'s request."""
+    found: dict[str, SecretStr | None] = {
+        name: _key(headers.get(header)) for name, header in PROVIDER_HEADERS.items()
+    }
     return ProviderKeys(
-        **{name: _key(headers.get(header)) for name, header in PROVIDER_HEADERS.items()},
+        anthropic=found["anthropic"],
+        fmp=found["fmp"],
+        alpha_vantage=found["alpha_vantage"],
+        finnhub=found["finnhub"],
+        tiingo=found["tiingo"],
+        eodhd=found["eodhd"],
         yfinance=yfinance,
         unlicensed=unlicensed,
+        user_id=user_id,
     )
 
 

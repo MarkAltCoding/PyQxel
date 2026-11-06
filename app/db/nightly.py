@@ -15,13 +15,14 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from pydantic import SecretStr
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.credentials import ProviderKeys
 from app.core.security import CredentialsUnavailableError, decrypt_secret, encrypt_secret
 from app.db.tables import (
     NightlyRefreshRecord,
+    ScreenerListingRecord,
     UserScreenerRunRecord,
     UserScreenerStockRecord,
     as_utc,
@@ -30,6 +31,7 @@ from app.models.nightly import (
     STORED_PROVIDERS,
     NightlyProvider,
     NightlyRefreshSettings,
+    NightlyKeyUse,
     NightlyRefreshStatus,
     NightlyRun,
     RunStatus,
@@ -57,6 +59,8 @@ class DueRefresh:
 
     user_id: str
     keys: ProviderKeys
+    price_history_stocks: int | None = None
+    """Most stocks to fetch price histories for; ``None`` for as many as the plans allow."""
 
 
 def stored_providers(keys: ProviderKeys) -> list[NightlyProvider]:
@@ -77,6 +81,8 @@ async def enable(
         CredentialsUnavailableError: If the server has no encryption key.
     """
     providers = stored_providers(keys)
+    if settings.use_keys is not None:
+        providers = [provider for provider in providers if provider in settings.use_keys]
     if REQUIRED_PROVIDER not in providers:
         raise MissingFinnhubKeyError(
             "The nightly refresh needs your Finnhub key: add it in Settings first."
@@ -96,6 +102,7 @@ async def enable(
     record.time_zone = settings.time_zone
     record.credentials = credentials
     record.providers = list(providers)
+    record.price_history_stocks = settings.price_history_stocks
     record.keys_updated_at = now
     await session.commit()
 
@@ -190,13 +197,84 @@ def _run(record: UserScreenerRunRecord) -> NightlyRun:
         priced=record.priced,
         prices_as_of=record.prices_as_of,
         error=record.error,
+        usage=record.usage,
     )
 
 
+PRICE_KEY_ORDER: tuple[NightlyProvider, ...] = ("tiingo", "fmp", "eodhd", "alpha_vantage")
+"""Price-history keys in the order the refresh tries them, cheapest first."""
+PRICE_KEY_CAPACITY: dict[NightlyProvider, int] = {
+    "tiingo": 50,
+    "fmp": 250,
+    "eodhd": 20,
+    "alpha_vantage": 25,
+}
+"""Price histories a free plan answers before it stops for the night: Tiingo's hour, and
+the others' day."""
+ASSUMED_LISTINGS: int = 5_000
+"""Listed stocks assumed before the shared SEC stage has stored its list."""
+ASSUMED_PRICED_STOCKS: int = 2_000
+"""Stocks above the market cap floor, assumed before a first refresh has counted them."""
+
+
+async def key_use(
+    session: AsyncSession,
+    providers: list[NightlyProvider],
+    price_history_stocks: int | None,
+    success: UserScreenerRunRecord | None,
+) -> list[NightlyKeyUse]:
+    """About how many requests one refresh sends on each stored key.
+
+    Finnhub gets one request per listed stock for its metrics. Price histories go to the
+    price-history keys, one request per stock, largest first, up to
+    ``price_history_stocks``, each key taking as many as a free plan answers before the
+    next is tried. The latest successful refresh's own counts are used where it has them.
+    """
+    listings = int(
+        await session.scalar(select(func.count()).select_from(ScreenerListingRecord)) or 0
+    )
+    listings = listings or ASSUMED_LISTINGS
+    stocks = success.stocks if success is not None and success.stocks else ASSUMED_PRICED_STOCKS
+    wanted = stocks if price_history_stocks is None else min(price_history_stocks, stocks)
+    measured = success.usage if success is not None and success.usage else {}
+    found: list[NightlyKeyUse] = []
+    if "finnhub" in providers:
+        found.append(
+            NightlyKeyUse(
+                provider="finnhub",
+                requests=measured.get("finnhub", listings),
+                detail="One request per listed stock for its metrics, paced under 60 a "
+                "minute, plus a quote for each stock with no other price.",
+            )
+        )
+    left = wanted
+    for provider in PRICE_KEY_ORDER:
+        if provider not in providers:
+            continue
+        take = measured.get(provider, min(left, PRICE_KEY_CAPACITY[provider]))
+        found.append(
+            NightlyKeyUse(
+                provider=provider,
+                requests=take,
+                detail="One request per stock given price-history columns, largest first.",
+            )
+        )
+        left = max(0, left - take)
+    return found
+
+
 async def refresh_status(
-    session: AsyncSession, user_id: str, available: bool, now: datetime | None = None
+    session: AsyncSession,
+    user_id: str,
+    available: bool,
+    now: datetime | None = None,
+    preview: tuple[list[NightlyProvider], int | None] | None = None,
 ) -> NightlyRefreshStatus:
-    """Whether ``user_id`` opted in, what is stored, and how their refreshes went."""
+    """Whether ``user_id`` opted in, what is stored, and how their refreshes went.
+
+    With ``preview``, keys and a price-history cap the user is considering, ``key_use``
+    says what one refresh would send on each of those keys instead of the stored ones.
+    """
     record = await session.get(NightlyRefreshRecord, user_id)
     latest = await _runs(session, user_id)
     success = await latest_success(session, user_id)
@@ -206,6 +284,8 @@ async def refresh_status(
         latest_run=_run(latest[0]) if latest else None,
         last_success=None if success is None else _run(success),
     )
+    if preview is not None:
+        status.key_use = await key_use(session, preview[0], preview[1], success)
     if record is None:
         return status
     started = as_utc(latest[0].started_at) if latest else None
@@ -214,6 +294,17 @@ async def refresh_status(
             "refresh_time": record.refresh_time,
             "time_zone": record.time_zone,
             "providers": [p for p in record.providers if p in STORED_PROVIDERS],
+            "price_history_stocks": record.price_history_stocks,
+            "key_use": (
+                status.key_use
+                if preview is not None
+                else await key_use(
+                    session,
+                    [p for p in record.providers if p in STORED_PROVIDERS],
+                    record.price_history_stocks,
+                    success,
+                )
+            ),
             "keys_updated_at": as_utc(record.keys_updated_at),
             "next_run_at": next_run_at(
                 record.refresh_time,
@@ -258,7 +349,13 @@ async def due_refreshes(session: AsyncSession, now: datetime) -> list[DueRefresh
                 "off and on again in Settings.",
             )
             continue
-        due.append(DueRefresh(user_id=record.user_id, keys=keys))
+        due.append(
+            DueRefresh(
+                user_id=record.user_id,
+                keys=keys,
+                price_history_stocks=record.price_history_stocks,
+            )
+        )
     return due
 
 
@@ -285,8 +382,10 @@ async def finish_run(
     stocks: int | None = None,
     priced: int | None = None,
     prices_as_of: date | None = None,
+    usage: dict[str, int] | None = None,
 ) -> None:
-    """Record a user's refresh as failed with ``error``, or succeeded with its results."""
+    """Record a user's refresh as failed with ``error``, or succeeded with its results,
+    and the requests it sent on each key."""
     run = await session.get(UserScreenerRunRecord, run_id)
     if run is None:
         return
@@ -296,6 +395,7 @@ async def finish_run(
     run.stocks = stocks
     run.priced = priced
     run.prices_as_of = prices_as_of
+    run.usage = usage or None
     await session.commit()
 
 

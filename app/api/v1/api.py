@@ -19,6 +19,7 @@ from app.api.v1.endpoints import (
     search,
     signals,
     stocks,
+    usage,
 )
 
 api_router = APIRouter()
@@ -40,3 +41,4 @@ api_router.include_router(portfolio.router, prefix="/portfolio", tags=["portfoli
 api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(screener.router, prefix="/screener", tags=["screener"])
 api_router.include_router(quotes.router, prefix="/ws", tags=["quotes"])
+api_router.include_router(usage.router, prefix="/usage", tags=["usage"])

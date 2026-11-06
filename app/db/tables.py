@@ -5,7 +5,9 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
+    LargeBinary,
     Date,
     DateTime,
     Float,
@@ -435,7 +437,11 @@ class NightlyRefreshRecord(Base):
     time_zone: Mapped[str] = mapped_column(String(64))
     credentials: Mapped[str] = mapped_column(Text)
     providers: Mapped[list[str]] = mapped_column(JSON)
-    """Which providers' keys ``credentials`` holds, so they can be listed unencrypted."""
+    """Which providers' keys ``credentials`` holds, so they can be listed unencrypted. The
+    user chooses them: the refresh uses no other key."""
+    price_history_stocks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    """Most stocks the refresh fetches price histories for, largest first; null for as
+    many as the keys' plans allow, as before the user could choose."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     keys_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
@@ -457,3 +463,59 @@ class UserScreenerRunRecord(Base):
     """Of those, the stocks whose price-history columns the user's keys could fill."""
     prices_as_of: Mapped[date | None] = mapped_column(Date, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    usage: Mapped[dict[str, int] | None] = mapped_column(JSON, nullable=True)
+    """Requests the run sent to each provider, by provider name."""
+
+
+class ProviderUsageRecord(Base):
+    """Requests PyQxel sent on one provider key in one clock hour (UTC), and the bytes the
+    answers took, for showing a plan's use where the provider reports none.
+
+    ``key_id`` is a one-way hash of the key (:func:`app.data.usage.key_id`), never the key.
+    Rows older than :data:`app.data.usage.KEEP_DAYS` are deleted.
+    """
+
+    __tablename__ = "provider_usage"
+
+    key_id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(16), primary_key=True)
+    hour: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    requests: Mapped[int] = mapped_column(Integer)
+    bytes: Mapped[int] = mapped_column(BigInteger)
+
+
+class ProviderSymbolRecord(Base):
+    """A symbol requested on one provider key in a month, for plans that limit the number
+    of different symbols a month, such as Tiingo's free plan."""
+
+    __tablename__ = "provider_usage_symbols"
+
+    key_id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(16), primary_key=True)
+    month: Mapped[date] = mapped_column(Date, primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+
+
+class StoredHistoryRecord(Base):
+    """A symbol's daily bars, as one provider served them on the user's own key, kept for
+    that user alone so later pages and backtests reuse them instead of asking again.
+
+    ``data`` is the frame as zlib-compressed JSON. ``requested_from`` is the first day
+    asked for: bars starting later without a ``notice`` mean the listing began then.
+    """
+
+    __tablename__ = "stored_price_history"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    provider: Mapped[str] = mapped_column(String(16), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+    requested_from: Mapped[date] = mapped_column(Date)
+    first_day: Mapped[date] = mapped_column(Date)
+    last_day: Mapped[date] = mapped_column(Date)
+    bars: Mapped[int] = mapped_column(Integer)
+    notice: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    data: Mapped[bytes] = mapped_column(LargeBinary)

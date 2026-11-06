@@ -151,6 +151,46 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks())
 
 describe('custom strategies on the Backtest page', () => {
+  it('says plainly before running that a key served a shorter history, and runs on agreement', async () => {
+    const warning =
+      'Only part of the 10y window: SPY’s prices begin Nov 5, 2025. Your Tiingo key has used its plan’s requests for now; PyQxel will ask it again at 3:00 PM ET today.'
+    const calls = serve({
+      ...NO_SAVED,
+      'GET /api/v1/stocks/SPY/history': () => ({
+        symbol: 'SPY',
+        period: '10y',
+        interval: '1d',
+        bars: BARS,
+        coverage: 'partial',
+        short_history: warning,
+      }),
+      'POST /api/v1/stocks/SPY/backtest/custom': () => result(),
+    })
+    runner.run.mockImplementation(async (_code: string, bars: OHLCVBar[]): Promise<RunResult> => ({
+      ok: true,
+      timestamps: bars.map((bar) => bar.timestamp),
+      positions: [0, 1, 1],
+      output: '',
+    }))
+    renderPage('/backtest?symbol=SPY')
+    await userEvent.selectOptions(strategyMenu(), 'custom')
+    await editor()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Run' }))
+
+    expect(await screen.findByText(warning)).toBeInTheDocument()
+    expect(runner.run).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Run on the shorter history' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'SPY: Custom Python strategy' }),
+    ).toBeInTheDocument()
+    expect(runner.run).toHaveBeenCalledOnce()
+    const posted = calls.find((call) => call.path === '/api/v1/stocks/SPY/backtest/custom')
+    expect(posted?.body).toMatchObject({ accept_short_history: true })
+  })
+
   it('runs the code in the browser and posts its positions with the code and language', async () => {
     const calls = serve({
       ...NO_SAVED,
@@ -195,6 +235,7 @@ describe('custom strategies on the Backtest page', () => {
         interval: '1d',
         cost_bps: 5,
         cash_interest: true,
+        accept_short_history: false,
         code: starterCode('python'),
         language: 'python',
         timestamps: BARS.map((bar) => bar.timestamp),
@@ -537,6 +578,7 @@ describe('backtests across tickers', () => {
       period: '10y',
       cost_bps: 5,
       cash_interest: true,
+      accept_short_history: false,
     })
     const stocks = screen.getByRole('heading', { name: 'Stocks' }).closest('section')!
     const rows = within(stocks).getAllByRole('row').slice(1)
@@ -624,6 +666,7 @@ describe('custom strategies across several symbols', () => {
       interval: '1d',
       cost_bps: 5,
       cash_interest: true,
+      accept_short_history: false,
       symbols: ['GOOG', 'UNH'],
       code: starterCode('python', 'several'),
       language: 'python',

@@ -64,13 +64,50 @@ The cells below record what happened when each free key requested that kind of d
 
 **Free-plan limits:**
 
-| Provider | Limit |
+| Provider | Limit | When it resets |
+| --- | --- | --- |
+| FMP | 250 requests a day. The audit plus a day of use reached it. | Not published; PyQxel counts days from midnight UTC |
+| Finnhub | 60 requests a minute, no daily cap; at most 30 a second on every plan. | Every minute |
+| Alpha Vantage | 25 requests a day. | Not published; PyQxel counts days from midnight UTC |
+| Tiingo | 50 requests an hour, 1,000 a day, 500 different symbols a month, 1 GB of data a month. | Hourly; daily at midnight EST; monthly on the 1st at midnight EST. "We do not rate limit to minute or second." |
+| EODHD | 20 calls a day (an intraday request costs 5 calls, fundamentals 10), plus a one-time bonus of 500 extra calls; 1,000 requests a minute. | Daily at midnight GMT, zeroed by the first request after it; every minute |
+
+## Usage each provider reports
+
+Settings shows each key's use against its plan's limits. Where a provider reports usage,
+those figures count every use of the key, inside PyQxel or not; where it does not, PyQxel
+shows its own count of the requests it sent, labeled as such (`app/data/usage.py`).
+Checked against the providers' documentation on November 5, 2026:
+
+| Provider | What it reports |
 | --- | --- |
-| FMP | 250 requests a day. The audit plus a day of use reached it. |
-| Finnhub | 60 requests a minute, no daily cap. |
-| Alpha Vantage | 25 requests a day. |
-| Tiingo | 500 different symbols a month, 50 requests an hour, 1,000 a day. |
-| EODHD | 20 requests a day, plus a one-time bonus of 500. |
+| EODHD | `GET /api/user` (costs no calls): `apiRequests` on `apiRequestsDate`, `dailyRateLimit`, `extraLimit`. Every answer carries `X-RateLimit-Limit` and `X-RateLimit-Remaining` for the current minute; a 429 carries `Retry-After`. |
+| Finnhub | `X-Ratelimit-Limit`, `X-Ratelimit-Remaining` and `X-Ratelimit-Reset` headers for the minute, as seen on live answers; its rate-limit page could not be read. |
+| Anthropic | `anthropic-ratelimit-requests-*`, `-input-tokens-*` and `-output-tokens-*` headers (`limit`, `remaining`, and `reset` as an RFC 3339 time). They refill continuously. Monthly spend is shown only in its Console. |
+| Tiingo | Nothing: no usage endpoint or headers. Its account page shows usage. |
+| FMP | Not known: its documentation refuses automated reading. PyQxel counts its own requests. |
+| Alpha Vantage | Nothing: no usage endpoint or headers. |
+
+## Keeping each user's price history
+
+PyQxel keeps the daily prices it fetched on a user's own keys, for that user alone
+(`app/db/price_store.py`), so a page or backtest does not spend a request on prices it
+already has. The first fetch asks for ten years (or more, for the longest window), and
+later fetches ask only for the days since, with some overlap to follow dividends and
+splits. What the terms say about keeping data:
+
+| Provider | Terms on keeping data |
+| --- | --- |
+| EODHD | "Non-Professional Users are permitted to store, manipulate, and analyze the data for private, non-commercial purposes." |
+| Tiingo | Data "is for internal and personal use only. You may not redistribute the data in any form." Storing is not addressed; its terms page could not be read. |
+| Finnhub | "All data must be deleted should your subscription to that data ends." Its free plan serves no history, so none is kept. |
+| FMP | Not known: its terms page refuses automated reading. |
+| Alpha Vantage | Not known: its terms could not be read. |
+
+So stored prices are shown only to the user whose key fetched them, and only while their
+requests carry a key for that provider; rows unread for 30 days are deleted, as is
+everything when the user deletes it in Settings or deletes the account. Nightly screener
+refreshes, which fetch thousands of histories, keep none.
 
 ## Paid plans that fill the gaps
 
@@ -156,8 +193,11 @@ and use the first one that covers the request. "Free" means the provider's free 
 - **EODHD:** [pricing](https://eodhd.com/pricing),
   [commercial pricing](https://eodhd.com/commercial-pricing),
   [personal vs commercial use](https://eodhd.com/financial-apis/commercial-vs-personal-license-use),
-  [terms](https://eodhd.com/financial-apis/terms-conditions)
+  [terms](https://eodhd.com/financial-apis/terms-conditions),
+  [User API](https://eodhd.com/financial-apis/user-api),
+  [API limits](https://eodhd.com/financial-apis/api-limits)
 - **Tiingo:** [pricing](https://www.tiingo.com/about/pricing),
+  [general documentation](https://www.tiingo.com/documentation/general) (limits and resets),
   [IEX documentation](https://www.tiingo.com/documentation/iex),
   [fundamentals](https://www.tiingo.com/documentation/fundamentals)
 - **Alpha Vantage:** [premium plans](https://www.alphavantage.co/premium/),
@@ -169,4 +209,5 @@ and use the first one that covers the request. "Free" means the provider's free 
 - **FMP:** prices from
   [APIs.io's copy of FMP's pricing page](https://apis.io/plans/financial-modeling-prep/financial-modeling-prep-plans-pricing/)
   and [Stockfit](https://developer.stockfit.io/blog/financial-modeling-prep-alternatives)
+- **Anthropic:** [rate limits](https://platform.claude.com/docs/en/api/rate-limits)
 - **European Central Bank:** [reference rates feed](https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml)

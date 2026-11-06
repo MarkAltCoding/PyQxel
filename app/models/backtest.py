@@ -361,6 +361,11 @@ class BacktestOptions(BaseModel):
         description="Factor model to regress the strategy's daily returns on, separating "
         "alpha from factor exposure; null to skip.",
     )
+    accept_short_history: bool = Field(
+        default=False,
+        description="Run even when a plan serves less history than the window asks for, "
+        "after the user has read why. Without it such a run answers 409 with the reason.",
+    )
 
 
 class BacktestRequest(BacktestOptions):
@@ -830,6 +835,11 @@ class CrossSectionalBacktestRequest(BaseModel):
         default=False,
         description="Let capital not invested, and short sale proceeds, earn the risk-free "
         "rate (the one-month T-bill).",
+    )
+    accept_short_history: bool = Field(
+        default=False,
+        description="Run even when a plan serves less history than the window asks for, "
+        "after the user has read why. Without it such a run answers 409 with the reason.",
     )
     attribution: FactorModel | None = Field(
         default="carhart4",

@@ -1467,6 +1467,12 @@
       "BacktestRequest": {
         "description": "Options for a backtest of a built-in strategy.",
         "properties": {
+          "accept_short_history": {
+            "default": false,
+            "description": "Run even when a plan serves less history than the window asks for, after the user has read why. Without it such a run answers 409 with the reason.",
+            "title": "Accept Short History",
+            "type": "boolean"
+          },
           "attribution": {
             "anyOf": [
               {
@@ -2262,6 +2268,12 @@
       "CrossSectionalBacktestRequest": {
         "description": "Rank a universe of stocks against one another on a schedule, and hold the best.",
         "properties": {
+          "accept_short_history": {
+            "default": false,
+            "description": "Run even when a plan serves less history than the window asks for, after the user has read why. Without it such a run answers 409 with the reason.",
+            "title": "Accept Short History",
+            "type": "boolean"
+          },
           "attribution": {
             "anyOf": [
               {
@@ -2664,6 +2676,12 @@
       "CustomBacktestRequest": {
         "description": "Positions a custom strategy produced in the browser, to be scored on the server.\n\n``positions[i]`` is the target set at the close of the bar at ``timestamps[i]``; the\nengine holds it over the next bar, as for built-in strategies.",
         "properties": {
+          "accept_short_history": {
+            "default": false,
+            "description": "Run even when a plan serves less history than the window asks for, after the user has read why. Without it such a run answers 409 with the reason.",
+            "title": "Accept Short History",
+            "type": "boolean"
+          },
           "attribution": {
             "anyOf": [
               {
@@ -4489,6 +4507,54 @@
           "version"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "HistoryShortfall": {
+        "description": "Why one provider did not serve a fuller price history.",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "reason": {
+            "description": "``limit`` when the key has used its plan's requests for now, ``plan`` when the plan does not cover the symbol, ``failed`` when the provider failed.",
+            "enum": [
+              "limit",
+              "plan",
+              "failed"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "resets_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For ``limit``: when PyQxel will ask the provider again.",
+            "title": "Resets At"
+          }
+        },
+        "required": [
+          "provider",
+          "name",
+          "reason",
+          "message"
+        ],
+        "title": "HistoryShortfall",
         "type": "object"
       },
       "Holding": {
@@ -6501,6 +6567,12 @@
       "MultiAssetCustomBacktestRequest": {
         "description": "Weights a custom strategy set across several symbols in the browser, to be scored on\nthe server.\n\n``weights[i][j]`` is the share of capital in ``symbols[j]`` set at the close of\n``dates[i]``, held over the next bar; the rest is cash. The dates are those every\nsymbol traded, each exchange's own calendar date.",
         "properties": {
+          "accept_short_history": {
+            "default": false,
+            "description": "Run even when a plan serves less history than the window asks for, after the user has read why. Without it such a run answers 409 with the reason.",
+            "title": "Accept Short History",
+            "type": "boolean"
+          },
           "attribution": {
             "anyOf": [
               {
@@ -7025,9 +7097,58 @@
         "title": "NewsSource",
         "type": "object"
       },
+      "NightlyKeyUse": {
+        "description": "About how many requests one refresh sends on one key.",
+        "properties": {
+          "detail": {
+            "description": "What the requests are for.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "finnhub",
+              "tiingo",
+              "fmp",
+              "eodhd",
+              "alpha_vantage"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "requests": {
+            "description": "About how many requests one refresh sends.",
+            "minimum": 0.0,
+            "title": "Requests",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider",
+          "requests",
+          "detail"
+        ],
+        "title": "NightlyKeyUse",
+        "type": "object"
+      },
       "NightlyRefreshSettings": {
         "description": "Turns on the nightly refresh, or changes when it runs.\n\nThe keys the request carries are encrypted and stored with it, replacing any stored\nearlier, so send this again after changing a key.",
         "properties": {
+          "price_history_stocks": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 40,
+            "description": "Most stocks to fetch price histories for each night, largest first, one request each on the price-history keys; null for as many as their plans allow, which can use up a free plan's day.",
+            "title": "Price History Stocks"
+          },
           "refresh_time": {
             "default": "19:00",
             "description": "Local time of day the refresh starts, as HH:MM in 24-hour time. It starts within the hour after it and takes an hour or two.",
@@ -7041,6 +7162,28 @@
             "maxLength": 64,
             "title": "Time Zone",
             "type": "string"
+          },
+          "use_keys": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "finnhub",
+                    "tiingo",
+                    "fmp",
+                    "eodhd",
+                    "alpha_vantage"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The keys the refresh may use and so stores, of those the request carries; Finnhub's is needed. Null for every one the request carries.",
+            "title": "Use Keys"
           }
         },
         "title": "NightlyRefreshSettings",
@@ -7058,6 +7201,14 @@
             "description": "Whether the user has opted in.",
             "title": "Enabled",
             "type": "boolean"
+          },
+          "key_use": {
+            "description": "About how many requests one refresh sends on each stored key, to weigh against its plan's limits.",
+            "items": {
+              "$ref": "#/components/schemas/NightlyKeyUse"
+            },
+            "title": "Key Use",
+            "type": "array"
           },
           "keys_updated_at": {
             "anyOf": [
@@ -7106,6 +7257,19 @@
             ],
             "description": "When the next refresh is due to start.",
             "title": "Next Run At"
+          },
+          "price_history_stocks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 40,
+            "description": "Most stocks given price histories each night; null for as many as the keys' plans allow.",
+            "title": "Price History Stocks"
           },
           "providers": {
             "description": "Providers whose keys are stored, encrypted.",
@@ -7234,6 +7398,21 @@
             ],
             "description": "Stocks in the universe built.",
             "title": "Stocks"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Requests the refresh sent on each key, by provider.",
+            "title": "Usage"
           }
         },
         "required": [
@@ -7798,6 +7977,79 @@
           "max_drawdown"
         ],
         "title": "PerformanceMetrics",
+        "type": "object"
+      },
+      "PlanChoice": {
+        "description": "A plan the user can say their key is on.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "verified": {
+            "description": "False when its limits come from third-party listings, as the provider's page could not be read.",
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "verified"
+        ],
+        "title": "PlanChoice",
+        "type": "object"
+      },
+      "PlannedFetch": {
+        "description": "Something a page would fetch as soon as it loads.",
+        "properties": {
+          "interval": {
+            "default": "1d",
+            "description": "For price history: bar size.",
+            "maxLength": 4,
+            "title": "Interval",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "history",
+              "quote",
+              "info",
+              "news",
+              "metrics",
+              "signals",
+              "alternative",
+              "market_news",
+              "calendar"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "period": {
+            "default": "1y",
+            "description": "For price history: the lookback window.",
+            "maxLength": 8,
+            "title": "Period",
+            "type": "string"
+          },
+          "symbols": {
+            "description": "The symbols it is for, if any.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 80,
+            "title": "Symbols",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "PlannedFetch",
         "type": "object"
       },
       "PlannedTrade": {
@@ -8786,6 +9038,32 @@
             "title": "Period",
             "type": "string"
           },
+          "short_history": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when a plan served less history than the window asks for, rather than the listing being younger: a plain warning naming the key that ran out or the plan that is short, when it resets, and what to do. A backtest should not run on these bars without the user agreeing.",
+            "title": "Short History"
+          },
+          "shortfall": {
+            "description": "Each provider passed over for a fuller history, and why.",
+            "items": {
+              "$ref": "#/components/schemas/HistoryShortfall"
+            },
+            "title": "Shortfall",
+            "type": "array"
+          },
+          "stale": {
+            "default": false,
+            "description": "True when the bars are a stored copy that ends before the latest close, since no key could fetch the days since.",
+            "title": "Stale",
+            "type": "boolean"
+          },
           "symbol": {
             "title": "Symbol",
             "type": "string"
@@ -8966,6 +9244,174 @@
           "configured"
         ],
         "title": "ProviderCredential",
+        "type": "object"
+      },
+      "ProviderEstimate": {
+        "description": "About how many requests a page would send on one key, against what is left.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "new_symbols": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For plans that limit different symbols a month: how many of the symbols have not been asked for this month.",
+            "title": "New Symbols"
+          },
+          "provider": {
+            "enum": [
+              "tiingo",
+              "fmp",
+              "eodhd",
+              "finnhub",
+              "alpha_vantage",
+              "anthropic"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "requests": {
+            "description": "About how many requests; caches may save some.",
+            "minimum": 0.0,
+            "title": "Requests",
+            "type": "integer"
+          },
+          "tightest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UsageLimit"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The limit with the smallest share left, to weigh the requests against."
+          }
+        },
+        "required": [
+          "provider",
+          "name",
+          "requests"
+        ],
+        "title": "ProviderEstimate",
+        "type": "object"
+      },
+      "ProviderUsage": {
+        "description": "A key's plan, its limits, and how much of each is used.",
+        "properties": {
+          "limits": {
+            "items": {
+              "$ref": "#/components/schemas/UsageLimit"
+            },
+            "title": "Limits",
+            "type": "array"
+          },
+          "name": {
+            "description": "The provider's name for people.",
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What to know about these figures.",
+            "title": "Note"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plan's id, from ``plans``.",
+            "title": "Plan"
+          },
+          "plan_detected": {
+            "description": "True when the provider reported the plan's limits itself, so the user need not choose a plan.",
+            "title": "Plan Detected",
+            "type": "boolean"
+          },
+          "plan_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plan's name for people.",
+            "title": "Plan Name"
+          },
+          "plans": {
+            "description": "Plans the user can choose between for this key.",
+            "items": {
+              "$ref": "#/components/schemas/PlanChoice"
+            },
+            "title": "Plans",
+            "type": "array"
+          },
+          "provider": {
+            "enum": [
+              "tiingo",
+              "fmp",
+              "eodhd",
+              "finnhub",
+              "alpha_vantage",
+              "anthropic"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "reported_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the provider last reported figures, if it did.",
+            "title": "Reported At"
+          },
+          "source": {
+            "description": "Where the figures come from: all from the provider, all from PyQxel's own count, some of each, or nowhere yet.",
+            "enum": [
+              "provider",
+              "pyqxel",
+              "mixed",
+              "none"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "name",
+          "plan_detected",
+          "source"
+        ],
+        "title": "ProviderUsage",
         "type": "object"
       },
       "RankedAsset": {
@@ -10752,6 +11198,49 @@
         "title": "SmaCrossover",
         "type": "object"
       },
+      "StoredPrices": {
+        "description": "The price history PyQxel keeps for the user.",
+        "properties": {
+          "bytes": {
+            "description": "Their compressed size.",
+            "minimum": 0.0,
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "histories": {
+            "description": "Histories stored; one per symbol and provider.",
+            "minimum": 0.0,
+            "title": "Histories",
+            "type": "integer"
+          },
+          "oldest_fetch": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the oldest of them was last fetched.",
+            "title": "Oldest Fetch"
+          },
+          "symbols": {
+            "description": "Symbols with stored daily prices.",
+            "minimum": 0.0,
+            "title": "Symbols",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "symbols",
+          "histories",
+          "bytes"
+        ],
+        "title": "StoredPrices",
+        "type": "object"
+      },
       "StudentTCopula": {
         "description": "A Student t copula: correlated, with joint extremes likelier at fewer degrees of freedom.",
         "properties": {
@@ -11151,6 +11640,191 @@
           "stocks"
         ],
         "title": "UniverseStatus",
+        "type": "object"
+      },
+      "UsageEstimate": {
+        "description": "About how many requests loading a page would send on each key.",
+        "properties": {
+          "from_store": {
+            "description": "Price histories that would be served from stored prices, free.",
+            "minimum": 0.0,
+            "title": "From Store",
+            "type": "integer"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderEstimate"
+            },
+            "title": "Providers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers",
+          "from_store"
+        ],
+        "title": "UsageEstimate",
+        "type": "object"
+      },
+      "UsageEstimateRequest": {
+        "description": "What a page would fetch, to estimate the requests it would send on each key.",
+        "properties": {
+          "fetches": {
+            "items": {
+              "$ref": "#/components/schemas/PlannedFetch"
+            },
+            "maxItems": 40,
+            "title": "Fetches",
+            "type": "array"
+          },
+          "plans": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The plan the user says each key is on, by provider, as in ``GET /usage``.",
+            "title": "Plans",
+            "type": "object"
+          }
+        },
+        "required": [
+          "fetches"
+        ],
+        "title": "UsageEstimateRequest",
+        "type": "object"
+      },
+      "UsageLimit": {
+        "description": "One limit of a plan, how much of it is used, and when it resets.",
+        "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Most allowed in the window.",
+            "title": "Limit"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A caveat about the figures, if any.",
+            "title": "Note"
+          },
+          "remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Left in the window.",
+            "title": "Remaining"
+          },
+          "resets": {
+            "description": "When the limit resets, in words.",
+            "title": "Resets",
+            "type": "string"
+          },
+          "resets_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the window ends.",
+            "title": "Resets At"
+          },
+          "source": {
+            "description": "``provider`` when the provider reported the figures, which counts use from anywhere; ``pyqxel`` when they are PyQxel's own count of its requests alone.",
+            "enum": [
+              "provider",
+              "pyqxel"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "unit": {
+            "description": "What is counted: requests; EODHD's ``calls``, which weigh some requests more; different ``symbols``; ``bytes`` of answers; or Anthropic's tokens.",
+            "enum": [
+              "requests",
+              "calls",
+              "symbols",
+              "bytes",
+              "tokens",
+              "input_tokens",
+              "output_tokens"
+            ],
+            "title": "Unit",
+            "type": "string"
+          },
+          "used": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Used so far in the window.",
+            "title": "Used"
+          },
+          "window": {
+            "description": "The span the limit counts over.",
+            "enum": [
+              "second",
+              "minute",
+              "hour",
+              "day",
+              "month"
+            ],
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window",
+          "unit",
+          "resets",
+          "source"
+        ],
+        "title": "UsageLimit",
+        "type": "object"
+      },
+      "UsageResponse": {
+        "description": "Every key's plan usage, for the keys the request carried.",
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderUsage"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "stored_prices": {
+            "$ref": "#/components/schemas/StoredPrices"
+          }
+        },
+        "required": [
+          "providers",
+          "stored_prices"
+        ],
+        "title": "UsageResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -12062,7 +12736,7 @@
     },
     "/api/v1/backtests/cross-sectional": {
       "post": {
-        "description": "Rank ``symbols`` by ``signal`` at the last close of every week, month or quarter, and\nhold the best of them until the next ranking.\n\nSignals: ``momentum`` (the return from ``lookback`` to ``skip`` bars ago, highest\nfirst), ``reversal`` (the last ``lookback`` bars' return, lowest first),\n``low_volatility`` (the volatility of daily returns, lowest first), ``trend`` (the\ndistance above the moving average, highest first) and ``risk_adjusted_momentum``\n(momentum over its volatility). The top ``quantile`` of the stocks ranked, or the top\n``top_n``, are bought; with ``long_short`` as many of the bottom ones are shorted, each\nleg one unit of capital. Legs are split equally or by inverse volatility.\n\nStocks are ranked once they have the signal's full window, so recent listings join\nlater rather than shortening the window for all. Weights drift between rebalances;\neach rebalance pays ``cost_bps`` per unit of capital traded. Capital not invested and\nshort sale proceeds earn nothing, or the risk-free rate with ``cash_interest``. The\nbenchmark holds every stock equally, rebalanced daily, without costs.\n\n``information_coefficient`` is the average Spearman correlation of each ranking with\nthe returns to the next one, and ``attribution`` regresses the daily returns on a\nfactor model. Results are not stored.\n\nReturns 404 naming unknown symbols, 422 when no rebalance has enough stocks with the\nsignal's history, and 502 when the price provider fails or the risk-free rate cannot\nbe fetched.",
+        "description": "Rank ``symbols`` by ``signal`` at the last close of every week, month or quarter, and\nhold the best of them until the next ranking.\n\nSignals: ``momentum`` (the return from ``lookback`` to ``skip`` bars ago, highest\nfirst), ``reversal`` (the last ``lookback`` bars' return, lowest first),\n``low_volatility`` (the volatility of daily returns, lowest first), ``trend`` (the\ndistance above the moving average, highest first) and ``risk_adjusted_momentum``\n(momentum over its volatility). The top ``quantile`` of the stocks ranked, or the top\n``top_n``, are bought; with ``long_short`` as many of the bottom ones are shorted, each\nleg one unit of capital. Legs are split equally or by inverse volatility.\n\nStocks are ranked once they have the signal's full window, so recent listings join\nlater rather than shortening the window for all. Weights drift between rebalances;\neach rebalance pays ``cost_bps`` per unit of capital traded. Capital not invested and\nshort sale proceeds earn nothing, or the risk-free rate with ``cash_interest``. The\nbenchmark holds every stock equally, rebalanced daily, without costs.\n\n``information_coefficient`` is the average Spearman correlation of each ranking with\nthe returns to the next one, and ``attribution`` regresses the daily returns on a\nfactor model. Results are not stored.\n\nReturns 404 naming unknown symbols, 422 when no rebalance has enough stocks with the\nsignal's history, and 502 when the price provider fails or the risk-free rate cannot\nbe fetched.\n\nReturns 409, saying which key ran out or which plan is short, when it resets and what\nto do, when a plan served less history than the window asks for and\n``accept_short_history`` is false.",
         "operationId": "create_cross_sectional_backtest_api_v1_backtests_cross_sectional_post",
         "requestBody": {
           "content": {
@@ -12104,7 +12778,7 @@
     },
     "/api/v1/backtests/custom": {
       "post": {
-        "description": "Score the weights a custom strategy set across several ``symbols`` in the browser.\n\nThe code never runs on the server: it is stored with the result so the run can be\nreproduced and edited. The server fetches every symbol's bars again, keeps the dates\nall of them traded from the first of ``dates`` to the last, and holds each row of\n``weights`` over the bar after its date. Weights are shares of capital, reset every\nbar; what they leave over is cash, which earns nothing or, with ``cash_interest``,\nthe risk-free rate, as do short sale proceeds. Each change of weight pays\n``cost_bps`` per unit traded. The benchmark holds the symbols the weights ever hold\n(all of them, if none) in equal weights,\nrebalanced every bar, without costs; ``assets`` gives each symbol's part.\n\nThe result is stored like a single-symbol backtest, under its first symbol, and its\n``id`` returned for ``GET /backtests/{id}``.\n\nReturns 404 naming unknown symbols, 422 when a bar every symbol traded in that range\nhas no weights or the range has too few bars, and 502 when the data provider fails\nor the risk-free rate cannot be fetched.",
+        "description": "Score the weights a custom strategy set across several ``symbols`` in the browser.\n\nThe code never runs on the server: it is stored with the result so the run can be\nreproduced and edited. The server fetches every symbol's bars again, keeps the dates\nall of them traded from the first of ``dates`` to the last, and holds each row of\n``weights`` over the bar after its date. Weights are shares of capital, reset every\nbar; what they leave over is cash, which earns nothing or, with ``cash_interest``,\nthe risk-free rate, as do short sale proceeds. Each change of weight pays\n``cost_bps`` per unit traded. The benchmark holds the symbols the weights ever hold\n(all of them, if none) in equal weights,\nrebalanced every bar, without costs; ``assets`` gives each symbol's part.\n\nThe result is stored like a single-symbol backtest, under its first symbol, and its\n``id`` returned for ``GET /backtests/{id}``.\n\nReturns 404 naming unknown symbols, 422 when a bar every symbol traded in that range\nhas no weights or the range has too few bars, and 502 when the data provider fails\nor the risk-free rate cannot be fetched.\n\nReturns 409, saying which key ran out or which plan is short, when it resets and what\nto do, when a plan served less history than the window asks for and\n``accept_short_history`` is false.",
         "operationId": "create_multi_asset_custom_backtest_api_v1_backtests_custom_post",
         "requestBody": {
           "content": {
@@ -12539,8 +13213,52 @@
         ]
       },
       "get": {
-        "description": "Return whether your nightly screener refresh is on, when it runs, which of your\nkeys it stores, and how its latest runs went.\n\nReturns 503 when the database is unavailable.",
+        "description": "Return whether your nightly screener refresh is on, when it runs, which of your\nkeys it stores, how its latest runs went, and about how many requests one refresh\nsends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of\nkeys and of ``price_history_stocks`` before it is saved.\n\nReturns 503 when the database is unavailable.",
         "operationId": "read_nightly_refresh_api_v1_me_nightly_refresh_get",
+        "parameters": [
+          {
+            "description": "Keys being considered, to preview what a refresh would use.",
+            "in": "query",
+            "name": "use_key",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Keys being considered, to preview what a refresh would use.",
+              "items": {
+                "enum": [
+                  "finnhub",
+                  "tiingo",
+                  "fmp",
+                  "eodhd",
+                  "alpha_vantage"
+                ],
+                "type": "string"
+              },
+              "title": "Use Key",
+              "type": "array"
+            }
+          },
+          {
+            "description": "A price-history cap being considered, likewise.",
+            "in": "query",
+            "name": "price_history_stocks",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 10000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A price-history cap being considered, likewise.",
+              "title": "Price History Stocks"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -12551,6 +13269,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Your nightly screener refresh",
@@ -13043,7 +13771,7 @@
     },
     "/api/v1/portfolio/holdings": {
       "get": {
-        "description": "Return a saved portfolio's holdings valued at the latest prices, with their weights.\n\nHoldings that cannot be priced are listed without a value or weight and named in\n``notice``. Returns 503 when the database is unavailable.",
+        "description": "Return a saved portfolio's holdings valued at the latest prices, with their weights.\n\nHoldings that cannot be priced are listed without a value or weight and named in\n``notice``. With ``priced`` false, only the saved symbols and shares are returned, so a\npage can say what pricing them would cost first. Returns 503 when the database is\nunavailable.",
         "operationId": "read_holdings_api_v1_portfolio_holdings_get",
         "parameters": [
           {
@@ -13058,6 +13786,18 @@
               "minimum": 1,
               "title": "Portfolio",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Value the holdings at the latest prices, which asks your keys' providers; false for the saved symbols and shares alone, with no request.",
+            "in": "query",
+            "name": "priced",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Value the holdings at the latest prices, which asks your keys' providers; false for the saved symbols and shares alone, with no request.",
+              "title": "Priced",
+              "type": "boolean"
             }
           }
         ],
@@ -13895,7 +14635,7 @@
     },
     "/api/v1/stocks/{symbol}/backtest": {
       "post": {
-        "description": "Backtest a strategy on ``symbol``'s adjusted closes and score it against buy-and-hold.\n\nStrategies: ``buy_and_hold``, ``sma_crossover``, ``time_series_momentum`` (long while\nthe asset's own past return is positive), ``mean_reversion`` (buy a stretched fall\nbelow the moving average, sell as it reverts), ``rsi`` (buy oversold, sell\noverbought), ``bollinger_bands`` (fade or follow moves to the bands),\n``donchian_breakout`` (buy new highs, sell new lows), ``dual_momentum`` (long while\nthe past return is positive and beats a benchmark's), ``volatility_targeting``\n(long, sized to a target volatility) and ``macd`` (long while MACD is above its\nsignal line). All need only adjusted closes.\n\nPositions set at a bar's close are held over the next bar, and trades pay\n``cost_bps`` per unit of turnover. Idle capital earns nothing, or the risk-free rate\nwith ``cash_interest``. Returns are total returns, since closes are adjusted for\nsplits and dividends. Returns and volatilities are decimals (0.25 = 25%); volatility,\nSharpe and Sortino are annualized.\n\n``attribution`` regresses the strategy's daily returns on a factor model:\n``attribution.fit.alpha`` is the annualized return the factors do not explain, and\nthe betas show how much of the result is factor exposure. It needs daily bars.\n\nThe result is stored and its ``id`` returned for ``GET /backtests/{id}``. If the\ndatabase is unavailable the result is still returned, with a null ``id``.\n\nReturns 404 for unknown symbols, 422 when the window has too few bars for the\nstrategy or dual momentum's benchmark is unknown, and 502 when the data provider\nfails, or the risk-free rate or dual momentum's benchmark cannot be fetched.",
+        "description": "Backtest a strategy on ``symbol``'s adjusted closes and score it against buy-and-hold.\n\nStrategies: ``buy_and_hold``, ``sma_crossover``, ``time_series_momentum`` (long while\nthe asset's own past return is positive), ``mean_reversion`` (buy a stretched fall\nbelow the moving average, sell as it reverts), ``rsi`` (buy oversold, sell\noverbought), ``bollinger_bands`` (fade or follow moves to the bands),\n``donchian_breakout`` (buy new highs, sell new lows), ``dual_momentum`` (long while\nthe past return is positive and beats a benchmark's), ``volatility_targeting``\n(long, sized to a target volatility) and ``macd`` (long while MACD is above its\nsignal line). All need only adjusted closes.\n\nPositions set at a bar's close are held over the next bar, and trades pay\n``cost_bps`` per unit of turnover. Idle capital earns nothing, or the risk-free rate\nwith ``cash_interest``. Returns are total returns, since closes are adjusted for\nsplits and dividends. Returns and volatilities are decimals (0.25 = 25%); volatility,\nSharpe and Sortino are annualized.\n\n``attribution`` regresses the strategy's daily returns on a factor model:\n``attribution.fit.alpha`` is the annualized return the factors do not explain, and\nthe betas show how much of the result is factor exposure. It needs daily bars.\n\nThe result is stored and its ``id`` returned for ``GET /backtests/{id}``. If the\ndatabase is unavailable the result is still returned, with a null ``id``.\n\nReturns 404 for unknown symbols, 422 when the window has too few bars for the\nstrategy or dual momentum's benchmark is unknown, and 502 when the data provider\nfails, or the risk-free rate or dual momentum's benchmark cannot be fetched.\n\nReturns 409, saying which key ran out or which plan is short, when it resets and what\nto do, when a plan served less history than the window asks for and\n``accept_short_history`` is false.",
         "operationId": "create_backtest_api_v1_stocks__symbol__backtest_post",
         "parameters": [
           {
@@ -13917,6 +14657,7 @@
               "schema": {
                 "$ref": "#/components/schemas/BacktestRequest",
                 "default": {
+                  "accept_short_history": false,
                   "attribution": "carhart4",
                   "cash_interest": false,
                   "cost_bps": 5.0,
@@ -13964,7 +14705,7 @@
     },
     "/api/v1/stocks/{symbol}/backtest/custom": {
       "post": {
-        "description": "Score positions a custom Python strategy produced in the browser, as\n``POST /stocks/{symbol}/backtest`` scores a built-in one.\n\nThe code never runs on the server: it is stored with the result so the run can be\nreproduced and edited. The server fetches ``symbol``'s bars again and backtests the\nones from the first of ``timestamps`` to the last, so a bar published since the\npositions were computed is left out. Each position is held over the bar after its\ntimestamp, and costs, cash interest and attribution work as for built-in strategies.\n\nReturns 404 for unknown symbols, 422 when a bar in that range has no position or the\nrange has too few bars, and 502 when the data provider fails or the risk-free rate\ncannot be fetched.",
+        "description": "Score positions a custom Python strategy produced in the browser, as\n``POST /stocks/{symbol}/backtest`` scores a built-in one.\n\nThe code never runs on the server: it is stored with the result so the run can be\nreproduced and edited. The server fetches ``symbol``'s bars again and backtests the\nones from the first of ``timestamps`` to the last, so a bar published since the\npositions were computed is left out. Each position is held over the bar after its\ntimestamp, and costs, cash interest and attribution work as for built-in strategies.\n\nReturns 404 for unknown symbols, 422 when a bar in that range has no position or the\nrange has too few bars, and 502 when the data provider fails or the risk-free rate\ncannot be fetched.\n\nReturns 409, saying which key ran out or which plan is short, when it resets and what\nto do, when a plan served less history than the window asks for and\n``accept_short_history`` is false.",
         "operationId": "create_custom_backtest_api_v1_stocks__symbol__backtest_custom_post",
         "parameters": [
           {
@@ -14540,6 +15281,112 @@
         "summary": "GARCH(1,1) or EWMA volatility estimate and forecast",
         "tags": [
           "stocks"
+        ]
+      }
+    },
+    "/api/v1/usage": {
+      "get": {
+        "description": "Return, for each key the request carries, its plan's limits (per second, minute,\nhour, day or month, and different symbols a month where one applies), how much of\neach is used and left, and when each resets.\n\nEODHD's daily figures come from its account page, and Finnhub's, EODHD's and\nAnthropic's per-minute figures from the headers of their latest answers, so they count\nuse from anywhere. Tiingo, FMP and Alpha Vantage report nothing, so their figures are\nPyQxel's own count of its requests, labeled ``pyqxel``. Also says how much price\nhistory PyQxel keeps for the user. Returns 503 when the database is unavailable.",
+        "operationId": "read_usage_api_v1_usage_get",
+        "parameters": [
+          {
+            "description": "The plan each key is on, as ``provider:plan`` (e.g. ``tiingo:power``); a key not named is taken to be on the free plan.",
+            "in": "query",
+            "name": "plan",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "The plan each key is on, as ``provider:plan`` (e.g. ``tiingo:power``); a key not named is taken to be on the free plan.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Plan",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Your keys' plan usage",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/api/v1/usage/estimate": {
+      "post": {
+        "description": "Estimate how many requests fetching ``fetches`` would send on each key, cheapest\nkey first as the fetches themselves try them, and weigh them against each plan's\ntightest limit. Histories the user's stored prices hold count as free. Nothing is\nfetched. Returns 503 when the database is unavailable.",
+        "operationId": "estimate_usage_api_v1_usage_estimate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsageEstimateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageEstimate"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What loading a page would use",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/api/v1/usage/stored-prices": {
+      "delete": {
+        "description": "Delete every price history PyQxel keeps for you. Later pages fetch prices again on\nyour keys. Returns 503 when the database is unavailable.",
+        "operationId": "remove_stored_prices_api_v1_usage_stored_prices_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Delete your stored prices",
+        "tags": [
+          "usage"
         ]
       }
     },

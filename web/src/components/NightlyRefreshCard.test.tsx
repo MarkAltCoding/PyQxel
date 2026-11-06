@@ -41,11 +41,14 @@ const account = (finnhub: boolean) => ({ finnhub: { configured: finnhub } }) as 
 
 afterEach(() => vi.restoreAllMocks())
 
-function renderCard(withFinnhub = true) {
+function renderCard(
+  withFinnhub = true,
+  props: Partial<Parameters<typeof NightlyRefreshCard>[0]> = {},
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <NightlyRefreshCard account={account(withFinnhub)} />
+      <NightlyRefreshCard account={account(withFinnhub)} {...props} />
     </QueryClientProvider>,
   )
 }
@@ -68,6 +71,8 @@ describe('NightlyRefreshCard', () => {
     expect(JSON.parse(String(put![1]!.body))).toEqual({
       refresh_time: '19:00',
       time_zone: 'America/New_York',
+      use_keys: ['finnhub'],
+      price_history_stocks: 40,
     })
     expect(screen.getByText(/Stored, encrypted: Finnhub, Tiingo/)).toBeInTheDocument()
     expect(screen.getByText(/Finnhub rejected your API key/)).toBeInTheDocument()
@@ -109,13 +114,78 @@ describe('NightlyRefreshCard', () => {
     await waitFor(() => expect(zone).toHaveValue('America/Chicago'))
 
     await userEvent.selectOptions(zone, 'America/Los_Angeles')
-    await userEvent.click(screen.getByRole('button', { name: 'Save time' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
 
     await waitFor(() => {
       const put = fetch.mock.calls.find(([, init]) => init?.method === 'PUT')
       expect(JSON.parse(String(put![1]!.body))).toEqual({
         refresh_time: '19:00',
         time_zone: 'America/Los_Angeles',
+        use_keys: ['finnhub'],
+        price_history_stocks: 40,
+      })
+    })
+  })
+
+  it('lets the user choose the keys and how many histories, and says what a refresh uses', async () => {
+    const withTiingo = {
+      finnhub: { configured: true },
+      tiingo: { configured: true },
+      eodhd: { configured: true },
+    } as unknown as Account
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      const query = new URL(String(url), 'http://localhost').searchParams
+      if (init?.method === 'PUT') return new Response(JSON.stringify(ON))
+      if (query.has('use_key')) {
+        const stocks = Number(query.get('price_history_stocks'))
+        return new Response(
+          JSON.stringify({
+            ...OFF,
+            key_use: [
+              { provider: 'finnhub', requests: 5500, detail: '' },
+              ...query
+                .getAll('use_key')
+                .filter((key) => key !== 'finnhub')
+                .map((provider) => ({ provider, requests: stocks, detail: '' })),
+            ],
+          }),
+        )
+      }
+      return new Response(JSON.stringify(OFF))
+    })
+    const usage = {
+      providers: [
+        {
+          provider: 'tiingo',
+          name: 'Tiingo',
+          plan_detected: false,
+          source: 'pyqxel',
+          limits: [
+            { window: 'hour', unit: 'requests', limit: 50, resets: '', source: 'pyqxel' },
+            { window: 'day', unit: 'requests', limit: 1000, resets: '', source: 'pyqxel' },
+            { window: 'month', unit: 'symbols', limit: 500, resets: '', source: 'pyqxel' },
+          ],
+        },
+      ],
+      stored_prices: { symbols: 0, histories: 0, bytes: 0 },
+    } as Parameters<typeof NightlyRefreshCard>[0]['usage']
+    renderCard(true, { account: withTiingo, usage })
+
+    // Tiingo alone is used for prices until the user chooses, for 40 stocks.
+    expect(await screen.findByText(/about 5,500 requests/)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/4% of its 1,000 a day, 80% of its 50 an hour/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/No daily limit/)).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'EODHD' })).not.toBeChecked()
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /refresh my own screener/i }))
+
+    await waitFor(() => {
+      const put = fetch.mock.calls.find(([, init]) => init?.method === 'PUT')
+      expect(JSON.parse(String(put![1]!.body))).toMatchObject({
+        use_keys: ['finnhub', 'tiingo'],
+        price_history_stocks: 40,
       })
     })
   })

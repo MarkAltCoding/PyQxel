@@ -762,6 +762,48 @@ table.data .muted {
   color: var(--text-muted);
 }
 
+/* ── Plan usage under each key (Settings) ── */
+.key-usage {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.key-usage h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.usage-table td .note {
+  font-size: 12px;
+  white-space: normal;
+}
+
+.usage-table td.resets {
+  min-width: 160px;
+  white-space: normal;
+}
+
+.usage-table td.low {
+  color: var(--warning);
+}
+
+.field.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Asking before a page loads ── */
+.load-gate ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.load-gate li + li {
+  margin-top: 4px;
+}
+
 /* ── Holdings table (Portfolio): laid out like a broker's positions view ── */
 .holdings-table th,
 .holdings-table td {

@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getHoldings, getPortfolios, runCrossSectionalBacktest } from '../api/endpoints'
+import { getPortfolios, getSavedHoldings, runCrossSectionalBacktest } from '../api/endpoints'
+import { shortHistoryMessage } from '../lib/shortHistory'
+import { ShortHistoryNotice } from './ShortHistoryNotice'
 import type {
   CrossSectionalBacktestRequest,
   CrossSectionalBacktestResponse,
@@ -203,15 +205,18 @@ export function CrossSectionalBacktest() {
   const saved = (portfolios.data?.portfolios ?? []).filter((p) => p.holdings > 0)
   const holdings = useMutation({
     mutationFn: (portfolio: number) =>
+      // Only the symbols are needed, so the holdings are not priced, which would spend a
+      // request on each.
       queryClient.fetchQuery({
-        queryKey: ['holdings', portfolio],
-        queryFn: () => getHoldings(portfolio),
+        queryKey: ['saved-holdings', portfolio],
+        queryFn: () => getSavedHoldings(portfolio),
       }),
     onSuccess: (data) => setSymbols(data.holdings.map((holding) => holding.symbol).join(' ')),
   })
   const run = useMutation({
-    mutationFn: () =>
+    mutationFn: (acceptShort: boolean = false) =>
       runCrossSectionalBacktest({
+        accept_short_history: acceptShort,
         symbols,
         signal: signalOf(form),
         rebalance: form.rebalance,
@@ -227,7 +232,7 @@ export function CrossSectionalBacktest() {
   })
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (!tooFew && !tooMany && invalid.length === 0) run.mutate()
+    if (!tooFew && !tooMany && invalid.length === 0) run.mutate(false)
   }
   const signal = SIGNALS.find((s) => s.value === form.signal)
   const maxLeg = form.longShort ? Math.floor(symbols.length / 2) : symbols.length
@@ -423,7 +428,16 @@ export function CrossSectionalBacktest() {
               : ''}
           </p>
         )}
-        {run.error !== null && <ErrorNotice error={run.error} />}
+        {run.error !== null && shortHistoryMessage(run.error) !== null && (
+          <ShortHistoryNotice
+            message={shortHistoryMessage(run.error)!}
+            busy={run.isPending}
+            onAccept={() => run.mutate(true)}
+          />
+        )}
+        {run.error !== null && shortHistoryMessage(run.error) === null && (
+          <ErrorNotice error={run.error} />
+        )}
       </form>
 
       {run.data && <UniverseResult result={run.data} refreshing={run.isPending} />}

@@ -20,6 +20,10 @@ STORED_PROVIDERS: tuple[NightlyProvider, ...] = (
 
 RunStatus = Literal["running", "succeeded", "failed"]
 
+DEFAULT_PRICE_HISTORY_STOCKS: int = 40
+"""Price histories a refresh fetches unless the user chooses: enough for the largest
+stocks, and under a free Tiingo key's 50 requests an hour."""
+
 
 class NightlyRefreshSettings(BaseModel):
     """Turns on the nightly refresh, or changes when it runs.
@@ -38,6 +42,20 @@ class NightlyRefreshSettings(BaseModel):
         default="America/New_York",
         max_length=64,
         description="IANA time zone ``refresh_time`` is in, e.g. America/Chicago.",
+    )
+
+    use_keys: list[NightlyProvider] | None = Field(
+        default=None,
+        description="The keys the refresh may use and so stores, of those the request "
+        "carries; Finnhub's is needed. Null for every one the request carries.",
+    )
+    price_history_stocks: int | None = Field(
+        default=DEFAULT_PRICE_HISTORY_STOCKS,
+        ge=0,
+        le=10_000,
+        description="Most stocks to fetch price histories for each night, largest first, "
+        "one request each on the price-history keys; null for as many as their plans "
+        "allow, which can use up a free plan's day.",
     )
 
     @field_validator("time_zone")
@@ -65,6 +83,17 @@ class NightlyRun(BaseModel):
     )
     prices_as_of: date | None = Field(default=None, description="Date of the latest closes.")
     error: str | None = Field(default=None, description="Why the refresh failed, if it did.")
+    usage: dict[str, int] | None = Field(
+        default=None, description="Requests the refresh sent on each key, by provider."
+    )
+
+
+class NightlyKeyUse(BaseModel):
+    """About how many requests one refresh sends on one key."""
+
+    provider: NightlyProvider
+    requests: int = Field(ge=0, description="About how many requests one refresh sends.")
+    detail: str = Field(description="What the requests are for.")
 
 
 class NightlyRefreshStatus(BaseModel):
@@ -91,4 +120,14 @@ class NightlyRefreshStatus(BaseModel):
     )
     last_success: NightlyRun | None = Field(
         default=None, description="The latest refresh that succeeded, whose universe is shown."
+    )
+    price_history_stocks: int | None = Field(
+        default=DEFAULT_PRICE_HISTORY_STOCKS,
+        description="Most stocks given price histories each night; null for as many as the "
+        "keys' plans allow.",
+    )
+    key_use: list[NightlyKeyUse] = Field(
+        default_factory=list,
+        description="About how many requests one refresh sends on each stored key, to weigh "
+        "against its plan's limits.",
     )

@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.models.usage import HistoryShortfall
+
 SYMBOL_PATTERN: str = r"^[A-Za-z0-9.\-^=]{1,15}$"
 """Letters, digits and the ``.``, ``-``, ``^``, ``=`` used by class shares, indices and FX."""
 
@@ -67,4 +69,20 @@ class PriceHistory(BaseModel):
     )
     notice: str | None = Field(
         default=None, description="Explains which part of the window has no data, if any."
+    )
+    short_history: str | None = Field(
+        default=None,
+        description="Set when a plan served less history than the window asks for, rather "
+        "than the listing being younger: a plain warning naming the key that ran out or the "
+        "plan that is short, when it resets, and what to do. A backtest should not run on "
+        "these bars without the user agreeing.",
+    )
+    shortfall: list[HistoryShortfall] = Field(
+        default_factory=list,
+        description="Each provider passed over for a fuller history, and why.",
+    )
+    stale: bool = Field(
+        default=False,
+        description="True when the bars are a stored copy that ends before the latest close, "
+        "since no key could fetch the days since.",
     )

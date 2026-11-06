@@ -782,6 +782,54 @@ const entries = {
     title: 'Next refresh',
     what: 'When your next nightly refresh is due to start, in your own time. It starts within the hour after this time.',
   },
+  nightlyKeyUse: {
+    title: 'What one refresh uses',
+    what: 'About how many requests one nightly refresh sends on each key, and what share of that plan’s daily or monthly allowance that is. Finnhub gets one request per listed stock for its metrics; each price-history key gets one request per stock given price-history columns.',
+    good: 'Well under each plan’s daily limit, so pages and backtests the next day still have requests left.',
+    bad: 'Near or over 100% of a daily limit: the refresh would use up that key for the day, and pages would fall back to shorter or older prices.',
+    note: 'After a refresh runs, these are its own counts rather than estimates.',
+  },
+
+  // ── Plan usage ──
+  planUsage: {
+    title: 'Plan usage',
+    what: 'How much of this key’s plan has been used: each limit the plan sets (per minute, hour, day or month, and different symbols a month where one applies), how much is used and left, and when each resets.',
+    note: 'Where the provider reports its own figures, they count every use of the key, from PyQxel or anywhere else. Tiingo, FMP and Alpha Vantage report nothing, so for them PyQxel shows its own count of its requests, which leaves out use of the same key elsewhere.',
+  },
+  usageLimit: {
+    title: 'Limit',
+    what: 'The most the plan allows in each span of time: requests (EODHD counts “calls”, which weigh some requests more), different symbols, or data downloaded.',
+  },
+  usageUsed: {
+    title: 'Used',
+    what: 'How much of the limit has been used in the current span, and who counted it: the provider itself, or PyQxel’s own count of its requests.',
+  },
+  usageLeft: {
+    title: 'Left',
+    what: 'How much of the limit remains until it resets.',
+    good: 'Plenty left for the pages you open: about one request per holding or stock shown.',
+    bad: 'Close to zero: pages then fall back to other keys, or to shorter or older prices, until the limit resets.',
+  },
+  usageResets: {
+    title: 'Resets',
+    what: 'When the current span ends and the limit starts again, on this device’s clock, with the provider’s rule for it.',
+    note: 'FMP and Alpha Vantage do not say when their daily limits reset, so PyQxel counts their days from midnight UTC.',
+  },
+  loadEstimate: {
+    title: 'Before this page loads',
+    what: 'Opening this page asks your keys’ providers for prices, profiles or news right away. This shows about how many requests that would send on each key, and how much of the tightest limit is left, so you can choose whether to spend them now.',
+    note: 'Prices PyQxel already keeps for you, and recent answers it remembers, cost nothing, so the real count is often lower.',
+  },
+  storedPrices: {
+    title: 'Stored prices',
+    what: 'Daily prices PyQxel keeps for you alone, fetched on your own keys. Later pages and backtests reuse them, fetching only the days since, instead of spending a request each time.',
+    note: 'They are never shown to anyone else, as the providers’ terms require, and are deleted when unused for 30 days, when you delete them here, or when you delete your account.',
+  },
+  shortHistory: {
+    title: 'Shorter history than asked',
+    what: 'A provider served fewer years of prices than the backtest window asks for, because a key ran out of requests or its plan covers less. A backtest on the shorter history can trade very differently, or not at all.',
+    note: 'Waiting until the key’s limit resets brings the full history back, and PyQxel keeps it for next time.',
+  },
 } satisfies Record<string, Info>
 
 export type InfoKey = keyof typeof entries

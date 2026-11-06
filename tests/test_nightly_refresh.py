@@ -15,6 +15,7 @@ from pydantic import SecretStr
 from app.core.config import get_settings
 from app.core.credentials import PROVIDER_HEADERS, ProviderKeys, current_provider_keys
 from app.core.security import decrypt_secret, generate_encryption_key
+from app.data import usage
 from app.data.fetcher import DataFetchError, ProviderNotConfiguredError
 from app.data.screener_metrics import parse_quote_price, parse_screen_metrics
 from app.data.universe import Listing
@@ -466,3 +467,64 @@ def test_finnhub_stand_ins_and_quotes_are_read() -> None:
     assert metrics.beta == 1.1
     assert parse_quote_price({"c": 151.2}) == 151.2
     assert parse_quote_price({"c": 0, "pc": 0}) is None
+
+
+# Choosing what the refresh may spend.
+
+
+@pytest.mark.usefixtures("encryption")
+def test_opting_in_stores_only_the_keys_chosen_and_says_what_a_refresh_uses(
+    user: User, key: str
+) -> None:
+    response = client.put(
+        "/api/v1/me/nightly-refresh",
+        headers=_headers(key, finnhub=FINNHUB, tiingo=TIINGO, eodhd="eodhd-user-key"),
+        json={"use_keys": ["finnhub", "tiingo"], "price_history_stocks": 30},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["providers"] == ["finnhub", "tiingo"]
+    assert body["price_history_stocks"] == 30
+    record = _stored(user)
+    assert record is not None
+    plain = json.loads(decrypt_secret(record.credentials).get_secret_value())
+    assert set(plain) == {"finnhub", "tiingo"}, "the EODHD key is not stored"
+    use = {item["provider"]: item["requests"] for item in body["key_use"]}
+    assert use == {"finnhub": 5_000, "tiingo": 30}, "listings assumed, and 30 price histories"
+
+
+@pytest.mark.usefixtures("encryption")
+def test_a_refresh_fetches_only_as_many_histories_as_chosen_and_records_its_use(
+    user: User, key: str, fakes: dict[str, list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def enable() -> None:
+        async with get_sessionmaker()() as session:
+            await storage.enable(
+                session,
+                user.id,
+                NightlyRefreshSettings(
+                    refresh_time="00:00", time_zone="UTC", price_history_stocks=1
+                ),
+                ProviderKeys(finnhub=SecretStr(FINNHUB), tiingo=SecretStr(TIINGO)),
+            )
+
+    asyncio.run(enable())
+    histories = getattr(job, "fetch_histories")
+
+    async def counted(symbols: Iterable[str], start: date) -> dict[str, pd.DataFrame]:
+        ordered = list(symbols)
+        for symbol in ordered:
+            usage.record("tiingo", TIINGO, symbols=[symbol])
+        assert not current_provider_keys().store_history, "bulk work is not stored"
+        found: dict[str, pd.DataFrame] = await histories(ordered, start)
+        return found
+
+    monkeypatch.setattr(job, "fetch_histories", counted)
+
+    assert asyncio.run(job.refresh_due_users()) == 1
+
+    assert fakes["histories"] == ["BIG"]
+    refresh = client.get("/api/v1/me/nightly-refresh", headers=_headers(key)).json()
+    assert refresh["last_success"]["usage"] == {"tiingo": 1}
+    assert {item["provider"]: item["requests"] for item in refresh["key_use"]}["tiingo"] == 1

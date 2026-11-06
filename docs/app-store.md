@@ -125,6 +125,12 @@ purchases. Requests reach Google Cloud's access logs, which keep IP addresses fo
 for security. Apple counts that as not collected because it is not linked to the user
 or kept beyond security purposes, but recheck the definition when submitting.
 
+Two more stores need no label, but recheck them too when submitting. Daily market prices
+kept for each account (`stored_price_history`) are third-party market data, not data
+about the user. Counts of the requests PyQxel sent on each provider key
+(`provider_usage`, `provider_usage_symbols`) are filed under a one-way hash of the key,
+with no account ID, and are deleted after about 40 days.
+
 ## Notes for App Review
 
 Paste into *App Review Information → Notes*, with the demo account's values filled in:

@@ -64,6 +64,17 @@ export function PrivacyPage() {
               Counts of your recent AI requests, to apply the limits you set. Your conversations
               with the strategy coding assistant are not stored: only that an answer was written.
             </li>
+            <li>
+              Daily prices fetched on your own keys, kept so later pages and backtests reuse them
+              instead of spending your plans’ requests again. Only your account can see them. They
+              are deleted when unused for 30 days, when you delete them in Settings, or with your
+              account.
+            </li>
+            <li>
+              How many requests PyQxel sent on each of your keys, by hour for about 40 days, and
+              which symbols it asked Tiingo for each month, so Settings can show how much of each
+              plan is used. They are filed under a one-way hash of the key, never the key itself.
+            </li>
           </ul>
           <p>
             Keys you add for Anthropic, Tiingo, Financial Modeling Prep, EODHD, Alpha Vantage or
@@ -76,14 +87,15 @@ export function PrivacyPage() {
           <p>
             The nightly screener refresh, which is off unless you turn it on in Settings, builds
             your own stock screener while your browser is closed, so it needs your keys when you are
-            not there. Turning it on stores your Finnhub key and any Tiingo, Financial Modeling
-            Prep, EODHD and Alpha Vantage keys you have added on PyQxel’s server, encrypted, along
-            with the time you chose and your time zone. Your Anthropic key is never stored. The keys
-            are decrypted only to run your refresh, used only for your own screener, and kept out of
-            logs. Each time you change a key in Settings, the stored copy is replaced. Turning the
-            refresh off, or deleting your account, deletes the stored keys at once. Your screener’s
-            results, and a record of each refresh (when it ran, how many stocks it found, and any
-            error), are kept with your account, seen only by you, until you delete it.
+            not there. Turning it on stores your Finnhub key and the Tiingo, Financial Modeling
+            Prep, EODHD and Alpha Vantage keys you choose to let it use on PyQxel’s server,
+            encrypted, along with the time you chose, your time zone and how many stocks it may
+            fetch prices for. Your Anthropic key is never stored. The keys are decrypted only to run
+            your refresh, used only for your own screener, and kept out of logs. Each time you
+            change a key in Settings, the stored copy is replaced. Turning the refresh off, or
+            deleting your account, deletes the stored keys at once. Your screener’s results, and a
+            record of each refresh (when it ran, how many stocks it found, and any error), are kept
+            with your account, seen only by you, until you delete it.
           </p>
           <p>
             Custom strategy code runs in your own browser. When you backtest it, its code and the
@@ -99,9 +111,9 @@ export function PrivacyPage() {
             <li>
               The symbols you look up are sent to market data providers with your own keys: Tiingo,
               Financial Modeling Prep, EODHD, Alpha Vantage and Finnhub. If you turn on the nightly
-              screener refresh, it requests every listed US stock from Finnhub, and as many as your
-              plan allows from your price-history provider, on your keys. Company filings come from
-              the SEC, and exchange rates from the European Central Bank.
+              screener refresh, it requests every listed US stock from Finnhub, and as many as you
+              choose from the price-history providers you choose, on your keys. Company filings come
+              from the SEC, and exchange rates from the European Central Bank.
             </li>
             <li>
               When you use an AI feature, what it needs is sent to Anthropic with your own key,
@@ -118,8 +130,10 @@ export function PrivacyPage() {
 
         <Section title="In your browser">
           <p>
-            Your browser keeps your API key if you choose to stay signed in, your theme and the
-            strategy code you are writing. That stays on your device; signing out removes the key.
+            Your browser keeps your API key if you choose to stay signed in, your theme, the
+            strategy code you are writing, which plan each of your keys is on, and which pages you
+            chose to load without asking first. That stays on your device; signing out removes the
+            key.
           </p>
         </Section>
 

@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { fitCopula, getHoldings, getPortfolios, saveHoldings, simulate } from '../api/endpoints'
+import {
+  fitCopula,
+  getHoldings,
+  getPortfolios,
+  getSavedHoldings,
+  saveHoldings,
+  simulate,
+} from '../api/endpoints'
 import { HoldingsTable, type HoldingRow } from '../components/HoldingsTable'
 import { PortfolioReviewCard } from '../components/PortfolioReviewCard'
 import type {
@@ -21,6 +28,9 @@ import { Stat } from '../components/Stat'
 import { money, number, percent, signedPercent, tone } from '../lib/format'
 import { readStored, writeStored } from '../lib/storage'
 import { InfoTip } from '../components/InfoTip'
+import { LoadGatePanel } from '../components/LoadGate'
+import { useLoadGate } from '../lib/loadGate'
+import { agree } from '../lib/usage'
 
 const MAX_HOLDINGS = 40
 
@@ -113,10 +123,29 @@ export function PortfolioPage() {
   const [historyCut, setHistoryCut] = useState(storedHistoryCut)
   const portfolio = Number(selected)
   const portfolios = useQuery({ queryKey: ['portfolios'], queryFn: getPortfolios })
+  // The saved symbols come first, with no provider request, so the page can say what
+  // pricing them would spend before it does.
+  const saved = useQuery({
+    queryKey: ['saved-holdings', portfolio],
+    queryFn: () => getSavedHoldings(portfolio),
+  })
+  const savedSymbols = (saved.data?.holdings ?? []).map((holding) => holding.symbol)
+  const signature = (symbols: string[]) => `${portfolio}:${[...symbols].sort().join(',')}`
+  const gate = useLoadGate(
+    'portfolio',
+    signature(savedSymbols),
+    [
+      { kind: 'info', symbols: savedSymbols },
+      // Gains, 52-week ranges and co-movement share one stored history per holding.
+      { kind: 'history', symbols: savedSymbols, period: '5y' },
+    ],
+    saved.data !== undefined,
+  )
   const holdings = useQuery({
     queryKey: ['holdings', portfolio],
     queryFn: () => getHoldings(portfolio),
     placeholderData: keepPreviousData,
+    enabled: gate.allowed,
   })
   const loaded = holdings.isPlaceholderData ? undefined : holdings.data
   // Unsaved edits of each portfolio, kept while switching between them.
@@ -135,6 +164,9 @@ export function PortfolioPage() {
         name.trim() && name.trim() !== savedName ? name.trim() : undefined,
       ),
     onSuccess: (data) => {
+      // The user is editing a loaded page: the new holdings load without asking again.
+      agree(`portfolio:${signature(data.holdings.map((holding) => holding.symbol))}`)
+      queryClient.setQueryData(['saved-holdings', portfolio], data)
       queryClient.setQueryData(['holdings', portfolio], data)
       void queryClient.invalidateQueries({ queryKey: ['portfolios'] })
       discard()
@@ -182,131 +214,143 @@ export function PortfolioPage() {
         />
       </header>
 
-      <section id="holdings" className="card" aria-busy={holdings.isPlaceholderData}>
-        <div className="card-header">
-          <div>
-            <h2>{savedName}</h2>
-            <div className="subtitle">
-              Valued at the latest prices · {money(loaded?.total_value)} in total
-            </div>
-          </div>
-          <div className="filter-row">
-            <input
-              type="text"
-              aria-label="Portfolio name"
-              maxLength={MAX_NAME_LENGTH}
-              style={{ width: 180 }}
-              value={name}
-              aria-invalid={!name.trim()}
-              onChange={(event) => edit({ name: event.target.value })}
-            />
-            {dirty && (
-              <button type="button" className="button ghost" onClick={discard}>
-                Discard
-              </button>
-            )}
-            <button
-              type="button"
-              className="button primary"
-              disabled={!dirty || invalid || save.isPending}
-              onClick={() => save.mutate()}
-            >
-              {save.isPending ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </div>
-        {holdings.error !== null && <ErrorNotice error={holdings.error} />}
-        {save.error !== null && <ErrorNotice error={save.error} />}
-        <HoldingsTable
-          rows={rows}
-          holdings={loaded?.holdings ?? []}
-          totalValue={loaded?.total_value}
-          dirty={dirty}
-          onShares={(symbol, shares) =>
-            edit({ rows: rows.map((r) => (r.symbol === symbol ? { ...r, shares } : r)) })
-          }
-          onRemove={(symbol) => edit({ rows: rows.filter((r) => r.symbol !== symbol) })}
+      {!gate.allowed ? (
+        <LoadGatePanel
+          gate={gate}
+          what={`prices for ${saved.data?.name ?? 'this portfolio'}’s ${savedSymbols.length} holdings`}
         />
-        {rows.length === 0 && !holdings.isLoading && (
-          <div className="empty">No holdings yet. Add your first one below.</div>
-        )}
-        <div className="filter-row" style={{ marginTop: 14 }}>
-          <div style={{ flex: 1, maxWidth: 360 }}>
-            <SearchBox
-              clearOnSelect
-              label="Add a holding"
-              placeholder={
-                rows.length >= MAX_HOLDINGS ? `At most ${MAX_HOLDINGS} holdings` : 'Add a holding'
+      ) : (
+        <>
+          <section id="holdings" className="card" aria-busy={holdings.isPlaceholderData}>
+            <div className="card-header">
+              <div>
+                <h2>{savedName}</h2>
+                <div className="subtitle">
+                  Valued at the latest prices · {money(loaded?.total_value)} in total
+                </div>
+              </div>
+              <div className="filter-row">
+                <input
+                  type="text"
+                  aria-label="Portfolio name"
+                  maxLength={MAX_NAME_LENGTH}
+                  style={{ width: 180 }}
+                  value={name}
+                  aria-invalid={!name.trim()}
+                  onChange={(event) => edit({ name: event.target.value })}
+                />
+                {dirty && (
+                  <button type="button" className="button ghost" onClick={discard}>
+                    Discard
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={!dirty || invalid || save.isPending}
+                  onClick={() => save.mutate()}
+                >
+                  {save.isPending ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+            {holdings.error !== null && <ErrorNotice error={holdings.error} />}
+            {save.error !== null && <ErrorNotice error={save.error} />}
+            <HoldingsTable
+              rows={rows}
+              holdings={loaded?.holdings ?? []}
+              totalValue={loaded?.total_value}
+              dirty={dirty}
+              onShares={(symbol, shares) =>
+                edit({ rows: rows.map((r) => (r.symbol === symbol ? { ...r, shares } : r)) })
               }
-              onSelect={(symbol) => {
-                if (rows.length >= MAX_HOLDINGS || rows.some((row) => row.symbol === symbol)) {
-                  return
-                }
-                edit({ rows: [...rows, { symbol, shares: '' }] })
-              }}
+              onRemove={(symbol) => edit({ rows: rows.filter((r) => r.symbol !== symbol) })}
             />
-          </div>
-          <span className="muted">
-            {rows.length} of {MAX_HOLDINGS} holdings
-            {dirty ? ' · Enter share counts, then save.' : ''}
-          </span>
-        </div>
-        {loaded?.notice && !dirty && (
-          <div style={{ marginTop: 12 }}>
-            <Notice tone="warning">{loaded.notice}</Notice>
-          </div>
-        )}
-      </section>
+            {rows.length === 0 && !holdings.isLoading && (
+              <div className="empty">No holdings yet. Add your first one below.</div>
+            )}
+            <div className="filter-row" style={{ marginTop: 14 }}>
+              <div style={{ flex: 1, maxWidth: 360 }}>
+                <SearchBox
+                  clearOnSelect
+                  label="Add a holding"
+                  placeholder={
+                    rows.length >= MAX_HOLDINGS
+                      ? `At most ${MAX_HOLDINGS} holdings`
+                      : 'Add a holding'
+                  }
+                  onSelect={(symbol) => {
+                    if (rows.length >= MAX_HOLDINGS || rows.some((row) => row.symbol === symbol)) {
+                      return
+                    }
+                    edit({ rows: [...rows, { symbol, shares: '' }] })
+                  }}
+                />
+              </div>
+              <span className="muted">
+                {rows.length} of {MAX_HOLDINGS} holdings
+                {dirty ? ' · Enter share counts, then save.' : ''}
+              </span>
+            </div>
+            {loaded?.notice && !dirty && (
+              <div style={{ marginTop: 12 }}>
+                <Notice tone="warning">{loaded.notice}</Notice>
+              </div>
+            )}
+          </section>
 
-      <section id="late-listings" className="card">
-        <div className="card-header" style={{ marginBottom: 0 }}>
-          <div>
-            <div className="heading-with-info">
-              <h2>Late listings</h2>
-              <InfoTip topic="historyCut" />
+          <section id="late-listings" className="card">
+            <div className="card-header" style={{ marginBottom: 0 }}>
+              <div>
+                <div className="heading-with-info">
+                  <h2>Late listings</h2>
+                  <InfoTip topic="historyCut" />
+                </div>
+                <div className="subtitle">
+                  The simulation and co-movement models start when the newest holding started
+                  trading. Leave a holding out when it would cut more than this off the others’
+                  history.
+                </div>
+              </div>
+              <PresetOrCustom
+                label="Most history a late listing may cost"
+                presets={HISTORY_CUTS}
+                value={historyCut}
+                onChange={(next) => {
+                  writeStored(HISTORY_CUT_KEY, String(next))
+                  setHistoryCut(next)
+                }}
+                min={1}
+                max={99}
+                unit="% of history"
+              />
             </div>
-            <div className="subtitle">
-              The simulation and co-movement models start when the newest holding started trading.
-              Leave a holding out when it would cut more than this off the others’ history.
-            </div>
-          </div>
-          <PresetOrCustom
-            label="Most history a late listing may cost"
-            presets={HISTORY_CUTS}
-            value={historyCut}
-            onChange={(next) => {
-              writeStored(HISTORY_CUT_KEY, String(next))
-              setHistoryCut(next)
-            }}
-            min={1}
-            max={99}
-            unit="% of history"
+          </section>
+
+          <SimulationCard
+            key={`simulation-${portfolio}`}
+            maxHistoryCut={asFraction(historyCut)}
+            holdings={priced.map((h) => ({ symbol: h.symbol, weight: h.weight! }))}
+            initialValue={loaded?.total_value ?? 0}
+            stale={dirty || holdings.isPlaceholderData}
           />
-        </div>
-      </section>
-
-      <SimulationCard
-        key={`simulation-${portfolio}`}
-        maxHistoryCut={asFraction(historyCut)}
-        holdings={priced.map((h) => ({ symbol: h.symbol, weight: h.weight! }))}
-        initialValue={loaded?.total_value ?? 0}
-        stale={dirty || holdings.isPlaceholderData}
-      />
-      <CopulaCard
-        symbols={priced.map((h) => h.symbol)}
-        maxHistoryCut={asFraction(historyCut)}
-        stale={dirty || holdings.isPlaceholderData}
-      />
-      <PortfolioReviewCard
-        key={`review-${portfolio}`}
-        portfolio={portfolio}
-        hasHoldings={priced.length > 0}
-        canCombine={
-          (portfolios.data?.portfolios.length ?? 0) > 1 &&
-          (portfolios.data?.portfolios.every((p) => p.holdings > 0) ?? false)
-        }
-        stale={dirty || holdings.isPlaceholderData}
-      />
+          <CopulaCard
+            symbols={priced.map((h) => h.symbol)}
+            maxHistoryCut={asFraction(historyCut)}
+            stale={dirty || holdings.isPlaceholderData}
+          />
+          <PortfolioReviewCard
+            key={`review-${portfolio}`}
+            portfolio={portfolio}
+            hasHoldings={priced.length > 0}
+            canCombine={
+              (portfolios.data?.portfolios.length ?? 0) > 1 &&
+              (portfolios.data?.portfolios.every((p) => p.holdings > 0) ?? false)
+            }
+            stale={dirty || holdings.isPlaceholderData}
+          />
+        </>
+      )}
     </div>
   )
 }

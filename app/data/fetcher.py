@@ -31,19 +31,27 @@ import json
 import logging
 import math
 import time
+import zlib
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal, TypeVar
+from zoneinfo import ZoneInfo
 
 import httpx2
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.cache import cache_get, cache_increment, cache_set
 from app.core.credentials import current_provider_keys
 from app.core.redact import redact
+from app.data import usage
+from app.db import price_store
+from app.db.price_store import StoredHistory
+from app.db.session import get_sessionmaker
 from app.models.quote import Quote
 from app.models.stock import TickerInfo
 
@@ -119,6 +127,9 @@ TIINGO_REFUSAL_TTL_SECONDS: float = 24 * 60 * 60
 TIINGO_LIMIT_PAUSE_SECONDS: float = 60 * 60
 """How long Tiingo is left out once a key's limit is reached: its free plan allows 50
 requests an hour, 1,000 a day and 500 different symbols a month."""
+TIINGO_META_TTL_SECONDS: float = 24 * 60 * 60
+"""How long Tiingo's company meta, asked for to fill in a holding's name and sector, is
+reused: every portfolio load would otherwise spend a Tiingo request on each holding."""
 EODHD_REFUSAL_TTL_SECONDS: float = 24 * 60 * 60
 """How long an EODHD key's plan is taken not to cover a request before asking again."""
 EODHD_LIMIT_PAUSE_SECONDS: float = 6 * 60 * 60
@@ -162,7 +173,7 @@ comes before one that needs a paid plan for it. Each is tried only with the user
 key, and one whose plan refuses passes the request on to the next. yfinance follows them
 all for a request allowed to use it."""
 
-PROVIDER_NAMES: dict[Provider, str] = {
+PROVIDER_NAMES: dict[str, str] = {
     "tiingo": "Tiingo",
     "fmp": "Financial Modeling Prep",
     "eodhd": "EODHD",
@@ -229,8 +240,11 @@ _alpha_vantage_premium: dict[tuple[str, str], float] = {}
 """(key digest, request) -> when the key's plan was found not to cover the request."""
 _alpha_vantage_next_slot: float = 0.0
 """Monotonic time from which the next Alpha Vantage request may be sent."""
-_recalled: "OrderedDict[str, float]" = OrderedDict()
-"""Recall key -> monotonic time it expires: refusals and pauses known to this process."""
+_recalled: "OrderedDict[str, tuple[float, float]]" = OrderedDict()
+"""Recall key -> (monotonic time it expires, wall-clock time it ends): refusals and pauses
+known to this process."""
+_tiingo_meta_memory: dict[str, tuple[float, dict[str, Any]]] = {}
+"""Cache key -> (time fetched, Tiingo company meta), for deployments without Redis."""
 _finnhub_counts: dict[tuple[str, int], int] = {}
 """(key digest, minute) -> Finnhub requests sent, for deployments without Redis."""
 
@@ -271,15 +285,37 @@ class AlphaVantageBurstError(DataFetchError):
     """Raised when Alpha Vantage refuses requests sent less than a second apart."""
 
 
-class AlphaVantageDailyLimitError(DataFetchError):
+class ProviderLimitError(DataFetchError):
+    """Raised when a key has used up its plan's requests for now.
+
+    ``provider`` names the provider, and ``resets_at`` is when PyQxel will ask it again:
+    when the plan's limit resets, where the provider says, or else after a pause.
+    """
+
+    def __init__(
+        self, message: str, provider: "Provider | None" = None, resets_at: datetime | None = None
+    ) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.resets_at = resets_at
+
+
+class AlphaVantageDailyLimitError(ProviderLimitError):
     """Raised when a key has used up its Alpha Vantage requests for the day."""
 
 
-class FinnhubRateLimitError(DataFetchError):
+class FinnhubRateLimitError(ProviderLimitError):
     """Raised when a key has sent its Finnhub requests for the minute."""
 
-    def __init__(self, message: str, retry_after: int | None = None) -> None:
-        super().__init__(message)
+    def __init__(
+        self,
+        message: str,
+        retry_after: int | None = None,
+        resets_at: datetime | None = None,
+    ) -> None:
+        if resets_at is None and retry_after is not None:
+            resets_at = datetime.now(timezone.utc) + timedelta(seconds=retry_after)
+        super().__init__(message, "finnhub", resets_at)
         self.retry_after = retry_after
 
 
@@ -380,11 +416,14 @@ async def first_success(
     what: str,
     attempts: list[tuple[Provider, Callable[[], Awaitable[T]]]],
     partial: Callable[[T], bool] | None = None,
+    passed: list[tuple[Provider, Exception]] | None = None,
 ) -> T:
     """Return the first provider's answer, trying the next when one fails.
 
     With ``partial``, an answer it marks as partial, such as a free plan's short history,
     is kept while the later providers are tried, and returned only if none does better.
+    With ``passed``, each provider that failed before the answer is added to it, with its
+    error, so a caller can say why a better source was not used.
 
     Raises:
         SymbolNotFoundError: If every provider answered that it has no such symbol.
@@ -398,6 +437,8 @@ async def first_success(
             answer = await attempt()
         except Exception as exc:
             errors.append(exc)
+            if passed is not None:
+                passed.append((provider, exc))
             logger.warning("%s %s lookup failed for %s: %s", provider, what, symbol, exc)
             continue
         if partial is None or not partial(answer):
@@ -415,7 +456,7 @@ async def first_success(
 
 def _key_digest(api_key: str) -> str:
     """A short hash naming a key in recall keys, so keys never reach memory or Redis."""
-    return hashlib.sha256(api_key.encode()).hexdigest()[:16]
+    return usage.key_id(api_key)
 
 
 def _now() -> float:
@@ -423,29 +464,47 @@ def _now() -> float:
     return time.monotonic()
 
 
-async def _recall(*keys: str) -> bool:
-    """Whether any of ``keys`` is a refusal or pause still in force, here or in Redis."""
+async def _recall(*keys: str) -> datetime | None:
+    """When the first of ``keys`` that is a refusal or pause still in force, here or in
+    Redis, ends; ``None`` when none is."""
     now = _now()
     for key in keys:
-        expires = _recalled.get(key)
-        if expires is not None:
-            if expires > now:
-                return True
+        entry = _recalled.get(key)
+        if entry is not None:
+            if entry[0] > now:
+                return datetime.fromtimestamp(entry[1], timezone.utc)
             del _recalled[key]
     for key in keys:
-        if await cache_get(key) is not None:
-            _recalled[key] = now + 60.0
-            return True
-    return False
+        value = await cache_get(key)
+        if value:
+            try:
+                ends = float(value)
+            except ValueError:
+                ends = time.time() + 60.0
+            if ends < 1_000_000_000:  # Stored by a version that kept no end.
+                ends = time.time() + 60.0
+            _recalled[key] = (now + 60.0, ends)
+            return datetime.fromtimestamp(ends, timezone.utc)
+    return None
 
 
-async def _remember(key: str, ttl_seconds: float) -> None:
-    """Record a refusal or pause for ``ttl_seconds``, here and in Redis for every instance."""
-    _recalled[key] = _now() + ttl_seconds
+async def _remember(key: str, ttl_seconds: float) -> datetime:
+    """Record a refusal or pause for ``ttl_seconds``, here and in Redis for every instance,
+    and return when it ends."""
+    ttl_seconds = max(1.0, ttl_seconds)
+    ends = time.time() + ttl_seconds
+    _recalled[key] = (_now() + ttl_seconds, ends)
     _recalled.move_to_end(key)
     while len(_recalled) > RECALL_MEMORY_SIZE:
         _recalled.popitem(last=False)
-    await cache_set(key, "1", ttl_seconds)
+    await cache_set(key, repr(ends), ttl_seconds)
+    return datetime.fromtimestamp(ends, timezone.utc)
+
+
+def _seconds_until(provider: usage.UsageProvider, window: usage.Window) -> float:
+    """Seconds until ``provider``'s ``window`` resets, as its plan's limits do."""
+    now = datetime.now(timezone.utc)
+    return (usage.window_end(provider, window, now) - now).total_seconds()
 
 
 async def _forget(key: str) -> None:
@@ -478,8 +537,10 @@ async def fmp_get(
     symbol = params.get("symbol", "")
     whole, one = _fmp_refusal_keys(path, symbol, api_key)
     paused = f"fmp:paused:{_key_digest(api_key)}"
-    if await _recall(paused):
-        raise DataFetchError("Your Financial Modeling Prep plan's limit was reached.")
+    if (ends := await _recall(paused)) is not None:
+        raise ProviderLimitError(
+            "Your Financial Modeling Prep plan's limit was reached.", "fmp", ends
+        )
     if await _recall(whole, one):
         raise ProviderPlanError(
             f"Your Financial Modeling Prep plan does not cover this request ({path} for "
@@ -495,6 +556,7 @@ async def fmp_get(
     else:
         async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
             response = await get(own_client)
+    usage.record("fmp", api_key, size=len(response.content), headers=response.headers)
     if response.status_code == 402:
         # "Restricted Endpoint" refuses the endpoint; "Premium Query Parameter", the symbol.
         restricted = "restricted endpoint" in response.text.lower()
@@ -508,8 +570,10 @@ async def fmp_get(
             "Financial Modeling Prep rejected your API key; update it in Settings."
         )
     if response.status_code == 429:
-        await _remember(paused, FMP_LIMIT_PAUSE_SECONDS)
-        raise DataFetchError("Your Financial Modeling Prep plan's rate limit was reached.")
+        ends = await _remember(paused, FMP_LIMIT_PAUSE_SECONDS)
+        raise ProviderLimitError(
+            "Your Financial Modeling Prep plan's rate limit was reached.", "fmp", ends
+        )
     response.raise_for_status()
     return response.json()
 
@@ -545,9 +609,9 @@ async def finnhub_get(
     symbol = params.get("symbol", "")
     digest = _key_digest(api_key)
     refused, paused = f"finnhub:refused:{digest}:{path}:{symbol}", f"finnhub:paused:{digest}"
-    if await _recall(paused):
+    if (ends := await _recall(paused)) is not None:
         raise FinnhubRateLimitError(
-            "Your Finnhub plan's rate limit was reached; try again shortly."
+            "Your Finnhub plan's rate limit was reached; try again shortly.", resets_at=ends
         )
     if await _recall(refused):
         raise ProviderPlanError(
@@ -569,6 +633,7 @@ async def finnhub_get(
                 response = await get(own_client)
     except httpx2.HTTPError as exc:
         raise DataFetchError("Finnhub could not be reached.") from exc
+    usage.record("finnhub", api_key, size=len(response.content), headers=response.headers)
     if response.status_code == 401:
         raise ProviderNotConfiguredError("Finnhub rejected your API key; update it in Settings.")
     if response.status_code == 403:
@@ -596,6 +661,22 @@ def tiingo_symbol(symbol: str) -> str:
     return symbol.strip().lower().replace(".", "-")
 
 
+TIINGO_SYMBOL_PATHS: tuple[str, ...] = ("tiingo/daily/", "iex/")
+"""Tiingo paths whose next segment is the ticker asked for."""
+
+
+def tiingo_symbols(path: str, params: dict[str, str]) -> list[str]:
+    """The tickers a Tiingo request names, which its plans count toward the different
+    symbols a month they allow."""
+    names = [name for name in params.get("tickers", "").split(",") if name]
+    for prefix in TIINGO_SYMBOL_PATHS:
+        if path.startswith(prefix):
+            ticker = path[len(prefix) :].split("/", 1)[0]
+            if ticker:
+                names.append(ticker)
+    return [name.upper() for name in names]
+
+
 def _tiingo_detail(response: httpx2.Response) -> str:
     """The message in a Tiingo error answer, or its status."""
     try:
@@ -619,8 +700,8 @@ async def tiingo_get(
     """
     digest = _key_digest(api_key)
     refused, paused = f"tiingo:refused:{digest}:{path}", f"tiingo:paused:{digest}"
-    if await _recall(paused):
-        raise DataFetchError("Your Tiingo plan's limit was reached; it resets within the hour.")
+    if (ends := await _recall(paused)) is not None:
+        raise ProviderLimitError("Your Tiingo plan's limit was reached.", "tiingo", ends)
     if await _recall(refused):
         raise ProviderPlanError(
             f"Your Tiingo plan does not cover this request ({path}).", remembered=True
@@ -641,6 +722,13 @@ async def tiingo_get(
                 response = await get(own_client)
     except httpx2.HTTPError as exc:
         raise DataFetchError("Tiingo could not be reached.") from exc
+    usage.record(
+        "tiingo",
+        api_key,
+        symbols=tiingo_symbols(path, params),
+        size=len(response.content),
+        headers=response.headers,
+    )
     if response.status_code < 400:
         try:
             return response.json()
@@ -651,8 +739,13 @@ async def tiingo_get(
     if response.status_code == 404 or "not found" in lowered:
         raise SymbolNotFoundError(f"Tiingo has no data for this symbol ({path}).")
     if response.status_code == 429 or "limit" in lowered and "plan" not in lowered:
-        await _remember(paused, TIINGO_LIMIT_PAUSE_SECONDS)
-        raise DataFetchError(f"Your Tiingo plan's limit was reached: {detail}")
+        window: usage.Window = (
+            "month"
+            if any(word in lowered for word in ("month", "symbol", "bandwidth"))
+            else "day" if "dai" in lowered or " day" in lowered else "hour"
+        )
+        ends = await _remember(paused, _seconds_until("tiingo", window))
+        raise ProviderLimitError(f"Your Tiingo plan's limit was reached: {detail}", "tiingo", ends)
     if response.status_code in (401, 403) and "plan" not in lowered and "subscri" not in lowered:
         raise ProviderNotConfiguredError("Tiingo rejected your API key; update it in Settings.")
     if response.status_code in (400, 402, 403):
@@ -722,8 +815,8 @@ async def eodhd_get(
     digest = _key_digest(api_key)
     endpoint = path.split("/", 1)[0]
     refused, paused = f"eodhd:refused:{digest}:{endpoint}", f"eodhd:paused:{digest}"
-    if await _recall(paused):
-        raise DataFetchError("Your EODHD plan's daily limit was reached.")
+    if (ends := await _recall(paused)) is not None:
+        raise ProviderLimitError("Your EODHD plan's daily limit was reached.", "eodhd", ends)
     if await _recall(refused):
         raise ProviderPlanError(
             f"Your EODHD plan does not cover this request ({endpoint}).", remembered=True
@@ -742,14 +835,19 @@ async def eodhd_get(
                 response = await get(own_client)
     except httpx2.HTTPError:
         raise DataFetchError("EODHD could not be reached.") from None
+    usage.record("eodhd", api_key, size=len(response.content), headers=response.headers)
     text = response.text[:200].lower()
     if response.status_code == 404:
         raise SymbolNotFoundError(f"EODHD has no data for this symbol ({endpoint}).")
     if response.status_code == 401:
         raise ProviderNotConfiguredError("EODHD rejected your API key; update it in Settings.")
-    if response.status_code == 402 or response.status_code == 429 or "exceeded" in text:
-        await _remember(paused, EODHD_LIMIT_PAUSE_SECONDS)
-        raise DataFetchError("Your EODHD plan's daily limit was reached.")
+    if response.status_code == 429:
+        retry = _finite(response.headers.get("retry-after"))
+        ends = await _remember(paused, retry or 60.0)
+        raise ProviderLimitError("Your EODHD plan's limit a minute was reached.", "eodhd", ends)
+    if response.status_code == 402 or "exceeded" in text:
+        ends = await _remember(paused, _seconds_until("eodhd", "day"))
+        raise ProviderLimitError("Your EODHD plan's daily limit was reached.", "eodhd", ends)
     if response.status_code == 403:
         await _remember(refused, EODHD_REFUSAL_TTL_SECONDS)
         raise ProviderPlanError(f"Your EODHD plan does not cover this request ({endpoint}).")
@@ -759,6 +857,35 @@ async def eodhd_get(
         return response.json()
     except ValueError:
         raise DataFetchError("EODHD returned an unreadable answer.") from None
+
+
+async def eodhd_account(api_key: str) -> dict[str, Any] | None:
+    """EODHD's account details for the key: the calls spent on the latest day used
+    (``apiRequests`` on ``apiRequestsDate``), the daily allowance (``dailyRateLimit``) and
+    any extra calls bought (``extraLimit``). Asking costs no calls. ``None`` when EODHD
+    cannot be reached or rejects the key."""
+    try:
+        async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
+            response = await client.get(
+                f"{EODHD_URL}/user", params={"api_token": api_key, "fmt": "json"}
+            )
+    except httpx2.HTTPError:
+        logger.info("EODHD's account details could not be read.")
+        return None
+    if response.status_code != 200:
+        logger.info("EODHD answered its account details with HTTP %d.", response.status_code)
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return {
+        name: payload[name]
+        for name in ("apiRequests", "apiRequestsDate", "dailyRateLimit", "extraLimit")
+        if name in payload
+    }
 
 
 def _alpha_vantage_error(
@@ -790,7 +917,7 @@ def _alpha_vantage_error(
         return AlphaVantageBurstError(f"Alpha Vantage refused a burst of requests: {message}")
     if "per day" in lowered or "daily" in lowered:
         return AlphaVantageDailyLimitError(
-            f"Your Alpha Vantage plan's daily limit was reached: {message}"
+            f"Your Alpha Vantage plan's daily limit was reached: {message}", "alpha_vantage"
         )
     if "rate limit" in lowered or "requests per" in lowered or "call frequency" in lowered:
         return DataFetchError(f"Your Alpha Vantage plan's rate limit was reached: {message}")
@@ -865,8 +992,10 @@ async def alpha_vantage_get(
         except ValueError:
             logger.warning("Ignoring an unreadable cached Alpha Vantage %s answer.", function)
     if payload is None:
-        if await _recall(paused):
-            raise DataFetchError("Your Alpha Vantage plan's daily limit was reached.")
+        if (ends := await _recall(paused)) is not None:
+            raise AlphaVantageDailyLimitError(
+                "Your Alpha Vantage plan's daily limit was reached.", "alpha_vantage", ends
+            )
         query = {"function": function, **params, "apikey": api_key}
         for attempt in range(2):
             await _alpha_vantage_slot()
@@ -876,6 +1005,9 @@ async def alpha_vantage_get(
                 else:
                     async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as own_client:
                         response = await own_client.get(ALPHA_VANTAGE_URL, params=query)
+                usage.record(
+                    "alpha_vantage", api_key, size=len(response.content), headers=response.headers
+                )
                 response.raise_for_status()
                 payload = response.json()
             except (httpx2.HTTPError, ValueError) as exc:
@@ -887,7 +1019,8 @@ async def alpha_vantage_get(
         if isinstance(error, ProviderPlanError):
             _alpha_vantage_premium[digest, request] = time.monotonic()
         if isinstance(error, AlphaVantageDailyLimitError):
-            await _remember(paused, ALPHA_VANTAGE_LIMIT_PAUSE_SECONDS)
+            error.provider = "alpha_vantage"
+            error.resets_at = await _remember(paused, ALPHA_VANTAGE_LIMIT_PAUSE_SECONDS)
         if error is None or isinstance(error, SymbolNotFoundError):
             text = json.dumps(payload)
             _remember_alpha_vantage(cache_key, text)
@@ -908,6 +1041,9 @@ def clear_alpha_vantage_memory() -> None:
     _alpha_vantage_next_slot = 0.0
     _recalled.clear()
     _finnhub_counts.clear()
+    _tiingo_meta_memory.clear()
+    _store_memory.clear()
+    _store_locks.clear()
 
 
 def alpha_vantage_number(value: object) -> float | None:
@@ -974,7 +1110,14 @@ async def _alpha_vantage_info(
     try:
         return await _alpha_vantage_overview(symbol, api_key, client)
     except ProviderPlanError:
-        pass
+        keys = current_provider_keys()
+        if keys.finnhub or keys.fmp or keys.tiingo or keys.eodhd:
+            # A free plan's profile costs two of its 25 requests a day, which its financial
+            # statements need more; the user's other keys answer profiles again soon.
+            raise ProviderPlanError(
+                "Alpha Vantage's free plan gives a company profile only for two of its 25 "
+                "requests a day, so it is left to your other keys."
+            ) from None
     name, currency = await alpha_vantage_name(symbol, api_key, client)
     quote = await _alpha_vantage_quote(symbol, api_key, client)
     return TickerInfo(
@@ -1036,6 +1179,18 @@ async def _tiingo_meta(
     """Tiingo's company meta for ``symbol``: its name for any US ticker, and its sector and
     industry, which the free plan fills in for the Dow 30 alone; a field it withholds, which
     it answers with a "not available" placeholder, is left out."""
+    key = f"tiingo:meta:{symbol}"
+    cached = _tiingo_meta_memory.get(key)
+    if cached is not None and time.monotonic() - cached[0] < TIINGO_META_TTL_SECONDS:
+        return dict(cached[1])
+    text = await cache_get(key)
+    if text is not None:
+        try:
+            stored: dict[str, Any] = json.loads(text)
+            _tiingo_meta_memory[key] = (time.monotonic(), stored)
+            return dict(stored)
+        except ValueError:
+            logger.warning("Ignoring an unreadable cached Tiingo profile for %s.", symbol)
     rows = await tiingo_get(
         "tiingo/fundamentals/meta", {"tickers": tiingo_symbol(symbol)}, api_key, client
     )
@@ -1046,6 +1201,13 @@ async def _tiingo_meta(
         for field, value in rows[0].items()
         if not (isinstance(value, str) and "not available" in value.lower())
     }
+    if len(meta) < len(rows[0]):
+        # Remembered, so other stocks' sectors are not asked for on this key for a day.
+        await _remember(f"tiingo:withheld:{_key_digest(api_key)}", TIINGO_META_TTL_SECONDS)
+    _tiingo_meta_memory[key] = (time.monotonic(), meta)
+    while len(_tiingo_meta_memory) > ALPHA_VANTAGE_MEMORY_SIZE:
+        _tiingo_meta_memory.pop(next(iter(_tiingo_meta_memory)))
+    await cache_set(key, json.dumps(meta, default=str), TIINGO_META_TTL_SECONDS)
     return meta
 
 
@@ -1200,8 +1362,15 @@ async def _fill_from_tiingo(info: TickerInfo, client: httpx2.AsyncClient | None)
     missing = [field for field in TIINGO_GAP_FIELDS if getattr(info, field) is None]
     if key is None or info.source == "tiingo" or not missing or symbol_kind(info.symbol) != "us":
         return info
+    secret = key.get_secret_value()
+    withheld = f"tiingo:withheld:{_key_digest(secret)}"
+    cached = f"tiingo:meta:{info.symbol}" in _tiingo_meta_memory
+    if not cached and set(missing) <= {"sector", "industry"} and await _recall(withheld):
+        # The plan withholds sectors outside the Dow 30, so asking would spend a request
+        # for nothing.
+        return info
     try:
-        meta = await _tiingo_meta(info.symbol, key.get_secret_value(), client)
+        meta = await _tiingo_meta(info.symbol, secret, client)
     except DataFetchError as exc:
         logger.info("Tiingo could not fill %s's info: %s", info.symbol, exc)
         return info
@@ -1394,7 +1563,12 @@ def _resample(frame: pd.DataFrame, frequency: str) -> pd.DataFrame:
 
 
 async def _fmp_history(
-    symbol: str, period: str, interval: str, api_key: str, today: date | None = None
+    symbol: str,
+    period: str,
+    interval: str,
+    api_key: str,
+    today: date | None = None,
+    start: date | None = None,
 ) -> pd.DataFrame:
     """Fetch OHLCV history from FMP: dividend-adjusted daily bars, or intraday charts.
 
@@ -1403,7 +1577,7 @@ async def _fmp_history(
     """
     zone = exchange_timezone(symbol)
     end = today or date.today()
-    start = _window_start(period, end)
+    start = start or _window_start(period, end)
     window = {"symbol": symbol, "from": start.isoformat(), "to": end.isoformat()}
     if interval in INTRADAY_INTERVALS:
         chart, resample_to = INTRADAY_INTERVALS[interval]
@@ -1465,7 +1639,12 @@ def _alpha_vantage_frame(
 
 
 async def _alpha_vantage_history(
-    symbol: str, period: str, interval: str, api_key: str, today: date | None = None
+    symbol: str,
+    period: str,
+    interval: str,
+    api_key: str,
+    today: date | None = None,
+    start: date | None = None,
 ) -> pd.DataFrame:
     """Fetch OHLCV history from Alpha Vantage: adjusted daily bars, or intraday bars.
 
@@ -1479,7 +1658,7 @@ async def _alpha_vantage_history(
     with the full adjusted history is preferred (see :func:`first_success`).
     """
     end = today or date.today()
-    start = pd.Timestamp(_window_start(period, end))
+    start = pd.Timestamp(start or _window_start(period, end))
     notice: str | None = None
     if interval in ALPHA_VANTAGE_INTRADAY:
         size, resample_to = ALPHA_VANTAGE_INTRADAY[interval]
@@ -1564,7 +1743,12 @@ def _row_frame(
 
 
 async def _tiingo_history(
-    symbol: str, period: str, interval: str, api_key: str, today: date | None = None
+    symbol: str,
+    period: str,
+    interval: str,
+    api_key: str,
+    today: date | None = None,
+    start: date | None = None,
 ) -> pd.DataFrame:
     """Fetch OHLCV history from Tiingo: split- and dividend-adjusted daily bars, back as far
     as 30 years on the free plan, or intraday bars from the IEX exchange.
@@ -1573,7 +1757,7 @@ async def _tiingo_history(
     alone, and the frame's ``attrs`` carry a :data:`HISTORY_NOTICE` saying so.
     """
     end = today or date.today()
-    start = _window_start(period, end)
+    start = start or _window_start(period, end)
     ticker = tiingo_symbol(symbol)
     zone = DEFAULT_TIMEZONE
     if interval in TIINGO_INTRADAY:
@@ -1627,7 +1811,12 @@ EODHD_INTRADAY: dict[str, tuple[str, str | None]] = {
 
 
 async def _eodhd_history(
-    symbol: str, period: str, interval: str, api_key: str, today: date | None = None
+    symbol: str,
+    period: str,
+    interval: str,
+    api_key: str,
+    today: date | None = None,
+    start: date | None = None,
 ) -> pd.DataFrame:
     """Fetch OHLCV history from EODHD: daily bars adjusted for splits and dividends, for
     listings, ETFs, funds and indices on exchanges worldwide, or intraday bars.
@@ -1638,7 +1827,7 @@ async def _eodhd_history(
     and are not adjusted.
     """
     end = today or date.today()
-    start = _window_start(period, end)
+    start = start or _window_start(period, end)
     code = eodhd_symbol(symbol)
     zone = exchange_timezone(symbol)
     if interval in EODHD_INTRADAY:
@@ -1706,14 +1895,19 @@ FINNHUB_RESOLUTIONS: dict[str, tuple[str, str | None]] = {
 
 
 async def _finnhub_history(
-    symbol: str, period: str, interval: str, api_key: str, today: date | None = None
+    symbol: str,
+    period: str,
+    interval: str,
+    api_key: str,
+    today: date | None = None,
+    start: date | None = None,
 ) -> pd.DataFrame:
     """Fetch OHLCV candles from Finnhub, which a paid plan serves; its free plan refuses
     them, and the refusal is remembered. Candles are adjusted for splits but not for
     dividends, and the frame's ``attrs`` carry a :data:`HISTORY_NOTICE` saying so, so a
     provider with adjusted bars is preferred."""
     end = today or date.today()
-    start = _window_start(period, end)
+    start = start or _window_start(period, end)
     zone = exchange_timezone(symbol)
     resolution, resample_to = FINNHUB_RESOLUTIONS.get(interval, ("D", None))
     payload = await finnhub_get(
@@ -1796,6 +1990,391 @@ def _history_ttl(interval: str) -> float:
     return INTRADAY_HISTORY_TTL_SECONDS if intraday else HISTORY_TTL_SECONDS
 
 
+HISTORY_SHORTFALL: str = "shortfall"
+"""Key in a history frame's ``attrs`` for the :class:`Shortfall` list saying why a fuller
+history was not served: which keys were out of requests, refused, or failed."""
+HISTORY_STALE: str = "stale"
+"""Key in a history frame's ``attrs``, true when the bars are a stored copy that ends
+before the latest close because no key could fetch the days since."""
+
+STORE_PERIOD: str = "10y"
+"""The least history fetched for the store: one request brings ten years, so later pages
+and backtests that ask for less, or for as much, reuse it."""
+STORE_INTERVALS: frozenset[str] = frozenset({"1d", *LONG_INTERVALS})
+"""Bar sizes served from stored daily bars."""
+STORE_OVERLAP_DAYS: int = 10
+"""Days before a stored history's last bar fetched again with the new days, to tell
+whether a dividend or split has since changed the adjusted prices."""
+STORE_TAIL_MAX_DAYS: int = 300
+"""A stored history older than this is fetched again in full rather than extended."""
+STORE_MEMORY_SECONDS: float = 120.0
+"""How long a stored history read from the database is reused from memory, so one page's
+several requests for the same symbol read it once."""
+DAILY_BAR_READY_HOUR: int = 18
+"""Local hour at the exchange after which a trading day's bar is expected from providers."""
+SPLIT_RATIO: float = 1.2
+"""A change of adjusted prices beyond this factor is taken as a split, which also scales
+volumes."""
+
+
+@dataclass(frozen=True)
+class Shortfall:
+    """Why one provider did not serve a fuller history."""
+
+    provider: Provider
+    reason: Literal["limit", "plan", "failed"]
+    message: str
+    resets_at: datetime | None = None
+
+
+_store_memory: "OrderedDict[tuple[str, str], tuple[float, dict[str, StoredHistory]]]" = (
+    OrderedDict()
+)
+"""(user, symbol) -> (when read, the stored histories by provider)."""
+_store_locks: dict[tuple[str, str], asyncio.Lock] = {}
+"""(user, symbol) -> the lock that makes concurrent requests for it share one fetch."""
+
+
+def forget_stored_prices(user_id: str) -> None:
+    """Drop the user's stored prices kept in memory, as after they delete them."""
+    for entry in [entry for entry in _store_memory if entry[0] == user_id]:
+        del _store_memory[entry]
+
+
+def _pack(frame: pd.DataFrame) -> bytes:
+    """A history frame as compressed JSON, for the store."""
+    return zlib.compress(_history_to_json(frame).encode(), 6)
+
+
+def _unpack(data: bytes) -> pd.DataFrame:
+    """A history frame from the store."""
+    return _history_from_json(zlib.decompress(data).decode())
+
+
+def _daily_ready(symbol: str, now: datetime) -> datetime:
+    """When the latest daily bar of ``symbol`` was due: 6 PM at its exchange on the latest
+    weekday at or before ``now``. A history fetched since is fresh."""
+    zone = ZoneInfo(exchange_timezone(symbol))
+    local = now.astimezone(zone)
+    ready = local.replace(hour=DAILY_BAR_READY_HOUR, minute=0, second=0, microsecond=0)
+    if local < ready:
+        ready -= timedelta(days=1)
+    while ready.weekday() >= 5:
+        ready -= timedelta(days=1)
+    return ready
+
+
+def _covers(stored: StoredHistory, start: date) -> bool:
+    """Whether ``stored`` reaches back to ``start``: its bars begin by then, or it was asked
+    for from then and, with no notice of a short plan, the listing simply began later."""
+    return stored.first_day <= start + timedelta(days=14) or (
+        stored.notice is None and stored.requested_from <= start
+    )
+
+
+def _store_start(period: str, today: date) -> date:
+    """The first day fetched for the store: ``period``'s, or ten years back if that is more."""
+    return min(_window_start(period, today), _window_start(STORE_PERIOD, today))
+
+
+def _shape(frame: pd.DataFrame, period: str, interval: str, today: date) -> pd.DataFrame:
+    """Stored daily bars cut to ``period`` and built into ``interval`` bars, keeping the
+    frame's notes."""
+    attrs = dict(frame.attrs)
+    index = pd.DatetimeIndex(frame.index)
+    start = pd.Timestamp(_window_start(period, today))
+    if index.tz is not None:
+        start = start.tz_localize(index.tz)
+    shaped = frame[index >= start]
+    if period in ("1d", "5d") and not shaped.empty:
+        shaped = shaped.tail(int(period[0]))
+    if interval in LONG_INTERVALS and not shaped.empty:
+        shaped = _resample(shaped, LONG_INTERVALS[interval])
+    shaped = shaped.copy()
+    shaped.attrs = attrs
+    return shaped
+
+
+def _merge(old: pd.DataFrame, tail: pd.DataFrame) -> pd.DataFrame | None:
+    """``old`` bars extended by ``tail``, the bars of the last days fetched again.
+
+    Adjusted prices are scaled back from the present, so a dividend or split since ``old``
+    was fetched changes all of its prices by one factor: the ratio of ``tail``'s close to
+    ``old``'s on their first common day, applied to the bars before ``tail``. ``None`` when
+    they share no day, and the whole history must be fetched again.
+    """
+    if tail.empty:
+        return old
+    common = pd.DatetimeIndex(tail.index).intersection(pd.DatetimeIndex(old.index))
+    if common.empty:
+        return None
+    first = common[0]
+    before = _finite(old["Close"].loc[first]) or 0.0
+    after = _finite(tail["Close"].loc[first]) or 0.0
+    if not (math.isfinite(before) and math.isfinite(after)) or before <= 0 or after <= 0:
+        return None
+    ratio = after / before
+    head = old[pd.DatetimeIndex(old.index) < pd.DatetimeIndex(tail.index)[0]].copy()
+    if abs(ratio - 1.0) > 1e-9:
+        for column in ("Open", "High", "Low", "Close"):
+            head[column] = head[column] * ratio
+        if ratio > SPLIT_RATIO or ratio < 1 / SPLIT_RATIO:
+            head["Volume"] = head["Volume"] / ratio
+    merged = pd.concat([head, tail[OHLCV_COLUMNS]])
+    merged = merged[~merged.index.duplicated(keep="last")].sort_index()
+    merged.attrs = dict(old.attrs)
+    return merged
+
+
+async def _load_stored(
+    user_id: str, symbol: str, providers: Sequence[str]
+) -> dict[str, StoredHistory]:
+    """The user's stored histories of ``symbol`` from ``providers``, from memory if read in
+    the last :data:`STORE_MEMORY_SECONDS`; none if the database cannot be read."""
+    entry = (user_id, symbol)
+    remembered = _store_memory.get(entry)
+    if remembered is not None and time.monotonic() - remembered[0] < STORE_MEMORY_SECONDS:
+        return {p: h for p, h in remembered[1].items() if p in providers}
+    try:
+        async with get_sessionmaker()() as session:
+            found = await price_store.load_histories(session, user_id, symbol, providers)
+    except SQLAlchemyError as exc:
+        logger.warning("Could not read stored prices of %s: %s", symbol, exc)
+        return {}
+    _store_memory[entry] = (time.monotonic(), dict(found))
+    _store_memory.move_to_end(entry)
+    while len(_store_memory) > RECALL_MEMORY_SIZE:
+        _store_memory.popitem(last=False)
+    return found
+
+
+async def _save_stored(
+    user_id: str, provider: Provider, symbol: str, frame: pd.DataFrame, requested_from: date
+) -> None:
+    """Store ``frame`` as ``provider``'s history of ``symbol`` for the user."""
+    index = pd.DatetimeIndex(frame.index)
+    history = StoredHistory(
+        provider=provider,
+        symbol=symbol,
+        requested_from=requested_from,
+        first_day=pd.Timestamp(index[0]).date(),
+        last_day=pd.Timestamp(index[-1]).date(),
+        bars=len(frame),
+        notice=frame.attrs.get(HISTORY_NOTICE),
+        fetched_at=datetime.now(timezone.utc),
+        data=_pack(frame),
+    )
+    remembered = _store_memory.get((user_id, symbol))
+    if remembered is not None:
+        remembered[1][provider] = history
+    try:
+        async with get_sessionmaker()() as session:
+            await price_store.save_history(session, user_id, history)
+    except SQLAlchemyError as exc:
+        logger.warning("Could not store the prices of %s: %s", symbol, exc)
+
+
+async def _note_read(user_id: str, provider: str, symbol: str) -> None:
+    try:
+        async with get_sessionmaker()() as session:
+            await price_store.mark_read(session, user_id, provider, symbol)
+    except SQLAlchemyError as exc:
+        logger.warning("Could not note a read of %s's stored prices: %s", symbol, exc)
+
+
+def _history_reader(provider: Provider) -> Callable[..., Awaitable[pd.DataFrame]]:
+    """``provider``'s bar reader, looked up when called so tests can replace it."""
+    readers: dict[Provider, Callable[..., Awaitable[pd.DataFrame]]] = {
+        "tiingo": _tiingo_history,
+        "fmp": _fmp_history,
+        "eodhd": _eodhd_history,
+        "alpha_vantage": _alpha_vantage_history,
+        "finnhub": _finnhub_history,
+    }
+    return readers[provider]
+
+
+def _shortfalls(passed: list[tuple[Provider, Exception]]) -> list[Shortfall]:
+    """Why each provider passed over did not serve the history."""
+    found: list[Shortfall] = []
+    for provider, error in passed:
+        if isinstance(error, SymbolNotFoundError):
+            continue
+        if isinstance(error, ProviderLimitError):
+            found.append(Shortfall(provider, "limit", str(error), error.resets_at))
+        elif isinstance(error, ProviderPlanError):
+            found.append(Shortfall(provider, "plan", str(error)))
+        else:
+            found.append(Shortfall(provider, "failed", str(error)))
+    return found
+
+
+def _when(moment: datetime | None, symbol: str) -> str:
+    """A reset time for people, in US Eastern time: "3:00 PM ET today" or "Nov 6, 12:00 AM ET"."""
+    if moment is None:
+        return ""
+    local = moment.astimezone(ZoneInfo(DEFAULT_TIMEZONE))
+    clock = local.strftime("%I:%M %p").lstrip("0")
+    today = datetime.now(ZoneInfo(DEFAULT_TIMEZONE)).date()
+    if local.date() == today:
+        return f"{clock} ET today"
+    if local.date() == today + timedelta(days=1):
+        return f"{clock} ET tomorrow"
+    return f"{local.strftime('%b')} {local.day}, {clock} ET"
+
+
+def shortfall_text(shortfalls: list[Shortfall], symbol: str) -> str:
+    """The shortfalls in plain sentences: which key ran out or refused, and when it resets."""
+    parts: list[str] = []
+    for item in shortfalls:
+        name = PROVIDER_NAMES[item.provider]
+        if item.reason == "limit":
+            when = _when(item.resets_at, symbol)
+            parts.append(
+                f"your {name} key has used its plan's requests for now"
+                + (f"; PyQxel will ask it again at {when}" if when else "")
+            )
+        elif item.reason == "plan":
+            parts.append(f"your {name} plan does not cover {symbol}'s history")
+        else:
+            parts.append(f"{name} could not be reached")
+    if not parts:
+        return ""
+    joined = "; ".join(parts)
+    return joined[0].upper() + joined[1:] + "."
+
+
+async def _fetch_stored_daily(
+    symbol: str, period: str, interval: str, user_id: str
+) -> pd.DataFrame | None:
+    """Daily (or longer) bars for the user, through their stored price history.
+
+    A fresh stored history that reaches back far enough is served without a request. A
+    stale one is extended by the days since, and a missing one is fetched ten years back
+    (or further, for ``max``) so later requests reuse it. When no key can do better than
+    a free plan's short history, a longer stored copy is served instead, saying how old
+    it is. A frame that is still short carries :data:`HISTORY_SHORTFALL`.
+
+    Returns:
+        The bars, or ``None`` when every provider answered with none.
+    """
+    today = date.today()
+    now = datetime.now(timezone.utc)
+    start = _window_start(period, today)
+    fetch_from = _store_start(period, today)
+    providers = available_providers("history", symbol)
+    licensed = [p for p, _ in providers if p != "yfinance"]
+    if len(_store_locks) > RECALL_MEMORY_SIZE:
+        for entry in [e for e, held in _store_locks.items() if not held.locked()]:
+            del _store_locks[entry]
+    lock = _store_locks.setdefault((user_id, symbol), asyncio.Lock())
+    async with lock:
+        stored = await _load_stored(user_id, symbol, licensed)
+        ready = _daily_ready(symbol, now)
+        for provider in licensed:
+            kept = stored.get(provider)
+            if kept and kept.notice is None and kept.fetched_at >= ready and _covers(kept, start):
+                await _note_read(user_id, provider, symbol)
+                return _shape(_unpack(kept.data), period, interval, today)
+
+        def attempt(
+            provider: Provider, api_key: str | None
+        ) -> Callable[[], Awaitable[pd.DataFrame | None]]:
+            async def run() -> pd.DataFrame | None:
+                if provider == "yfinance":
+                    raw = await asyncio.to_thread(_yfinance_history, symbol, period, "1d")
+                    return None if raw.empty else _clean_history(raw)
+                assert api_key is not None
+                read = _history_reader(provider)
+                kept = stored.get(provider)
+                if (
+                    kept is not None
+                    and kept.fetched_at >= ready
+                    and (kept.notice is not None or _covers(kept, start))
+                ):
+                    # Fetching again today would bring nothing more.
+                    return _unpack(kept.data)
+                try:
+                    if (
+                        kept is not None
+                        and _covers(kept, start)
+                        and (today - kept.last_day).days <= STORE_TAIL_MAX_DAYS
+                    ):
+                        tail_from = kept.last_day - timedelta(days=STORE_OVERLAP_DAYS)
+                        raw = await read(symbol, "1y", "1d", api_key, start=tail_from)
+                        tail = _clean_history(raw) if not raw.empty else raw
+                        merged = _merge(_unpack(kept.data), tail)
+                        if merged is not None:
+                            await _save_stored(
+                                user_id, provider, symbol, merged, kept.requested_from
+                            )
+                            return merged
+                    raw = await read(symbol, "max", "1d", api_key, start=fetch_from)
+                except DataFetchError:
+                    raise
+                except Exception as exc:
+                    raise DataFetchError(f"{provider} history failed: {exc}") from exc
+                if raw.empty:
+                    return None
+                frame = _clean_history(raw)
+                if not frame.empty:
+                    await _save_stored(user_id, provider, symbol, frame, fetch_from)
+                return frame
+
+            return run
+
+        def short(found: pd.DataFrame | None) -> bool:
+            return found is not None and HISTORY_NOTICE in found.attrs
+
+        passed: list[tuple[Provider, Exception]] = []
+        failure: DataFetchError | None = None
+        frame: pd.DataFrame | None
+        try:
+            frame = await first_success(
+                symbol,
+                "price history",
+                [(p, attempt(p, k)) for p, k in providers],
+                partial=short,
+                passed=passed,
+            )
+        except DataFetchError as exc:
+            frame, failure = None, exc
+        if frame is None or short(frame):
+            fallback = _longest_stored(stored, licensed, start)
+            if fallback is not None and (
+                frame is None
+                or fallback.first_day
+                < pd.Timestamp(pd.DatetimeIndex(frame.index)[0]).date() - timedelta(days=14)
+            ):
+                frame = _unpack(fallback.data)
+                reasons = shortfall_text(_shortfalls(passed), symbol)
+                frame.attrs[HISTORY_STALE] = True
+                frame.attrs[HISTORY_NOTICE] = (
+                    f"These prices of {symbol} end {fallback.last_day:%b} "
+                    f"{fallback.last_day.day}: they are the copy PyQxel kept from "
+                    f"{PROVIDER_NAMES.get(fallback.provider, fallback.provider)}, since "
+                    "no key could fetch "
+                    "the days since." + (f" {reasons}" if reasons else "")
+                )
+                await _note_read(user_id, fallback.provider, symbol)
+        if frame is None:
+            if failure is not None:
+                raise failure
+            return None
+        if short(frame) and not frame.attrs.get(HISTORY_STALE):
+            frame.attrs[HISTORY_SHORTFALL] = _shortfalls(passed)
+        return _shape(frame, period, interval, today)
+
+
+def _longest_stored(
+    stored: dict[str, StoredHistory], providers: Sequence[str], start: date
+) -> StoredHistory | None:
+    """The stored history, among ``providers``', that reaches back to ``start`` and ends
+    latest; ``None`` if none reaches back that far."""
+    covering = [stored[p] for p in providers if p in stored and _covers(stored[p], start)]
+    return max(covering, key=lambda history: history.last_day, default=None)
+
+
 async def fetch_price_history(
     symbol: str,
     period: str = "1y",
@@ -1825,6 +2404,19 @@ async def fetch_price_history(
             checked.
     """
     symbol = _normalize_symbol(symbol)
+    keys = current_provider_keys()
+    if interval in STORE_INTERVALS and keys.user_id is not None and keys.store_history:
+        try:
+            stored = await _fetch_stored_daily(symbol, period, interval, keys.user_id)
+        except ProviderPlanError as exc:
+            hint = keys_to_add("history", symbol)
+            if not hint:
+                raise
+            raise ProviderPlanError(f"{exc} {hint}") from exc
+        if stored is None:
+            await fetch_ticker_info(symbol)
+            return pd.DataFrame(columns=OHLCV_COLUMNS, index=pd.DatetimeIndex([]), dtype=float)
+        return stored
 
     def attempt(
         provider: Provider, api_key: str | None

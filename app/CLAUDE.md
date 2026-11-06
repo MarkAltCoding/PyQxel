@@ -22,9 +22,20 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
   Tiingo, FMP, EODHD, Finnhub, Alpha Vantage. `web/src/lib/keyCoverage.ts` mirrors the order
   for Settings, and a test checks they match. Results
   are cached in Redis when `REDIS_URL` is set (`core/cache.py`); without it every lookup
-  goes to the provider. Several symbols at once:
+  goes to the provider. Daily bars for a signed-in user go through their stored price
+  history (`db/price_store.py`): fetched ten years back once, then only the days since,
+  sliced for every window, and served when a key is out (`HISTORY_STALE`); a history a
+  plan cut short carries `HISTORY_SHORTFALL`, and backtests refuse it with 409
+  (`stocks.short_history`) unless `accept_short_history`. Several symbols at once:
   `data/panel.py: fetch_close_panel` (pass `tolerate_failures=True` to leave out the
   symbols that fail instead of raising).
+- **Plan usage:** every provider request is counted by `data/usage.record()` (called in
+  each `*_get` helper, and an Anthropic client hook) under a hash of the key, flushed to
+  `provider_usage` every few seconds. `provider_report()` builds what Settings shows,
+  from the provider's own figures where it reports them (EODHD's `/api/user`, Finnhub's,
+  EODHD's and Anthropic's headers) and PyQxel's count otherwise. `data/estimates.py` says
+  what a page would send before it loads. A limit reached raises `ProviderLimitError`
+  with `resets_at`.
 - **Errors:** providers raise `DataFetchError` subclasses. Endpoints turn them into HTTP
   errors with `stocks.upstream_error()`: no key → 403, plan → 402, unknown symbol → 404,
   else 502. Too little data (`stats/volatility.InsufficientDataError`) → 422. Database
@@ -50,6 +61,7 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
 | AI stock report | `research.py` | everything above | | `research.py` | `db/analyses.py` |
 | Backtests | `backtest.py` | `fetcher.py`, `panel.py`, `factors.py` | `backtest.py` (one asset, a portfolio, replayed custom weights), `cross_section.py` (rank a universe), `metrics.py` | `backtest.py` | `db/backtests.py` |
 | Portfolio | `portfolio.py` (also each holding's gain over a window, `/changes`, and 52-week range, `/ranges`; reviews of one portfolio or both together, `combined`) | `panel.py`, `cash.py` (money-market funds) | `panel.py` (aligned returns, `usable_return_panel` drops what it cannot use), `copulas.py`, `monte_carlo.py`, `portfolio_risk.py`, `rebalance.py` (orders), `performance.py` (window changes, 52-week ranges) | `portfolio.py`, `simulation.py`, `portfolio_analysis.py` | `db/holdings.py` (2 portfolios per account), `simulations.py`, `portfolio_analyses.py` |
+| Plan usage, estimates, stored prices | `usage.py` | `usage.py`, `estimates.py`, `fetcher.py` (the store) | | `usage.py` | `provider_usage*` tables, `db/price_store.py` |
 | Coding assistant | `assistant.py` | |  | `assistant.py` | counted in `db/portfolio_analyses.py` |
 | Accounts, sign-in | `account.py`, `signin.py` (website and native app; the app's one-time codes) | |  | `account.py` | `db/users.py` (also `app_sign_ins`), `app_settings.py`; `core/oauth.py` (GitHub, Google, Apple, off by default), `core/security.py` |
 

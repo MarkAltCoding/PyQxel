@@ -27,6 +27,9 @@ class ClosePanel:
     failed: dict[str, str] = field(default_factory=dict)
     """Symbols whose download failed, with why, when failures are tolerated; they have
     no column in ``closes``."""
+    frames: dict[str, pd.DataFrame] = field(default_factory=dict)
+    """Each symbol's bars as fetched, whose ``attrs`` say when a plan served less history
+    than asked (see :func:`app.api.v1.endpoints.stocks.short_history`)."""
 
 
 async def fetch_close_panel(
@@ -68,7 +71,9 @@ async def fetch_close_panel(
     if tolerate_failures and failed and len(failed) < len(symbols):
         kept = [symbol for symbol in symbols if symbol not in failed]
         panel = _combine(kept, [r for s, r in zip(symbols, results) if s not in failed])
-        return ClosePanel(closes=panel.closes, timezones=panel.timezones, failed=failed)
+        return ClosePanel(
+            closes=panel.closes, timezones=panel.timezones, failed=failed, frames=panel.frames
+        )
 
     unknown = [s for s, r in zip(symbols, results) if isinstance(r, SymbolNotFoundError)]
     if unknown:
@@ -94,6 +99,7 @@ def _combine(symbols: list[str], results: list[pd.DataFrame | BaseException]) ->
     return ClosePanel(
         closes=pd.concat(closes, axis=1, join="outer", sort=True).reindex(columns=symbols),
         timezones=timezones,
+        frames=frames,
     )
 
 

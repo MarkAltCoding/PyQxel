@@ -24,7 +24,14 @@ colors.
 | `MarketsPage` | market news (paged), event calendar (`lib/calendar.ts`) |
 | `PortfolioPage` | `HoldingsTable` (2 portfolios, up to 40 holdings; sortable, two gain/loss windows and a 52-week range per holding from `lib/holdings.ts`, and an account total), late-listing cutoff, `SimulationCard` (`FanChart`), `CopulaCard` (`CopulaHeatmap`), `PortfolioReviewCard` (one portfolio, or both together) |
 | `BacktestPage` | Single security (a stock, ETF or fund): built-in rules or custom code, with "Also trade" for several symbols. Across tickers: `CrossSectionalBacktest` (rank by a signal), or the same component with `across` (code that trades every ticker it names, `lib/tickers.ts`) |
-| `ScreenerPage`, `SettingsPage`, `SignInPage`, `PrivacyPage` | Settings' `NightlyRefreshCard` opts in to the nightly refresh of the user's own screener (`lib/nightlyRefresh.ts`), and re-sends the keys after one changes. In the native app, `SignInPage` signs in through the system browser (`auth/nativeSignIn.ts`); `auth/NativeSignInLinks` takes the `pyqxel://signin` link back to it |
+| `ScreenerPage`, `SettingsPage`, `SignInPage`, `PrivacyPage` | Settings shows each key's plan usage (`KeyUsage`, `lib/usage.ts`; plan choices kept in the browser) and which pages ask before loading. Its `NightlyRefreshCard` opts in to the nightly refresh of the user's own screener (`lib/nightlyRefresh.ts`), with the keys and number of price histories it may use and what one refresh spends, and re-sends the keys after one changes. In the native app, `SignInPage` signs in through the system browser (`auth/nativeSignIn.ts`); `auth/NativeSignInLinks` takes the `pyqxel://signin` link back to it |
+
+Pages that call providers as soon as they open (Stock, Markets, Portfolio) ask first:
+`LoadGate` (or `useLoadGate` in `lib/loadGate.ts` with `LoadGatePanel`) posts what the
+page would fetch to `/usage/estimate` and shows the requests each key would spend, unless
+nothing would be spent, the user agreed earlier in the tab, or chose to load that page
+without asking. Backtests that a plan cut short come back as 409 or `short_history`, and
+`ShortHistoryNotice` asks before running on the shorter history (`lib/shortHistory.ts`).
 
 Each card has an id, so a link can end in `#id` (`lib/scrollToHash.ts` scrolls to it,
 even through signing in): Stock `price`, `factors`, `volatility`, `news`, `signals`,
@@ -32,7 +39,7 @@ even through signing in): Stock `price`, `factors`, `volatility`, `news`, `signa
 `simulation`, `comovement`, `ai-review`; Markets `calendar`, `market-news`; Backtest
 `backtest-form` (or `ranking-form`), `strategy-code`, `result`, `performance`,
 `allocation`, `stocks`, `saved-backtests`; Screener `screen`, `matches`; Settings
-`key-coverage`, `data-coverage`, `provider-keys`, `nightly-refresh`, `ai-limits`,
+`key-coverage`, `data-coverage`, `provider-keys`, `plan-usage`, `nightly-refresh`, `ai-limits`,
 `delete-account`. Give a new card one too (`ChartCard` takes `id`).
 
 AI reports (`AnalysisPanel`, `PortfolioReviewCard`) share `components/ReportParts.tsx`: a

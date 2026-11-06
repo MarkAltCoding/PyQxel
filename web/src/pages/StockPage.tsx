@@ -14,6 +14,7 @@ import { AnalysisPanel } from '../components/AnalysisPanel'
 import { MetricsCard } from '../components/MetricsCard'
 import { NewsCard } from '../components/NewsCard'
 import { SignalsCard } from '../components/SignalsCard'
+import { LoadGate } from '../components/LoadGate'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { Segmented } from '../components/Segmented'
 import { Stat } from '../components/Stat'
@@ -57,6 +58,29 @@ async function loadVolatility(symbol: string, period: Period): Promise<Volatilit
 
 export function StockPage() {
   const symbol = (useParams().symbol ?? '').toUpperCase()
+  const symbols = [symbol]
+  return (
+    <LoadGate
+      page="stock"
+      signature={symbol}
+      title={symbol}
+      what={`${symbol}’s prices, profile, metrics and news`}
+      fetches={[
+        { kind: 'info', symbols },
+        // The chart's window and volatility's five years share one stored history.
+        { kind: 'history', symbols, period: '5y' },
+        { kind: 'metrics', symbols },
+        { kind: 'signals', symbols },
+        { kind: 'news', symbols },
+        { kind: 'alternative', symbols },
+      ]}
+    >
+      <StockDetails key={symbol} symbol={symbol} />
+    </LoadGate>
+  )
+}
+
+function StockDetails({ symbol }: { symbol: string }) {
   const [period, setPeriod] = useState<Period>('1y')
   const [factorModel, setFactorModel] = useState<FactorModel>('carhart4')
   const theme = useChartTheme()

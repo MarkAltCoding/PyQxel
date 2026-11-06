@@ -98,6 +98,7 @@ async def authenticate(connection: HTTPConnection) -> User:
             connection.headers,
             yfinance=uses_yfinance(user),
             unlicensed=sees_unlicensed_data(user),
+            user_id=user.id,
         )
     )
     return user

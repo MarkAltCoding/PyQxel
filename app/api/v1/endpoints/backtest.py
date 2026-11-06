@@ -16,6 +16,7 @@ from app.api.v1.endpoints.stocks import (
     PERIODS_PER_YEAR,
     Symbol,
     history_coverage,
+    short_history,
     upstream_error,
 )
 from app.api.auth import CurrentUser
@@ -134,6 +135,37 @@ async def load_benchmark(spec: BacktestStrategy, period: str, interval: str) -> 
     return frame["Close"]
 
 
+MAX_SHORT_HISTORY_WARNINGS: int = 3
+"""Symbols whose short history a refused run explains one by one; the rest are counted."""
+
+
+def refuse_short_history(
+    frames: dict[str, pd.DataFrame], period: str, interval: str, accepted: bool
+) -> None:
+    """Refuse a run on bars a plan cut short of the window, unless the user ``accepted``.
+
+    Raises:
+        HTTPException: 409 saying, for each symbol, which key ran out or which plan is
+            short, when it resets, and what to do.
+    """
+    if accepted:
+        return
+    problems = [
+        warning
+        for symbol, frame in frames.items()
+        if (warning := short_history(symbol, period, interval, frame))  # type: ignore[arg-type]
+    ]
+    if not problems:
+        return
+    shown = problems[:MAX_SHORT_HISTORY_WARNINGS]
+    more = len(problems) - len(shown)
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=" ".join(shown)
+        + (f" {more} more symbols also have less history than asked." if more > 0 else ""),
+    )
+
+
 def attribute(
     returns: pd.Series, factors: pd.DataFrame | None, model: FactorModel | None
 ) -> tuple[FactorContext | None, str | None]:
@@ -201,6 +233,9 @@ async def backtest_and_store(
     assert benchmark_result is None or isinstance(benchmark_result, pd.Series)
     factors, factor_notice = factors_result
     symbol = symbol.upper()
+    refuse_short_history(
+        {symbol: frame_result}, options.period, options.interval, options.accept_short_history
+    )
     coverage, coverage_notice = history_coverage(
         symbol, options.period, options.interval, frame_result
     )
@@ -286,6 +321,10 @@ async def create_backtest(
     Returns 404 for unknown symbols, 422 when the window has too few bars for the
     strategy or dual momentum's benchmark is unknown, and 502 when the data provider
     fails, or the risk-free rate or dual momentum's benchmark cannot be fetched.
+
+    Returns 409, saying which key ran out or which plan is short, when it resets and what
+    to do, when a plan served less history than the window asks for and
+    ``accept_short_history`` is false.
     """
     return await backtest_and_store(
         symbol,
@@ -334,6 +373,10 @@ async def create_custom_backtest(
     Returns 404 for unknown symbols, 422 when a bar in that range has no position or the
     range has too few bars, and 502 when the data provider fails or the risk-free rate
     cannot be fetched.
+
+    Returns 409, saying which key ran out or which plan is short, when it resets and what
+    to do, when a plan served less history than the window asks for and
+    ``accept_short_history`` is false.
     """
     return await backtest_and_store(
         symbol,
@@ -407,6 +450,10 @@ async def create_multi_asset_custom_backtest(
     Returns 404 naming unknown symbols, 422 when a bar every symbol traded in that range
     has no weights or the range has too few bars, and 502 when the data provider fails
     or the risk-free rate cannot be fetched.
+
+    Returns 409, saying which key ran out or which plan is short, when it resets and what
+    to do, when a plan served less history than the window asks for and
+    ``accept_short_history`` is false.
     """
     model = request.attribution if request.interval == "1d" else None
     panel_result, factors_result = await asyncio.gather(
@@ -421,6 +468,9 @@ async def create_multi_asset_custom_backtest(
             raise outcome
     assert not isinstance(panel_result, BaseException)
     assert isinstance(factors_result, tuple)
+    refuse_short_history(
+        panel_result.frames, request.period, request.interval, request.accept_short_history
+    )
     factors, factor_notice = factors_result
     periods_per_year = PERIODS_PER_YEAR[request.interval]
     try:
@@ -543,6 +593,10 @@ async def create_cross_sectional_backtest(
     Returns 404 naming unknown symbols, 422 when no rebalance has enough stocks with the
     signal's history, and 502 when the price provider fails or the risk-free rate cannot
     be fetched.
+
+    Returns 409, saying which key ran out or which plan is short, when it resets and what
+    to do, when a plan served less history than the window asks for and
+    ``accept_short_history`` is false.
     """
     panel_result, factors_result = await asyncio.gather(
         fetch_close_panel(request.symbols, period=request.period, interval="1d"),
@@ -556,6 +610,7 @@ async def create_cross_sectional_backtest(
             raise outcome
     assert not isinstance(panel_result, BaseException)
     assert isinstance(factors_result, tuple)
+    refuse_short_history(panel_result.frames, request.period, "1d", request.accept_short_history)
     factors, factor_notice = factors_result
     try:
         result = await asyncio.to_thread(

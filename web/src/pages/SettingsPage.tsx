@@ -1,11 +1,20 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { deleteAccount, getAccount, updateAdminSettings, updateLimits } from '../api/endpoints'
+import {
+  deleteAccount,
+  deleteStoredPrices,
+  getAccount,
+  getUsage,
+  updateAdminSettings,
+  updateLimits,
+} from '../api/endpoints'
 import type {
   Account,
   AdminSettings,
   AdminSettingsUpdate,
   NightlyRefreshStatus,
+  ProviderUsage,
+  UsageResponse,
 } from '../api/types'
 import { useAuth } from '../auth/useAuth'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -23,6 +32,18 @@ import { InfoTip } from '../components/InfoTip'
 import { NightlyRefreshCard } from '../components/NightlyRefreshCard'
 import { NIGHTLY_QUERY_KEY, resyncNightlyKeys } from '../lib/nightlyRefresh'
 import { setProviderKey, type ProviderName } from '../lib/providerKeys'
+import { KeyUsage } from '../components/KeyUsage'
+import {
+  ASKING_PAGES,
+  bytes,
+  loadsWithoutAsking,
+  planQuery,
+  setLoadsWithoutAsking,
+  setStoredPlan,
+  storedPlans,
+  USAGE_QUERY_KEY,
+  type AskingPage,
+} from '../lib/usage'
 
 type ProviderAccount = ProviderName
 
@@ -184,6 +205,18 @@ const FEATURES: Feature[] = [
 export function SettingsPage() {
   const queryClient = useQueryClient()
   const account = useQuery({ queryKey: ['account'], queryFn: () => getAccount() })
+  const [plans, setPlans] = useState(storedPlans)
+  const usage = useQuery({
+    queryKey: [USAGE_QUERY_KEY, plans],
+    queryFn: () => getUsage(planQuery(plans)),
+    enabled: account.data !== undefined,
+  })
+  const choosePlan = (provider: string, plan: string) => {
+    setStoredPlan(provider, plan)
+    setPlans(storedPlans())
+  }
+  const reportOf = (provider: ProviderName): ProviderUsage | undefined =>
+    usage.data?.providers.find((report) => report.provider === provider)
   const onSaved = (data: Account) => {
     queryClient.setQueryData(['account'], data)
     // Data and reports depend on the settings; refetch what was loaded with the old ones.
@@ -231,10 +264,14 @@ export function SettingsPage() {
                 provider={provider}
                 account={account.data}
                 onChanged={onKeysChanged}
+                report={reportOf(provider.account)}
+                onPlan={(plan) => choosePlan(provider.account, plan)}
               />
             ))}
+            {usage.error !== null && <ErrorNotice error={usage.error} />}
           </section>
-          <NightlyRefreshCard account={account.data} />
+          <UsageSettings usage={usage.data} />
+          <NightlyRefreshCard account={account.data} usage={usage.data} />
           <LimitsForm account={account.data} onSaved={onSaved} />
           {account.data.admin && <AdminSettingsForm admin={account.data.admin} onSaved={onSaved} />}
           <DeleteAccount email={account.data.email} />
@@ -344,10 +381,15 @@ function KeyForm({
   provider,
   account,
   onChanged,
+  report,
+  onPlan,
 }: {
   provider: ProviderInfo
   account: Account
   onChanged: () => void
+  /** The key's plan usage, once read. */
+  report?: ProviderUsage
+  onPlan: (plan: string) => void
 }) {
   // A server from before a provider was added sends nothing for it: no key was added.
   const current = account[provider.account] ?? { configured: false, hint: null }
@@ -404,7 +446,80 @@ function KeyForm({
           </button>
         )}
       </div>
+      {current.configured && report && <KeyUsage report={report} onPlan={onPlan} />}
     </form>
+  )
+}
+
+/** Which pages ask before calling providers, and the prices PyQxel keeps for the user. */
+function UsageSettings({ usage }: { usage: UsageResponse | undefined }) {
+  const queryClient = useQueryClient()
+  const [, setChanged] = useState(0)
+  const [confirming, setConfirming] = useState(false)
+  const remove = useMutation({
+    mutationFn: deleteStoredPrices,
+    onSuccess: () => {
+      setConfirming(false)
+      void queryClient.invalidateQueries({ queryKey: [USAGE_QUERY_KEY] })
+    },
+  })
+  const stored = usage?.stored_prices
+  return (
+    <section id="plan-usage" className="card stack" style={{ gap: 14 }}>
+      <div>
+        <div className="heading-with-info">
+          <h2>What spends your plans’ limits</h2>
+          <InfoTip topic="loadEstimate" />
+        </div>
+        <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
+          Pages that call your keys’ providers as soon as they open ask first, saying about how many
+          requests each key would spend. Untick a page to load it without asking.
+        </p>
+      </div>
+      <div className="stack" style={{ gap: 6 }}>
+        {(Object.keys(ASKING_PAGES) as AskingPage[]).map((page) => (
+          <label key={page} className="filter-row" style={{ alignItems: 'center', gap: 10 }}>
+            <input
+              type="checkbox"
+              checked={!loadsWithoutAsking(page)}
+              onChange={(event) => {
+                setLoadsWithoutAsking(page, !event.target.checked)
+                setChanged((count) => count + 1)
+              }}
+            />
+            <span>Ask before loading {ASKING_PAGES[page]}</span>
+          </label>
+        ))}
+      </div>
+      <div className="stats">
+        <Stat
+          info="storedPrices"
+          label="Stored prices"
+          value={stored ? `${stored.symbols.toLocaleString('en-US')} symbols` : '–'}
+          detail={stored ? bytes(stored.bytes) : undefined}
+        />
+      </div>
+      {stored && stored.histories > 0 && (
+        <div>
+          <button type="button" className="button ghost danger" onClick={() => setConfirming(true)}>
+            Delete stored prices
+          </button>
+        </div>
+      )}
+      {confirming && (
+        <ConfirmDialog
+          title="Delete your stored prices?"
+          confirmLabel="Delete them"
+          busy={remove.isPending}
+          onConfirm={() => remove.mutate()}
+          onCancel={() => setConfirming(false)}
+        >
+          Pages and backtests will fetch prices again on your keys, spending a request for each
+          symbol.
+        </ConfirmDialog>
+      )}
+      {remove.error !== null && <ErrorNotice error={remove.error} />}
+    </section>
   )
 }
 

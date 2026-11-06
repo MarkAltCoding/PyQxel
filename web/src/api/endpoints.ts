@@ -5,6 +5,9 @@ import type {
   AppSignInKey,
   NightlyRefreshSettings,
   NightlyRefreshStatus,
+  PlannedFetch,
+  UsageEstimate,
+  UsageResponse,
   AnalysisImport,
   AnalysisPromptExport,
   AdminSettingsUpdate,
@@ -70,6 +73,22 @@ export const updateAdminSettings = (body: AdminSettingsUpdate) =>
   api<Account>(`${V1}/me/admin`, { method: 'PUT', body })
 export const deleteAccount = () => api<void>(`${V1}/me`, { method: 'DELETE' })
 export const getNightlyRefresh = () => api<NightlyRefreshStatus>(`${V1}/me/nightly-refresh`)
+/** The status, with `key_use` saying what a refresh on `keys`, giving `stocks` stocks price
+ * histories, would send on each key. */
+export const previewNightlyRefresh = (keys: string[], stocks: number) =>
+  api<NightlyRefreshStatus>(`${V1}/me/nightly-refresh`, {
+    query: { use_key: keys, price_history_stocks: stocks },
+  })
+
+/** Each key's plan usage; `plans` are `provider:plan` choices for keys not on a free plan. */
+export const getUsage = (plans: string[]) =>
+  api<UsageResponse>(`${V1}/usage`, { query: { plan: plans } })
+/** About how many requests fetching `fetches` would send on each key. Fetches nothing. */
+export const estimateUsage = (fetches: PlannedFetch[], plans: Record<string, string>) =>
+  api<UsageEstimate>(`${V1}/usage/estimate`, { method: 'POST', body: { fetches, plans } })
+/** Deletes every price history PyQxel keeps for the user. */
+export const deleteStoredPrices = () =>
+  send(`${V1}/usage/stored-prices`, { method: 'DELETE' }).then(() => undefined)
 /** Opts in, or changes the time; the keys this request carries are stored, encrypted. */
 export const enableNightlyRefresh = (body: NightlyRefreshSettings) =>
   api<NightlyRefreshStatus>(`${V1}/me/nightly-refresh`, { method: 'PUT', body })
@@ -130,6 +149,9 @@ export const deleteBacktest = (id: string) =>
 export const getPortfolios = () => api<PortfolioList>(`${V1}/portfolio/portfolios`)
 export const getHoldings = (portfolio: number) =>
   api<HoldingsResponse>(`${V1}/portfolio/holdings`, { query: { portfolio } })
+/** The saved symbols and shares alone, without pricing them, which asks no provider. */
+export const getSavedHoldings = (portfolio: number) =>
+  api<HoldingsResponse>(`${V1}/portfolio/holdings`, { query: { portfolio, priced: false } })
 /** Each holding's gain or loss over a preset window, or since a custom first day. */
 export const getHoldingChanges = (symbols: string[], window: GainWindow | { since: string }) =>
   api<HoldingChangesResponse>(`${V1}/portfolio/changes`, {

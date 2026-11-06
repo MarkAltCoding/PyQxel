@@ -15,7 +15,17 @@ import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
@@ -47,7 +57,7 @@ from app.models.account import (
     NewApiKey,
     ProviderCredential,
 )
-from app.models.nightly import NightlyRefreshSettings, NightlyRefreshStatus
+from app.models.nightly import NightlyProvider, NightlyRefreshSettings, NightlyRefreshStatus
 
 logger = logging.getLogger(__name__)
 
@@ -178,14 +188,28 @@ async def remove_api_key(key_id: UUID, user: CurrentUser, session: Session) -> R
     response_model=NightlyRefreshStatus,
     summary="Your nightly screener refresh",
 )
-async def read_nightly_refresh(user: CurrentUser, session: Session) -> NightlyRefreshStatus:
+async def read_nightly_refresh(
+    user: CurrentUser,
+    session: Session,
+    use_key: Annotated[
+        list[NightlyProvider],
+        Query(description="Keys being considered, to preview what a refresh would use."),
+    ] = [],  # noqa: B006
+    price_history_stocks: Annotated[
+        int | None,
+        Query(ge=0, le=10_000, description="A price-history cap being considered, likewise."),
+    ] = None,
+) -> NightlyRefreshStatus:
     """Return whether your nightly screener refresh is on, when it runs, which of your
-    keys it stores, and how its latest runs went.
+    keys it stores, how its latest runs went, and about how many requests one refresh
+    sends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of
+    keys and of ``price_history_stocks`` before it is saved.
 
     Returns 503 when the database is unavailable.
     """
+    preview = (list(use_key), price_history_stocks) if use_key else None
     try:
-        return await refresh_status(session, user.id, encryption_available())
+        return await refresh_status(session, user.id, encryption_available(), preview=preview)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
 

@@ -60,5 +60,32 @@ export async function resyncNightlyKeys(
   status: NightlyRefreshStatus | undefined,
 ): Promise<NightlyRefreshStatus | undefined> {
   if (!status?.enabled || !status.refresh_time || !status.time_zone) return undefined
-  return enableNightlyRefresh({ refresh_time: status.refresh_time, time_zone: status.time_zone })
+  return enableNightlyRefresh({
+    refresh_time: status.refresh_time,
+    time_zone: status.time_zone,
+    // The same keys and cap the user chose, so a changed key does not widen them.
+    use_keys: status.providers ?? null,
+    price_history_stocks:
+      status.price_history_stocks === null
+        ? ALL_STOCKS
+        : (status.price_history_stocks ?? DEFAULT_STOCKS),
+  })
 }
+
+/** "As many as the keys' plans allow": more stocks than are listed. */
+export const ALL_STOCKS = 10_000
+
+/** Stocks given price histories until the user chooses, as the server's default: under a
+ * free Tiingo key's 50 requests an hour. */
+export const DEFAULT_STOCKS = 40
+
+/** Choices of how many stocks get price histories each night. */
+export const PRICE_HISTORY_CHOICES = [
+  { value: 0, label: 'None' },
+  { value: 40, label: '40' },
+  { value: 200, label: '200' },
+  { value: ALL_STOCKS, label: 'All the plans allow' },
+] as const
+
+/** Price-history keys, in the order a refresh tries them. */
+export const PRICE_KEYS = ['tiingo', 'fmp', 'eodhd', 'alpha_vantage'] as const

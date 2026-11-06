@@ -7,6 +7,7 @@ import type { MarketCalendar, MarketNewsCategory, NewsArticle } from '../api/typ
 import { calendarRows, type CalendarRow } from '../lib/calendar'
 import { InfoTip } from '../components/InfoTip'
 import { MultiToggle } from '../components/MultiToggle'
+import { LoadGate } from '../components/LoadGate'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { Pager } from '../components/Pager'
 import { PresetOrCustom } from '../components/PresetOrCustom'
@@ -72,6 +73,20 @@ const dayName = (day: string) =>
   })
 
 export function MarketsPage() {
+  return (
+    <LoadGate
+      page="markets"
+      signature="markets"
+      title="Markets"
+      what="the market calendar and news"
+      fetches={[{ kind: 'calendar' }, { kind: 'market_news' }]}
+    >
+      <MarketsDetails />
+    </LoadGate>
+  )
+}
+
+function MarketsDetails() {
   const [days, setDays] = useState(30)
   const [kinds, setKinds] = useState<Kind[]>(ALL_KINDS)
   const [size, setSize] = useState(50e9)

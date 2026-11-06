@@ -9,7 +9,13 @@ from fastapi import APIRouter, HTTPException, Path, Query, status
 from app.data.cash import is_money_market, money_market_message
 from app.data.fetcher import (
     HISTORY_NOTICE,
+    HISTORY_SHORTFALL,
+    HISTORY_STALE,
+    PROVIDER_NAMES,
     DataFetchError,
+    Shortfall,
+    keys_to_add,
+    shortfall_text,
     ProviderNotConfiguredError,
     ProviderPlanError,
     SymbolNotFoundError,
@@ -25,6 +31,7 @@ from app.models.stock import (
     PriceHistory,
     TickerInfo,
 )
+from app.models.usage import HistoryShortfall
 from app.models.volatility import (
     GarchDistribution,
     VolatilityEstimate,
@@ -133,6 +140,60 @@ def history_coverage(
     )
 
 
+def history_shortfalls(frame: pd.DataFrame) -> list[HistoryShortfall]:
+    """Why each provider passed over did not serve ``frame``'s symbol a fuller history."""
+    found: list[Shortfall] = frame.attrs.get(HISTORY_SHORTFALL) or []
+    return [
+        HistoryShortfall(
+            provider=item.provider,
+            name=PROVIDER_NAMES.get(item.provider, item.provider),
+            reason=item.reason,
+            resets_at=item.resets_at,
+            message=item.message,
+        )
+        for item in found
+    ]
+
+
+def short_history(
+    symbol: str, period: HistoryPeriod, interval: HistoryInterval, frame: pd.DataFrame
+) -> str | None:
+    """A plain warning when a plan served ``symbol`` less history than ``period`` asks for:
+    which key ran out or which plan is short, when it resets, and what to do; ``None``
+    when the bars span the window, or begin later only because the listing does.
+
+    A stored copy that merely ends a few days early is not short, and says so in its own
+    notice instead.
+    """
+    notice: str | None = frame.attrs.get(HISTORY_NOTICE)
+    if frame.empty or notice is None or frame.attrs.get(HISTORY_STALE):
+        return None
+    coverage, _ = history_coverage(symbol, period, interval, frame)
+    if coverage != "partial":
+        return None
+    first = pd.Timestamp(frame.index[0]).date()
+    shortfalls: list[Shortfall] = frame.attrs.get(HISTORY_SHORTFALL) or []
+    reasons = shortfall_text(shortfalls, symbol)
+    limited = [item for item in shortfalls if item.reason == "limit"]
+    steps: list[str] = []
+    if limited:
+        steps.append(
+            "Wait until then and run it again for the full history, or run it now on the "
+            "shorter one"
+        )
+    hint = keys_to_add("history", symbol)
+    if hint:
+        steps.append(hint.rstrip("."))
+    if not steps:
+        steps.append("Run it on the shorter history, or choose a shorter window")
+    return (
+        f"Only part of the {period} window: {symbol}'s prices begin "
+        f"{first:%b} {first.day}, {first.year}. {notice}"
+        + (f" {reasons}" if reasons else "")
+        + f" What to do: {'; or '.join(steps)}."
+    )
+
+
 def upstream_error(exc: DataFetchError) -> HTTPException:
     """Translate a provider failure into an HTTP error.
 
@@ -181,6 +242,9 @@ async def get_price_history(
         bars=_frame_to_bars(frame),
         coverage=coverage,
         notice=notice,
+        short_history=short_history(symbol, period, interval, frame),
+        shortfall=history_shortfalls(frame),
+        stale=bool(frame.attrs.get(HISTORY_STALE)),
     )
 
 
