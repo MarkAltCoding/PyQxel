@@ -354,7 +354,8 @@ class BacktestOptions(BaseModel):
     cash_interest: bool = Field(
         default=False,
         description="Let capital not invested in the asset earn the risk-free rate (the "
-        "one-month T-bill, from Ken French's data library), as would short sale proceeds.",
+        "4-week Treasury bill's daily rate from the US Treasury, and Ken French's one-month "
+        "rate before 2002), as would short sale proceeds.",
     )
     attribution: FactorModel | None = Field(
         default="carhart4",
@@ -629,7 +630,8 @@ class PortfolioBacktestRequest(Portfolio):
     )
     cash_interest: bool = Field(
         default=False,
-        description="Let capital not invested earn the risk-free rate (the one-month T-bill).",
+        description="Let capital not invested earn the risk-free rate (the 4-week Treasury "
+        "bill, from the US Treasury).",
     )
     attribution: FactorModel | None = Field(
         default="carhart4",
@@ -834,7 +836,7 @@ class CrossSectionalBacktestRequest(BaseModel):
     cash_interest: bool = Field(
         default=False,
         description="Let capital not invested, and short sale proceeds, earn the risk-free "
-        "rate (the one-month T-bill).",
+        "rate (the 4-week Treasury bill, from the US Treasury).",
     )
     accept_short_history: bool = Field(
         default=False,

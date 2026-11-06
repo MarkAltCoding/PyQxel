@@ -5,11 +5,15 @@ working day for the euro and 29 other currencies, may be reused freely with the 
 credited as the source, and need no key, so every account is served them. A pair of two
 such currencies is their cross rate through the euro.
 
-A currency the ECB does not publish, such as the Taiwan dollar, is quoted by the
-providers whose keys the request carries: Financial Modeling Prep, on the user's FMP key
-or the screener's own while it refreshes (see :mod:`app.core.credentials`), then Alpha
-Vantage on the user's key. FMP quotes some pairs only one way round (``USDTWD`` but not
-``TWDUSD``), so the inverse pair is tried too. Like other market data, they come from
+A currency the ECB does not publish, such as the Taiwan dollar, comes next from the
+Federal Reserve Board's H.10 release of daily rates against the dollar for 23 currencies,
+which is in the public domain (the Board asks to be cited) and needs no key; it is
+released weekly, so its latest rate is up to a week old. Only a currency neither publishes
+is quoted by the providers whose keys the request carries: Financial Modeling Prep, on
+the user's FMP key or the screener's own while it refreshes (see
+:mod:`app.core.credentials`), then Alpha Vantage on the user's key. FMP quotes some
+pairs only one way round (``USDTWD`` but not ``TWDUSD``), so the inverse pair is tried
+too. Like other market data, they come from
 yfinance only for a request allowed to use it.
 
 Every rate carries its source, which is named wherever the rate is shown. A provider's
@@ -111,6 +115,126 @@ class EcbRates:
         )
 
 
+FED_URL: str = (
+    "https://www.federalreserve.gov/datadownload/Output.aspx?rel=H10"
+    "&series=60f32914ab61dfab590e0e470153e3ae&lastobs=10&from=&to=&filetype=csv"
+    "&label=include&layout=seriescolumn"
+)
+"""The Federal Reserve Board's H.10 daily rates for every currency it publishes, the last
+ten business days, as CSV."""
+
+FED_FRESH_SECONDS: float = 6 * 60 * 60
+"""How long the Board's rates are reused; it releases them weekly."""
+
+FED_CACHE_KEY: str = "fx:fed"
+FED_MAX_BYTES: int = 256 * 1024
+"""Largest response read as the Board's rates; the real one is about 4 kB."""
+
+
+@dataclass(frozen=True)
+class FedRates:
+    """The Federal Reserve Board's H.10 rates: US dollars per unit of each currency, each
+    on the latest day it was published."""
+
+    day: date
+    """The latest day any rate is for."""
+    usd_per: dict[str, float]
+    """Including the dollar itself, at 1."""
+
+    def cross(self, base: str, quote: str) -> ExchangeRate | None:
+        """Units of ``quote`` per ``base`` through the dollar; ``None`` unless the Board
+        publishes both."""
+        if base not in self.usd_per or quote not in self.usd_per:
+            return None
+        day = f"{self.day.strftime('%b')} {self.day.day}, {self.day.year}"
+        published = "USD" in (base, quote)
+        return ExchangeRate(
+            rate=self.usd_per[base] / self.usd_per[quote],
+            source=(
+                f"the Federal Reserve Board's H.10 rate for {day}"
+                if published
+                else f"a rate worked out from the Federal Reserve Board's H.10 rates for {day}"
+            ),
+        )
+
+
+def parse_fed_rates(text: str) -> FedRates:
+    """The latest rate of each currency in the Board's H.10 CSV download: a header block
+    naming each column's currency and series (``RXI$US_...`` in dollars per unit, the rest
+    in units per dollar), then a row per day, ``ND`` where there is no rate.
+
+    Raises:
+        DataFetchError: If ``text`` is not that file, or has no rates.
+    """
+    import csv
+    import io
+
+    rows = list(csv.reader(io.StringIO(text)))
+    currencies = next((row[1:] for row in rows if row and row[0].startswith("Currency")), None)
+    series = next((row[1:] for row in rows if row and row[0] == "Time Period"), None)
+    if not currencies or not series or len(currencies) != len(series):
+        raise DataFetchError("The Federal Reserve's exchange rates could not be read.")
+    usd_per: dict[str, float] = {"USD": 1.0}
+    latest: date | None = None
+    for row in rows:
+        try:
+            day = date.fromisoformat(row[0])
+        except IndexError, ValueError:
+            continue
+        for currency, code, value in zip(currencies, series, row[1:], strict=False):
+            try:
+                rate = _positive(float(value))
+            except ValueError:
+                continue  # ND: no rate that day.
+            if rate is None or len(currency) != 3:
+                continue
+            usd_per[currency.upper()] = rate if "$US" in code else 1.0 / rate
+            latest = day if latest is None or day > latest else latest
+    if latest is None or len(usd_per) < 2:
+        raise DataFetchError("The Federal Reserve's exchange rates could not be read: no rates.")
+    return FedRates(day=latest, usd_per=usd_per)
+
+
+_fed_memory: tuple[float, FedRates] | None = None
+"""(time fetched, rates)."""
+
+
+async def fetch_fed_rates() -> FedRates:
+    """The Board's latest H.10 rates, reused for :data:`FED_FRESH_SECONDS` from memory or
+    Redis. They are public data, so one copy serves every account.
+
+    Raises:
+        DataFetchError: If they cannot be fetched or read.
+    """
+    global _fed_memory
+    if _fed_memory is not None and time.monotonic() - _fed_memory[0] <= FED_FRESH_SECONDS:
+        return _fed_memory[1]
+    cached = await cache_get(FED_CACHE_KEY)
+    if cached is not None:
+        try:
+            data = json.loads(cached)
+            rates = FedRates(day=date.fromisoformat(data["day"]), usd_per=dict(data["usd_per"]))
+        except ValueError, KeyError, TypeError:
+            logger.warning("Ignoring unreadable cached Federal Reserve rates.")
+        else:
+            _fed_memory = (time.monotonic(), rates)
+            return rates
+    try:
+        async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
+            response = await client.get(FED_URL, headers={"User-Agent": "PyQxel"})
+            response.raise_for_status()
+    except httpx2.HTTPError as exc:
+        raise DataFetchError(f"The Federal Reserve's exchange rates could not be fetched: {exc}")
+    rates = parse_fed_rates(response.content[:FED_MAX_BYTES].decode("utf-8", "replace"))
+    _fed_memory = (time.monotonic(), rates)
+    await cache_set(
+        FED_CACHE_KEY,
+        json.dumps({"day": rates.day.isoformat(), "usd_per": rates.usd_per}),
+        FED_FRESH_SECONDS,
+    )
+    return rates
+
+
 _memory: dict[tuple[Provider, str, str], tuple[float, float]] = {}
 """(provider, base, quote) -> (time fetched, rate)."""
 
@@ -120,9 +244,10 @@ _ecb_memory: tuple[float, EcbRates] | None = None
 
 def clear_memory() -> None:
     """Forget the rates kept in memory."""
-    global _ecb_memory
+    global _ecb_memory, _fed_memory
     _memory.clear()
     _ecb_memory = None
+    _fed_memory = None
 
 
 def parse_ecb_rates(content: bytes) -> EcbRates:
@@ -262,8 +387,9 @@ async def fetch_exchange_rate(base: str, quote: str = "USD") -> float:
 async def fetch_sourced_exchange_rate(base: str, quote: str = "USD") -> ExchangeRate:
     """Units of ``quote`` currency per unit of ``base`` currency, and its source.
 
-    The ECB's reference rates answer when it publishes both currencies; the request's
-    providers answer otherwise, or when the ECB's rates cannot be fetched.
+    The ECB's reference rates answer when it publishes both currencies, then the Federal
+    Reserve Board's H.10 rates; the request's providers answer only a pair neither
+    publishes, or when neither can be fetched.
 
     Args:
         base: ISO 4217 code of the currency converted from.
@@ -279,6 +405,13 @@ async def fetch_sourced_exchange_rate(base: str, quote: str = "USD") -> Exchange
         return ExchangeRate(rate=1.0, source="")
     try:
         found = (await fetch_ecb_rates()).cross(base, quote)
+    except DataFetchError as exc:
+        logger.warning("%s; asking the market data providers instead.", exc)
+        found = None
+    if found is not None:
+        return found
+    try:
+        found = (await fetch_fed_rates()).cross(base, quote)
     except DataFetchError as exc:
         logger.warning("%s; asking the market data providers instead.", exc)
         found = None

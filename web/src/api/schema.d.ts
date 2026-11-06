@@ -2393,7 +2393,7 @@ export interface components {
       attribution?: ('ff3' | 'carhart4' | 'ff5') | null
       /**
        * Cash Interest
-       * @description Let capital not invested in the asset earn the risk-free rate (the one-month T-bill, from Ken French's data library), as would short sale proceeds.
+       * @description Let capital not invested in the asset earn the risk-free rate (the 4-week Treasury bill's daily rate from the US Treasury, and Ken French's one-month rate before 2002), as would short sale proceeds.
        * @default false
        */
       cash_interest?: boolean
@@ -2788,7 +2788,7 @@ export interface components {
       attribution?: ('ff3' | 'carhart4' | 'ff5') | null
       /**
        * Cash Interest
-       * @description Let capital not invested, and short sale proceeds, earn the risk-free rate (the one-month T-bill).
+       * @description Let capital not invested, and short sale proceeds, earn the risk-free rate (the 4-week Treasury bill, from the US Treasury).
        * @default false
        */
       cash_interest?: boolean
@@ -2989,7 +2989,7 @@ export interface components {
       attribution?: ('ff3' | 'carhart4' | 'ff5') | null
       /**
        * Cash Interest
-       * @description Let capital not invested in the asset earn the risk-free rate (the one-month T-bill, from Ken French's data library), as would short sale proceeds.
+       * @description Let capital not invested in the asset earn the risk-free rate (the 4-week Treasury bill's daily rate from the US Treasury, and Ken French's one-month rate before 2002), as would short sale proceeds.
        * @default false
        */
       cash_interest?: boolean
@@ -5105,7 +5105,7 @@ export interface components {
       attribution?: ('ff3' | 'carhart4' | 'ff5') | null
       /**
        * Cash Interest
-       * @description Let capital not invested in the asset earn the risk-free rate (the one-month T-bill, from Ken French's data library), as would short sale proceeds.
+       * @description Let capital not invested in the asset earn the risk-free rate (the 4-week Treasury bill's daily rate from the US Treasury, and Ken French's one-month rate before 2002), as would short sale proceeds.
        * @default false
        */
       cash_interest?: boolean
@@ -5994,7 +5994,7 @@ export interface components {
       attribution?: ('ff3' | 'carhart4' | 'ff5') | null
       /**
        * Cash Interest
-       * @description Let capital not invested earn the risk-free rate (the one-month T-bill).
+       * @description Let capital not invested earn the risk-free rate (the 4-week Treasury bill, from the US Treasury).
        * @default false
        */
       cash_interest?: boolean
@@ -7175,7 +7175,7 @@ export interface components {
     }
     /**
      * SecFiling
-     * @description A filing with the SEC, as listed by Finnhub.
+     * @description A filing with the SEC, as EDGAR lists it.
      */
     SecFiling: {
       /**
@@ -7666,7 +7666,7 @@ export interface components {
       exchange?: string | null
       /**
        * Filled Fields
-       * @description Fields ``source`` left empty that Finnhub or Alpha Vantage filled in.
+       * @description Fields ``source`` left empty that the SEC (sector and industry), Finnhub, Tiingo, Alpha Vantage or a quote filled in.
        */
       filled_fields?: string[]
       /** Industry */

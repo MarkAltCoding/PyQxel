@@ -27,7 +27,7 @@ FINNHUB_COSTS: dict[str, int] = {
     "news": 1,
     "metrics": 2,
     "signals": 5,
-    "alternative": 4,
+    "alternative": 3,
     "market_news": 1,
     "calendar": 4,
 }

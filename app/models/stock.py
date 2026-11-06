@@ -41,7 +41,8 @@ class TickerInfo(BaseModel):
     source: str = Field(description="Data provider that produced this record.")
     filled_fields: list[str] = Field(
         default_factory=list,
-        description="Fields ``source`` left empty that Finnhub or Alpha Vantage filled in.",
+        description="Fields ``source`` left empty that the SEC (sector and industry), "
+        "Finnhub, Tiingo, Alpha Vantage or a quote filled in.",
     )
 
 

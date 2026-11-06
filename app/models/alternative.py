@@ -63,7 +63,7 @@ class Patent(BaseModel):
 
 
 class SecFiling(BaseModel):
-    """A filing with the SEC, as listed by Finnhub."""
+    """A filing with the SEC, as EDGAR lists it."""
 
     form: str
     filed: date

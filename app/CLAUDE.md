@@ -24,7 +24,8 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
   key refuses, `plan_hint` names the keys that could answer and, for a listing abroad, the
   company's US listings (`us_listings`). A snapshot without a price (Tiingo's, for an ETF)
   takes one from the quote chain, and `quote_type` tells stocks from ETFs and funds
-  (`FUND_TYPES`), whose company figures are not looked up. Providers:
+  (`FUND_TYPES`), whose company figures are not looked up. A missing sector and industry
+  come first from the SEC's industry code (`_fill_from_sec`), with no key. Providers:
   Tiingo, FMP, EODHD, Finnhub, Alpha Vantage. `web/src/lib/keyCoverage.ts` mirrors the order
   for Settings, and a test checks they match. Results
   are cached in Redis when `REDIS_URL` is set (`core/cache.py`); without it every lookup
@@ -60,13 +61,13 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
 | A fund's holdings and costs | `stocks.py` (`/{symbol}/fund`); also in AI reports (`research.py`) and portfolio reviews (`funds`, sectors looked through) | `funds.py` (Alpha Vantage `ETF_PROFILE`, then figures of the holdings from the screener or Finnhub), `fund_filings.py` (SEC N-PORT holdings, public) | `fund_stats.py` (holdings-weighted figures, `look_through`) | `stock.py` (`FundProfile`) | `db/screener.py: company_figures` |
 | Quotes, history, volatility | `stocks.py`, `quotes.py` (WebSocket) | `fetcher.py` | `garch.py` (R), `ewma.py`, `volatility.py`, `indicators.py` | `stock.py`, `volatility.py`, `quote.py` | |
 | Factor regression | `factors.py` | `data/factors.py` (Ken French) | `stats/factors.py` | `factors.py` | |
-| Fundamentals, valuation | `fundamentals.py` | `sec_edgar.py`, `fundamentals.py`, `xbrl_instance.py`, `alpha_vantage.py`, `finnhub_financials.py`, `exchange_rates.py` | `valuation.py` | `fundamentals.py` | |
-| News, signals, metrics, alternative data | `news.py`, `signals.py`, `metrics.py`, `alternative.py` | `news.py`, `finnhub.py`, `alternative.py` | `stats/news.py`, `signals.py`, `alternative.py` | same names | |
+| Fundamentals, valuation | `fundamentals.py` | `sec_edgar.py`, `fundamentals.py`, `xbrl_instance.py`, `alpha_vantage.py`, `finnhub_financials.py`, `exchange_rates.py` (ECB, then the Federal Reserve's H.10, then keys) | `valuation.py` | `fundamentals.py` | |
+| News, signals, metrics, alternative data | `news.py`, `signals.py`, `metrics.py`, `alternative.py` | `news.py`, `finnhub.py`, `alternative.py` (SEC filings from EDGAR, keyless) | `stats/news.py`, `signals.py`, `alternative.py` | same names | |
 | Markets page | `markets.py` | `data/markets.py`, `fomc.py` | `stats/markets.py` | `markets.py` | |
 | Screener, search | `screener.py`, `search.py` | `universe.py` | `screening.py`, `peers.py` | `screener.py` | `db/screener.py`; refreshed by `jobs/screener.py` (shared SEC first stage, then the shared universe) |
 | A user's own screener (nightly refresh) | `account.py` (`/me/nightly-refresh`); `screener.py` reads it | `screener_metrics.py` (Finnhub metrics, price histories, the US ETF list: all of it once a week, `nightly_refreshes.etfs_scanned_at`, the kept ETFs other nights) | `screening.py: user_screen_metrics`, `etf_screen_metrics` (rows with `asset_type` `etf` have no company figures, CIK or market cap) | `nightly.py`, `screener.py` | `db/nightly.py`, `user_screener_*` tables; run hourly by `jobs/nightly.py` |
 | AI stock report | `research.py` | everything above | | `research.py` | `db/analyses.py` |
-| Backtests | `backtest.py` | `fetcher.py`, `panel.py`, `factors.py` | `backtest.py` (one asset, a portfolio, replayed custom weights), `cross_section.py` (rank a universe), `metrics.py` | `backtest.py` | `db/backtests.py` |
+| Backtests | `backtest.py` (`load_factors`: cash interest from the Treasury's bill rates, Ken French's before 2002) | `fetcher.py`, `panel.py`, `factors.py`, `treasury.py` | `backtest.py` (one asset, a portfolio, replayed custom weights), `cross_section.py` (rank a universe), `metrics.py` | `backtest.py` | `db/backtests.py` |
 | Portfolio | `portfolio.py` (prices in dollars, a listing abroad's converted by `exchange_rates.dollars_per_unit`; also each holding's gain over a window, `/changes`, and 52-week range, `/ranges`; reviews of one portfolio or both together, `combined`) | `panel.py`, `cash.py` (money-market funds) | `panel.py` (aligned returns, `usable_return_panel` drops what it cannot use), `copulas.py`, `monte_carlo.py`, `portfolio_risk.py`, `rebalance.py` (orders), `performance.py` (window changes, 52-week ranges) | `portfolio.py`, `simulation.py`, `portfolio_analysis.py` | `db/holdings.py` (2 portfolios per account), `simulations.py`, `portfolio_analyses.py` |
 | Plan usage, estimates, stored prices | `usage.py` | `usage.py`, `estimates.py`, `fetcher.py` (the store) | | `usage.py` | `provider_usage*` tables, `db/price_store.py` |
 | Coding assistant | `assistant.py` | |  | `assistant.py` | counted in `db/portfolio_analyses.py` |

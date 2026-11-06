@@ -97,13 +97,50 @@ def no_fed_calendar(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def no_ecb_rates(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The ECB's reference rates are unreachable, so no test reaches ecb.europa.eu and rates
-    come from the providers; tests of the ECB's rates serve them themselves."""
+    """The ECB's and the Federal Reserve's rates are unreachable, so no test reaches them
+    and rates come from the providers; tests of their rates serve them themselves."""
 
     async def unreachable() -> None:
         raise DataFetchError("The ECB is not reached in tests.")
 
     monkeypatch.setattr(exchange_rates, "fetch_ecb_rates", unreachable)
+    monkeypatch.setattr(exchange_rates, "fetch_fed_rates", unreachable)
+
+
+@pytest.fixture(autouse=True)
+def no_sec_industries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The SEC's industry codes are unreachable, so no test reaches sec.gov to fill a
+    snapshot's sector; tests of that fill fake it themselves."""
+    from app.data import fetcher
+
+    async def unreachable(symbol: str) -> None:
+        raise DataFetchError("The SEC is not reached in tests.")
+
+    monkeypatch.setattr(fetcher, "_sec_industry", unreachable)
+
+
+@pytest.fixture(autouse=True)
+def no_edgar_filings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EDGAR's list of a company's filings is unreachable, so no test reaches sec.gov for
+    it; tests of it serve it themselves."""
+    from app.data import alternative
+
+    async def unreachable(symbol: str, today: object, client: object = None) -> None:
+        raise DataFetchError("EDGAR is not reached in tests.")
+
+    monkeypatch.setattr(alternative, "fetch_sec_filings", unreachable)
+
+
+@pytest.fixture(autouse=True)
+def no_treasury(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Treasury's bill rates are unreachable, so no test reaches treasury.gov and cash
+    interest comes from the faked factor data; tests of the bill rates serve them."""
+    from app.api.v1.endpoints import backtest as backtest_route
+
+    async def unreachable(start: object) -> None:
+        raise DataFetchError("The Treasury is not reached in tests.")
+
+    monkeypatch.setattr(backtest_route, "fetch_bill_returns", unreachable)
 
 
 @pytest.fixture(autouse=True)

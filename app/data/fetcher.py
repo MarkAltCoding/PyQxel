@@ -1769,13 +1769,66 @@ async def _fill_from_tiingo(info: TickerInfo, client: httpx2.AsyncClient | None)
     )
 
 
+SEC_INDUSTRY_TTL_SECONDS: float = 30 * 24 * 60 * 60
+"""How long a company's SEC industry code is reused; companies rarely change it."""
+_sec_industries: dict[str, tuple[float, tuple[int | None, str | None]]] = {}
+"""Symbol -> (time read, (SIC code, its title)), for deployments without Redis."""
+
+
+async def _sec_industry(symbol: str) -> tuple[int | None, str | None]:
+    """The SIC code and title the SEC files ``symbol``'s company under, reused for a month;
+    public data, so one copy serves every account."""
+    from app.data.sec_edgar import cik_for, edgar_client, fetch_industry_code
+
+    remembered = _sec_industries.get(symbol)
+    if remembered is not None and time.monotonic() - remembered[0] < SEC_INDUSTRY_TTL_SECONDS:
+        return remembered[1]
+    key = f"sec:industry:{symbol}"
+    cached = await cache_get(key)
+    if cached is not None:
+        try:
+            code, title = json.loads(cached)
+            _sec_industries[symbol] = (time.monotonic(), (code, title))
+            return code, title
+        except ValueError, TypeError:
+            logger.warning("Ignoring an unreadable cached SEC industry for %s.", symbol)
+    async with edgar_client() as client:
+        found = await fetch_industry_code(client, await cik_for(symbol, client))
+    _sec_industries[symbol] = (time.monotonic(), found)
+    await cache_set(key, json.dumps(found), SEC_INDUSTRY_TTL_SECONDS)
+    return found
+
+
+async def _fill_from_sec(info: TickerInfo) -> TickerInfo:
+    """Fill a US company's missing sector and industry from the industry (SIC) code it
+    files under with the SEC: public data, needing no key, so the keyed providers are
+    asked only for what it leaves empty."""
+    if symbol_kind(info.symbol) != "us" or (info.sector and info.industry):
+        return info
+    from app.stats.sectors import industry_name, sector_for_sic
+
+    try:
+        code, title = await _sec_industry(info.symbol)
+    except Exception as exc:  # The SEC is a bonus here; the providers can still fill in.
+        logger.info("The SEC has no industry for %s: %s", info.symbol, exc)
+        return info
+    found = {"sector": sector_for_sic(code), "industry": industry_name(title)}
+    filled = {f: value for f, value in found.items() if value and getattr(info, f) is None}
+    if not filled:
+        return info
+    return info.model_copy(
+        update=filled | {"filled_fields": [*info.filled_fields, *sorted(filled)]}
+    )
+
+
 async def _fill_info(info: TickerInfo, client: httpx2.AsyncClient | None) -> TickerInfo:
-    """Fill the fields ``info``'s provider left empty from Finnhub, Tiingo, then Alpha
-    Vantage, if the user has keys for them. A named fund is left as it is: the fields it
-    lacks, such as a sector or a market cap, are a company's, which no provider has for
-    it."""
+    """Fill the fields ``info``'s provider left empty from the SEC's public industry codes,
+    then Finnhub, Tiingo and Alpha Vantage, if the user has keys for them. A named fund is
+    left as it is: the fields it lacks, such as a sector or a market cap, are a company's,
+    which no provider has for it."""
     if info.quote_type in FUND_TYPES and info.name:
         return info
+    info = await _fill_from_sec(info)
     info = await _fill_from_finnhub(info, client)
     info = await _fill_from_tiingo(info, client)
     api_key = alpha_vantage_key()

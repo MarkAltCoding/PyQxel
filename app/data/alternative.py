@@ -1,12 +1,13 @@
-"""A company's lobbying, government contracts, patents and SEC filings from Finnhub, on the
-user's own key.
+"""A company's lobbying, government contracts and patents from Finnhub, on the user's own
+key, and its SEC filings from EDGAR, which needs none.
 
-Finnhub's free plan covers each for US companies, as checked against a free key in
-October 2026: lobbying disclosures filed under the Lobbying Disclosure Act, federal
-awards from USAspending.gov, patents and applications published by the USPTO, and the
-list of the company's SEC filings. They change at most daily, so answers are reused for
-a day. Each part is fetched on its own, and one Finnhub cannot supply is left out with a
-notice rather than failing the rest.
+Finnhub's free plan covers the first three for US companies, as checked against a free key
+in October 2026: lobbying disclosures filed under the Lobbying Disclosure Act, federal
+awards from USAspending.gov, and patents and applications published by the USPTO. The list
+of SEC filings comes from the company's EDGAR submissions, public data, so it is shown
+even without a Finnhub key and spends none of its requests. They change at most daily,
+so answers are reused for a day. Each part is fetched on its own, and one that cannot
+be supplied is left out with a notice rather than failing the rest.
 """
 
 import asyncio
@@ -152,29 +153,69 @@ async def fetch_patents(
     return sorted(patents, key=lambda patent: patent.publication_date or date.min, reverse=True)
 
 
-async def fetch_sec_filings(
-    symbol: str, today: date, client: httpx2.AsyncClient | None = None
-) -> list[SecFiling]:
-    """The company's SEC filings of the last 90 days, newest first."""
-    payload = await _window(
-        "stock/filings", symbol, today - timedelta(days=FILING_DAYS), today, client
+EDGAR_ARCHIVE_URL: str = "https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{document}"
+"""A filing's main document on EDGAR."""
+
+
+def parse_submissions(submissions: Any, cik: int, since: date) -> list[SecFiling]:
+    """The filings in a company's EDGAR submissions filed on or after ``since``, newest
+    first."""
+    recent = (
+        (submissions.get("filings") or {}).get("recent") or {}
+        if isinstance(submissions, dict)
+        else {}
     )
+    forms = recent.get("form") or []
+    dates = recent.get("filingDate") or []
+    accessions = recent.get("accessionNumber") or []
+    documents = recent.get("primaryDocument") or []
     filings: list[SecFiling] = []
-    for row in _rows(payload, key=None):
-        form, filed = _text(row.get("form")), _day(row.get("filedDate"))
-        if form is None or filed is None:
+    for form, filed_text, accession, document in zip(
+        forms, dates, accessions, documents, strict=False
+    ):
+        filed = _day(filed_text)
+        if not form or filed is None or filed < since:
             continue
         filings.append(
             SecFiling(
-                form=form,
+                form=str(form),
                 filed=filed,
-                url=_text(row.get("filingUrl")) or _text(row.get("reportUrl")),
+                url=(
+                    EDGAR_ARCHIVE_URL.format(
+                        cik=cik, accession=str(accession).replace("-", ""), document=document
+                    )
+                    if accession and document
+                    else None
+                ),
             )
         )
     return sorted(filings, key=lambda filing: filing.filed, reverse=True)
 
 
+async def fetch_sec_filings(
+    symbol: str, today: date, client: httpx2.AsyncClient | None = None
+) -> list[SecFiling]:
+    """The company's SEC filings of the last 90 days, newest first, from EDGAR.
+
+    Raises:
+        DataFetchError: If EDGAR cannot be reached or has no such company.
+    """
+    from app.data.sec_edgar import SUBMISSIONS_URL, cik_for, edgar_client, edgar_get
+
+    try:
+        async with edgar_client() as edgar:
+            cik = await cik_for(symbol, edgar)
+            submissions = (await edgar_get(edgar, SUBMISSIONS_URL.format(cik=cik))).json()
+    except DataFetchError:
+        raise
+    except Exception as exc:  # EDGAR's lookups raise their own error types.
+        raise DataFetchError(f"EDGAR's filings of {symbol} could not be fetched: {exc}") from exc
+    return parse_submissions(submissions, cik, today - timedelta(days=FILING_DAYS))
+
+
 def _reason(name: str, error: BaseException) -> str:
+    if name == "SEC filings":
+        return "SEC filings could not be fetched from EDGAR"
     if isinstance(error, ProviderPlanError):
         return f"your Finnhub plan does not cover {name}"
     if isinstance(error, FinnhubRateLimitError):
@@ -191,24 +232,32 @@ async def fetch_alternative(
         ProviderNotConfiguredError: If the user has no Finnhub key, or it is rejected.
     """
     symbol = symbol.strip().upper()
-    if finnhub_key() is None:
-        raise ProviderNotConfiguredError(
-            "Lobbying, government contract, patent and filing data come from Finnhub on "
-            "your own key: add it in Settings."
-        )
+    keyed = finnhub_key() is not None
+
+    async def without_key() -> None:
+        raise ProviderNotConfiguredError("needs a Finnhub key")
+
     results = await asyncio.gather(
-        fetch_lobbying(symbol, today, client),
-        fetch_contracts(symbol, today, client),
-        fetch_patents(symbol, today, client),
+        fetch_lobbying(symbol, today, client) if keyed else without_key(),
+        fetch_contracts(symbol, today, client) if keyed else without_key(),
+        fetch_patents(symbol, today, client) if keyed else without_key(),
         fetch_sec_filings(symbol, today, client),
         return_exceptions=True,
     )
+    if not keyed and isinstance(results[3], BaseException):
+        raise ProviderNotConfiguredError(
+            "Lobbying, government contract and patent data come from Finnhub on your own "
+            "key: add it in Settings."
+        )
     parts: dict[str, Any] = {}
     missing: list[str] = []
     for key, name, result in zip(
         ("lobbying", "contracts", "patents", "filings"), PART_NAMES, results
     ):
         if isinstance(result, ProviderNotConfiguredError):
+            if not keyed:
+                missing.append(f"{name} need a Finnhub key, which you can add in Settings")
+                continue
             raise result
         if isinstance(result, DataFetchError):
             missing.append(_reason(name, result))

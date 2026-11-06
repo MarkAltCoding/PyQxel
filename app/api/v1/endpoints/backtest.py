@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from collections.abc import Callable
+from datetime import date, timedelta
 from typing import Annotated
 from uuid import UUID
 
@@ -22,6 +23,8 @@ from app.api.v1.endpoints.stocks import (
 from app.api.auth import CurrentUser
 from app.data.factors import fetch_factors
 from app.data.fetcher import DataFetchError, SymbolNotFoundError, fetch_price_history
+from app.data.fetcher import _window_start as window_start
+from app.data.treasury import fetch_bill_returns, with_bill_rates
 from app.data.panel import fetch_close_panel
 from app.db.backtests import delete_backtest, get_backtest, list_backtests, save_backtest
 from app.db.session import get_session
@@ -83,9 +86,14 @@ async def _no_factors() -> None:
 
 
 async def load_factors(
-    model: FactorModel | None, cash_interest: bool
+    model: FactorModel | None, cash_interest: bool, period: str = "max"
 ) -> tuple[pd.DataFrame | None, str | None]:
-    """Fetch the factor data a backtest needs: ``model``'s factors, or just the risk-free rate.
+    """Fetch the factor data a backtest over ``period`` needs: ``model``'s factors, and the
+    risk-free rate cash earns.
+
+    The risk-free rate is the Treasury's daily 4-week bill rate (public, no key, current to
+    the last business day) from 2002 on, and Ken French's one-month rate before, which is
+    fetched for cash interest only when the window starts before 2002.
 
     Returns:
         The factor table, with ``RF``, or ``None`` when neither is needed or attribution
@@ -97,12 +105,27 @@ async def load_factors(
     """
     if model is None and not cash_interest:
         return None, None
-    try:
-        return await fetch_factors(model or "ff3"), None
-    except DataFetchError as exc:
-        if cash_interest:
-            raise upstream_error(exc) from exc
-        return None, "Factor attribution was left out: the factor data could not be fetched."
+    start = window_start(period, date.today())
+    factors: pd.DataFrame | None = None
+    notice: str | None = None
+    bills: pd.Series | None = None
+    if cash_interest:
+        try:
+            bills = await fetch_bill_returns(start)
+        except DataFetchError as exc:
+            logger.warning("Treasury bill rates are unavailable; using Ken French's: %s", exc)
+    older = bills is None or start < pd.Timestamp(bills.index[0]).date() - timedelta(days=10)
+    if model is not None or (cash_interest and older):
+        try:
+            factors = await fetch_factors(model or "ff3")
+        except DataFetchError as exc:
+            if cash_interest and bills is None:
+                raise upstream_error(exc) from exc
+            if model is not None:
+                notice = "Factor attribution was left out: the factor data could not be fetched."
+    if bills is not None:
+        factors = with_bill_rates(factors, bills)
+    return factors, notice
 
 
 async def load_benchmark(spec: BacktestStrategy, period: str, interval: str) -> pd.Series | None:
@@ -220,7 +243,7 @@ async def backtest_and_store(
     model = options.attribution if options.interval == "1d" else None
     frame_result, factors_result, benchmark_result = await asyncio.gather(
         fetch_price_history(symbol, period=options.period, interval=options.interval),
-        load_factors(model, options.cash_interest),
+        load_factors(model, options.cash_interest, options.period),
         load_benchmark(spec, options.period, options.interval),
         return_exceptions=True,
     )
@@ -458,7 +481,7 @@ async def create_multi_asset_custom_backtest(
     model = request.attribution if request.interval == "1d" else None
     panel_result, factors_result = await asyncio.gather(
         fetch_close_panel(request.symbols, period=request.period, interval=request.interval),
-        load_factors(model, request.cash_interest),
+        load_factors(model, request.cash_interest, request.period),
         return_exceptions=True,
     )
     if isinstance(panel_result, DataFetchError):
@@ -600,7 +623,7 @@ async def create_cross_sectional_backtest(
     """
     panel_result, factors_result = await asyncio.gather(
         fetch_close_panel(request.symbols, period=request.period, interval="1d"),
-        load_factors(request.attribution, request.cash_interest),
+        load_factors(request.attribution, request.cash_interest, request.period),
         return_exceptions=True,
     )
     if isinstance(panel_result, DataFetchError):

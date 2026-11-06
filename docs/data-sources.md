@@ -28,6 +28,47 @@ So PyQxel follows these rules:
   - **European Central Bank reference rates:** free to reuse, as long as the ECB is
     credited.
 
+## Keyless public sources
+
+Data that needs no key never spends one: PyQxel asks these sources first, wherever they
+can answer. Their terms were read on **November 6, 2026**, with a for-profit app in mind.
+None of this is legal advice; recheck before launching commercially.
+
+| Source | Key? | Reuse, including commercial | Used for | Status |
+| --- | --- | --- | --- | --- |
+| **SEC EDGAR** | None; at most 10 requests a second, with a User-Agent naming the app and a contact | "Information presented on sec.gov is considered public information and may be copied or further distributed ... without the SEC's permission"; citation requested. "SEC" and "EDGAR" are trademarks | Financial statements, filings text, the screener's listings and industries, fund holdings (N-PORT), **a stock's sector and industry**, **its list of recent filings** | In use; the last two added November 6, 2026 |
+| **US Treasury** daily bill rates (home.treasury.gov) and **FiscalData** API | None | A work of the US government, so public domain; FiscalData: "available to copy, adapt, redistribute, or otherwise use for non-commercial or commercial purposes" | **The interest cash earns in backtests** (4-week bill, daily since 2002) | Added November 6, 2026 |
+| **Federal Reserve Board** H.10 exchange rates and H.15 interest rates | None | "Information on Board's website is in the public domain and may be copied and distributed without permission"; cite the Board | **Exchange rates for currencies the ECB does not publish** (23 currencies, such as the Taiwan dollar; released weekly) | Added November 6, 2026 |
+| **European Central Bank** reference rates | None | Free reuse, commercial or not, quoting "Source: ECB statistics" and leaving the data unchanged | Exchange rates | In use |
+| **Federal Reserve** FOMC calendar | None | Public domain, as above | Markets page | In use |
+| **BLS** (inflation, jobs) | None for API v1: 25 requests a day per server; a free key gives 500 | Public domain; cite BLS and the date retrieved, and say BLS cannot vouch for derived analyses | Nothing yet: it would add macro data, not replace a key | Candidate |
+| **World Bank** indicators | None; "reasonable request volume" | CC BY 4.0 with attribution "The World Bank: Dataset name: Data source"; some indicators belong to third parties | Nothing yet: global macro data | Candidate |
+| **USAspending.gov** | None | US government data; no license stated | Could replace Finnhub's government contracts | Candidate |
+| **Senate lobbying disclosures** (lda.gov) | None at 15 requests a minute; a free key gives 120 | "Data ... do not, and should not, include controls over its end use"; cite the date retrieved | Could replace Finnhub's lobbying data | Candidate |
+| **FRED** (St. Louis Fed) | The API needs a free key; keyless downloads are for personal use only | **Not for a for-profit app:** "use the FRED Services for any commercial use" needs "the prior written consent of the Bank"; storing or caching FRED data is prohibited; third-party series need their owners' permission | Nothing | **Not used** |
+| **Ken French's data library** | None | Copyright Kenneth R. French; no license stated | Factor models; cash interest only before 2002 | In use; **a commercial launch needs his permission or another source** |
+
+### FRED and backtesting
+
+FRED cannot back a for-profit app's backtests. Its terms allow commercial use only with
+the Bank's written consent, forbid storing or caching its data (which a backtest needs),
+and leave each third-party series to its owner: the S&P 500 and Nasdaq index series, for
+example, are their publishers' and need their permission. The parts a backtest needs come
+from FRED's own sources instead, which allow it:
+
+- **Cash interest:** the Treasury's daily bill rates, current to the last business day,
+  where Ken French's one-month rate is a month or more behind.
+- **Benchmarks and index history:** no keyless source allows commercial use; the S&P 500
+  and Nasdaq indexes are licensed by their publishers. A benchmark is an ETF (SPY, QQQ) on
+  the user's own price-history key.
+
+### Not replaced, and why
+
+- **Insider trades:** the SEC's Form 4 filings are keyless, but each trade is its own
+  filing, so a stock's 90 days take dozens of requests and seconds to read, where
+  Finnhub's free plan answers in one with no daily cap. Finnhub stays first.
+- **Prices, quotes and market caps:** no public source publishes them.
+
 ## What yfinance and Nasdaq supply today
 
 | Kind of data | Where PyQxel uses it | Source today |
@@ -225,7 +266,10 @@ and use the first one that covers the request. "Free" means the provider's free 
 | Company info, US: name, sector, industry | FMP profile (free sample) → Finnhub profile (free: industry, any US stock) → Tiingo meta (free: the Dow 30's sectors) → EODHD Fundamentals ($59.99) | **Name and industry covered**; a sector name for most stocks needs FMP's sample or a paid key |
 | Market cap, US | Finnhub (free) → FMP (free sample) | **Covered** |
 | Company info, international | FMP (paid) → EODHD (Fundamentals $59.99 for sector and market cap; free search for name, currency and type) → Alpha Vantage (free search) → Finnhub (paid) | **Name, exchange and currency covered**; sector and market cap need a paid key |
-| Exchange rates | ECB reference rates (public) → Tiingo FX (free) → Alpha Vantage (free) | **Covered, with no key at all** |
+| Exchange rates | ECB reference rates (public) → Federal Reserve H.10 rates (public) → FMP → Alpha Vantage | **Covered, with no key at all**, for every currency either publishes |
+| Risk-free rate (cash interest in backtests) | US Treasury daily bill rates (public, since 2002) → Ken French's one-month rate (before 2002) | **Covered, with no key** |
+| Sector and industry, US companies | SEC industry codes (public) → FMP → Finnhub → Tiingo → Alpha Vantage | **Covered, with no key**, for every SEC filer |
+| A company's SEC filings | SEC EDGAR (public) | **Covered, with no key** |
 | Screener: listings, sectors, financials | SEC EDGAR (public), shared by every account | **Covered** |
 | Screener: market cap, P/E, returns, beta, volatility, volume | Each user's own Finnhub key (basic financials, 1 request per stock, about 70 minutes for 4,000 stocks) | **Covered for that user** |
 | Screener: daily prices for every stock (12-1 momentum, max drawdown, factor betas) | EODHD Historian ($19.99; a bulk call returns a whole exchange's day) → FMP Starter ($29; one request per stock) | **No free source** |
@@ -297,3 +341,16 @@ and use the first one that covers the request. "Free" means the provider's free 
   and [Stockfit](https://developer.stockfit.io/blog/financial-modeling-prep-alternatives)
 - **Anthropic:** [rate limits](https://platform.claude.com/docs/en/api/rate-limits)
 - **European Central Bank:** [reference rates feed](https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml)
+- **Keyless sources' terms** (read November 6, 2026):
+  [FRED legal](https://fred.stlouisfed.org/legal/),
+  [FRED API terms](https://fred.stlouisfed.org/docs/api/terms_of_use.html),
+  [Federal Reserve Board disclaimer](https://www.federalreserve.gov/disclaimer.htm),
+  [FiscalData API](https://fiscaldata.treasury.gov/api-documentation/),
+  [Treasury interest rate files](https://home.treasury.gov/policy-issues/financing-the-government/interest-rate-statistics/interest-rate-xml-files),
+  [SEC website policies](https://www.sec.gov/privacy.htm),
+  [SEC developer resources](https://www.sec.gov/about/developer-resources),
+  [BLS API FAQ](https://www.bls.gov/developers/api_faqs.htm),
+  [BLS copyright](https://www.bls.gov/bls/linksite.htm),
+  [World Bank dataset terms](https://www.worldbank.org/ext/en/legal/terms-conditions/datasets),
+  [USAspending API](https://api.usaspending.gov/),
+  [LDA API terms](https://lda.gov/api/tos/)

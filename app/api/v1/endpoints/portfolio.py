@@ -542,7 +542,7 @@ async def create_portfolio_backtest(
     """
     (panel, closes, timezones), (factors, factor_notice), benchmark = await asyncio.gather(
         _load_returns(request.symbols, request.period),
-        load_factors(request.attribution, request.cash_interest),
+        load_factors(request.attribution, request.cash_interest, request.period),
         load_benchmark(request.strategy, request.period, "1d"),
     )
     cash = (

@@ -113,6 +113,7 @@ When generating code and scaffolding this codebase, strictly adhere to the follo
 
 5. **Get the Most Out of Every Key**:
    - A user should get as much as possible out of whatever API keys they have added, paid or free. Every feature and every kind of data uses every key that can serve it, tried cheapest first (`PROVIDER_ORDER` in `app/data/fetcher.py`, explained in `docs/data-sources.md`), so a free plan's partial answer is used when nothing better is available and a paid plan's fuller one is used when the user has it.
+   - Data a public source publishes with no key comes before any key: SEC EDGAR, the US Treasury, the Federal Reserve Board and the ECB (see "Keyless public sources" in `docs/data-sources.md`). Use only sources whose terms allow commercial use, since the app may be sold: not FRED, whose terms forbid commercial use and caching.
    - When adding a feature or a kind of data, check what each provider's free and paid plans give for it, wire in every one that can serve it, and record the findings in `docs/data-sources.md`. When no key the user has can serve something, say which key or plan would, and what free stand-in exists (as a listing abroad names its US listing).
 
 6. **Explain Every Stat, Model and Graph**:

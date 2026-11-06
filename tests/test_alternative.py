@@ -5,7 +5,7 @@ Finnhub is reached through a mock transport, so no test touches the network.
 """
 
 from collections.abc import Callable, Iterator
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import httpx2
@@ -16,12 +16,13 @@ from pydantic import SecretStr
 from app.api.v1.endpoints import alternative as alternative_route
 from app.core.credentials import ProviderKeys, use_provider_keys
 from app.data import alpha_vantage, fetcher, finnhub
-from app.data.alternative import fetch_alternative
-from app.data.fetcher import ProviderNotConfiguredError
+from app.data import alternative as alternative_data
+from app.data.alternative import fetch_alternative, parse_submissions
+from app.data.fetcher import DataFetchError, ProviderNotConfiguredError
 from app.data.finnhub_financials import company_facts, fetch_finnhub_financials
 from app.data.sec_edgar import EdgarNotConfiguredError
 from app.main import app
-from app.models.alternative import AlternativeRecords, GovernmentAward, LobbyingFiling
+from app.models.alternative import AlternativeRecords, GovernmentAward, LobbyingFiling, SecFiling
 from app.models.fundamentals import Financials
 from app.stats.alternative import alternative_context, summarize_alternative
 from tests.financials import sample_financials
@@ -56,11 +57,17 @@ PATENTS = {
         {"description": "", "publicationDate": "2026-08-01 00:00:00"},
     ]
 }  # fmt: skip
-FILINGS = [
-    {"form": "8-K", "filedDate": "2026-10-20 00:00:00", "filingUrl": "https://sec.gov/a"},
-    {"form": "4", "filedDate": "2026-10-22 00:00:00", "filingUrl": "https://sec.gov/b"},
-    {"form": "4", "filedDate": "2026-10-10 00:00:00"},
-]
+SUBMISSIONS = {
+    "filings": {
+        "recent": {
+            "form": ["4", "8-K", "4", "10-K"],
+            "filingDate": ["2026-10-22", "2026-10-20", "2026-10-10", "2026-01-30"],
+            "accessionNumber": ["0001-26-1", "0001-26-2", "0001-26-3", "0001-26-4"],
+            "primaryDocument": ["form4.xml", "8k.htm", "form4.xml", "10k.htm"],
+        }
+    }
+}
+"""EDGAR's submissions of a company, cut to four filings, one older than 90 days."""
 
 
 def _finnhub(
@@ -70,7 +77,6 @@ def _finnhub(
         "stock/lobbying": LOBBYING,
         "stock/usa-spending": SPENDING,
         "stock/uspto-patent": PATENTS,
-        "stock/filings": FILINGS,
     }
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -89,6 +95,11 @@ def finnhub_user(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     fetcher.clear_alpha_vantage_memory()
     finnhub.clear_signals_memory()
     use_provider_keys(ProviderKeys(finnhub=SecretStr(KEY)))
+
+    async def edgar(symbol: str, today: date, client: object = None) -> list[SecFiling]:
+        return parse_submissions(SUBMISSIONS, 936468, today - timedelta(days=90))
+
+    monkeypatch.setattr(alternative_data, "fetch_sec_filings", edgar)
     yield
     use_provider_keys(ProviderKeys())
 
@@ -130,12 +141,42 @@ async def test_a_refused_part_is_left_out_with_a_notice() -> None:
 
 
 @pytest.mark.asyncio
-async def test_alternative_data_needs_a_key() -> None:
-    """Without a Finnhub key nothing is fetched."""
+async def test_without_a_key_the_sec_filings_still_come_from_edgar() -> None:
+    """EDGAR needs no key, so its filings are shown, and the parts Finnhub supplies are
+    noted as needing its key."""
     use_provider_keys(ProviderKeys())
+
+    records = await fetch_alternative("LMT", TODAY, _finnhub())
+
+    assert records.filings is not None and [f.form for f in records.filings] == ["4", "8-K", "4"]
+    assert records.lobbying is None and len(records.missing) == 3
+    assert "Finnhub key" in records.missing[0]
+
+
+@pytest.mark.asyncio
+async def test_without_a_key_or_edgar_alternative_data_needs_a_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    use_provider_keys(ProviderKeys())
+
+    async def unreachable(symbol: str, today: date, client: object = None) -> None:
+        raise DataFetchError("EDGAR is down.")
+
+    monkeypatch.setattr(alternative_data, "fetch_sec_filings", unreachable)
 
     with pytest.raises(ProviderNotConfiguredError):
         await fetch_alternative("LMT", TODAY, _finnhub())
+
+
+def test_edgar_submissions_give_the_recent_filings_with_links() -> None:
+    filings = parse_submissions(SUBMISSIONS, 936468, date(2026, 7, 27))
+
+    assert [(f.form, str(f.filed)) for f in filings] == [
+        ("4", "2026-10-22"),
+        ("8-K", "2026-10-20"),
+        ("4", "2026-10-10"),
+    ]
+    assert filings[1].url == ("https://www.sec.gov/Archives/edgar/data/936468/0001262/8k.htm")
 
 
 def test_context_gives_totals_and_8k_dates() -> None:
@@ -158,9 +199,13 @@ def test_context_gives_totals_and_8k_dates() -> None:
 client = TestClient(app)
 
 
-def test_route_without_key_is_403(user: object) -> None:
-    """The route says to add a Finnhub key."""
-    assert client.get("/api/v1/stocks/LMT/alternative").status_code == 403
+def test_route_without_key_serves_the_sec_filings(user: object) -> None:
+    """Without a Finnhub key, the route serves EDGAR's filings and says what needs one."""
+    response = client.get("/api/v1/stocks/LMT/alternative")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["filing_counts"] and "Finnhub key" in body["notice"]
 
 
 def test_route_summarizes(user: object, monkeypatch: pytest.MonkeyPatch) -> None:
