@@ -4,6 +4,7 @@ import type {
   Account,
   AppSignInKey,
   LinkAddress,
+  RenewedKey,
   LinkSent,
   PasswordSignedIn,
   PasswordSignInInfo,
@@ -86,6 +87,9 @@ export const signInWithPassword = (email: string, password: string, app: boolean
     method: 'POST',
     body: { email, password, app },
   })
+/** A new sign-in key in place of `key` once it is a day old, or `null` when not due. */
+export const renewSignIn = (key: string) =>
+  api<RenewedKey>(`${V1}/auth/renew`, { method: 'POST', key })
 /** Revokes `key` if signing in issued it; keys made for scripts keep working. */
 export const revokeSignIn = (key: string) =>
   api<void>(`${V1}/auth/signout`, { method: 'POST', key })

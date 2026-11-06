@@ -22,7 +22,20 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob:",
+        "font-src": "'self' data:",
+        "connect-src": "'self' ipc: http://ipc.localhost https://pyqxel-kha7vnmiiq-uc.a.run.app wss://pyqxel-kha7vnmiiq-uc.a.run.app",
+        "worker-src": "'self'",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "form-action": "'self'",
+        "frame-ancestors": "'none'"
+      },
+      "dangerousDisableAssetCspModification": ["style-src"]
     }
   },
   "plugins": {
@@ -52,7 +65,7 @@
       "debugApplicationIdSuffix": ".debug"
     },
     "category": "Finance",
-    "copyright": "© 2026 Mark Altreuter",
+    "copyright": "\u00a9 2026 Mark Altreuter",
     "shortDescription": "Investment research: prices, backtests, portfolio risk and AI reports",
     "macOS": {
       "signingIdentity": "-",

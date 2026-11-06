@@ -22,3 +22,7 @@ tauri = { version = "2.12.4", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-deep-link = "2"
+
+# The iOS Keychain, which keeps the sign-in key and provider keys (see src/secrets.rs).
+[target.'cfg(target_os = "ios")'.dependencies]
+security-framework = "3"

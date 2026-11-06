@@ -1,12 +1,15 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { configureClient } from '../api/client'
-import { getAccount, revokeSignIn } from '../api/endpoints'
+import { getAccount, renewSignIn, revokeSignIn } from '../api/endpoints'
 import { clearProviderKeys } from '../lib/providerKeys'
 import { readStored, writeStored } from '../lib/storage'
 import { AuthContext } from './useAuth'
 
 const STORAGE_KEY = 'pyqxel.apiKey'
+
+/** How often a key in use is offered for renewal; the server renews it at most daily. */
+const RENEW_EVERY_MS = 6 * 60 * 60 * 1000
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
@@ -32,6 +35,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearProviderKeys()
     forget()
   }, [apiKey, forget])
+
+  // A sign-in key lasts 30 days, so someone who keeps using PyQxel is kept signed in by
+  // trading it for a new one: on opening, every few hours while open, and on coming
+  // back to it. The server renews a key once it is a day old and leaves keys made for
+  // scripts alone. A failure changes nothing; the next attempt may succeed.
+  const lastRenewal = useRef(0)
+  useEffect(() => {
+    if (!apiKey) return
+    let stopped = false
+    const renew = () => {
+      if (Date.now() - lastRenewal.current < RENEW_EVERY_MS) return
+      lastRenewal.current = Date.now()
+      renewSignIn(apiKey)
+        .then(({ key }) => {
+          if (stopped || !key) return
+          // Kept only where the old one was, so "Keep me signed in" off still holds.
+          if (readStored(STORAGE_KEY) === apiKey) writeStored(STORAGE_KEY, key)
+          configureClient(key)
+          setApiKey(key)
+        })
+        .catch(() => {})
+    }
+    renew()
+    const timer = window.setInterval(renew, RENEW_EVERY_MS)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') renew()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [apiKey])
 
   // Configured during render, not in an effect, so the first queries already send the key.
   configureClient(apiKey, forget)

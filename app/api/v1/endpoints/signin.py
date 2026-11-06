@@ -40,9 +40,11 @@ from app.core.oauth import (
 )
 from app.db.session import get_session
 from app.db.users import (
+    authenticate,
     collect_app_sign_in,
     create_api_key,
     hold_app_sign_in,
+    renew_signed_in_key,
     revoke_signed_in_key,
     user_for_identity,
 )
@@ -86,6 +88,15 @@ class AppSignInCollect(BaseModel):
         min_length=43,
         max_length=128,
         description="The secret whose SHA-256 challenge the app started the sign-in with.",
+    )
+
+
+class RenewedKey(BaseModel):
+    """A sign-in key renewed for another full term, or none when it is not due."""
+
+    key: str | None = Field(
+        description="The new API key, to use in place of the old one from now on, or null "
+        "when the key is less than a day old, or was not issued by signing in."
     )
 
 
@@ -479,6 +490,39 @@ async def collect_sign_in(
             detail="Accounts are unavailable right now. Please try again shortly.",
         ) from exc
     return AppSignInKey(key=issued.key, next=collected.destination)
+
+
+@router.post("/renew", response_model=RenewedKey, summary="Renew a sign-in key")
+async def renew_sign_in(request: Request, session: Session) -> RenewedKey:
+    """Trade the sign-in key this request carries, if it is more than a day old, for a
+    new one good for ``SIGN_IN_KEY_DAYS``, so someone who keeps using PyQxel stays signed
+    in. The old key works for five more minutes. Keys made for scripts are never renewed.
+
+    Returns 401 without a working key, 429 beyond the sign-in attempts one client may
+    make a minute, and 503 when accounts are unavailable.
+    """
+    key = presented_key(request)
+    try:
+        await _throttle(request)
+    except RateLimitExceeded as exc:
+        raise _too_many(exc) from exc
+    try:
+        if not key or await authenticate(session, key) is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Sign in again: this key has expired or was revoked.",
+            )
+        renewed = await renew_signed_in_key(
+            session, key, timedelta(days=get_settings().sign_in_key_days)
+        )
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        logger.error("Could not renew a sign-in key: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Accounts are unavailable right now. Please try again shortly.",
+        ) from exc
+    return RenewedKey(key=None if renewed is None else renewed.key)
 
 
 @router.post(

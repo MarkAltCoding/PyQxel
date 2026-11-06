@@ -91,7 +91,9 @@ export function PrivacyPage() {
             nightly screener refresh. Each of your requests carries them over an encrypted
             connection, and the server uses them for that request only, keeps them out of its logs
             and error messages, and forgets them when it answers. Those services bill your usage to
-            you. Signing out removes them from your browser.
+            you. Signing out removes them from your browser. The PyQxel app keeps them, and its
+            sign-in, in the iPhone’s Keychain, on that device only, or on a Mac in a file only your
+            account can read; signing out or deleting the app removes them.
           </p>
           <p>
             The nightly screener refresh, which is off unless you turn it on in Settings, builds

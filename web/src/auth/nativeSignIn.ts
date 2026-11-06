@@ -18,10 +18,7 @@ const MAX_AGE_MS = 15 * 60 * 1000
 /** The link the server opens the app with when a sign-in finishes. */
 export const SIGN_IN_LINK = 'pyqxel://signin'
 
-/** Whether this page runs inside the native app rather than a browser. */
-export function isNativeApp(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-}
+export { isNativeApp } from '../lib/native'
 
 function base64Url(bytes: Uint8Array): string {
   let text = ''

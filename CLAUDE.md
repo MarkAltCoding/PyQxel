@@ -50,8 +50,12 @@ side you are changing before searching the code.
 - **iOS app:** the Xcode project is `web/src-tauri/gen/apple` (from `tauri ios init`; it
   needs `xcodegen`). Xcode builds it only while a `tauri ios` command runs, which
   compiles the Rust side. For the Simulator against a local API:
-  `VITE_API_ORIGIN=http://localhost:8000 npx tauri ios build --target aarch64-sim --debug --no-sign`,
-  then `xcrun simctl install booted src-tauri/gen/apple/build/arm64-sim/PyQxel.app`. A
+  `APPLE_DEVELOPMENT_TEAM=<team> VITE_API_ORIGIN=http://localhost:8000 npx tauri ios build --target aarch64-sim --debug --config src-tauri/tauri.local.conf.json`,
+  then `xcrun simctl install booted src-tauri/gen/apple/build/arm64-sim/PyQxel.app`. The
+  local config's Content Security Policy allows `localhost:8000` (the shipped one allows
+  only the server in `web/.env.native`, and a test checks they agree). With `--no-sign`
+  the build has no entitlements, so the Keychain refuses it and keys fall back to web
+  storage. Building sets `DEVELOPMENT_TEAM` in `project.pbxproj`; do not commit that. A
   debug build's web view is inspectable (`ios_webkit_debug_proxy`). On a phone it runs at
   `tauri://localhost`, an origin the server already allows.
 - **App Store:** not submitted; `docs/app-store.md` lists what is in place (advice notice,

@@ -21,7 +21,14 @@ export const PROVIDER_HEADERS: Record<ProviderName, string> = {
 const STORAGE_KEY = 'pyqxel.providerKeys'
 
 // Kept in memory too, so keys still work for this page load when storage is blocked.
-let keys: ProviderKeys = load()
+// Read on first use rather than when this module loads, since the native app loads its
+// secure storage first.
+let cached: ProviderKeys | null = null
+
+function current(): ProviderKeys {
+  cached ??= load()
+  return cached
+}
 
 function load(): ProviderKeys {
   try {
@@ -40,28 +47,28 @@ function load(): ProviderKeys {
 
 /** The keys this browser holds. */
 export function providerKeys(): ProviderKeys {
-  return keys
+  return current()
 }
 
 /** Keeps `value` as `name`'s key in this browser, or forgets it when `null`. */
 export function setProviderKey(name: ProviderName, value: string | null): void {
-  const next = { ...keys }
+  const next = { ...current() }
   if (value) next[name] = value
   else delete next[name]
-  keys = next
+  cached = next
   writeStored(STORAGE_KEY, Object.keys(next).length ? JSON.stringify(next) : null)
 }
 
 /** Forgets every key, as on signing out, so the next person here cannot use them. */
 export function clearProviderKeys(): void {
-  keys = {}
+  cached = {}
   writeStored(STORAGE_KEY, null)
 }
 
 /** The headers that send this browser's keys with a request. */
 export function providerKeyHeaders(): Record<string, string> {
   const headers: Record<string, string> = {}
-  for (const [name, value] of Object.entries(keys) as [ProviderName, string][]) {
+  for (const [name, value] of Object.entries(current()) as [ProviderName, string][]) {
     headers[PROVIDER_HEADERS[name]] = value
   }
   return headers

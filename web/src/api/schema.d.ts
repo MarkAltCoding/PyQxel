@@ -212,6 +212,31 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/auth/renew': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Renew a sign-in key
+     * @description Trade the sign-in key this request carries, if it is more than a day old, for a
+     *     new one good for ``SIGN_IN_KEY_DAYS``, so someone who keeps using PyQxel stays signed
+     *     in. The old key works for five more minutes. Keys made for scripts are never renewed.
+     *
+     *     Returns 401 without a working key, 429 beyond the sign-in attempts one client may
+     *     make a minute, and 503 when accounts are unavailable.
+     */
+    post: operations['renew_sign_in_api_v1_auth_renew_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/auth/signout': {
     parameters: {
       query?: never
@@ -7082,6 +7107,17 @@ export interface components {
       strong_sell: number
     }
     /**
+     * RenewedKey
+     * @description A sign-in key renewed for another full term, or none when it is not due.
+     */
+    RenewedKey: {
+      /**
+       * Key
+       * @description The new API key, to use in place of the old one from now on, or null when the key is less than a day old, or was not issued by signing in.
+       */
+      key: string | null
+    }
+    /**
      * RiskAdjustedMomentum
      * @description Rank by the return from ``lookback`` to ``skip`` bars ago divided by the volatility
      *     of daily returns over the same bars, highest first: steady winners over erratic ones.
@@ -8560,6 +8596,26 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['SignInProvider'][]
+        }
+      }
+    }
+  }
+  renew_sign_in_api_v1_auth_renew_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RenewedKey']
         }
       }
     }

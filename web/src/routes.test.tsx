@@ -595,8 +595,24 @@ describe('provider keys', () => {
     await userEvent.click(within(form).getByRole('button', { name: 'Save' }))
 
     expect(await within(form).findByText(/In this browser · ends …5678/)).toBeInTheDocument()
-    expect(calls.every((call) => call.method === 'GET')).toBe(true)
+    // Renewing the sign-in key is the one post, and it carries no provider key.
+    const sent = calls.filter((call) => call.path !== '/api/v1/auth/renew')
+    expect(sent.every((call) => call.method === 'GET')).toBe(true)
     expect(window.localStorage.getItem('pyqxel.providerKeys')).toContain('fmp-secret-5678')
+  })
+
+  it('renews a sign-in key in use, keeping it where the old one was', async () => {
+    window.localStorage.setItem('pyqxel.apiKey', 'pq_old')
+    const calls = serve({
+      '/api/v1/me': me,
+      '/api/v1/auth/renew': () => json({ key: 'pq_new' }),
+    })
+    renderAt('/settings')
+
+    await waitFor(() => expect(window.localStorage.getItem('pyqxel.apiKey')).toBe('pq_new'))
+    expect(calls.find((call) => call.path === '/api/v1/auth/renew')?.authorization).toBe(
+      'Bearer pq_old',
+    )
   })
 
   it('are forgotten on signing out', async () => {

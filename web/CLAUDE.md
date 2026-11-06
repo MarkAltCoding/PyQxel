@@ -77,7 +77,10 @@ Web Worker that goes off the network once loaded (`runners/lockdown.ts`).
   get 44px controls and 16px fields, since iOS zooms into smaller text: give a new
   control's small size an override in that block of `global.css`.
 - **Browser storage** only through `lib/storage.ts` (`readStored`/`writeStored`, which
-  never throw), under `pyqxel.*` keys.
+  never throw), under `pyqxel.*` keys. In the native app, `pyqxel.apiKey` and
+  `pyqxel.providerKeys` go to secure storage instead (`lib/secureStorage.ts`, loaded before
+  the first render; the Keychain on iOS, a private file on macOS, `src-tauri/src/secrets.rs`),
+  whose header holds the app's threat model. `AuthContext` renews a sign-in key in use.
 - **Lint:** oxlint fails on exporting non-components from a component file. Put shared
   constants and hooks in `lib/`.
 - **Tests:** vitest + Testing Library, next to the code (`*.test.tsx`). Fake the API with

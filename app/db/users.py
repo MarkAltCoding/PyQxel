@@ -272,6 +272,43 @@ async def revoke_signed_in_key(session: AsyncSession, key: str) -> bool:
     return bool(revoked.rowcount)  # type: ignore[attr-defined]
 
 
+RENEW_AFTER: timedelta = timedelta(days=1)
+"""How old a sign-in key must be before it is renewed, so a renewal happens at most daily."""
+RENEWED_KEY_GRACE: timedelta = timedelta(minutes=5)
+"""How long a renewed key keeps working, for requests already on their way with it."""
+
+
+async def renew_signed_in_key(
+    session: AsyncSession, key: str, lifetime: timedelta
+) -> NewApiKey | None:
+    """A new key, good for ``lifetime``, in place of ``key`` if a sign-in issued it more
+    than a day ago and it still works; ``None`` otherwise (keys for scripts included).
+
+    The old key stops working a few minutes later rather than at once, so requests sent
+    with it just before the swap still succeed.
+    """
+    record = await session.scalar(
+        select(ApiKeyRecord).where(
+            ApiKeyRecord.key_hash == hash_api_key(key),
+            ApiKeyRecord.revoked_at.is_(None),
+            ApiKeyRecord.signed_in_with.is_not(None),
+        )
+    )
+    now = datetime.now(timezone.utc)
+    if record is None or _expired(record, now) or now - as_utc(record.created_at) < RENEW_AFTER:
+        return None
+    grace = now + RENEWED_KEY_GRACE
+    if record.expires_at is None or as_utc(record.expires_at) > grace:
+        record.expires_at = grace
+    return await create_api_key(
+        session,
+        record.user_id,
+        record.name,
+        signed_in_with=record.signed_in_with,
+        expires_after=lifetime,
+    )
+
+
 async def authenticate(session: AsyncSession, key: str) -> User | None:
     """The account an API key belongs to, or ``None`` for unknown, revoked and expired keys."""
     record = await session.scalar(

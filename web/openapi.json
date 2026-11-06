@@ -10716,6 +10716,28 @@
         "title": "RecommendationMonth",
         "type": "object"
       },
+      "RenewedKey": {
+        "description": "A sign-in key renewed for another full term, or none when it is not due.",
+        "properties": {
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The new API key, to use in place of the old one from now on, or null when the key is less than a day old, or was not issued by signing in.",
+            "title": "Key"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "RenewedKey",
+        "type": "object"
+      },
       "RiskAdjustedMomentum": {
         "description": "Rank by the return from ``lookback`` to ``skip`` bars ago divided by the volatility\nof daily returns over the same bars, highest first: steady winners over erratic ones.",
         "properties": {
@@ -13351,6 +13373,28 @@
           }
         },
         "summary": "Ways to sign in",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/auth/renew": {
+      "post": {
+        "description": "Trade the sign-in key this request carries, if it is more than a day old, for a\nnew one good for ``SIGN_IN_KEY_DAYS``, so someone who keeps using PyQxel stays signed\nin. The old key works for five more minutes. Keys made for scripts are never renewed.\n\nReturns 401 without a working key, 429 beyond the sign-in attempts one client may\nmake a minute, and 503 when accounts are unavailable.",
+        "operationId": "renew_sign_in_api_v1_auth_renew_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenewedKey"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Renew a sign-in key",
         "tags": [
           "sign-in"
         ]

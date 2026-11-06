@@ -28,7 +28,7 @@ from app.api.v1.endpoints import signin
 from app.core.config import Settings, get_settings
 from app.core.oauth import AppleProvider, configured_providers
 from app.db.session import get_sessionmaker
-from app.db.tables import ApiKeyRecord, AppSignInRecord, IdentityRecord, UserRecord
+from app.db.tables import ApiKeyRecord, AppSignInRecord, IdentityRecord, UserRecord, as_utc
 from app.db.users import authenticate, create_api_key, revoke_signed_in_key, user_for_identity
 from app.main import app
 
@@ -707,3 +707,65 @@ def test_apple_id_tokens_that_cannot_be_trusted_are_refused(
     )
 
     assert message in parse_qs(response.headers["location"].split("#", 1)[1])["error"][0]
+
+
+async def _age_keys(days: float) -> None:
+    """Make every key look ``days`` older than it is."""
+    async with get_sessionmaker()() as session:
+        await session.execute(
+            update(ApiKeyRecord).values(
+                created_at=datetime.now(timezone.utc) - timedelta(days=days)
+            )
+        )
+        await session.commit()
+
+
+def _renew(client: TestClient, key: str) -> Any:
+    return client.post("/api/v1/auth/renew", headers={"Authorization": f"Bearer {key}"})
+
+
+@pytest.mark.usefixtures("real_auth")
+def test_a_sign_in_key_in_use_is_renewed_for_a_full_term(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A key over a day old is traded for a new one good for 30 days; the old one keeps
+    working only a few minutes, for requests already on their way."""
+    _providers(monkeypatch)
+    old = _sign_in(client, "github")["key"]
+    assert _renew(client, old).json() == {"key": None}, "not due within its first day"
+
+    asyncio.run(_age_keys(3))
+    renewed = _renew(client, old)
+
+    assert renewed.status_code == 200
+    new = renewed.json()["key"]
+    assert new.startswith("pq_") and new != old
+    assert asyncio.run(_email_for(new)) == "octo@example.com"
+
+    async def expiries() -> dict[str, datetime]:
+        async with get_sessionmaker()() as session:
+            records = await session.scalars(select(ApiKeyRecord))
+            return {
+                record.prefix: as_utc(record.expires_at)
+                for record in records
+                if record.expires_at is not None
+            }
+
+    now = datetime.now(timezone.utc)
+    left = asyncio.run(expiries())
+    assert left[old[:10]] <= now + timedelta(minutes=5)
+    assert left[new[:10]] >= now + timedelta(days=29)
+    assert asyncio.run(_email_for(old)) == "octo@example.com", "still working briefly"
+
+
+@pytest.mark.usefixtures("real_auth")
+def test_keys_for_scripts_and_dead_keys_are_never_renewed(client: TestClient, user: Any) -> None:
+    async def script_key() -> str:
+        async with get_sessionmaker()() as session:
+            return (await create_api_key(session, user.id, "my script")).key
+
+    script = asyncio.run(script_key())
+    asyncio.run(_age_keys(3))
+    assert _renew(client, script).json() == {"key": None}
+    assert _renew(client, "pq_" + "x" * 43).status_code == 401
+    assert client.post("/api/v1/auth/renew").status_code == 401
