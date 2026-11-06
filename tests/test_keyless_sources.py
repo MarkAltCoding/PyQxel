@@ -171,3 +171,71 @@ def test_with_the_factor_library_turned_off_cash_earns_from_2002(
 
     assert factors is not None and list(factors.columns) == [RISK_FREE]
     assert notice is not None and "only from 2002" in notice and "not used here" in notice
+
+
+# Factors estimated from ETFs.
+
+
+def _etf_closes(daily: dict[str, float], days: pd.DatetimeIndex) -> dict[str, pd.DataFrame]:
+    """Close prices of ETFs growing by a steady daily return each."""
+    return {
+        symbol: pd.DataFrame(
+            {"Close": 100.0 * (1 + growth) ** pd.Series(range(len(days)), index=days)}
+        )
+        for symbol, growth in daily.items()
+    }
+
+
+def test_etfs_stand_in_for_the_factors_when_the_library_is_turned_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.data import etf_factors, factors
+    from app.data.fetcher import SourceTurnedOffError
+
+    days = pd.bdate_range("2024-01-01", periods=30, tz="America/New_York")
+    growth = {"SPY": 0.001, "IWM": 0.002, "IVV": 0.001, "IWD": 0.0005, "IWF": 0.0015}
+    closes = _etf_closes(growth, days)
+
+    async def library(model: str, client: object = None) -> pd.DataFrame:
+        raise SourceTurnedOffError("Ken French's library is not used here.")
+
+    async def history(symbol: str, period: str, interval: str) -> pd.DataFrame:
+        return closes[symbol]
+
+    async def bills(start: date) -> pd.Series:
+        return pd.Series(0.0001, index=days.tz_localize(None))
+
+    monkeypatch.setattr(factors, "_library_factors", library)
+    monkeypatch.setattr(etf_factors, "fetch_price_history", history)
+    monkeypatch.setattr(etf_factors, "fetch_bill_returns", bills)
+
+    table = asyncio.run(factors.fetch_factors("ff3"))
+
+    assert list(table.columns) == ["Mkt-RF", "SMB", "HML", RISK_FREE]
+    assert table.attrs[etf_factors.FACTOR_SOURCE] == etf_factors.ETF_SOURCE
+    assert table["Mkt-RF"].iloc[-1] == pytest.approx(0.001 - 0.0001)
+    assert table["SMB"].iloc[-1] == pytest.approx(0.002 - 0.001)
+    assert table["HML"].iloc[-1] == pytest.approx(0.0005 - 0.0015)
+    # The five-factor model's investment factor has no ETF, so it stays unavailable.
+    with pytest.raises(SourceTurnedOffError, match="CMA"):
+        asyncio.run(factors.fetch_factors("ff5"))
+
+
+def test_a_backtest_says_when_its_factors_are_etf_estimates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.data.etf_factors import ETF_NOTICE, ETF_SOURCE, FACTOR_SOURCE
+
+    async def estimated(model: str) -> pd.DataFrame:
+        table = pd.DataFrame(
+            {"Mkt-RF": 0.001, "SMB": 0.0, "HML": 0.0, RISK_FREE: 0.0001},
+            index=pd.bdate_range("2024-01-01", periods=5),
+        )
+        table.attrs[FACTOR_SOURCE] = ETF_SOURCE
+        return table
+
+    monkeypatch.setattr(backtest_route, "fetch_factors", estimated)
+
+    _, notice = asyncio.run(backtest_route.load_factors("ff3", False, "1y"))
+
+    assert notice == ETF_NOTICE

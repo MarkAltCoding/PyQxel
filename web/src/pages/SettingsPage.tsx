@@ -656,7 +656,8 @@ function AdminSettingsForm({
             <li key={use}>{use}</li>
           ))}
         </ul>
-        Pages then say the data is not available here instead of showing it.
+        Pages then use a stand-in where there is one, and say so, or say the data is not available
+        here.
       </div>
       {save.error !== null && <ErrorNotice error={save.error} />}
     </section>

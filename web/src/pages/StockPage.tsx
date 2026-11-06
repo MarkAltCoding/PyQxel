@@ -335,26 +335,29 @@ function FactorCard(props: {
       table={fit && <FactorTable exposures={fit.exposures} />}
       footer={
         fit && (
-          <div className="stats" style={{ marginTop: 14 }}>
-            <Stat
-              info="alpha"
-              label="Alpha"
-              value={signedPercent(fit.alpha.estimate, 1)}
-              detail={`Annualized · t ${number(fit.alpha.t_stat)}`}
-            />
-            <Stat
-              info="rSquared"
-              label="R²"
-              value={percent(fit.r_squared, 0)}
-              detail="Explained by factors"
-            />
-            <Stat
-              info="systematicRisk"
-              label="Systematic risk"
-              value={percent(fit.systematic_share, 0)}
-              detail={`Idiosyncratic ${percent(fit.idiosyncratic_share, 0)}`}
-            />
-          </div>
+          <>
+            <div className="stats" style={{ marginTop: 14 }}>
+              <Stat
+                info="alpha"
+                label="Alpha"
+                value={signedPercent(fit.alpha.estimate, 1)}
+                detail={`Annualized · t ${number(fit.alpha.t_stat)}`}
+              />
+              <Stat
+                info="rSquared"
+                label="R²"
+                value={percent(fit.r_squared, 0)}
+                detail="Explained by factors"
+              />
+              <Stat
+                info="systematicRisk"
+                label="Systematic risk"
+                value={percent(fit.systematic_share, 0)}
+                detail={`Idiosyncratic ${percent(fit.idiosyncratic_share, 0)}`}
+              />
+            </div>
+            {props.regression?.notice && <Notice tone="warning">{props.regression.notice}</Notice>}
+          </>
         )
       }
     />

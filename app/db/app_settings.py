@@ -26,8 +26,10 @@ RESTRICTED_SOURCES: str = "restricted_sources"
 
 RESTRICTED_SOURCE_USES: tuple[str, ...] = (
     "Ken French's data library (copyrighted, no license stated): the Fama-French and Carhart "
-    "factor models on the Stock, Backtest and Portfolio pages and in AI reports, the "
-    "screener's factor betas, and the interest cash earns in backtests before 2002",
+    "factor models on the Stock, Backtest and Portfolio pages, in AI reports and in the "
+    "screener's factor betas, which are then estimated from ETF prices on each user's own "
+    "key (the five-factor model is unavailable), and the interest cash earns in backtests "
+    "before 2002",
 )
 """What turning :data:`RESTRICTED_SOURCES` off stops, for the admin to read."""
 

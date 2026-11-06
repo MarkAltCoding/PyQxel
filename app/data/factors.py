@@ -246,6 +246,11 @@ async def fetch_factors(
 ) -> pd.DataFrame:
     """Return the daily factor returns of ``model`` and the risk-free rate.
 
+    They come from Ken French's library, or, when the server does not use it or it cannot
+    be reached, are estimated from ETF prices on the user's own keys
+    (:func:`app.data.etf_factors.fetch_etf_factors`), and then the table's
+    ``attrs[FACTOR_SOURCE]`` says so.
+
     Args:
         model: ``"ff3"``, ``"carhart4"`` (three factors plus momentum) or ``"ff5"``.
         client: Optional shared HTTP client for the downloads.
@@ -257,9 +262,24 @@ async def fetch_factors(
 
     Raises:
         SourceTurnedOffError: If the server does not use Ken French's library, whose
-            terms do not clearly allow use in a paid product.
-        FactorDataError: If a file cannot be downloaded and no stored copy exists.
+            terms do not clearly allow use in a paid product, and ETFs cannot stand in.
+        FactorDataError: If a file cannot be downloaded, no stored copy exists, and ETFs
+            cannot stand in.
     """
+    try:
+        return await _library_factors(model, client)
+    except (SourceTurnedOffError, FactorDataError) as exc:
+        from app.data.etf_factors import fetch_etf_factors  # It fetches prices.
+
+        try:
+            return await fetch_etf_factors(model)
+        except DataFetchError as fallback:
+            logger.info("ETFs could not stand in for the %s factors: %s", model, fallback)
+            raise type(exc)(f"{exc} {fallback}") from exc
+
+
+async def _library_factors(model: FactorModel, client: httpx2.AsyncClient | None) -> pd.DataFrame:
+    """``model``'s factors from Ken French's library, if the server uses it."""
     from app.db.app_settings import restricted_sources_allowed  # Imports the database.
 
     if not await restricted_sources_allowed():

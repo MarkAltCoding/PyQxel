@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.v1.endpoints.stocks import Symbol, history_coverage, upstream_error
 from app.data.cash import is_money_market, money_market_message
+from app.data.etf_factors import ETF_NOTICE, ETF_SOURCE, FACTOR_SOURCE
 from app.data.factors import fetch_factors
 from app.data.fetcher import DataFetchError, fetch_price_history
 from app.models.factors import FactorModel, FactorPeriod, FactorRegression
@@ -85,6 +86,7 @@ async def get_factor_exposures(
     notices = [
         notice
         for notice in (
+            ETF_NOTICE if factors_result.attrs.get(FACTOR_SOURCE) == ETF_SOURCE else None,
             coverage_notice,
             _lag_notice(symbol, daily_returns(prices_result["Close"]), factor_end),
         )

@@ -46,7 +46,7 @@ None of this is legal advice; recheck before launching commercially.
 | **USAspending.gov** | None | US government data; no license stated | Could replace Finnhub's government contracts | Candidate |
 | **Senate lobbying disclosures** (lda.gov) | None at 15 requests a minute; a free key gives 120 | "Data ... do not, and should not, include controls over its end use"; cite the date retrieved | Could replace Finnhub's lobbying data | Candidate |
 | **FRED** (St. Louis Fed) | The API needs a free key; keyless downloads are for personal use only | **Not for a for-profit app:** "use the FRED Services for any commercial use" needs "the prior written consent of the Bank"; storing or caching FRED data is prohibited; third-party series need their owners' permission | Nothing | **Not used** |
-| **Ken French's data library** | None | Copyright Kenneth R. French; no license stated | Factor models; cash interest only before 2002 | In use; **a commercial launch needs his permission or another source** |
+| **Ken French's data library** | None | Copyright Kenneth R. French; no license stated | Factor models; cash interest only before 2002 | In use; **a commercial launch needs his permission or another source** (below) |
 
 ### FRED and backtesting
 
@@ -61,6 +61,29 @@ from FRED's own sources instead, which allow it:
 - **Benchmarks and index history:** no keyless source allows commercial use; the S&P 500
   and Nasdaq indexes are licensed by their publishers. A benchmark is an ETF (SPY, QQQ) on
   the user's own price-history key.
+
+### Factors without Ken French's library
+
+No provider on a user's keys publishes factor returns, and other free factor libraries
+(such as AQR's) carry the same kind of copyright. So when Ken French's library is not
+used, or cannot be reached, the factors are estimated from ETF prices on the user's own
+price-history key (`app/data/etf_factors.py`), with the Treasury's bill rate as the
+risk-free rate: market SPY, size IWM over IVV, value IWD over IWF, momentum MTUM over IVV
+(since 2013), profitability QUAL over IVV (since 2013). No ETF stands in for the
+investment factor, so the five-factor model is unavailable then. Results say they are ETF
+estimates.
+
+Checked November 6, 2026, five years of daily returns, Carhart model:
+
+| Stock | Source | Market | Size | Value | Momentum | R² |
+| --- | --- | --- | --- | --- | --- | --- |
+| AAPL | Ken French | 1.11 | −0.35 | −0.16 | −0.20 | 0.53 |
+| AAPL | ETF estimate | 1.09 | −0.10 | −0.31 | −0.59 | 0.58 |
+| VTV | Ken French | 0.79 | −0.04 | 0.41 | −0.06 | 0.88 |
+| VTV | ETF estimate | 0.93 | 0.00 | 0.54 | 0.07 | 0.97 |
+
+Market betas agree closely; the others point the same way but differ in size, since the
+academic factors are long-short portfolios and the ETFs long-only funds.
 
 ### Not replaced, and why
 
