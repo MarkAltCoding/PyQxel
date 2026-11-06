@@ -99,14 +99,14 @@ function StockDetails({ symbol }: { symbol: string }) {
     queryFn: () => getHistory(symbol, period, interval),
     placeholderData: keepPreviousData,
   })
-  // A server can turn factor models off; then the page leaves them out.
+  // Without size, value and momentum, the server fits the market factor alone, whatever
+  // model is asked for, so the choice of model is left out.
   const account = useQuery({ queryKey: ['account'], queryFn: () => getAccount() })
-  const factorsOn = account.data?.factor_models !== false
+  const marketOnly = account.data?.style_factors === false
   const factors = useQuery({
     queryKey: ['factors', symbol, period, factorModel],
     queryFn: () => getFactors(symbol, period, factorModel),
     placeholderData: keepPreviousData,
-    enabled: factorsOn && account.isFetched,
   })
   // GARCH needs about four years of daily returns to estimate reliably (two years often
   // leave it with no volatility clustering and a flat line), so shorter periods are fitted
@@ -204,16 +204,14 @@ function StockDetails({ symbol }: { symbol: string }) {
           value={percent(volatility.data?.estimate.fit.current_volatility)}
           detail="Annualized, conditional"
         />
-        {factorsOn && (
-          <Stat
-            info="marketBeta"
-            label="Market beta"
-            value={number(
-              factors.data?.fit.exposures.find((row) => row.factor === 'Mkt-RF')?.estimate,
-            )}
-            detail={factors.data ? `R² ${percent(factors.data.fit.r_squared, 0)}` : undefined}
-          />
-        )}
+        <Stat
+          info="marketBeta"
+          label="Market beta"
+          value={number(
+            factors.data?.fit.exposures.find((row) => row.factor === 'Mkt-RF')?.estimate,
+          )}
+          detail={factors.data ? `R² ${percent(factors.data.fit.r_squared, 0)}` : undefined}
+        />
       </div>
 
       <ChartCard
@@ -230,17 +228,16 @@ function StockDetails({ symbol }: { symbol: string }) {
         footer={history.data?.notice && <Notice tone="warning">{history.data.notice}</Notice>}
       />
 
-      <div className={factorsOn ? 'grid-2' : 'stack'}>
-        {factorsOn && (
-          <FactorCard
-            regression={factors.data}
-            loading={factors.isLoading}
-            refreshing={factors.isPlaceholderData}
-            error={factors.error}
-            model={factorModel}
-            onModel={setFactorModel}
-          />
-        )}
+      <div className="grid-2">
+        <FactorCard
+          regression={factors.data}
+          loading={factors.isLoading}
+          refreshing={factors.isPlaceholderData}
+          error={factors.error}
+          model={factorModel}
+          onModel={setFactorModel}
+          marketOnly={marketOnly}
+        />
         <ChartCard
           id="volatility"
           info="volatilityChart"
@@ -320,21 +317,29 @@ function FactorCard(props: {
   error: unknown
   model: FactorModel
   onModel: (model: FactorModel) => void
+  /** Only the market factor is offered, so there is no model to choose. */
+  marketOnly: boolean
 }) {
   const fit = props.regression?.fit
   return (
     <ChartCard
       id="factors"
       info="factorModel"
-      title="Factor exposures"
-      subtitle="Betas on Fama–French factors, with 95% intervals"
+      title={props.marketOnly ? 'Market exposure' : 'Factor exposures'}
+      subtitle={
+        props.marketOnly
+          ? 'Beta on the market, estimated from SPY over Treasury bills, with its 95% interval'
+          : 'Betas on Fama–French factors, with 95% intervals'
+      }
       actions={
-        <Segmented
-          label="Factor model"
-          value={props.model}
-          options={FACTOR_MODELS}
-          onChange={props.onModel}
-        />
+        props.marketOnly ? undefined : (
+          <Segmented
+            label="Factor model"
+            value={props.model}
+            options={FACTOR_MODELS}
+            onChange={props.onModel}
+          />
+        )
       }
       loading={props.loading}
       refreshing={props.refreshing}

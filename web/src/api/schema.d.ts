@@ -1675,12 +1675,6 @@ export interface components {
       /** Email */
       email: string
       eodhd?: components['schemas']['ProviderCredential']
-      /**
-       * Factor Models
-       * @description Whether factor models (Fama-French and Carhart exposures, return attribution, factor betas) are offered to you.
-       * @default true
-       */
-      factor_models?: boolean
       finnhub: components['schemas']['ProviderCredential']
       fmp: components['schemas']['ProviderCredential']
       /**
@@ -1704,6 +1698,12 @@ export interface components {
        * @description Whether the server reads financial statements and filings from SEC EDGAR, which needs no account key.
        */
       sec_filings: boolean
+      /**
+       * Style Factors
+       * @description Whether the size, value and momentum factors are offered to you; without them, factor models fit the market factor alone.
+       * @default true
+       */
+      style_factors?: boolean
       tiingo?: components['schemas']['ProviderCredential']
       usage: components['schemas']['AiUsage']
     }

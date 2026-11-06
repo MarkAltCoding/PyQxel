@@ -51,9 +51,10 @@ class AdminSettingsUpdate(BaseModel):
         default=None,
         description="Whether your own requests use them while the server does not.",
     )
-    factor_models: bool | None = Field(
+    style_factors: bool | None = Field(
         default=None,
-        description="Whether the whole server offers factor models, from any source.",
+        description="Whether the whole server offers the size, value and momentum factors "
+        "estimated from ETFs when Ken French's library is not used.",
     )
 
 
@@ -80,16 +81,16 @@ class Account(BaseModel):
         description="Whether the server reads financial statements and filings from SEC "
         "EDGAR, which needs no account key."
     )
-    factor_models: bool = Field(
+    style_factors: bool = Field(
         default=True,
-        description="Whether factor models (Fama-French and Carhart exposures, return "
-        "attribution, factor betas) are offered to you.",
+        description="Whether the size, value and momentum factors are offered to you; "
+        "without them, factor models fit the market factor alone.",
     )
     admin: SkipJsonSchema[dict[str, bool | list[str]] | None] = Field(
         default=None, exclude_if=lambda settings: settings is None
     )
     """The admin's switches, ``yfinance_fallback``, ``own_restricted_sources`` and the
-    server-wide ``restricted_sources`` and ``factor_models``, the read-only
+    server-wide ``restricted_sources`` and ``style_factors``, the read-only
     ``yfinance_fallback_from_server`` (``YFINANCE_FALLBACK``), and
     ``restricted_source_uses``, what turning ``restricted_sources`` off stops. Sent to the
     admin alone, and left out of the API schema, so other accounts cannot tell there are

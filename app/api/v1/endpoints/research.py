@@ -53,7 +53,7 @@ from app.api.v1.endpoints.stocks import (
     history_coverage,
     upstream_error,
 )
-from app.data.etf_factors import ETF_NOTICE, ETF_SOURCE, FACTOR_SOURCE
+from app.data.etf_factors import factor_notice
 from app.data.factors import fetch_factors
 from app.data.funds import fetch_fund_profile
 from app.data.alpha_vantage import fetch_financials_filled
@@ -192,7 +192,7 @@ def _factor_context(
         )
     end = pd.Timestamp(result.index[-1]).date()
     context = FactorContext(model=ANALYSIS_FACTOR_MODEL, factor_data_end=end, fit=fit)
-    return context, ETF_NOTICE if result.attrs.get(FACTOR_SOURCE) == ETF_SOURCE else None
+    return context, factor_notice(result)
 
 
 async def _garch_forecast(symbol: str) -> GarchContext:

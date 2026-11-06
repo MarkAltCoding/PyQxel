@@ -121,7 +121,8 @@ def fit_factor_returns(returns: pd.Series, factors: pd.DataFrame, model: FactorM
         InsufficientDataError: If fewer than :data:`MIN_OBSERVATIONS` days have both a
             return and factor returns, or the returns never change.
     """
-    names = MODEL_FACTORS[model]
+    # A table may hold fewer factors than the model, as the market alone stands in for it.
+    names = [name for name in MODEL_FACTORS[model] if name in factors.columns]
     data = pd.concat(
         [by_calendar_date(returns).rename("stock"), factors.loc[:, [*names, RISK_FREE]]],
         axis=1,

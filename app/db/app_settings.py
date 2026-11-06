@@ -1,11 +1,11 @@
 """Settings of the whole server, changed by its admin.
 
 Two are kept: whether the server uses data sources whose terms do not clearly allow use
-in a paid product (:data:`RESTRICTED_SOURCES`), and whether it offers factor models at all
-(:data:`FACTOR_MODELS`). Both are on by default, as before they could be turned off.
-Requests read them often, so they are kept in memory for :data:`MEMORY_SECONDS`; a change
-by the admin applies at once in the process that made it, and within that time in the
-others.
+in a paid product (:data:`RESTRICTED_SOURCES`), and whether it offers the size, value and
+momentum factors estimated from ETFs in their place (:data:`STYLE_FACTORS`). Both are on
+by default, as before they could be turned off. Requests read them often, so they are
+kept in memory for :data:`MEMORY_SECONDS`; a change by the admin applies at once in the
+process that made it, and within that time in the others.
 """
 
 import logging
@@ -34,8 +34,9 @@ RESTRICTED_SOURCE_USES: tuple[str, ...] = (
 )
 """What turning :data:`RESTRICTED_SOURCES` off stops, for the admin to read."""
 
-FACTOR_MODELS: str = "factor_models"
-"""Whether the server offers factor models at all, from any source."""
+STYLE_FACTORS: str = "style_factors"
+"""Whether the server offers the size, value and momentum factors estimated from ETFs when
+Ken French's library is not used; without them, only the market factor is."""
 
 MEMORY_SECONDS: float = 30.0
 """How long a setting read from the database is reused in this process."""
@@ -67,16 +68,15 @@ async def server_uses_restricted_sources() -> bool:
     return bool(await _read(RESTRICTED_SOURCES, True))
 
 
-async def server_offers_factor_models() -> bool:
-    """Whether the server offers factor models (Fama-French and Carhart) to every account."""
-    return bool(await _read(FACTOR_MODELS, True))
+async def server_offers_style_factors() -> bool:
+    """Whether the server offers the ETF estimates of size, value and momentum."""
+    return bool(await _read(STYLE_FACTORS, True))
 
 
-async def factor_models_allowed() -> bool:
-    """Whether the current request may have factor models: when the server offers them, or
-    when it is the admin's own and their switch for restricted sources is on, so they come
-    from Ken French's library."""
-    return current_provider_keys().restricted_sources or await server_offers_factor_models()
+async def style_factors_allowed() -> bool:
+    """Whether the current request is offered the ETF estimates of size, value and
+    momentum, when Ken French's library is not used."""
+    return await server_offers_style_factors()
 
 
 async def restricted_sources_allowed() -> bool:

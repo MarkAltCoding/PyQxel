@@ -21,7 +21,7 @@ from app.api.v1.endpoints.stocks import (
     upstream_error,
 )
 from app.api.auth import CurrentUser
-from app.data.etf_factors import ETF_NOTICE, ETF_SOURCE, FACTOR_SOURCE
+from app.data.etf_factors import factor_notice
 from app.data.factors import fetch_factors
 from app.data.fetcher import (
     DataFetchError,
@@ -141,8 +141,8 @@ async def load_factors(
                     + ("is not used here." if turned_off else "could not be fetched.")
                 )
             notice = " ".join(notices) or None
-    if model is not None and factors is not None and factors.attrs.get(FACTOR_SOURCE) == ETF_SOURCE:
-        notice = " ".join(part for part in (notice, ETF_NOTICE) if part)
+    if model is not None and factors is not None and (said := factor_notice(factors)):
+        notice = " ".join(part for part in (notice, said) if part)
     if bills is not None:
         factors = with_bill_rates(factors, bills)
     return factors, notice

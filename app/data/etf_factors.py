@@ -29,7 +29,7 @@ import pandas as pd
 
 from app.data.fetcher import DataFetchError, fetch_price_history
 from app.data.treasury import fetch_bill_returns
-from app.models.factors import MODEL_FACTORS, RISK_FREE, FactorModel
+from app.models.factors import MODEL_FACTORS, RISK_FREE, FactorModel, FactorName
 
 logger = logging.getLogger(__name__)
 
@@ -53,20 +53,31 @@ ETF_NOTICE: str = (
 )
 """Said wherever factors estimated from ETFs are shown."""
 
+MARKET_ONLY: str = "market_only"
+"""Key in a factor table's ``attrs``, true when it holds the market factor alone."""
+
+MARKET_ONLY_NOTICE: str = (
+    "Only the market factor is shown, estimated from SPY over Treasury bills, which tracks "
+    "it closely: size, value and momentum need Ken French's factor data, which is not used "
+    "here, and their ETF estimates are turned off as too rough."
+)
+"""Said wherever a fit on the market factor alone stands in for a model's."""
+
 
 class NoEtfStandInError(DataFetchError):
     """Raised for a model with a factor no ETF stands in for."""
 
 
-async def fetch_etf_factors(model: FactorModel) -> pd.DataFrame:
-    """Daily returns of ``model``'s factors estimated from ETFs, and the risk-free rate, as
-    decimals, oldest first; ``attrs[FACTOR_SOURCE]`` is :data:`ETF_SOURCE`.
+async def fetch_etf_factors(model: FactorModel, market_only: bool = False) -> pd.DataFrame:
+    """Daily returns of ``model``'s factors estimated from ETFs, or of the market factor
+    alone with ``market_only``, and the risk-free rate, as decimals, oldest first;
+    ``attrs[FACTOR_SOURCE]`` is :data:`ETF_SOURCE`, and ``attrs[MARKET_ONLY]`` says which.
 
     Raises:
         NoEtfStandInError: If a factor of ``model`` has no ETF stand-in (CMA).
         DataFetchError: If an ETF's prices or the bill rates cannot be fetched.
     """
-    names = MODEL_FACTORS[model]
+    names: list[FactorName] = ["Mkt-RF"] if market_only else list(MODEL_FACTORS[model])
     missing = [name for name in names if name not in LEGS]
     if missing:
         raise NoEtfStandInError(
@@ -102,4 +113,13 @@ async def fetch_etf_factors(model: FactorModel) -> pd.DataFrame:
     if table.empty:
         raise DataFetchError("The ETFs and bill rates that stand in for the factors share no days.")
     table.attrs[FACTOR_SOURCE] = ETF_SOURCE
+    table.attrs[MARKET_ONLY] = market_only
     return table
+
+
+def factor_notice(table: pd.DataFrame) -> str | None:
+    """What to say about a factor table's source: that it holds the market factor alone,
+    that its factors are ETF estimates, or nothing for Ken French's."""
+    if table.attrs.get(FACTOR_SOURCE) != ETF_SOURCE:
+        return None
+    return MARKET_ONLY_NOTICE if table.attrs.get(MARKET_ONLY) else ETF_NOTICE

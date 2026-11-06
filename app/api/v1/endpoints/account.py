@@ -37,10 +37,10 @@ from app.core.config import get_settings
 from app.core.credentials import ProviderKeys, current_provider_keys
 from app.core.security import CredentialsUnavailableError, encryption_available, key_hint
 from app.db.app_settings import (
-    FACTOR_MODELS,
+    STYLE_FACTORS,
     RESTRICTED_SOURCE_USES,
     RESTRICTED_SOURCES,
-    server_offers_factor_models,
+    server_offers_style_factors,
     server_uses_restricted_sources,
     set_setting,
 )
@@ -110,14 +110,18 @@ async def _account(session: AsyncSession, user: User) -> Account:
         rate_limit_per_minute=get_settings().rate_limit_per_minute,
         market_data_fallback=uses_yfinance(user),
         sec_filings=bool(get_settings().sec_user_agent),
-        factor_models=uses_restricted_sources(user) or await server_offers_factor_models(),
+        style_factors=(
+            uses_restricted_sources(user)
+            or await server_uses_restricted_sources()
+            or await server_offers_style_factors()
+        ),
         admin=(
             {
                 "yfinance_fallback": user.yfinance_fallback,
                 "yfinance_fallback_from_server": get_settings().yfinance_fallback,
                 "restricted_sources": await server_uses_restricted_sources(),
                 "own_restricted_sources": user.own_restricted_sources,
-                "factor_models": await server_offers_factor_models(),
+                "style_factors": await server_offers_style_factors(),
                 "restricted_source_uses": list(RESTRICTED_SOURCE_USES),
             }
             if user.is_admin
@@ -333,8 +337,8 @@ async def store_admin_settings(request: Request, session: Session) -> Account:
     (``yfinance_fallback``), which never reaches another account, and the whole server's
     use of data sources not cleared for commercial use (``restricted_sources``), or the
     admin's own use of them while the server does not (``own_restricted_sources``), and
-    whether the whole server offers factor models (``factor_models``); an omitted field is
-    left as it is.
+    whether the whole server offers the size, value and momentum factors estimated from
+    ETFs (``style_factors``); an omitted field is left as it is.
 
     Only the account ``ADMIN_EMAIL`` names may. Everyone else, signed in or not, gets the
     answer a path that does not exist gets, and the route is left out of the API schema,
@@ -355,8 +359,8 @@ async def store_admin_settings(request: Request, session: Session) -> Account:
             user = await update_yfinance_fallback(session, user.id, changes.yfinance_fallback)
         if changes.restricted_sources is not None:
             await set_setting(session, RESTRICTED_SOURCES, changes.restricted_sources)
-        if changes.factor_models is not None:
-            await set_setting(session, FACTOR_MODELS, changes.factor_models)
+        if changes.style_factors is not None:
+            await set_setting(session, STYLE_FACTORS, changes.style_factors)
         if changes.own_restricted_sources is not None:
             user = await update_own_restricted_sources(
                 session, user.id, changes.own_restricted_sources

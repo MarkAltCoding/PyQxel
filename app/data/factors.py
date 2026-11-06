@@ -248,8 +248,10 @@ async def fetch_factors(
 
     They come from Ken French's library, or, when the server does not use it or it cannot
     be reached, are estimated from ETF prices on the user's own keys
-    (:func:`app.data.etf_factors.fetch_etf_factors`), and then the table's
-    ``attrs[FACTOR_SOURCE]`` says so.
+    (:func:`app.data.etf_factors.fetch_etf_factors`): every factor when the server offers
+    those estimates of size, value and momentum, else the market factor alone. The table's
+    ``attrs`` say which (``FACTOR_SOURCE``, ``MARKET_ONLY``), and a market-only table has
+    no columns for the other factors.
 
     Args:
         model: ``"ff3"``, ``"carhart4"`` (three factors plus momentum) or ``"ff5"``.
@@ -261,26 +263,30 @@ async def fetch_factors(
         value are kept, oldest first.
 
     Raises:
-        SourceTurnedOffError: If the server offers no factor models, or does not use Ken
-            French's library, whose terms do not clearly allow use in a paid product, and
-            ETFs cannot stand in.
+        SourceTurnedOffError: If the server does not use Ken French's library, whose
+            terms do not clearly allow use in a paid product, and ETFs cannot stand in.
         FactorDataError: If a file cannot be downloaded, no stored copy exists, and ETFs
             cannot stand in.
     """
-    from app.db.app_settings import factor_models_allowed  # Imports the database.
+    from app.data.etf_factors import fetch_etf_factors  # It fetches prices.
+    from app.db.app_settings import style_factors_allowed  # Imports the database.
 
-    if not await factor_models_allowed():
-        raise SourceTurnedOffError("Factor models are turned off on this server.")
     try:
         return await _library_factors(model, client)
     except (SourceTurnedOffError, FactorDataError) as exc:
-        from app.data.etf_factors import fetch_etf_factors  # It fetches prices.
-
-        try:
-            return await fetch_etf_factors(model)
-        except DataFetchError as fallback:
-            logger.info("ETFs could not stand in for the %s factors: %s", model, fallback)
-            raise type(exc)(f"{exc} {fallback}") from exc
+        # Without the library, ETFs stand in: for every factor when the server offers
+        # their rougher estimates of size, value and momentum, else for the market alone,
+        # which SPY tracks closely. A model with no ETF for a factor (FF5) falls back to
+        # the market alone too.
+        attempts = [False, True] if await style_factors_allowed() else [True]
+        reasons: list[str] = []
+        for market_only in attempts:
+            try:
+                return await fetch_etf_factors(model, market_only=market_only)
+            except DataFetchError as fallback:
+                reasons.append(str(fallback))
+        logger.info("ETFs could not stand in for the %s factors: %s", model, reasons)
+        raise type(exc)(f"{exc} {reasons[-1]}") from exc
 
 
 async def _library_factors(model: FactorModel, client: httpx2.AsyncClient | None) -> pd.DataFrame:

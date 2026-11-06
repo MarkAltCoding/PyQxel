@@ -60,7 +60,7 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
 | --- | --- | --- | --- | --- | --- |
 | A fund's holdings and costs | `stocks.py` (`/{symbol}/fund`); also in AI reports (`research.py`) and portfolio reviews (`funds`, sectors looked through) | `funds.py` (Alpha Vantage `ETF_PROFILE`, then figures of the holdings from the screener or Finnhub), `fund_filings.py` (SEC N-PORT holdings, public) | `fund_stats.py` (holdings-weighted figures, `look_through`) | `stock.py` (`FundProfile`) | `db/screener.py: company_figures` |
 | Quotes, history, volatility | `stocks.py`, `quotes.py` (WebSocket) | `fetcher.py` | `garch.py` (R), `ewma.py`, `volatility.py`, `indicators.py` | `stock.py`, `volatility.py`, `quote.py` | |
-| Factor regression | `factors.py` | `data/factors.py` (Ken French, else `etf_factors.py`: estimates from ETF prices, with `ETF_NOTICE`) | `stats/factors.py` | `factors.py` | |
+| Factor regression | `factors.py` | `data/factors.py` (Ken French, else `etf_factors.py`: estimates from ETF prices, every factor or the market alone, `factor_notice`) | `stats/factors.py` | `factors.py` | |
 | Fundamentals, valuation | `fundamentals.py` | `sec_edgar.py`, `fundamentals.py`, `xbrl_instance.py`, `alpha_vantage.py`, `finnhub_financials.py`, `exchange_rates.py` (ECB, then the Federal Reserve's H.10, then keys) | `valuation.py` | `fundamentals.py` | |
 | News, signals, metrics, alternative data | `news.py`, `signals.py`, `metrics.py`, `alternative.py` | `news.py`, `finnhub.py`, `alternative.py` (SEC filings from EDGAR, keyless) | `stats/news.py`, `signals.py`, `alternative.py` | same names | |
 | Markets page | `markets.py` | `data/markets.py`, `fomc.py` | `stats/markets.py` | `markets.py` | |

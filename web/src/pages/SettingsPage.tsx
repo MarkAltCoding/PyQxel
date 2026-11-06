@@ -660,17 +660,18 @@ function AdminSettingsForm({
         here.
       </div>
       <AdminSwitch
-        label="Offer factor models, for every account"
-        on={admin.factor_models}
+        label="Estimate size, value and momentum factors from ETFs, for every account"
+        on={admin.style_factors}
         disabled={save.isPending}
-        onChange={(on) => save.mutate({ factor_models: on })}
+        onChange={(on) => save.mutate({ style_factors: on })}
       />
       <p className="disclaimer">
-        Fama–French and Carhart factor exposures, return attribution in backtests, factor betas in
-        the screener and in AI reports. With the sources above off, they would be estimated from
-        ETFs, which only roughly match the academic factors. Turning this off removes them for every
-        account, from any source; your own requests keep Ken French’s while your switch for them is
-        on.
+        Matters only while Ken French’s data is not used. Then the market factor is estimated from
+        SPY over Treasury bills, which tracks it closely, and stays either way. On, the size, value
+        and momentum factors are also estimated from ETFs (IWM, IVV, IWD, IWF, MTUM), which only
+        roughly match the academic factors. Off, factor exposures, backtest attribution, AI reports
+        and the screener use the market factor alone. Ken French’s data, where it is used, is not
+        affected.
       </p>
       {save.error !== null && <ErrorNotice error={save.error} />}
     </section>

@@ -70,8 +70,10 @@ used, or cannot be reached, the factors are estimated from ETF prices on the use
 price-history key (`app/data/etf_factors.py`), with the Treasury's bill rate as the
 risk-free rate: market SPY, size IWM over IVV, value IWD over IWF, momentum MTUM over IVV
 (since 2013), profitability QUAL over IVV (since 2013). No ETF stands in for the
-investment factor, so the five-factor model is unavailable then. Results say they are ETF
-estimates.
+investment factor, so the five-factor model falls back to the market factor alone. Results
+say they are ETF estimates. Since size, value and momentum estimates are rough, a server
+can offer the market factor alone instead, which SPY tracks closely: fits then report a
+market beta, alpha and R², and say the other factors are left out.
 
 Checked November 6, 2026, five years of daily returns, Carhart model:
 

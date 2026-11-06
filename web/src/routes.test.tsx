@@ -442,7 +442,7 @@ describe('admin settings', () => {
     yfinance_fallback_from_server: false,
     restricted_sources: true,
     own_restricted_sources: false,
-    factor_models: true,
+    style_factors: true,
     restricted_source_uses: ["Ken French's data library: factor models"],
   }
 
@@ -522,7 +522,7 @@ describe('admin settings', () => {
     expect(sent).toEqual([{ own_restricted_sources: true }])
   })
 
-  it('turn factor models off for every account', async () => {
+  it('turn the rough ETF estimates of size, value and momentum off', async () => {
     window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
     const admin = { ...ACCOUNT, admin: ADMIN }
     const sent: unknown[] = []
@@ -530,17 +530,17 @@ describe('admin settings', () => {
       '/api/v1/me': () => json(admin),
       '/api/v1/me/admin': (init) => {
         sent.push(JSON.parse(String(init?.body)))
-        return json({ ...admin, admin: { ...ADMIN, factor_models: false } })
+        return json({ ...admin, admin: { ...ADMIN, style_factors: false } })
       },
     })
     renderAt('/settings')
 
-    const models = await screen.findByRole('checkbox', { name: /Offer factor models/ })
+    const models = await screen.findByRole('checkbox', { name: /size, value and momentum/ })
     expect(models).toBeChecked()
     await userEvent.click(models)
 
     await waitFor(() => expect(models).not.toBeChecked())
-    expect(sent).toEqual([{ factor_models: false }])
+    expect(sent).toEqual([{ style_factors: false }])
   })
 
   it('say when the server forces the fallback on', async () => {

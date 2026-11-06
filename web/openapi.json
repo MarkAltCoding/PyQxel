@@ -22,12 +22,6 @@
           "eodhd": {
             "$ref": "#/components/schemas/ProviderCredential"
           },
-          "factor_models": {
-            "default": true,
-            "description": "Whether factor models (Fama-French and Carhart exposures, return attribution, factor betas) are offered to you.",
-            "title": "Factor Models",
-            "type": "boolean"
-          },
           "finnhub": {
             "$ref": "#/components/schemas/ProviderCredential"
           },
@@ -55,6 +49,12 @@
           "sec_filings": {
             "description": "Whether the server reads financial statements and filings from SEC EDGAR, which needs no account key.",
             "title": "Sec Filings",
+            "type": "boolean"
+          },
+          "style_factors": {
+            "default": true,
+            "description": "Whether the size, value and momentum factors are offered to you; without them, factor models fit the market factor alone.",
+            "title": "Style Factors",
             "type": "boolean"
           },
           "tiingo": {
