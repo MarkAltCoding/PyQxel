@@ -70,7 +70,7 @@ if ! command -v rustup > /dev/null 2>&1; then
   ok "Installing Rust with rustup, Rust's official installer (https://rustup.rs)"
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
 fi
-rustup target add "${RUST_TARGETS[@]}" > /dev/null
+added="$(rustup target add "${RUST_TARGETS[@]}" 2>&1)" || fail "Rust could not add its Apple targets: $added"
 ok "$(rustc --version), targets: ${RUST_TARGETS[*]}"
 
 step "The web app's packages, and the Python and C++ runtimes it bundles"

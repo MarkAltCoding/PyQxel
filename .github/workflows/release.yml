@@ -75,8 +75,11 @@ jobs:
           dmg=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg)
           echo "path=web/$dmg" >> "$GITHUB_OUTPUT"
           echo "name=$(basename "$dmg")" >> "$GITHUB_OUTPUT"
-          codesign --verify --deep --strict "src-tauri/target/universal-apple-darwin/release/bundle/macos/PyQxel.app"
-          lipo -archs "src-tauri/target/universal-apple-darwin/release/bundle/macos/PyQxel.app/Contents/MacOS/pyqxel"
+          # The bundler removes the .app once it is in the .dmg, so check the one inside.
+          mount=$(hdiutil attach -nobrowse -readonly "$dmg" | awk -F'\t' '/\/Volumes\// {print $NF}')
+          codesign --verify --deep --strict "$mount/PyQxel.app"
+          lipo -archs "$mount/PyQxel.app/Contents/MacOS/pyqxel"
+          hdiutil detach "$mount"
 
       - name: Keep the build
         uses: actions/upload-artifact@v7
