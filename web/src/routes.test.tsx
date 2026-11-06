@@ -70,7 +70,7 @@ describe('sign-in', () => {
 
     expect(router.state.location.pathname).toBe('/signin')
     await userEvent.type(screen.getByLabelText('API key'), 'pq_good')
-    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in with key' }))
 
     expect(router.state.location.pathname).toBe('/screener')
     expect(calls.find((call) => call.path === '/api/v1/me')?.authorization).toBe('Bearer pq_good')
@@ -86,7 +86,7 @@ describe('sign-in', () => {
 
     expect(router.state.location.pathname).toBe('/signin')
     await userEvent.type(screen.getByLabelText('API key'), 'pq_good')
-    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in with key' }))
 
     const { pathname, search, hash } = router.state.location
     expect(`${pathname}${search}${hash}`).toBe('/backtest?mode=universe&view=code#backtest-form')
@@ -100,7 +100,7 @@ describe('sign-in', () => {
     const router = renderAt('/')
 
     await userEvent.type(screen.getByLabelText('API key'), 'pq_bad')
-    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in with key' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Invalid API key.')
     expect(router.state.location.pathname).toBe('/signin')

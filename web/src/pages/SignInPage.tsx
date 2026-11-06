@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { apiUrl } from '../api/client'
-import { collectAppSignIn, getSignInProviders } from '../api/endpoints'
+import { collectAppSignIn, getPasswordSignIn, getSignInProviders } from '../api/endpoints'
 import {
   forgetNativeSignIn,
   isNativeApp,
@@ -14,6 +14,7 @@ import {
   markSignInStarted,
   signInStartedRecently,
 } from '../auth/pendingSignIn'
+import { PasswordSignIn } from '../auth/PasswordSignIn'
 import { useAuth } from '../auth/useAuth'
 import { ErrorNotice, Notice } from '../components/Notice'
 
@@ -59,6 +60,10 @@ export function SignInPage() {
   const from = (location.state as { from?: string } | null)?.from ?? '/'
   const providers = useQuery({ queryKey: ['sign-in-providers'], queryFn: getSignInProviders })
   const offered = Array.isArray(providers.data) ? providers.data : []
+  const passwords = useQuery({ queryKey: ['password-sign-in'], queryFn: getPasswordSignIn })
+  const passwordInfo = passwords.data?.available ? passwords.data : null
+  /** Any way to sign in besides an API key, which then needs no account made by hand. */
+  const selfServe = offered.length > 0 || passwordInfo !== null
 
   // What came back is trusted only when this tab (or, in the native app, the app) started
   // the sign-in, so a link carrying someone else's key, or a message of their own, is
@@ -150,9 +155,13 @@ export function SignInPage() {
       <section className="card signin stack" style={{ gap: 18 }}>
         <div>
           <h1>Sign in to PyQxel</h1>
-          {offered.length > 0 && (
+          {selfServe && (
             <p className="subtitle" style={{ marginTop: 6, color: 'var(--text-secondary)' }}>
-              New here? Signing in creates your account.
+              {passwordInfo === null
+                ? 'New here? Signing in creates your account.'
+                : offered.length > 0
+                  ? 'New here? Continuing with a provider creates your account, or choose Make an account below to use your email.'
+                  : 'New here? Choose Make an account below.'}
             </p>
           )}
         </div>
@@ -190,9 +199,22 @@ export function SignInPage() {
             )}
           </div>
         )}
-        <form onSubmit={submit}>
-          {offered.length > 0 && <div className="signin-divider">or use an API key</div>}
-          {offered.length === 0 && (
+        {passwordInfo && (
+          <>
+            {offered.length > 0 && <div className="signin-divider">or use your email</div>}
+            <PasswordSignIn
+              native={native}
+              minLength={passwordInfo.min_length}
+              onSignedIn={async (issued) => {
+                await signIn(issued, true)
+                navigate(from, { replace: true })
+              }}
+            />
+          </>
+        )}
+        <form onSubmit={submit} aria-label="Sign in with an API key">
+          {selfServe && <div className="signin-divider">or use an API key</div>}
+          {!selfServe && (
             <p className="subtitle" style={{ color: 'var(--text-secondary)' }}>
               Use your API key (it starts with <code>pq_</code>).
             </p>
@@ -201,7 +223,8 @@ export function SignInPage() {
             <span>API key</span>
             <input
               type="password"
-              autoComplete="current-password"
+              // Not "current-password", so a password manager fills the email form instead.
+              autoComplete="off"
               spellCheck={false}
               required
               value={key}
@@ -219,13 +242,13 @@ export function SignInPage() {
           </label>
           {error !== null && <ErrorNotice error={error} />}
           <button type="submit" className="button primary" disabled={busy || !key.trim()}>
-            {busy ? 'Checking…' : 'Sign in'}
+            {busy ? 'Checking…' : 'Sign in with key'}
           </button>
-          {offered.length === 0 && (
+          {!selfServe && (
             <p className="disclaimer">
               No key? Whoever runs this PyQxel server creates accounts with{' '}
-              <code>python -m app.jobs.users create</code>, or can turn on signing in with GitHub or
-              Google.
+              <code>python -m app.jobs.users create</code>, or can turn on signing in with an email,
+              GitHub, or Google.
             </p>
           )}
         </form>

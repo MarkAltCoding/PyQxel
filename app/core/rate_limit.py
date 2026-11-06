@@ -1,4 +1,5 @@
-"""Per-user request rate limiting over fixed one-minute windows.
+"""Request rate limiting over fixed windows, one minute long unless a caller asks for
+longer.
 
 Counts live in Redis when ``REDIS_URL`` is set, so the limit holds across worker
 processes; otherwise, or while Redis is down, each process counts on its own.
@@ -29,20 +30,29 @@ def clear_local_counts() -> None:
     _local.clear()
 
 
-async def check_rate_limit(user_id: str, limit: int, now: float | None = None) -> None:
-    """Count a request by ``user_id`` and refuse it beyond ``limit`` in this minute.
+async def check_rate_limit(
+    user_id: str,
+    limit: int,
+    now: float | None = None,
+    window_seconds: float = WINDOW_SECONDS,
+) -> None:
+    """Count a request by ``user_id`` and refuse it beyond ``limit`` in this window.
+
+    ``window_seconds`` sets the window's length, a minute by default; a longer one, as
+    for password attempts on one account, counts under its own name.
 
     Raises:
-        RateLimitExceeded: If the user has already made ``limit`` requests this minute.
+        RateLimitExceeded: If the user has already made ``limit`` requests this window.
     """
     moment = time.time() if now is None else now
-    window = int(moment // WINDOW_SECONDS)
-    count = await cache_increment(f"ratelimit:{user_id}:{window}", 2 * WINDOW_SECONDS)
+    name = user_id if window_seconds == WINDOW_SECONDS else f"{user_id}:{int(window_seconds)}s"
+    window = int(moment // window_seconds)
+    count = await cache_increment(f"ratelimit:{name}:{window}", 2 * window_seconds)
     if count is None:
-        for stale in [key for key in _local if key[1] < window]:
+        for stale in [key for key in _local if key[0] == name and key[1] < window]:
             del _local[stale]
-        count = _local.get((user_id, window), 0) + 1
-        _local[(user_id, window)] = count
+        count = _local.get((name, window), 0) + 1
+        _local[(name, window)] = count
     if count > limit:
-        retry_after = math.ceil((window + 1) * WINDOW_SECONDS - moment)
+        retry_after = math.ceil((window + 1) * window_seconds - moment)
         raise RateLimitExceeded(retry_after=max(1, retry_after))

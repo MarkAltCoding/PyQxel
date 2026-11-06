@@ -8,6 +8,7 @@ import { NotFoundPage } from './pages/NotFoundPage'
 import { PortfolioPage } from './pages/PortfolioPage'
 import { PrivacyPage } from './pages/PrivacyPage'
 import { ScreenerPage } from './pages/ScreenerPage'
+import { SetPasswordPage } from './pages/SetPasswordPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SignInPage } from './pages/SignInPage'
 import { StockPage } from './pages/StockPage'
@@ -18,6 +19,8 @@ export const routes = [
     element: <NativeSignInLinks />,
     children: [
       { path: '/signin', element: <SignInPage /> },
+      // Where an emailed link leads, before there is a key.
+      { path: '/signin/password', element: <SetPasswordPage /> },
       // Public, so it can be read before signing in.
       { path: '/privacy', element: <PrivacyPage /> },
       {

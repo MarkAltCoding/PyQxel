@@ -3,6 +3,10 @@ import { api, ApiError, send } from './client'
 import type {
   Account,
   AppSignInKey,
+  LinkAddress,
+  LinkSent,
+  PasswordSignedIn,
+  PasswordSignInInfo,
   NightlyRefreshSettings,
   NightlyRefreshStatus,
   PlannedFetch,
@@ -65,6 +69,23 @@ export const getSignInProviders = () => api<SignInProvider[]>(`${V1}/auth/provid
 /** Trades the one-time code a sign-in handed the native app, and its verifier, for a key. */
 export const collectAppSignIn = (code: string, verifier: string) =>
   api<AppSignInKey>(`${V1}/auth/app/collect`, { method: 'POST', body: { code, verifier } })
+/** Whether this server offers signing in with an email and password. */
+export const getPasswordSignIn = () => api<PasswordSignInInfo>(`${V1}/auth/password`)
+/** Emails `email` a link to choose a password, which makes the account if it has none. */
+export const sendPasswordLink = (email: string) =>
+  api<LinkSent>(`${V1}/auth/password/link`, { method: 'POST', body: { email } })
+/** The address an emailed link was sent to, without using the link up. */
+export const checkPasswordLink = (token: string) =>
+  api<LinkAddress>(`${V1}/auth/password/check`, { method: 'POST', body: { token } })
+/** Sets the password an emailed link was sent for, and signs in. */
+export const setPassword = (token: string, password: string) =>
+  api<PasswordSignedIn>(`${V1}/auth/password/set`, { method: 'POST', body: { token, password } })
+/** Signs in with an email and password; `app` names the native app's key as its own. */
+export const signInWithPassword = (email: string, password: string, app: boolean) =>
+  api<PasswordSignedIn>(`${V1}/auth/password/sign-in`, {
+    method: 'POST',
+    body: { email, password, app },
+  })
 /** Revokes `key` if signing in issued it; keys made for scripts keep working. */
 export const revokeSignIn = (key: string) =>
   api<void>(`${V1}/auth/signout`, { method: 'POST', key })

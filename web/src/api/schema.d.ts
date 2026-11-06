@@ -70,6 +70,128 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/auth/password': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Password sign-in offered
+     * @description Whether people can sign in with an email and password here, and the shortest
+     *     password allowed.
+     */
+    get: operations['password_sign_in_info_api_v1_auth_password_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/auth/password/check': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Check an emailed link
+     * @description The address an emailed link was sent to, so its page can name the account,
+     *     without using the link up.
+     *
+     *     Returns 400 for a link that is unknown, used or expired, 429 beyond the sign-in
+     *     attempts one client may make a minute, and 503 when accounts are unavailable.
+     */
+    post: operations['check_password_link_api_v1_auth_password_check_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/auth/password/link': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Email a link to choose a password
+     * @description Email ``email`` a link to choose a password, which makes the account if the
+     *     address has none. The answer is the same either way.
+     *
+     *     Returns 404 when this server cannot send email, 422 for something that is not an
+     *     email address, 429 beyond five links an hour from one client, three to one address
+     *     or the server's daily number, and 503 when accounts are unavailable.
+     */
+    post: operations['send_password_link_api_v1_auth_password_link_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/auth/password/set': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Choose a password
+     * @description Set the password of the account an emailed link was sent to, making the account
+     *     if there is none, and sign this browser in. Replacing a password signs out every
+     *     device that signed in with the old one.
+     *
+     *     Returns 400 for a link that is unknown, used or expired, 422 for a password too
+     *     short, too long or too easy to guess (the link still works then), 429 beyond the
+     *     attempts one client may make a minute, and 503 when accounts are unavailable.
+     */
+    post: operations['set_password_api_v1_auth_password_set_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/auth/password/sign-in': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Sign in with a password
+     * @description Sign in with an email and password and get an API key, which expires after
+     *     ``SIGN_IN_KEY_DAYS`` and is revoked by signing out.
+     *
+     *     Returns 401 when the email and password do not match an account (the same for an
+     *     unknown address), 404 when this server does not offer password sign-in, 429 beyond
+     *     ten attempts a minute from one client, ten in 15 minutes at one account or the
+     *     server's limit, and 503 when accounts are unavailable.
+     */
+    post: operations['sign_in_with_password_api_v1_auth_password_sign_in_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/auth/providers': {
     parameters: {
       query?: never
@@ -3260,6 +3382,17 @@ export interface components {
       year?: number | null
     }
     /**
+     * EmailAddress
+     * @description An address to send a link to, to make an account or choose a new password.
+     */
+    EmailAddress: {
+      /**
+       * Email
+       * @description The email address.
+       */
+      email: string
+    }
+    /**
      * EquityPoint
      * @description Growth of one unit of capital at the close of one bar.
      */
@@ -4764,6 +4897,39 @@ export interface components {
       symbol: string
     }
     /**
+     * LinkAddress
+     * @description The address a working link was sent to.
+     */
+    LinkAddress: {
+      /**
+       * Email
+       * @description The address the password will belong to.
+       */
+      email: string
+    }
+    /**
+     * LinkSent
+     * @description What asking for a link says, the same whether or not the address has an account.
+     */
+    LinkSent: {
+      /**
+       * Message
+       * @description What to do next.
+       */
+      message: string
+    }
+    /**
+     * LinkToken
+     * @description The token from an emailed link.
+     */
+    LinkToken: {
+      /**
+       * Token
+       * @description The link's token.
+       */
+      token: string
+    }
+    /**
      * LobbyingFiling
      * @description One quarterly lobbying disclosure filed with the Senate or House.
      */
@@ -5202,6 +5368,22 @@ export interface components {
       revoked_at?: string | null
     }
     /**
+     * NewPassword
+     * @description The password chosen on the page an emailed link opens.
+     */
+    NewPassword: {
+      /**
+       * Password
+       * @description The new password, 12 to 256 characters.
+       */
+      password: string
+      /**
+       * Token
+       * @description The link's token.
+       */
+      token: string
+    }
+    /**
      * NewsArticle
      * @description One news article about a company.
      */
@@ -5606,6 +5788,60 @@ export interface components {
        * @description Under the t copula, the limiting chance that one asset has an extreme day given the other does, in either tail. Zero under the Gaussian copula.
        */
       tail_dependence: number
+    }
+    /**
+     * PasswordSignIn
+     * @description An email and password to sign in with.
+     */
+    PasswordSignIn: {
+      /**
+       * App
+       * @description Whether the native app is signing in, which names its key.
+       * @default false
+       */
+      app?: boolean
+      /**
+       * Email
+       * @description The account's email address.
+       */
+      email: string
+      /**
+       * Password
+       * @description The account's password.
+       */
+      password: string
+    }
+    /**
+     * PasswordSignInInfo
+     * @description Whether this server offers signing in with an email and password.
+     */
+    PasswordSignInInfo: {
+      /**
+       * Available
+       * @description Whether it does: it needs a way to send email, set up by the server's owner.
+       */
+      available: boolean
+      /**
+       * Min Length
+       * @description Fewest characters a password may have.
+       */
+      min_length: number
+    }
+    /**
+     * PasswordSignedIn
+     * @description The API key a password sign-in issued, and whose account it is.
+     */
+    PasswordSignedIn: {
+      /**
+       * Email
+       * @description The account's email address.
+       */
+      email: string
+      /**
+       * Key
+       * @description The new API key, shown this once.
+       */
+      key: string
     }
     /**
      * Patent
@@ -8143,6 +8379,158 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['AppSignInKey']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  password_sign_in_info_api_v1_auth_password_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PasswordSignInInfo']
+        }
+      }
+    }
+  }
+  check_password_link_api_v1_auth_password_check_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['LinkToken']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['LinkAddress']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  send_password_link_api_v1_auth_password_link_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['EmailAddress']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['LinkSent']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  set_password_api_v1_auth_password_set_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewPassword']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PasswordSignedIn']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  sign_in_with_password_api_v1_auth_password_sign_in_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PasswordSignIn']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PasswordSignedIn']
         }
       }
       /** @description Validation Error */

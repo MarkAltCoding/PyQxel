@@ -16,14 +16,15 @@ from App Store Connect when the app is submitted should be updated here too.
 | Export compliance | `ITSAppUsesNonExemptEncryption = false` in the iOS Info.plist (`gen/apple/project.yml`) and the Mac one (`web/src-tauri/Info.plist`, merged by `tauri build`). The app's only encryption is HTTPS through the operating system, which is exempt, so App Store Connect asks no export questions. |
 | Category | Finance: `bundle.category` in `tauri.conf.json` and `LSApplicationCategoryType` on iOS. |
 | Account deletion (guideline 5.1.1(v)) | Settings, Delete account. |
-| Sign-in | GitHub and Google through the system browser, returning by a `pyqxel://signin` link; an API key as a fallback. Sign in with Apple is built but off (see below). |
+| Sign-in | An email and password inside the app (the account is made, or the password reset, by a link emailed to the address, which opens the website); GitHub and Google through the system browser, returning by a `pyqxel://signin` link; an API key as a fallback. Sign in with Apple is built but off (see below). |
 
 ## Before submitting
 
 1. **Join the Apple Developer Program** ($99 a year). The free Personal Team used for the
    iPhone install cannot submit.
 2. **Turn on Sign in with Apple.** Guideline 4.8 requires an option such as Sign in with
-   Apple in an app that offers Google sign-in. The README's *Signing in with GitHub and
+   Apple in an app that offers Google sign-in; PyQxel's own email and password do not
+   count, since the guideline asks for a login service that can hide the email address. The README's *Signing in with GitHub and
    Google* section lists the Services ID, key and the five settings it takes.
 3. **Register the app**: the App ID `com.markaltcoding.pyqxel` in the developer portal, then
    one App Store Connect record for iOS and macOS (one record covers both platforms).
@@ -138,9 +139,9 @@ Paste into *App Review Information → Notes*, with the demo account's values fi
 > PyQxel is an investment research tool. It does not trade, hold money, or give
 > personalized advice; a notice says so on first launch and must be acknowledged.
 >
-> SIGNING IN: Under "Sign in to PyQxel", use the field "or use an API key" and paste this
-> demo account's key: pq_… (it is the account's password). The GitHub, Google and Apple
-> buttons open the device's browser and return to the app.
+> SIGNING IN: Under "Sign in to PyQxel", enter the demo account's email, app-review@…,
+> and password, …, then press Sign in. The GitHub, Google and Apple buttons open the
+> device's browser and return to the app.
 >
 > MARKET DATA: PyQxel uses market data from providers on the user's own API keys (users
 > sign up for free plans with those providers). For review, open Settings and paste the keys
@@ -181,8 +182,9 @@ look at.
 
 1. **Create the account** on the production server, with an address that receives mail:
    `venv/bin/python -m app.jobs.users create app-review@<your-domain>` against the
-   production database. It prints an API key that does not expire. That key goes in the
-   review notes.
+   production database. Then give it a password: on the website's sign-in page choose
+   **Forgot password?**, and open the emailed link. The email and password go in the review
+   notes. (The API key it prints, which does not expire, is a fallback.)
 2. **Create provider keys just for review**, on free plans: Finnhub, Tiingo and Alpha
    Vantage, under a separate email so they can be closed afterwards. Create an Anthropic
    key in its own workspace with a monthly spend limit of a few dollars.

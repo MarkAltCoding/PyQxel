@@ -94,6 +94,29 @@ class Settings(BaseSettings):
         description="The Sign in with Apple private key: the text of the ``.p8`` file Apple "
         "issues, which signs a client secret for each sign-in.",
     )
+    public_url: str | None = Field(
+        default=None,
+        description="The website's address, such as https://pyqxel.example, which emailed "
+        "sign-in links point to. It is set rather than read from each request, since a "
+        "request's Host header is the sender's to write and would let them point a link "
+        "carrying someone's sign-in token at their own site.",
+    )
+    resend_api_key: SecretStr | None = Field(
+        default=None,
+        description="Key of the Resend account that sends sign-in emails. Signing in with an "
+        "email and password is offered when it, ``email_from`` and ``public_url`` are set, "
+        "or when ``email_to_console`` is on.",
+    )
+    email_from: str | None = Field(
+        default=None,
+        description="Who sign-in emails come from, such as 'PyQxel <signin@pyqxel.example>', "
+        "on a domain verified with Resend.",
+    )
+    email_to_console: bool = Field(
+        default=False,
+        description="For development only: write sign-in emails to the server's log instead "
+        "of sending them, with links to ``public_url`` or else http://localhost:5173.",
+    )
     yfinance_fallback: bool = Field(
         default=False,
         description="Use yfinance when no licensed provider answers, and yfinance and "

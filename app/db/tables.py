@@ -46,6 +46,10 @@ class UserRecord(Base):
     ai_requests_per_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     yfinance_fallback: Mapped[bool] = mapped_column(Boolean, server_default=false())
     own_restricted_sources: Mapped[bool] = mapped_column(Boolean, server_default=false())
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    """The Argon2id hash of the password the account signs in with, set only through a
+    link emailed to its address; null when it signs in only with GitHub, Google, Apple
+    or an API key."""
     """Whether the admin's own requests use data sources not cleared for a paid product
     while the server does not; it applies only to the admin."""
     """Whether the admin turned on the yfinance fallback for their own requests; ignored
@@ -115,6 +119,24 @@ class AppSignInRecord(Base):
     challenge: Mapped[str] = mapped_column(String(64))
     destination: Mapped[str] = mapped_column(Text)
     """The page of the app to open once signed in."""
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class EmailLinkRecord(Base):
+    """A link emailed to an address to choose a password, waiting to be used.
+
+    It is how an address is proven to belong to whoever signs in with it: an account is
+    made, or a password added to the account already using the address, only when the
+    link is used. Only the token's hash is stored. It is kept by address rather than by
+    account, since a new address has no account yet; asking again replaces it, and using
+    it deletes every link to that address.
+    """
+
+    __tablename__ = "email_links"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

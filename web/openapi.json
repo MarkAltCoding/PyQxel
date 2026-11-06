@@ -3216,6 +3216,23 @@
         "title": "EarningsSurprise",
         "type": "object"
       },
+      "EmailAddress": {
+        "description": "An address to send a link to, to make an account or choose a new password.",
+        "properties": {
+          "email": {
+            "description": "The email address.",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "EmailAddress",
+        "type": "object"
+      },
       "EquityPoint": {
         "description": "Growth of one unit of capital at the close of one bar.",
         "properties": {
@@ -6513,6 +6530,53 @@
         "title": "LeftOutHolding",
         "type": "object"
       },
+      "LinkAddress": {
+        "description": "The address a working link was sent to.",
+        "properties": {
+          "email": {
+            "description": "The address the password will belong to.",
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "LinkAddress",
+        "type": "object"
+      },
+      "LinkSent": {
+        "description": "What asking for a link says, the same whether or not the address has an account.",
+        "properties": {
+          "message": {
+            "description": "What to do next.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "LinkSent",
+        "type": "object"
+      },
+      "LinkToken": {
+        "description": "The token from an emailed link.",
+        "properties": {
+          "token": {
+            "description": "The link's token.",
+            "maxLength": 128,
+            "minLength": 20,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "LinkToken",
+        "type": "object"
+      },
       "LobbyingFiling": {
         "description": "One quarterly lobbying disclosure filed with the Senate or House.",
         "properties": {
@@ -7294,6 +7358,30 @@
           "key"
         ],
         "title": "NewApiKey",
+        "type": "object"
+      },
+      "NewPassword": {
+        "description": "The password chosen on the page an emailed link opens.",
+        "properties": {
+          "password": {
+            "description": "The new password, 12 to 256 characters.",
+            "maxLength": 1024,
+            "title": "Password",
+            "type": "string"
+          },
+          "token": {
+            "description": "The link's token.",
+            "maxLength": 128,
+            "minLength": 20,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "password"
+        ],
+        "title": "NewPassword",
         "type": "object"
       },
       "NewsArticle": {
@@ -8118,6 +8206,79 @@
           "empirical_upper_tail"
         ],
         "title": "PairDependence",
+        "type": "object"
+      },
+      "PasswordSignIn": {
+        "description": "An email and password to sign in with.",
+        "properties": {
+          "app": {
+            "default": false,
+            "description": "Whether the native app is signing in, which names its key.",
+            "title": "App",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "The account's email address.",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "description": "The account's password.",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "PasswordSignIn",
+        "type": "object"
+      },
+      "PasswordSignInInfo": {
+        "description": "Whether this server offers signing in with an email and password.",
+        "properties": {
+          "available": {
+            "description": "Whether it does: it needs a way to send email, set up by the server's owner.",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "min_length": {
+            "description": "Fewest characters a password may have.",
+            "title": "Min Length",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "available",
+          "min_length"
+        ],
+        "title": "PasswordSignInInfo",
+        "type": "object"
+      },
+      "PasswordSignedIn": {
+        "description": "The API key a password sign-in issued, and whose account it is.",
+        "properties": {
+          "email": {
+            "description": "The account's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "key": {
+            "description": "The new API key, shown this once.",
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "email"
+        ],
+        "title": "PasswordSignedIn",
         "type": "object"
       },
       "Patent": {
@@ -12974,6 +13135,196 @@
           }
         },
         "summary": "Collect the native app's sign-in",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/auth/password": {
+      "get": {
+        "description": "Whether people can sign in with an email and password here, and the shortest\npassword allowed.",
+        "operationId": "password_sign_in_info_api_v1_auth_password_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordSignInInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Password sign-in offered",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/auth/password/check": {
+      "post": {
+        "description": "The address an emailed link was sent to, so its page can name the account,\nwithout using the link up.\n\nReturns 400 for a link that is unknown, used or expired, 429 beyond the sign-in\nattempts one client may make a minute, and 503 when accounts are unavailable.",
+        "operationId": "check_password_link_api_v1_auth_password_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkAddress"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check an emailed link",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/auth/password/link": {
+      "post": {
+        "description": "Email ``email`` a link to choose a password, which makes the account if the\naddress has none. The answer is the same either way.\n\nReturns 404 when this server cannot send email, 422 for something that is not an\nemail address, 429 beyond five links an hour from one client, three to one address\nor the server's daily number, and 503 when accounts are unavailable.",
+        "operationId": "send_password_link_api_v1_auth_password_link_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailAddress"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkSent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Email a link to choose a password",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/auth/password/set": {
+      "post": {
+        "description": "Set the password of the account an emailed link was sent to, making the account\nif there is none, and sign this browser in. Replacing a password signs out every\ndevice that signed in with the old one.\n\nReturns 400 for a link that is unknown, used or expired, 422 for a password too\nshort, too long or too easy to guess (the link still works then), 429 beyond the\nattempts one client may make a minute, and 503 when accounts are unavailable.",
+        "operationId": "set_password_api_v1_auth_password_set_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewPassword"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordSignedIn"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Choose a password",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/auth/password/sign-in": {
+      "post": {
+        "description": "Sign in with an email and password and get an API key, which expires after\n``SIGN_IN_KEY_DAYS`` and is revoked by signing out.\n\nReturns 401 when the email and password do not match an account (the same for an\nunknown address), 404 when this server does not offer password sign-in, 429 beyond\nten attempts a minute from one client, ten in 15 minutes at one account or the\nserver's limit, and 503 when accounts are unavailable.",
+        "operationId": "sign_in_with_password_api_v1_auth_password_sign_in_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordSignIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordSignedIn"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sign in with a password",
         "tags": [
           "sign-in"
         ]

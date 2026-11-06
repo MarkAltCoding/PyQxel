@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 
-const UPDATED = 'November 5, 2026'
+const UPDATED = 'November 6, 2026'
 const CONTACT = 'https://github.com/MarkAltCoding'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -39,6 +39,15 @@ export function PrivacyPage() {
             does not log who signs in.
           </p>
           <p>
+            Signing in with an email and password (where offered) keeps your email address and a
+            one-way Argon2id hash of your password, never the password itself. Your email address is
+            proven before it is used: PyQxel emails you a link, and only when you open it and choose
+            a password is your account made, or the password added to the account already using that
+            address. PyQxel keeps a hash of the link’s code until it is used, replaced, or an hour
+            has passed. The emails are sent through Resend, which sees your address and the email;
+            PyQxel sends no other email and no newsletters.
+          </p>
+          <p>
             Signing in gives your browser a PyQxel API key that works for 30 days, and PyQxel stores
             only a one-way hash of it. A cookie holds the sign-in in progress for up to ten minutes
             and is then deleted; PyQxel sets no other cookies. The PyQxel app signs in through your
@@ -46,9 +55,9 @@ export function PrivacyPage() {
             for up to five minutes, until the app trades it for its key.
           </p>
           <p>
-            To slow down abuse, sign-in attempts are counted by IP address for a few minutes, then
-            forgotten. Google Cloud, which hosts PyQxel, records the IP address and page of each
-            request in its access logs.
+            To slow down abuse, sign-in attempts and emailed links are counted by IP address and by
+            email address for up to a day, then forgotten. Google Cloud, which hosts PyQxel, records
+            the IP address and page of each request in its access logs.
           </p>
         </Section>
 
@@ -106,7 +115,8 @@ export function PrivacyPage() {
         <Section title="Who else sees it">
           <ul>
             <li>
-              PyQxel runs on Google Cloud, keeps its database at Neon and its cache at Upstash.
+              PyQxel runs on Google Cloud, keeps its database at Neon and its cache at Upstash, and
+              sends sign-in emails through Resend.
             </li>
             <li>
               The symbols you look up are sent to market data providers with your own keys: Tiingo,

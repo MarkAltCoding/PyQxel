@@ -22,6 +22,7 @@ from app.db.tables import (
     ApiKeyRecord,
     AssistantRequestRecord,
     BacktestRecord,
+    EmailLinkRecord,
     HoldingRecord,
     IdentityRecord,
     NightlyRefreshRecord,
@@ -401,6 +402,7 @@ async def delete_user(session: AsyncSession, user_id: str) -> bool:
         StoredHistoryRecord,
     ):
         await session.execute(delete(table).where(table.user_id == user_id))
+    await session.execute(delete(EmailLinkRecord).where(EmailLinkRecord.email == record.email))
     await session.delete(record)
     await session.commit()
     return True
