@@ -327,7 +327,7 @@ function strategyOf(form: Form): Strategy {
 type Mode = 'stock' | 'universe'
 
 const MODES: { value: Mode; label: string }[] = [
-  { value: 'stock', label: 'Chosen symbols' },
+  { value: 'stock', label: 'Single ticker (or two)' },
   { value: 'universe', label: 'Across tickers' },
 ]
 

@@ -156,14 +156,14 @@ describe('choosing what to backtest', () => {
     renderPage('/backtest')
 
     const modes = screen.getByRole('group', { name: 'What to backtest' })
-    expect(within(modes).getByRole('button', { name: 'Chosen symbols' })).toHaveAttribute(
+    expect(within(modes).getByRole('button', { name: 'Single ticker (or two)' })).toHaveAttribute(
       'aria-pressed',
       'true',
     )
     expect(within(modes).getByRole('button', { name: 'Across tickers' })).toBeInTheDocument()
     expect(screen.queryByText('Single security')).not.toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'About Chosen symbols or across tickers' }),
+      screen.getByRole('button', { name: 'About Single ticker (or two) or across tickers' }),
     ).toBeInTheDocument()
   })
 })
