@@ -2119,3 +2119,10 @@ main [id] {
   overflow-y: auto;
   background: var(--surface-raised);
 }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}

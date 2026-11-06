@@ -166,37 +166,115 @@ def _back_to_app(**fragment: str) -> HTMLResponse:
     return to the app if the browser does not open it, and drops the sign-in cookie.
 
     A page rather than a redirect, so the browser tab is left saying what happened
-    instead of blank, with a link to press where a browser asks before opening an app.
+    instead of blank, with a button to press where a browser asks before opening an app.
     """
     link = html.escape(f"{APP_LINK}#{urlencode(fragment)}")
-    if "error" in fragment:
+    failed = "error" in fragment
+    if failed:
         heading = "Signing in did not finish"
-        message = f"{html.escape(fragment['error'])} Return to the PyQxel app to try again."
+        message = f"{html.escape(fragment['error'])} Return to PyQxel to try again."
+        button = "Return to PyQxel"
     else:
         heading = "You are signed in"
-        message = "Return to the PyQxel app to continue."
-    page = f"""<!doctype html>
+        message = "PyQxel should open by itself. If it does not, open it with the button below."
+        button = "Open PyQxel"
+    page = _APP_PAGE.format(
+        link=link,
+        heading=heading,
+        message=message,
+        button=button,
+        status="failed" if failed else "done",
+        mark="!" if failed else "&#10003;",
+    )
+    response = HTMLResponse(page, headers=APP_PAGE_HEADERS)
+    response.delete_cookie(COOKIE, path=_cookie_path())
+    return response
+
+
+APP_PAGE_HEADERS: dict[str, str] = {
+    # It carries a one-time code, so it is neither kept nor passed on.
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer",
+    # Its own styles only: no script, nothing loaded from elsewhere.
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; "
+    "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+}
+"""Headers of the page that hands a sign-in back to the native app."""
+
+_APP_PAGE = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <meta http-equiv="refresh" content="0;url={link}">
-<title>Back to PyQxel</title>
+<title>{heading} · PyQxel</title>
+<style>
+  :root {{
+    --page: #f9f9f7; --surface: #ffffff; --text: #0b0b0b; --muted: #52514e;
+    --border: rgba(11, 11, 11, 0.1); --accent: #2a78d6; --accent-hover: #256abf;
+    --accent-text: #ffffff; --done: #e6f0fc; --failed: #fdeceb; --failed-text: #b3261e;
+  }}
+  @media (prefers-color-scheme: dark) {{
+    :root {{
+      --page: #0d0d0d; --surface: #1a1a19; --text: #f0efec; --muted: #c3c2b7;
+      --border: rgba(255, 255, 255, 0.1); --accent: #3987e5; --accent-hover: #5598e7;
+      --accent-text: #0b0b0b; --done: #17283d; --failed: #3a1d1b; --failed-text: #f2b8b5;
+    }}
+  }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
+    background: var(--page); color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }}
+  main {{
+    width: min(420px, 100%); padding: 36px 32px 32px; text-align: center;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+  }}
+  .brand {{
+    display: inline-flex; align-items: center; gap: 8px; margin-bottom: 28px;
+    font-weight: 600; font-size: 15px; color: var(--muted);
+  }}
+  .brand svg {{ width: 24px; height: 24px; }}
+  .status {{
+    width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 50%;
+    display: grid; place-items: center; font-size: 26px; font-weight: 700;
+    background: var(--done); color: var(--accent);
+  }}
+  .status.failed {{ background: var(--failed); color: var(--failed-text); }}
+  h1 {{ margin: 0 0 8px; font-size: 22px; line-height: 1.3; letter-spacing: -0.01em; }}
+  p {{ margin: 0; color: var(--muted); }}
+  .button {{
+    display: block; margin: 24px 0 12px; padding: 11px 16px; border-radius: 10px;
+    background: var(--accent); color: var(--accent-text); font-weight: 600;
+    text-decoration: none;
+  }}
+  .button:hover {{ background: var(--accent-hover); }}
+  .button:focus-visible {{ outline: 2px solid var(--accent); outline-offset: 3px; }}
+  .note {{ font-size: 14px; }}
+</style>
 </head>
-<body style="font-family: system-ui, sans-serif; max-width: 32rem; margin: 4rem auto; \
-padding: 0 16px; line-height: 1.5">
-<h1>{heading}</h1>
-<p>{message}</p>
-<p><a href="{link}">Open PyQxel</a></p>
-<p>You can close this tab afterwards.</p>
+<body>
+<main>
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"
+      fill="#2a78d6"/><path d="M7 22l6-7 5 4 7-9" fill="none" stroke="#fff"
+      stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    PyQxel
+  </div>
+  <div class="status {status}" aria-hidden="true">{mark}</div>
+  <h1>{heading}</h1>
+  <p>{message}</p>
+  <a class="button" href="{link}">{button}</a>
+  <p class="note">You can close this tab afterwards.</p>
+</main>
 </body>
 </html>
 """
-    response = HTMLResponse(
-        page, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
-    )
-    response.delete_cookie(COOKIE, path=_cookie_path())
-    return response
+"""The page itself; ``{link}`` and every other value are escaped before they go in."""
 
 
 def _back(request: Request, challenge: str, **fragment: str) -> Response:

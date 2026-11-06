@@ -253,6 +253,9 @@ describe('signing in to the native app', () => {
     const router = renderAt('/signin')
 
     await userEvent.click(await screen.findByRole('button', { name: 'Continue with GitHub' }))
+    const ask = screen.getByRole('dialog', { name: 'Sign in with GitHub in your browser?' })
+    expect(native.openUrl).not.toHaveBeenCalled()
+    await userEvent.click(within(ask).getByRole('button', { name: 'Continue' }))
     expect(await screen.findByText(/Finish signing in with GitHub in your browser/)).toBeVisible()
     const opened = new URL(native.openUrl.mock.lastCall?.[0] ?? '', 'http://localhost')
     expect(opened.pathname).toBe('/api/v1/auth/github/start')
@@ -272,6 +275,20 @@ describe('signing in to the native app', () => {
     expect(calls.find((call) => call.path === '/api/v1/me')?.authorization).toBe(
       'Bearer pq_from_app',
     )
+  })
+
+  it('stays in the app when the person cancels leaving for the browser', async () => {
+    inTheApp()
+    serve({ '/api/v1/auth/providers': () => json(PROVIDERS) })
+    renderAt('/signin')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Continue with Google' }))
+    const ask = screen.getByRole('dialog', { name: 'Sign in with Google in your browser?' })
+    await userEvent.click(within(ask).getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(native.openUrl).not.toHaveBeenCalled()
+    expect(window.localStorage.getItem('pyqxel.appSignIn')).toBeNull()
   })
 
   it('ignores a link when the app is not waiting for a sign-in', async () => {

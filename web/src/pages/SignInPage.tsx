@@ -49,6 +49,8 @@ export function SignInPage() {
   const native = isNativeApp()
   /** Set once the native app has opened a sign-in in the system browser. */
   const [waitingFor, setWaitingFor] = useState<string | null>(null)
+  /** The provider the native app asks before leaving for the browser with. */
+  const [confirming, setConfirming] = useState<{ name: string; label: string } | null>(null)
   // Read on every change, since a sign-in can also come back to a page already open.
   const fragment = useMemo(() => readFragment(location.hash), [location.hash])
   const [returnTo, setReturnTo] = useState<string | null>(null)
@@ -126,6 +128,7 @@ export function SignInPage() {
 
   /** Opens the sign-in in the system browser; the app is opened again when it is done. */
   const openInBrowser = (provider: string, label: string) => {
+    setConfirming(null)
     setError(null)
     startNativeSignIn(provider, from)
       .then(() => setWaitingFor(label))
@@ -168,7 +171,7 @@ export function SignInPage() {
                   key={provider.name}
                   type="button"
                   className="button signin-provider"
-                  onClick={() => openInBrowser(provider.name, provider.label)}
+                  onClick={() => setConfirming(provider)}
                 >
                   Continue with {provider.label}
                 </button>
@@ -226,11 +229,64 @@ export function SignInPage() {
             </p>
           )}
         </form>
+        {confirming && (
+          <LeaveForBrowser
+            label={confirming.label}
+            onCancel={() => setConfirming(null)}
+            onContinue={() => openInBrowser(confirming.name, confirming.label)}
+          />
+        )}
         <p className="disclaimer">
           PyQxel is a research tool, not investment advice.{' '}
           <Link to="/privacy">Privacy policy</Link>
         </p>
       </section>
     </main>
+  )
+}
+
+/**
+ * Asks before the native app hands the person to the system browser to sign in, as iOS
+ * does when an app opens a web sign-in, so leaving the app is never a surprise.
+ */
+function LeaveForBrowser({
+  label,
+  onCancel,
+  onContinue,
+}: {
+  label: string
+  onCancel: () => void
+  onContinue: () => void
+}) {
+  return (
+    <div
+      className="modal-backdrop"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onCancel()
+      }}
+    >
+      <section
+        className="card modal stack"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="leave-for-browser-title"
+        aria-describedby="leave-for-browser-text"
+        style={{ gap: 12 }}
+      >
+        <h2 id="leave-for-browser-title">Sign in with {label} in your browser?</h2>
+        <p id="leave-for-browser-text" style={{ color: 'var(--text-secondary)' }}>
+          PyQxel opens your web browser to sign you in with {label}. When you finish, the browser
+          brings you back to PyQxel. It may ask first whether to open PyQxel.
+        </p>
+        <div className="modal-actions">
+          <button type="button" className="button ghost" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="button primary" onClick={onContinue} autoFocus>
+            Continue
+          </button>
+        </div>
+      </section>
+    </div>
   )
 }
