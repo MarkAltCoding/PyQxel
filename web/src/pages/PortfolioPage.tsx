@@ -25,7 +25,7 @@ import { SearchBox } from '../components/SearchBox'
 import { PresetOrCustom } from '../components/PresetOrCustom'
 import { Segmented } from '../components/Segmented'
 import { Stat } from '../components/Stat'
-import { money, number, percent, signedPercent, tone } from '../lib/format'
+import { listed, money, number, percent, signedPercent, tone } from '../lib/format'
 import { readStored, writeStored } from '../lib/storage'
 import { InfoTip } from '../components/InfoTip'
 import { LoadGatePanel } from '../components/LoadGate'
@@ -136,7 +136,7 @@ export function PortfolioPage() {
     signature(savedSymbols),
     [
       { kind: 'info', symbols: savedSymbols },
-      // Gains, 52-week ranges and co-movement share one stored history per holding.
+      // Gains, 52-week ranges, and co-movement share one stored history per holding.
       { kind: 'history', symbols: savedSymbols, period: '5y' },
     ],
     saved.data !== undefined,
@@ -355,13 +355,6 @@ export function PortfolioPage() {
   )
 }
 
-/** "A, B and C". */
-function listed(items: string[]): string {
-  return items.length < 2
-    ? (items[0] ?? '')
-    : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
-}
-
 /** Says which holdings an analysis could not use, and why, so its figures are read as
  * covering only the rest. */
 function LeftOutNotice({
@@ -558,7 +551,7 @@ function SimulationCard({
                     {listed(cash)}{' '}
                     {cash.length > 1 ? 'are money-market funds' : 'is a money-market fund'},
                     simulated as cash: {cash.length > 1 ? 'they keep their' : 'it keeps its'} value,
-                    with no gains, losses or interest.
+                    with no gains, losses, or interest.
                   </span>
                   <InfoTip topic="moneyMarketCash" />
                 </span>

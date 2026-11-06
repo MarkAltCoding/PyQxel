@@ -478,7 +478,7 @@ MINOR_UNITS: dict[str, tuple[str, float]] = {
     "ILa": ("ILS", 100.0),
 }
 """Currencies some exchanges quote prices in that are a hundredth of another: London's
-pence (GBX), Johannesburg's cents (ZAC) and Tel Aviv's agorot (ILA). Case matters: GBp is
+pence (GBX), Johannesburg's cents (ZAC), and Tel Aviv's agorot (ILA). Case matters: GBp is
 pence, GBP pounds."""
 
 

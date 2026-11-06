@@ -1,4 +1,4 @@
-"""Summaries of a company's lobbying, government contracts, patents and SEC filings."""
+"""Summaries of a company's lobbying, government contracts, patents, and SEC filings."""
 
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -12,7 +12,7 @@ from app.models.alternative import (
 )
 
 LISTED: int = 10
-"""Disclosures, awards, patents and filings listed."""
+"""Disclosures, awards, patents, and filings listed."""
 TOP_AGENCIES: int = 5
 """Agencies listed by what they awarded."""
 CONTEXT_CONTRACTS: int = 5

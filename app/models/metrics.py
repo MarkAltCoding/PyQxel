@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 
 class KeyMetrics(BaseModel):
-    """Trading, valuation, dividend, profitability, growth and balance sheet metrics, as
+    """Trading, valuation, dividend, profitability, growth, and balance sheet metrics, as
     Finnhub computes them. Any may be null when Finnhub has no figure."""
 
     week_52_high: float | None = None

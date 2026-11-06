@@ -63,7 +63,7 @@ export function StrategyEditor({
   }, [onChange])
 
   // The view is created once; later prop changes reconfigure it rather than rebuild it, so
-  // the cursor, selection and undo history survive them.
+  // the cursor, selection, and undo history survive them.
   useEffect(() => {
     const { language: languageSlot, readOnly: readOnlySlot } = compartments.current
     const start = initial.current

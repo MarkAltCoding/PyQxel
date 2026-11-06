@@ -1,4 +1,4 @@
-"""Descriptive return, risk and drawdown statistics for a close-price series.
+"""Descriptive return, risk, and drawdown statistics for a close-price series.
 
 These are the facts an analysis is written from, so every figure is computed here
 rather than left to the language model. Returns and volatilities are decimals
@@ -28,9 +28,9 @@ MIN_ANNUALIZING_DAYS: int = 365
 def summarize_prices(
     closes: pd.Series, periods_per_year: int, decay: float = DAILY_DECAY
 ) -> PriceSummary:
-    """Summarize the return, volatility and drawdown of ``closes``.
+    """Summarize the return, volatility, and drawdown of ``closes``.
 
-    Missing, non-finite and non-positive closes are dropped first, so gaps such as
+    Missing, non-finite, and non-positive closes are dropped first, so gaps such as
     non-trading days never appear as flat returns.
 
     Args:

@@ -6,7 +6,7 @@
 #
 # bars is a pandas DataFrame on the dates every symbol traded, oldest first, whose columns
 # are (field, symbol): bars["Close"] has one column per symbol, and
-# bars.xs("GOOG", axis=1, level="symbol") is one symbol's Open, High, Low, Close and
+# bars.xs("GOOG", axis=1, level="symbol") is one symbol's Open, High, Low, Close, and
 # Volume. Prices are adjusted for splits and dividends. numpy is np and pandas is pd;
 # whatever you print() appears below.
 

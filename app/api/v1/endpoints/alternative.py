@@ -1,4 +1,4 @@
-"""Alternative data routes: a company's lobbying, government contracts, patents and SEC
+"""Alternative data routes: a company's lobbying, government contracts, patents, and SEC
 filings from Finnhub, on the user's own key."""
 
 from datetime import date, datetime, timezone
@@ -17,10 +17,10 @@ router = APIRouter()
 @router.get(
     "/{symbol}/alternative",
     response_model=AlternativeData,
-    summary="Lobbying, government contracts, patents and SEC filings",
+    summary="Lobbying, government contracts, patents, and SEC filings",
 )
 async def get_alternative(symbol: Symbol) -> AlternativeData:
-    """Return ``symbol``'s lobbying, federal contracts, patents and recent SEC filings.
+    """Return ``symbol``'s lobbying, federal contracts, patents, and recent SEC filings.
 
     ``lobbying_years`` totals last year's and this year's quarterly disclosures under the Lobbying
     Disclosure Act, whether the company lobbied itself or hired firms, the newest of

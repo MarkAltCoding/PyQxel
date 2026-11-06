@@ -492,3 +492,13 @@ def test_committed_openapi_schema_is_current() -> None:
     Regenerate with ``python -m app.jobs.openapi`` and ``npm run gen:api`` in ``web/``.
     """
     assert SCHEMA_PATH.read_text(encoding="utf-8") == render(openapi_schema())
+
+
+def test_lists_written_by_code_use_the_serial_comma() -> None:
+    from app.core.text import listed
+
+    assert listed([]) == ""
+    assert listed(["A"]) == "A"
+    assert listed(["A", "B"]) == "A and B"
+    assert listed(["A", "B", "C"]) == "A, B, and C"
+    assert listed(["A", "B", "C"], "or") == "A, B, or C"

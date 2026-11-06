@@ -184,7 +184,7 @@ async def test_earnings_calendar_splits_at_the_row_limit(monkeypatch: pytest.Mon
 
 @pytest.mark.asyncio
 async def test_ipos_holidays_and_status_are_read() -> None:
-    """The IPO calendar, holidays and market status are read from Finnhub's answers."""
+    """The IPO calendar, holidays, and market status are read from Finnhub's answers."""
     client, _ = _finnhub(
         {
             "calendar/ipo": _json(
@@ -313,7 +313,7 @@ def _serve_calendar(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_calendar_route(user: object, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The calendar lists FOMC meetings, major earnings, IPOs and upcoming holidays."""
+    """The calendar lists FOMC meetings, major earnings, IPOs, and upcoming holidays."""
     _serve_calendar(monkeypatch)
     monkeypatch.setattr(markets_route, "finnhub_key", lambda: KEY)
 

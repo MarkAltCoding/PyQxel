@@ -13,7 +13,7 @@ export const RUNTIME_NAMES: Record<CodeLanguage, string> = {
 export interface RunError {
   /** `syntax` (Python) and `compile` (C++) are errors in the code before it runs,
    * `runtime` while it runs, `result` in what it returned, `timeout` when it ran too long,
-   * `cancelled` when it was aborted, and `load` when the runtime failed to start. */
+   * `cancelled` (its kind) when it was aborted, and `load` when the runtime failed to start. */
   kind: 'syntax' | 'compile' | 'runtime' | 'result' | 'timeout' | 'cancelled' | 'load'
   message: string
   /** The line of the user's code the error points at, when there is one. */

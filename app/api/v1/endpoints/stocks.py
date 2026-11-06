@@ -227,9 +227,9 @@ async def get_ticker_info(symbol: Symbol) -> TickerInfo:
 @router.get("/{symbol}/fund", response_model=FundProfile, summary="A fund's holdings and costs")
 async def get_fund_profile(symbol: Symbol) -> FundProfile:
     """Return what the ETF or mutual fund ``symbol`` holds and costs: its expense ratio,
-    yield and turnover from Alpha Vantage on your key; its holdings, mix of stocks, bonds
-    and cash, and a bond fund's coupon, maturity and issuers from its SEC filings; and the
-    valuation, margins, growth, size and sectors weighted from the companies it holds, from
+    yield, and turnover from Alpha Vantage on your key; its holdings, mix of stocks, bonds,
+    and cash, and a bond fund's coupon, maturity, and issuers from its SEC filings; and the
+    valuation, margins, growth, size, and sectors weighted from the companies it holds, from
     your screener or Finnhub. ``notes`` says what is missing and why.
 
     Returns 403 when the SEC has no filing for ``symbol`` and you have no Alpha Vantage key,

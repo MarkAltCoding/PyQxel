@@ -155,8 +155,8 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
           <div className="subtitle">
             Written by Claude from prices, factor exposures, a GARCH volatility forecast, peer
             comparisons, financial statements, SEC filings, news, analyst ratings, earnings, insider
-            trading, lobbying, government contracts, patents and the market calendar. Billed to your
-            Anthropic key.
+            trading, lobbying, government contracts, patents, and the market calendar. Billed to
+            your Anthropic key.
           </div>
         </div>
         <div className="filter-row">

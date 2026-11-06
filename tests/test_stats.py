@@ -17,7 +17,7 @@ def _series(values: list[float], start: str = "2024-01-01") -> pd.Series:
 
 
 def test_summary_computes_return_and_drawdown() -> None:
-    """Returns, extremes and drawdowns come from the closes."""
+    """Returns, extremes, and drawdowns come from the closes."""
     values = [100.0, 110.0, 120.0, 90.0, 96.0] * 5
     summary = summarize_prices(_series(values), periods_per_year=252)
 
@@ -112,7 +112,7 @@ def test_metrics_annualize_only_full_years() -> None:
 
 
 def test_metrics_date_the_max_drawdown() -> None:
-    """Peak, trough and recovery are the bars where equity peaks, bottoms and regains the peak."""
+    """Peak, trough, and recovery are the bars where equity peaks, bottoms, and regains the peak."""
     # Equity: 1.1 on bar 0, 0.88 on bar 2 (a 20% drawdown), back to 1.1 on bar 4.
     returns = [0.1, -0.1, -1 / 9, 0.125, 1.1 / 0.99 - 1] + [0.0] * 15
     series = _series(returns)
@@ -136,7 +136,7 @@ def test_metrics_drawdown_from_inception_without_recovery() -> None:
 
 
 def test_metrics_without_losses_or_variation() -> None:
-    """Constant gains have no drawdown, no Sharpe and no Sortino."""
+    """Constant gains have no drawdown, no Sharpe, and no Sortino."""
     metrics = performance_metrics(_series([0.001] * 30), 252)
 
     assert metrics.max_drawdown == 0.0

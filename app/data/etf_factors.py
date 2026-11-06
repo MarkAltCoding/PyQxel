@@ -58,7 +58,7 @@ MARKET_ONLY: str = "market_only"
 
 MARKET_ONLY_NOTICE: str = (
     "Only the market factor is shown, estimated from SPY over Treasury bills, which tracks "
-    "it closely: size, value and momentum need Ken French's factor data, which is not used "
+    "it closely: size, value, and momentum need Ken French's factor data, which is not used "
     "here, and their ETF estimates are turned off as too rough."
 )
 """Said wherever a fit on the market factor alone stands in for a model's."""

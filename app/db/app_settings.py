@@ -1,7 +1,7 @@
 """Settings of the whole server, changed by its admin.
 
 Two are kept: whether the server uses data sources whose terms do not clearly allow use
-in a paid product (:data:`RESTRICTED_SOURCES`), and whether it offers the size, value and
+in a paid product (:data:`RESTRICTED_SOURCES`), and whether it offers the size, value, and
 momentum factors estimated from ETFs in their place (:data:`STYLE_FACTORS`). Both are on
 by default, as before they could be turned off. Requests read them often, so they are
 kept in memory for :data:`MEMORY_SECONDS`; a change by the admin applies at once in the
@@ -27,7 +27,7 @@ RESTRICTED_SOURCES: str = "restricted_sources"
 
 RESTRICTED_SOURCE_USES: tuple[str, ...] = (
     "Ken French's data library (copyrighted, no license stated): the Fama-French and Carhart "
-    "factor models on the Stock, Backtest and Portfolio pages, in AI reports and in the "
+    "factor models on the Stock, Backtest, and Portfolio pages, in AI reports, and in the "
     "screener's factor betas, which are then estimated from ETF prices on each user's own "
     "key (the five-factor model is unavailable), and the interest cash earns in backtests "
     "before 2002",
@@ -35,7 +35,7 @@ RESTRICTED_SOURCE_USES: tuple[str, ...] = (
 """What turning :data:`RESTRICTED_SOURCES` off stops, for the admin to read."""
 
 STYLE_FACTORS: str = "style_factors"
-"""Whether the server offers the size, value and momentum factors estimated from ETFs when
+"""Whether the server offers the size, value, and momentum factors estimated from ETFs when
 Ken French's library is not used; without them, only the market factor is."""
 
 MEMORY_SECONDS: float = 30.0
@@ -69,12 +69,12 @@ async def server_uses_restricted_sources() -> bool:
 
 
 async def server_offers_style_factors() -> bool:
-    """Whether the server offers the ETF estimates of size, value and momentum."""
+    """Whether the server offers the ETF estimates of size, value, and momentum."""
     return bool(await _read(STYLE_FACTORS, True))
 
 
 async def style_factors_allowed() -> bool:
-    """Whether the current request is offered the ETF estimates of size, value and
+    """Whether the current request is offered the ETF estimates of size, value, and
     momentum, when Ken French's library is not used."""
     return await server_offers_style_factors()
 

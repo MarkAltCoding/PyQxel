@@ -111,7 +111,7 @@ def fit_factor_returns(returns: pd.Series, factors: pd.DataFrame, model: FactorM
         factors: Daily factor returns as decimals, indexed by date, with a column for
             every factor of ``model`` and for ``RF``, as returned by
             :func:`app.data.factors.fetch_factors`.
-        model: ``"ff3"``, ``"carhart4"`` or ``"ff5"``.
+        model: ``"ff3"``, ``"carhart4"``, or ``"ff5"``.
 
     Returns:
         Annualized alpha, factor betas with Newey-West inference, fit statistics, and

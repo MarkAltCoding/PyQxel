@@ -352,7 +352,7 @@ async def create_backtest(
     ``cost_bps`` per unit of turnover. Idle capital earns nothing, or the risk-free rate
     with ``cash_interest``. Returns are total returns, since closes are adjusted for
     splits and dividends. Returns and volatilities are decimals (0.25 = 25%); volatility,
-    Sharpe and Sortino are annualized.
+    Sharpe, and Sortino are annualized.
 
     ``attribution`` regresses the strategy's daily returns on a factor model:
     ``attribution.fit.alpha`` is the annualized return the factors do not explain, and
@@ -365,7 +365,7 @@ async def create_backtest(
     strategy or dual momentum's benchmark is unknown, and 502 when the data provider
     fails, or the risk-free rate or dual momentum's benchmark cannot be fetched.
 
-    Returns 409, saying which key ran out or which plan is short, when it resets and what
+    Returns 409, saying which key ran out or which plan is short, when it resets, and what
     to do, when a plan served less history than the window asks for and
     ``accept_short_history`` is false.
     """
@@ -411,13 +411,13 @@ async def create_custom_backtest(
     reproduced and edited. The server fetches ``symbol``'s bars again and backtests the
     ones from the first of ``timestamps`` to the last, so a bar published since the
     positions were computed is left out. Each position is held over the bar after its
-    timestamp, and costs, cash interest and attribution work as for built-in strategies.
+    timestamp, and costs, cash interest, and attribution work as for built-in strategies.
 
     Returns 404 for unknown symbols, 422 when a bar in that range has no position or the
     range has too few bars, and 502 when the data provider fails or the risk-free rate
     cannot be fetched.
 
-    Returns 409, saying which key ran out or which plan is short, when it resets and what
+    Returns 409, saying which key ran out or which plan is short, when it resets, and what
     to do, when a plan served less history than the window asks for and
     ``accept_short_history`` is false.
     """
@@ -494,7 +494,7 @@ async def create_multi_asset_custom_backtest(
     has no weights or the range has too few bars, and 502 when the data provider fails
     or the risk-free rate cannot be fetched.
 
-    Returns 409, saying which key ran out or which plan is short, when it resets and what
+    Returns 409, saying which key ran out or which plan is short, when it resets, and what
     to do, when a plan served less history than the window asks for and
     ``accept_short_history`` is false.
     """
@@ -612,7 +612,7 @@ def _ranking_notice(result: CrossSectionalResult) -> str | None:
 async def create_cross_sectional_backtest(
     request: Annotated[CrossSectionalBacktestRequest, Body()],
 ) -> CrossSectionalBacktestResponse:
-    """Rank ``symbols`` by ``signal`` at the last close of every week, month or quarter, and
+    """Rank ``symbols`` by ``signal`` at the last close of every week, month, or quarter, and
     hold the best of them until the next ranking.
 
     Signals: ``momentum`` (the return from ``lookback`` to ``skip`` bars ago, highest
@@ -637,7 +637,7 @@ async def create_cross_sectional_backtest(
     signal's history, and 502 when the price provider fails or the risk-free rate cannot
     be fetched.
 
-    Returns 409, saying which key ran out or which plan is short, when it resets and what
+    Returns 409, saying which key ran out or which plan is short, when it resets, and what
     to do, when a plan served less history than the window asks for and
     ``accept_short_history`` is false.
     """

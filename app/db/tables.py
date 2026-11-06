@@ -48,7 +48,7 @@ class UserRecord(Base):
     own_restricted_sources: Mapped[bool] = mapped_column(Boolean, server_default=false())
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     """The Argon2id hash of the password the account signs in with, set only through a
-    link emailed to its address; null when it signs in only with GitHub, Google, Apple
+    link emailed to its address; null when it signs in only with GitHub, Google, Apple,
     or an API key."""
     """Whether the admin's own requests use data sources not cleared for a paid product
     while the server does not; it applies only to the admin."""
@@ -324,7 +324,7 @@ class ScreenedStockColumns:
     name: Mapped[str] = mapped_column(Text)
     exchange: Mapped[str] = mapped_column(String(16))
     asset_type: Mapped[str] = mapped_column(String(8), server_default="stock")
-    """``stock`` or ``etf``; an ETF has no company figures, CIK, market cap or rank."""
+    """``stock`` or ``etf``; an ETF has no company figures, CIK, market cap, or rank."""
     sector: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     industry: Mapped[str | None] = mapped_column(String(128), nullable=True)
     cik: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)

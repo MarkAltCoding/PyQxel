@@ -472,7 +472,7 @@ INSTANCE = """<?xml version="1.0" encoding="utf-8"?>
   <us-gaap:StockholdersEquity contextRef="end" unitRef="usd" decimals="-6"
     >320</us-gaap:StockholdersEquity>
 </xbrl>"""
-"""A 10-K's XBRL instance with a total, a segment's figure and a balance."""
+"""A 10-K's XBRL instance with a total, a segment's figure, and a balance."""
 MISSING_FILING = {
     "filings": {
         "recent": {
@@ -515,7 +515,7 @@ def _edgar(
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Start each test with empty caches, an SEC User-Agent and no retry delays."""
+    """Start each test with empty caches, an SEC User-Agent, and no retry delays."""
     sec_edgar.clear_caches()
     fundamentals.clear_memory()
     monkeypatch.setattr(sec_edgar, "get_settings", lambda: Settings(sec_user_agent="Test t@e.com"))

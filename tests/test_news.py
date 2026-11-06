@@ -216,7 +216,7 @@ async def test_kept_news_stands_in_when_finnhub_fails(
     ],
 )
 async def test_errors_are_classified(status: int, error: type[Exception]) -> None:
-    """Rejected keys, plan limits, rate limits and outages raise distinct errors."""
+    """Rejected keys, plan limits, rate limits, and outages raise distinct errors."""
     client, _ = _finnhub(lambda request: httpx2.Response(status, json={"error": "x"}))
 
     with pytest.raises(error):
@@ -416,7 +416,7 @@ def test_publisher_suffix_is_dropped_from_headlines() -> None:
 
 
 def test_company_headlines_are_scored_by_what_they_mean_for_the_shares() -> None:
-    """Results, guidance and deals that name the ticker, from a major publisher, score above
+    """Results, guidance, and deals that name the ticker, from a major publisher, score above
     a passing mention; older headlines fade."""
     now = datetime(2026, 11, 3, 12, tzinfo=timezone.utc)
 

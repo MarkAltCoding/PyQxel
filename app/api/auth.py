@@ -55,7 +55,7 @@ async def authenticate(connection: HTTPConnection) -> User:
     make the provider keys the request carries the ones it is served with.
 
     Raises:
-        HTTPException: 401 for a missing, unknown or revoked key; 429 beyond the rate
+        HTTPException: 401 for a missing, unknown, or revoked key; 429 beyond the rate
             limit; 503 when the account database is unavailable.
             WebSocket connections are closed with code 1008 instead.
     """

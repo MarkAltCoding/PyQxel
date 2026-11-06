@@ -7,7 +7,7 @@ Run it daily, after the US close, with::
 Each run has a shared first stage, from the SEC's public data alone, which every user's
 own nightly refresh (:mod:`app.jobs.nightly`) starts from:
 
-1. Reads every common stock listed on NYSE, Nasdaq and Cboe from the SEC's ticker list,
+1. Reads every common stock listed on NYSE, Nasdaq, and Cboe from the SEC's ticker list,
    leaving out preferreds, notes, warrants, units and rights by ticker and by name, and
    stores them with the SEC's shares outstanding.
 2. Reads each listed company's industry code (SIC) from its EDGAR submissions, which
@@ -19,13 +19,13 @@ own nightly refresh (:mod:`app.jobs.nightly`) starts from:
 
 Then, when it has a market data source, it builds the shared universe:
 
-4. Reads market caps, sectors and industries from Financial Modeling Prep's company
+4. Reads market caps, sectors, and industries from Financial Modeling Prep's company
    screener, and downloads about 13 months of daily prices from FMP for every stock not
    already known to be below the market cap floor.
-5. Keeps those passing the baseline filter: price, average daily dollar volume and market
+5. Keeps those passing the baseline filter: price, average daily dollar volume, and market
    cap above the ``SCREENER_MIN_*`` settings. Market caps FMP's company screener lacks
    come from SEC share counts, the last refresh, or FMP company profiles.
-6. Computes valuation, growth, momentum, volatility and Carhart factor betas, and
+6. Computes valuation, growth, momentum, volatility, and Carhart factor betas, and
    replaces the stored universe with the result.
 
 Every account sees the universe, so market data is fetched on the screener's own key,

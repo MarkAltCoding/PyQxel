@@ -88,7 +88,7 @@ def fit_ewma(
         In-sample and forecast volatility, with warnings when the sample is short.
 
     Raises:
-        ValueError: If ``periods_per_year``, ``horizon`` or ``decay`` is out of range.
+        ValueError: If ``periods_per_year``, ``horizon``, or ``decay`` is out of range.
         InsufficientDataError: If there are too few returns or prices never change.
     """
     scale = annualization_scale(periods_per_year)

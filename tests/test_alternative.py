@@ -1,4 +1,4 @@
-"""Tests for a company's lobbying, government contracts, patents and SEC filings from
+"""Tests for a company's lobbying, government contracts, patents, and SEC filings from
 Finnhub, and for its as-reported financials standing in for EDGAR.
 
 Finnhub is reached through a mock transport, so no test touches the network.
@@ -180,7 +180,7 @@ def test_edgar_submissions_give_the_recent_filings_with_links() -> None:
 
 
 def test_context_gives_totals_and_8k_dates() -> None:
-    """Claude gets the totals, largest awards and when 8-Ks were filed."""
+    """Claude gets the totals, largest awards, and when 8-Ks were filed."""
     records = AlternativeRecords(
         symbol="LMT",
         lobbying=[LobbyingFiling(year=2026, in_house=True, amount=1e6)],

@@ -28,12 +28,12 @@ export function PrivacyPage() {
         <p>
           PyQxel is a personal research project run by Mark Altreuter. This page explains what it
           keeps about you when you use it, why, and who else sees it. It keeps only what it needs to
-          run your account, and it never sells data, shows ads or uses analytics or tracking.
+          run your account, and it never sells data, shows ads, or uses analytics or tracking.
         </p>
 
         <Section title="When you sign in">
           <p>
-            Signing in with GitHub, Google or Apple (where offered) gives PyQxel two things: that
+            Signing in with GitHub, Google, or Apple (where offered) gives PyQxel two things: that
             provider’s permanent ID for your account, and your verified email address. They identify
             your PyQxel account, so the same person signing in with either provider reaches the same
             account. PyQxel asks for nothing else, not even your name or profile picture, and does
@@ -67,7 +67,7 @@ export function PrivacyPage() {
           <ul>
             <li>
               What you save: your portfolio holdings, backtests (with the code of custom
-              strategies), simulations, AI research reports and AI reviews of your portfolio,
+              strategies), simulations, AI research reports, and AI reviews of your portfolio,
               including answers you paste from Claude outside the app. Only your account can see
               them.
             </li>
@@ -88,7 +88,7 @@ export function PrivacyPage() {
             </li>
           </ul>
           <p>
-            Keys you add for Anthropic, Tiingo, Financial Modeling Prep, EODHD, Alpha Vantage or
+            Keys you add for Anthropic, Tiingo, Financial Modeling Prep, EODHD, Alpha Vantage, or
             Finnhub stay in your browser, and PyQxel does not store them unless you turn on the
             nightly screener refresh. Each of your requests carries them over an encrypted
             connection, and the server uses them for that request only, keeps them out of its logs
@@ -101,8 +101,8 @@ export function PrivacyPage() {
             The nightly screener refresh, which is off unless you turn it on in Settings, builds
             your own stock screener while your browser is closed, so it needs your keys when you are
             not there. Turning it on stores your Finnhub key and the Tiingo, Financial Modeling
-            Prep, EODHD and Alpha Vantage keys you choose to let it use on PyQxel’s server,
-            encrypted, along with the time you chose, your time zone and how many stocks it may
+            Prep, EODHD, and Alpha Vantage keys you choose to let it use on PyQxel’s server,
+            encrypted, along with the time you chose, your time zone, and how many stocks it may
             fetch prices for. Your Anthropic key is never stored. The keys are decrypted only to run
             your refresh, used only for your own screener, and kept out of logs. Each time you
             change a key in Settings, the stored copy is replaced. Turning the refresh off, or
@@ -124,7 +124,7 @@ export function PrivacyPage() {
             </li>
             <li>
               The symbols you look up are sent to market data providers with your own keys: Tiingo,
-              Financial Modeling Prep, EODHD, Alpha Vantage and Finnhub. If you turn on the nightly
+              Financial Modeling Prep, EODHD, Alpha Vantage, and Finnhub. If you turn on the nightly
               screener refresh, it requests every listed US stock from Finnhub, and as many as you
               choose from the price-history providers you choose, on your keys. Company filings come
               from the SEC, and exchange rates from the European Central Bank.
@@ -132,8 +132,8 @@ export function PrivacyPage() {
             <li>
               When you use an AI feature, what it needs is sent to Anthropic with your own key,
               under Anthropic’s terms: a company’s data for a research report, your holdings, their
-              statistics and the goals you enter for a portfolio review, and your strategy code, its
-              last run’s output and your questions for the coding assistant.
+              statistics, and the goals you enter for a portfolio review, and your strategy code,
+              its last run’s output, and your questions for the coding assistant.
             </li>
           </ul>
           <p>

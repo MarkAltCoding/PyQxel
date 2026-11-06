@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compact, money, percent, signedPercent, timeAgo, tone } from './format'
+import { compact, listed, money, percent, signedPercent, timeAgo, tone } from './format'
 
 describe('format', () => {
   it('shows decimals as percentages, grouped', () => {
@@ -35,5 +35,14 @@ describe('format', () => {
     expect(timeAgo('2026-10-20T15:00:00Z', now)).toBe('2 days ago')
     expect(timeAgo('2026-10-01T15:00:00Z', now)).toBe('Oct 1')
     expect(timeAgo(null, now)).toBe('—')
+  })
+})
+
+describe('listed', () => {
+  it('writes lists with the serial comma', () => {
+    expect(listed(['A'])).toBe('A')
+    expect(listed(['A', 'B'])).toBe('A and B')
+    expect(listed(['A', 'B', 'C'])).toBe('A, B, and C')
+    expect(listed(['A', 'B', 'C'], 'or')).toBe('A, B, or C')
   })
 })

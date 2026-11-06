@@ -105,7 +105,7 @@ export interface paths {
      * @description The address an emailed link was sent to, so its page can name the account,
      *     without using the link up.
      *
-     *     Returns 400 for a link that is unknown, used or expired, 429 beyond the sign-in
+     *     Returns 400 for a link that is unknown, used, or expired, 429 beyond the sign-in
      *     attempts one client may make a minute, and 503 when accounts are unavailable.
      */
     post: operations['check_password_link_api_v1_auth_password_check_post']
@@ -130,7 +130,7 @@ export interface paths {
      *     address has none. The answer is the same either way.
      *
      *     Returns 404 when this server cannot send email, 422 for something that is not an
-     *     email address, 429 beyond five links an hour from one client, three to one address
+     *     email address, 429 beyond five links an hour from one client, three to one address,
      *     or the server's daily number, and 503 when accounts are unavailable.
      */
     post: operations['send_password_link_api_v1_auth_password_link_post']
@@ -155,8 +155,8 @@ export interface paths {
      *     if there is none, and sign this browser in. Replacing a password signs out every
      *     device that signed in with the old one.
      *
-     *     Returns 400 for a link that is unknown, used or expired, 422 for a password too
-     *     short, too long or too easy to guess (the link still works then), 429 beyond the
+     *     Returns 400 for a link that is unknown, used, or expired, 422 for a password too
+     *     short, too long, or too easy to guess (the link still works then), 429 beyond the
      *     attempts one client may make a minute, and 503 when accounts are unavailable.
      */
     post: operations['set_password_api_v1_auth_password_set_post']
@@ -391,7 +391,7 @@ export interface paths {
     put?: never
     /**
      * Backtest ranking a universe of stocks against one another
-     * @description Rank ``symbols`` by ``signal`` at the last close of every week, month or quarter, and
+     * @description Rank ``symbols`` by ``signal`` at the last close of every week, month, or quarter, and
      *     hold the best of them until the next ranking.
      *
      *     Signals: ``momentum`` (the return from ``lookback`` to ``skip`` bars ago, highest
@@ -416,7 +416,7 @@ export interface paths {
      *     signal's history, and 502 when the price provider fails or the risk-free rate cannot
      *     be fetched.
      *
-     *     Returns 409, saying which key ran out or which plan is short, when it resets and what
+     *     Returns 409, saying which key ran out or which plan is short, when it resets, and what
      *     to do, when a plan served less history than the window asks for and
      *     ``accept_short_history`` is false.
      */
@@ -457,7 +457,7 @@ export interface paths {
      *     has no weights or the range has too few bars, and 502 when the data provider fails
      *     or the risk-free rate cannot be fetched.
      *
-     *     Returns 409, saying which key ran out or which plan is short, when it resets and what
+     *     Returns 409, saying which key ran out or which plan is short, when it resets, and what
      *     to do, when a plan served less history than the window asks for and
      *     ``accept_short_history`` is false.
      */
@@ -541,7 +541,7 @@ export interface paths {
      *     ``general`` is business and markets news, ``forex`` currencies, ``crypto``
      *     cryptocurrencies, and ``merger`` mergers and acquisitions. Each article's
      *     ``importance``, from 0 to 1, scores how market-moving it looks: the topics its
-     *     headline names, its publisher and its age. Reused for five minutes. Returns 403
+     *     headline names, its publisher, and its age. Reused for five minutes. Returns 403
      *     without a valid Finnhub key, and 502 when Finnhub fails.
      */
     get: operations['get_market_news_api_v1_markets_news_get']
@@ -562,7 +562,7 @@ export interface paths {
     }
     /**
      * Your account
-     * @description Return the account: which provider keys this request carried, AI limits and recent
+     * @description Return the account: which provider keys this request carried, AI limits, and recent
      *     usage.
      */
     get: operations['read_account_api_v1_me_get']
@@ -573,7 +573,7 @@ export interface paths {
      * @description Delete your account and everything it holds, at once and for good.
      *
      *     Your PyQxel API keys, sign-in links to GitHub and Google, holdings, stored backtests,
-     *     analyses and simulations, and your nightly screener refresh with the keys it stored
+     *     analyses, and simulations, and your nightly screener refresh with the keys it stored
      *     and the universe it built are deleted, and every API key stops
      *     working. Signing in again afterwards starts a new, empty account.
      */
@@ -676,7 +676,7 @@ export interface paths {
      *     Each night at ``refresh_time`` in ``time_zone``, your own universe is rebuilt from the
      *     SEC's shared list of stocks and financials, Finnhub's free metrics on your Finnhub key,
      *     and price-history columns from whichever price-history key you have (Tiingo, FMP,
-     *     EODHD or Alpha Vantage). It runs with no browser open, so the market data keys this
+     *     EODHD, or Alpha Vantage). It runs with no browser open, so the market data keys this
      *     request carries are stored, encrypted, replacing any stored before; your Anthropic key
      *     is never stored. Send this again after changing a key.
      *
@@ -719,7 +719,7 @@ export interface paths {
      *
      *     The review is grounded in your holdings valued at the latest prices, their sectors,
      *     and statistics of today's weights over ``period`` of daily returns: each holding's
-     *     return, volatility, drawdown and share of the portfolio's risk, the portfolio's
+     *     return, volatility, drawdown, and share of the portfolio's risk, the portfolio's
      *     volatility, drawdowns and diversification, and the most and least correlated pairs.
      *     All of it is in ``context``.
      *
@@ -801,7 +801,7 @@ export interface paths {
      * @description Stream the review of ``create_portfolio_review`` as Claude writes it.
      *
      *     The same failures return the same statuses before the stream opens. Then it sends
-     *     ``context`` (the :class:`PortfolioContext`), ``thinking`` and ``report`` fragments,
+     *     ``context`` (the :class:`PortfolioContext`), ``thinking``, and ``report`` fragments,
      *     ``fallback`` when a model declines part-way and another continues, and ``result``
      *     (the :class:`PortfolioAnalysisResponse`) or ``error``, as the stock analysis stream
      *     does. A reused review is sent as ``context`` then ``result`` alone.
@@ -1157,7 +1157,7 @@ export interface paths {
      *     A listing whose ticker is exactly ``q`` comes first. Searches the screened universe of
      *     US common stocks, which the screener refresh job builds, first. With a Finnhub key,
      *     Finnhub's search of US listings fills the rest of the ``limit``, or adds the exact
-     *     ticker when the universe lacks it, finding ETFs, ADRs and stocks outside the universe
+     *     ticker when the universe lacks it, finding ETFs, ADRs, and stocks outside the universe
      *     (``source`` is ``finnhub``, with their ``kind`` and no market cap). The SEC's list of listed
      *     companies, which needs no key, fills any room left (``source`` ``sec``), so typing
      *     the start of a ticker suggests it even when the universe is empty and there is no
@@ -1203,8 +1203,8 @@ export interface paths {
       cookie?: never
     }
     /**
-     * Lobbying, government contracts, patents and SEC filings
-     * @description Return ``symbol``'s lobbying, federal contracts, patents and recent SEC filings.
+     * Lobbying, government contracts, patents, and SEC filings
+     * @description Return ``symbol``'s lobbying, federal contracts, patents, and recent SEC filings.
      *
      *     ``lobbying_years`` totals last year's and this year's quarterly disclosures under the Lobbying
      *     Disclosure Act, whether the company lobbied itself or hired firms, the newest of
@@ -1241,16 +1241,16 @@ export interface paths {
      * AI-written investment thesis or risk summary
      * @description Have Claude write an investment thesis or risk summary for ``symbol``.
      *
-     *     The report is grounded in the ticker snapshot, return, volatility and drawdown
+     *     The report is grounded in the ticker snapshot, return, volatility, and drawdown
      *     statistics computed from daily adjusted closes over ``period``, factor exposures, a
      *     GARCH(1,1) volatility forecast fit to five years of daily returns, the stock's
      *     screening metrics ranked among its industry or sector peers, the company's financial
      *     statement figures and valuation multiples, the headlines and summaries of the last
      *     two weeks of news, analysts' ratings, earnings surprises, the next earnings date,
      *     insiders' trades and sentiment, key metrics and peers, lobbying, federal contracts,
-     *     patents and recent SEC filings from Finnhub (with a Finnhub key stored), the market
+     *     patents, and recent SEC filings from Finnhub (with a Finnhub key stored), the market
      *     backdrop of upcoming FOMC meetings (for every account) and, with a Finnhub key, major
-     *     earnings reports, IPOs, holidays and market headlines, and, unless
+     *     earnings reports, IPOs, holidays, and market headlines, and, unless
      *     ``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K
      *     and any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of
      *     it cannot be fetched the report is written without it and ``context.notice`` says so.
@@ -1258,7 +1258,7 @@ export interface paths {
      *     The report is written with, and billed to, your own Anthropic key, sent in the
      *     ``X-Anthropic-Key`` header, within the hourly and daily limits you set (``PUT
      *     /api/v1/me/limits``). Every report is stored under your account. Your report for the
-     *     same options, model and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by
+     *     same options, model, and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by
      *     default) is returned again with ``cached`` set and no charge, unless ``refresh`` is
      *     true. Identical requests that arrive together are written once.
      *
@@ -1336,8 +1336,8 @@ export interface paths {
      * Stream an AI-written thesis or risk summary as Server-Sent Events
      * @description Stream the analysis of ``create_analysis`` as Claude writes it.
      *
-     *     Data is gathered first, so unknown symbols, short windows and provider failures
-     *     return the same 404, 422 and 502 statuses as the non-streaming route. Once the
+     *     Data is gathered first, so unknown symbols, short windows, and provider failures
+     *     return the same 404, 422, and 502 statuses as the non-streaming route. Once the
      *     stream opens, it sends these events, each with a JSON ``data`` payload:
      *
      *     * ``context``: the :class:`AnalysisContext` the report is written from.
@@ -1386,7 +1386,7 @@ export interface paths {
      *     ``cost_bps`` per unit of turnover. Idle capital earns nothing, or the risk-free rate
      *     with ``cash_interest``. Returns are total returns, since closes are adjusted for
      *     splits and dividends. Returns and volatilities are decimals (0.25 = 25%); volatility,
-     *     Sharpe and Sortino are annualized.
+     *     Sharpe, and Sortino are annualized.
      *
      *     ``attribution`` regresses the strategy's daily returns on a factor model:
      *     ``attribution.fit.alpha`` is the annualized return the factors do not explain, and
@@ -1399,7 +1399,7 @@ export interface paths {
      *     strategy or dual momentum's benchmark is unknown, and 502 when the data provider
      *     fails, or the risk-free rate or dual momentum's benchmark cannot be fetched.
      *
-     *     Returns 409, saying which key ran out or which plan is short, when it resets and what
+     *     Returns 409, saying which key ran out or which plan is short, when it resets, and what
      *     to do, when a plan served less history than the window asks for and
      *     ``accept_short_history`` is false.
      */
@@ -1428,13 +1428,13 @@ export interface paths {
      *     reproduced and edited. The server fetches ``symbol``'s bars again and backtests the
      *     ones from the first of ``timestamps`` to the last, so a bar published since the
      *     positions were computed is left out. Each position is held over the bar after its
-     *     timestamp, and costs, cash interest and attribution work as for built-in strategies.
+     *     timestamp, and costs, cash interest, and attribution work as for built-in strategies.
      *
      *     Returns 404 for unknown symbols, 422 when a bar in that range has no position or the
      *     range has too few bars, and 502 when the data provider fails or the risk-free rate
      *     cannot be fetched.
      *
-     *     Returns 409, saying which key ran out or which plan is short, when it resets and what
+     *     Returns 409, saying which key ran out or which plan is short, when it resets, and what
      *     to do, when a plan served less history than the window asks for and
      *     ``accept_short_history`` is false.
      */
@@ -1486,9 +1486,9 @@ export interface paths {
     /**
      * A fund's holdings and costs
      * @description Return what the ETF or mutual fund ``symbol`` holds and costs: its expense ratio,
-     *     yield and turnover from Alpha Vantage on your key; its holdings, mix of stocks, bonds
-     *     and cash, and a bond fund's coupon, maturity and issuers from its SEC filings; and the
-     *     valuation, margins, growth, size and sectors weighted from the companies it holds, from
+     *     yield, and turnover from Alpha Vantage on your key; its holdings, mix of stocks, bonds,
+     *     and cash, and a bond fund's coupon, maturity, and issuers from its SEC filings; and the
+     *     valuation, margins, growth, size, and sectors weighted from the companies it holds, from
      *     your screener or Finnhub. ``notes`` says what is missing and why.
      *
      *     Returns 403 when the SEC has no filing for ``symbol`` and you have no Alpha Vantage key,
@@ -1516,11 +1516,11 @@ export interface paths {
      *
      *     Figures come from the company's XBRL filings on SEC EDGAR, under US GAAP or IFRS and
      *     in the currency it reports in (``financials.currency``): trailing-twelve-month (TTM)
-     *     revenue, profits, cash flows and EBITDA with year-on-year
+     *     revenue, profits, cash flows, and EBITDA with year-on-year
      *     growth, five fiscal years of history, and the latest balance sheet. They are combined
-     *     with the current market cap into P/E, P/S, EV/EBITDA, free-cash-flow yield, margins
+     *     with the current market cap into P/E, P/S, EV/EBITDA, free-cash-flow yield, margins,
      *     and return on equity, converting statements in another currency at the latest
-     *     exchange rate. Growth rates, margins, yields and returns are decimals.
+     *     exchange rate. Growth rates, margins, yields, and returns are decimals.
      *
      *     Items a company does not report under a recognized concept are null, as are ratios
      *     that are not meaningful; ``valuation.notes`` and ``notice`` say why.
@@ -1576,7 +1576,7 @@ export interface paths {
      * Key metrics and peers
      * @description Return ``symbol``'s key metrics and peers, from Finnhub's basic financials.
      *
-     *     The metrics cover the 52-week range and returns, beta and trading volume; valuation
+     *     The metrics cover the 52-week range and returns, beta, and trading volume; valuation
      *     multiples, including a forward P/E on analysts' estimates; the dividend yield, payout
      *     and growth; margins and returns on capital; growth; and liquidity and leverage, as
      *     Finnhub computes them from its own data, so they can differ slightly from the
@@ -1611,7 +1611,7 @@ export interface paths {
      *     ``overview`` counts every article in the window by day and by publisher, while
      *     ``articles`` holds the newest ``limit`` of them. Each article's ``importance``, from 0
      *     to 1, scores how much it looks to matter for the company's shares: the company events
-     *     its headline names (results and guidance, analyst ratings, deals, leadership, legal
+     *     its headline names (results and guidance, analyst ratings, deals, leadership, legal,
      *     and regulatory news), whether it names the ticker, its publisher, and how recent it
      *     is. Copies of a syndicated story under the same headline count once. News is fetched
      *     on your own Finnhub key (``X-Finnhub-Key``), whose free plan covers North American
@@ -1638,8 +1638,8 @@ export interface paths {
       cookie?: never
     }
     /**
-     * Analyst ratings, earnings and insider trades
-     * @description Return what analysts, earnings and insiders say about ``symbol``, from Finnhub.
+     * Analyst ratings, earnings, and insider trades
+     * @description Return what analysts, earnings, and insiders say about ``symbol``, from Finnhub.
      *
      *     ``recommendations`` counts analysts' ratings by month, ``earnings`` compares the last
      *     quarters' reported EPS with the estimate, ``next_earnings`` gives the next report
@@ -1698,12 +1698,12 @@ export interface paths {
     /**
      * Your keys' plan usage
      * @description Return, for each key the request carries, its plan's limits (per second, minute,
-     *     hour, day or month, and different symbols a month where one applies), how much of
+     *     hour, day, or month, and different symbols a month where one applies), how much of
      *     each is used and left, and when each resets.
      *
-     *     EODHD's daily figures come from its account page, and Finnhub's, EODHD's and
+     *     EODHD's daily figures come from its account page, and Finnhub's, EODHD's, and
      *     Anthropic's per-minute figures from the headers of their latest answers, so they count
-     *     use from anywhere. Tiingo, FMP and Alpha Vantage report nothing, so their figures are
+     *     use from anywhere. Tiingo, FMP, and Alpha Vantage report nothing, so their figures are
      *     PyQxel's own count of its requests, labeled ``pyqxel``. Also says how much price
      *     history PyQxel keeps for the user. Returns 503 when the database is unavailable.
      */
@@ -1847,7 +1847,7 @@ export interface components {
       sec_filings: boolean
       /**
        * Style Factors
-       * @description Whether the size, value and momentum factors are offered to you; without them, factor models fit the market factor alone.
+       * @description Whether the size, value, and momentum factors are offered to you; without them, factor models fit the market factor alone.
        * @default true
        */
       style_factors?: boolean
@@ -1899,7 +1899,7 @@ export interface components {
     }
     /**
      * AiLimits
-     * @description Caps on new AI requests (stock analyses, portfolio reviews and coding assistant
+     * @description Caps on new AI requests (stock analyses, portfolio reviews, and coding assistant
      *     answers), which are billed to the account's own Anthropic key.
      *
      *     Reused reports do not count. ``null`` means no cap.
@@ -1922,7 +1922,7 @@ export interface components {
     }
     /**
      * AlternativeContext
-     * @description A company's lobbying, government contracts, patents and recent filings, as given to
+     * @description A company's lobbying, government contracts, patents, and recent filings, as given to
      *     Claude.
      */
     AlternativeContext: {
@@ -1953,7 +1953,7 @@ export interface components {
     }
     /**
      * AlternativeData
-     * @description A company's lobbying, government contracts, patents and SEC filings.
+     * @description A company's lobbying, government contracts, patents, and SEC filings.
      */
     AlternativeData: {
       /**
@@ -2023,7 +2023,7 @@ export interface components {
      *     Filing text is sent alongside it; the context lists only which filings were read.
      */
     AnalysisContext: {
-      /** @description The company's lobbying spending, federal contracts, patents and recent SEC filings, from Finnhub; null without a Finnhub key. */
+      /** @description The company's lobbying spending, federal contracts, patents, and recent SEC filings, from Finnhub; null without a Finnhub key. */
       alternative?: components['schemas']['AlternativeContext'] | null
       /**
        * Coverage
@@ -2037,11 +2037,11 @@ export interface components {
        * @description SEC filings whose sections were given to the model.
        */
       filings?: components['schemas']['FilingReference'][]
-      /** @description For an ETF or mutual fund: its costs, its largest holdings with their weights, its mix of stocks, bonds and cash, a bond fund's coupon, maturity and issuers, and the valuation, margins, growth, size and sectors weighted from the companies it holds; null for a stock, or when none could be found. */
+      /** @description For an ETF or mutual fund: its costs, its largest holdings with their weights, its mix of stocks, bonds, and cash, a bond fund's coupon, maturity, and issuers, and the valuation, margins, growth, size, and sectors weighted from the companies it holds; null for a stock, or when none could be found. */
       fund?: components['schemas']['FundProfile'] | null
       /** @description Financial statement figures from SEC filings and the valuation built on them; null when they could not be fetched. */
       fundamentals?: components['schemas']['Fundamentals'] | null
-      /** @description The market backdrop: upcoming FOMC meetings, market holidays, major companies' earnings reports and IPOs, and the newest market headlines. */
+      /** @description The market backdrop: upcoming FOMC meetings, market holidays, major companies' earnings reports, and IPOs, and the newest market headlines. */
       market?: components['schemas']['MarketContext'] | null
       /** @description Finnhub's key metrics (52-week range, beta, valuation including a forward P/E, dividends, margins, growth, leverage) and its list of peers; null when unavailable. */
       metrics?: components['schemas']['CompanyMetrics'] | null
@@ -2158,7 +2158,7 @@ export interface components {
       context: components['schemas']['AnalysisContext']
       /**
        * Disclaimer
-       * @default Generated by an AI model from historical price data and, where listed, financial statement data, excerpts of SEC filings and news headlines. Not investment advice.
+       * @default Generated by an AI model from historical price data and, where listed, financial statement data, excerpts of SEC filings, and news headlines. Not investment advice.
        */
       disclaimer?: string
       /**
@@ -2807,7 +2807,7 @@ export interface components {
     }
     /**
      * Coefficient
-     * @description An estimate with Newey-West (HAC) standard error, t-statistic and p-value.
+     * @description An estimate with Newey-West (HAC) standard error, t-statistic, and p-value.
      */
     Coefficient: {
       /** Estimate */
@@ -2973,7 +2973,7 @@ export interface components {
       quantile?: number
       /**
        * Rebalance
-       * @description How often the universe is ranked again, at the last close of each week, month or quarter.
+       * @description How often the universe is ranked again, at the last close of each week, month, or quarter.
        * @default monthly
        * @enum {string}
        */
@@ -3712,7 +3712,7 @@ export interface components {
        * @default US GAAP
        */
       accounting_standard?: ('US GAAP' | 'IFRS') | null
-      /** @description Purchases of property, plant and equipment, as a positive sum. */
+      /** @description Purchases of property, plant, and equipment, as a positive sum. */
       capital_expenditure?: components['schemas']['FlowItem'] | null
       /** @description Cash and cash equivalents. */
       cash?: components['schemas']['BalanceItem'] | null
@@ -3854,7 +3854,7 @@ export interface components {
     FundHolding: {
       /**
        * Asset Class
-       * @description Stocks, Bonds, Cash or Other, where the source says.
+       * @description Stocks, Bonds, Cash, or Other, where the source says.
        */
       asset_class?: string | null
       /** Name */
@@ -3873,14 +3873,14 @@ export interface components {
     /**
      * FundProfile
      * @description What an ETF or mutual fund holds and costs: the figures that take the place, for a
-     *     fund, of a company's market cap, sector and earnings.
+     *     fund, of a company's market cap, sector, and earnings.
      *
      *     Rates are decimals (0.0003 = 0.03%).
      */
     FundProfile: {
       /**
        * Asset Mix
-       * @description Share of net assets in stocks, bonds, cash and other, from its SEC filing.
+       * @description Share of net assets in stocks, bonds, cash, and other, from its SEC filing.
        */
       asset_mix?: components['schemas']['FundWeight'][]
       /** @description Null when it holds few bonds. */
@@ -3950,7 +3950,7 @@ export interface components {
        * @description Data providers that produced this record.
        */
       source: string
-      /** @description Valuation, profitability, growth, size and sectors weighted from the companies it holds; null when none could be looked up, as for a bond fund. */
+      /** @description Valuation, profitability, growth, size, and sectors weighted from the companies it holds; null when none could be looked up, as for a bond fund. */
       stats?: components['schemas']['HoldingsStats'] | null
       /**
        * Stats As Of
@@ -4165,7 +4165,7 @@ export interface components {
      * @description A fitted GARCH coefficient.
      *
      *     ``mu`` and ``omega`` are in percent-return units (``omega`` in percent squared);
-     *     ``alpha1``, ``beta1`` and ``shape`` are unitless.
+     *     ``alpha1``, ``beta1``, and ``shape`` are unitless.
      */
     GarchParameter: {
       /** Estimate */
@@ -4384,7 +4384,7 @@ export interface components {
       industry?: string | null
       /**
        * Kind
-       * @description What it is, as the provider classes it: EQUITY, ETF, MUTUALFUND or MONEYMARKET; null when it does not say.
+       * @description What it is, as the provider classes it: EQUITY, ETF, MUTUALFUND, or MONEYMARKET; null when it does not say.
        */
       kind?: string | null
       /**
@@ -4507,7 +4507,7 @@ export interface components {
       }
       /**
        * Size Mix
-       * @description Share in large (over $10B), mid ($2-10B) and small companies.
+       * @description Share in large (over $10B), mid ($2-10B), and small companies.
        */
       size_mix?: {
         [key: string]: number
@@ -4574,7 +4574,7 @@ export interface components {
     }
     /**
      * InsiderSummary
-     * @description Insiders' open-market trades over a window. Grants, option exercises and tax
+     * @description Insiders' open-market trades over a window. Grants, option exercises, and tax
      *     withholding are left out, since they say nothing about insiders' views.
      */
     InsiderSummary: {
@@ -4744,7 +4744,7 @@ export interface components {
       shares?: number | null
       /**
        * Status
-       * @description ``expected``, ``priced``, ``filed`` or ``withdrawn``.
+       * @description ``expected``, ``priced``, ``filed``, or ``withdrawn``.
        */
       status?: string | null
       /** Symbol */
@@ -4757,7 +4757,7 @@ export interface components {
     }
     /**
      * KeyMetrics
-     * @description Trading, valuation, dividend, profitability, growth and balance sheet metrics, as
+     * @description Trading, valuation, dividend, profitability, growth, and balance sheet metrics, as
      *     Finnhub computes them. Any may be null when Finnhub has no figure.
      */
     KeyMetrics: {
@@ -4888,7 +4888,7 @@ export interface components {
     LastRun: {
       /**
        * Error Kind
-       * @description ``syntax``, ``compile``, ``runtime``, ``result`` or ``timeout``; null when the run succeeded.
+       * @description ``syntax``, ``compile``, ``runtime``, ``result``, or ``timeout``; null when the run succeeded.
        */
       error_kind?: string | null
       /** Line */
@@ -5236,7 +5236,7 @@ export interface components {
       is_open: boolean
       /**
        * Session
-       * @description ``pre-market``, ``regular`` or ``post-market``.
+       * @description ``pre-market``, ``regular``, or ``post-market``.
        */
       session?: string | null
     }
@@ -5422,7 +5422,7 @@ export interface components {
       headline: string
       /**
        * Importance
-       * @description How much the headline looks to matter, from 0 to 1: for market news, how market-moving it looks; for a company's news, how much it looks to matter for its shares. Both weigh the topics it names, its publisher and how recent it is; null where not scored.
+       * @description How much the headline looks to matter, from 0 to 1: for market news, how market-moving it looks; for a company's news, how much it looks to matter for its shares. Both weigh the topics it names, its publisher, and how recent it is; null where not scored.
        */
       importance?: number | null
       /**
@@ -5666,7 +5666,7 @@ export interface components {
       keys_updated_at?: string | null
       /** @description The latest refresh that succeeded, whose universe is shown. */
       last_success?: components['schemas']['NightlyRun'] | null
-      /** @description The latest refresh, running, finished or failed. */
+      /** @description The latest refresh, running, finished, or failed. */
       latest_run?: components['schemas']['NightlyRun'] | null
       /**
        * Next Run At
@@ -6004,9 +6004,9 @@ export interface components {
     }
     /**
      * PerformanceMetrics
-     * @description Return, risk and drawdown statistics of a periodic return series.
+     * @description Return, risk, and drawdown statistics of a periodic return series.
      *
-     *     Returns and volatilities are decimals (0.25 = 25%); volatility, Sharpe and Sortino
+     *     Returns and volatilities are decimals (0.25 = 25%); volatility, Sharpe, and Sortino
      *     are annualized.
      */
     PerformanceMetrics: {
@@ -6217,7 +6217,7 @@ export interface components {
       context: components['schemas']['PortfolioContext']
       /**
        * Disclaimer
-       * @default Generated by an AI model (Claude), not a licensed financial adviser, from historical prices of today's holdings and what you told it. Check prices, taxes and trading costs before placing any order; the decision and its risk are yours.
+       * @default Generated by an AI model (Claude), not a licensed financial adviser, from historical prices of today's holdings and what you told it. Check prices, taxes, and trading costs before placing any order; the decision and its risk are yours.
        */
       disclaimer?: string
       /**
@@ -6378,7 +6378,7 @@ export interface components {
       accounts?: components['schemas']['AccountValue'][]
       /**
        * Funds
-       * @description Each ETF or mutual fund among the holdings, largest first, with its largest holdings, mix of stocks, bonds and cash, sectors, costs and the figures weighted from the companies it holds, where they could be found.
+       * @description Each ETF or mutual fund among the holdings, largest first, with its largest holdings, mix of stocks, bonds, and cash, sectors, costs, and the figures weighted from the companies it holds, where they could be found.
        */
       funds?: components['schemas']['FundProfile'][]
       /**
@@ -6649,7 +6649,7 @@ export interface components {
     }
     /**
      * PriceSummary
-     * @description Return, volatility and drawdown statistics of daily closes over a window.
+     * @description Return, volatility, and drawdown statistics of daily closes over a window.
      *
      *     Returns and volatilities are decimals (0.25 = 25%); volatilities are annualized.
      */
@@ -7500,7 +7500,7 @@ export interface components {
     }
     /**
      * SignalsContext
-     * @description Analyst ratings, earnings and insider trading as given to Claude.
+     * @description Analyst ratings, earnings, and insider trading as given to Claude.
      */
     SignalsContext: {
       /** Earnings */
@@ -7945,7 +7945,7 @@ export interface components {
       exchange?: string | null
       /**
        * Filled Fields
-       * @description Fields ``source`` left empty that the SEC (sector and industry), Finnhub, Tiingo, Alpha Vantage or a quote filled in.
+       * @description Fields ``source`` left empty that the SEC (sector and industry), Finnhub, Tiingo, Alpha Vantage, or a quote filled in.
        */
       filled_fields?: string[]
       /** Industry */
@@ -7958,7 +7958,7 @@ export interface components {
       price?: number | null
       /**
        * Quote Type
-       * @description Kind of security as the provider classes it, e.g. EQUITY, ETF or MONEYMARKET; null when it does not say.
+       * @description Kind of security as the provider classes it, e.g. EQUITY, ETF, or MONEYMARKET; null when it does not say.
        */
       quote_type?: string | null
       /** Sector */

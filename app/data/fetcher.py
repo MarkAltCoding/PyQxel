@@ -45,6 +45,7 @@ import pandas as pd
 import yfinance as yf
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.text import listed
 from app.core.cache import cache_get, cache_increment, cache_set
 from app.core.credentials import current_provider_keys
 from app.core.redact import redact
@@ -96,7 +97,7 @@ ALPHA_VANTAGE_FREE_FUNCTIONS: frozenset[str] = frozenset(
      "BALANCE_SHEET", "CASH_FLOW", "CURRENCY_EXCHANGE_RATE", "ETF_PROFILE"}
 )  # fmt: skip
 """Functions a free key may call, as checked against a free key in October 2026 (and
-``ETF_PROFILE`` on November 5, 2026); the company overview, adjusted daily bars and every
+``ETF_PROFILE`` on November 5, 2026); the company overview, adjusted daily bars, and every
 intraday series need a paid plan.
 Alpha Vantage answers an invalid key as if it asked for a premium function, so a premium
 refusal of one of these means a bad key."""
@@ -151,7 +152,7 @@ DataKind = Literal["history", "intraday", "quote", "info", "fx"]
 company profile, or an exchange rate."""
 
 SymbolKind = Literal["us", "index", "international"]
-"""A US listing (stocks, ETFs and funds), an index such as ^GSPC, or a listing abroad,
+"""A US listing (stocks, ETFs, and funds), an index such as ^GSPC, or a listing abroad,
 which carries an exchange suffix such as .L."""
 
 PROVIDER_ORDER: dict[tuple[DataKind, SymbolKind], tuple[Provider, ...]] = {
@@ -529,7 +530,7 @@ async def plan_hint(kind: DataKind, symbol: str) -> str:
     parts = [hint] if (hint := keys_to_add(kind, symbol)) else []
     listings = await us_listings(symbol)
     if listings:
-        names = " and ".join(listings)
+        names = listed(listings)
         parts.append(
             f"The same company also trades in the US as {names}, priced in dollars, which "
             "your Tiingo key covers: look that up instead."
@@ -752,7 +753,7 @@ async def _finnhub_slot(api_key: str) -> None:
 async def finnhub_get(
     path: str, params: dict[str, str], api_key: str, client: httpx2.AsyncClient | None
 ) -> Any:
-    """GET a Finnhub endpoint with the user's key, classifying key, plan and limit errors.
+    """GET a Finnhub endpoint with the user's key, classifying key, plan, and limit errors.
 
     The key travels in a header rather than the URL, so it stays out of logs. A refusal
     is remembered for :data:`FINNHUB_REFUSAL_TTL_SECONDS` for the symbol, and a reached
@@ -844,7 +845,7 @@ def _tiingo_detail(response: httpx2.Response) -> str:
 async def tiingo_get(
     path: str, params: dict[str, str], api_key: str, client: httpx2.AsyncClient | None = None
 ) -> Any:
-    """GET a Tiingo endpoint with the user's key, classifying key, plan and limit errors.
+    """GET a Tiingo endpoint with the user's key, classifying key, plan, and limit errors.
 
     The key travels in a header, so it stays out of logs. A refusal of the request is
     remembered for :data:`TIINGO_REFUSAL_TTL_SECONDS`, and a reached limit leaves Tiingo
@@ -999,7 +1000,7 @@ EODHD_EXCHANGES: dict[str, str] = {
 }
 """EODHD's exchange code for each Yahoo-style symbol suffix whose exchange it lists, as its
 exchange list read on November 5, 2026. It lists no exchange in Tokyo, Hong Kong, India,
-Milan, Singapore, New Zealand, Istanbul, Tel Aviv or Saudi Arabia, so those are not asked
+Milan, Singapore, New Zealand, Istanbul, Tel Aviv, or Saudi Arabia, so those are not asked
 of it."""
 
 EODHD_CODES: frozenset[str] = frozenset(EODHD_EXCHANGES.values())
@@ -1016,14 +1017,14 @@ ALPHA_VANTAGE_EXCHANGES: dict[str, str] = {
     "SZ": "SHZ",
 }
 """Alpha Vantage's suffix for each Yahoo-style suffix whose exchange it covers, as its
-documentation lists them (London, XETRA, Toronto, TSX Venture, BSE India, Shanghai and
+documentation lists them (London, XETRA, Toronto, TSX Venture, BSE India, Shanghai, and
 Shenzhen) and its search answered (Lisbon). A free key's quote of ``SAP.DEX`` answered on
 November 5, 2026; ``7203.TYO`` and ``7203.T`` did not."""
 
 
 def symbol_suffix(symbol: str) -> str | None:
     """The exchange suffix of a listing abroad, as ``L`` in ``VOD.L``; ``None`` for a US
-    listing, an index or an exchange rate."""
+    listing, an index, or an exchange rate."""
     symbol = symbol.strip().upper()
     if symbol_kind(symbol) != "international" or "." not in symbol:
         return None
@@ -1038,7 +1039,7 @@ def exchange_name(symbol: str) -> str:
 
 
 def eodhd_symbol(symbol: str) -> str:
-    """``symbol`` as EODHD names it: AAPL.US, SHEL.LSE, GSPC.INDX or EURUSD.FOREX."""
+    """``symbol`` as EODHD names it: AAPL.US, SHEL.LSE, GSPC.INDX, or EURUSD.FOREX."""
     symbol = symbol.strip().upper()
     if symbol.startswith("^"):
         return f"{symbol[1:]}.INDX"
@@ -1080,7 +1081,7 @@ def provider_covers(provider: Provider, symbol: str) -> bool:
 async def eodhd_get(
     path: str, params: dict[str, str], api_key: str, client: httpx2.AsyncClient | None = None
 ) -> Any:
-    """GET an EODHD endpoint with the user's key, classifying key, plan and limit errors.
+    """GET an EODHD endpoint with the user's key, classifying key, plan, and limit errors.
 
     EODHD takes the key only in the URL, so no error message repeats the URL. A refusal of
     the request, such as intraday bars on the free plan, is remembered for
@@ -1136,7 +1137,7 @@ async def eodhd_get(
 
 async def eodhd_account(api_key: str) -> dict[str, Any] | None:
     """EODHD's account details for the key: the calls spent on the latest day used
-    (``apiRequests`` on ``apiRequestsDate``), the daily allowance (``dailyRateLimit``) and
+    (``apiRequests`` on ``apiRequestsDate``), the daily allowance (``dailyRateLimit``), and
     any extra calls bought (``extraLimit``). Asking costs no calls. ``None`` when EODHD
     cannot be reached or rejects the key."""
     try:
@@ -1170,7 +1171,7 @@ def _alpha_vantage_error(
 
     Alpha Vantage answers every request with status 200 and reports problems in the body:
     ``Error Message`` for an unknown symbol, and ``Information`` or ``Note`` for a bad
-    key, a rate limit or a function the plan does not cover. It answers an invalid key as
+    key, a rate limit, or a function the plan does not cover. It answers an invalid key as
     if it asked for a premium function, so for a ``free`` request that means a bad key.
     """
     if not isinstance(payload, dict):
@@ -1235,7 +1236,7 @@ async def alpha_vantage_get(
         SymbolNotFoundError: If Alpha Vantage has no data for the symbol.
         ProviderPlanError: If the user's plan does not cover ``function``.
         ProviderNotConfiguredError: If the key is rejected.
-        DataFetchError: On rate limits, transport failures and unexpected answers.
+        DataFetchError: On rate limits, transport failures, and unexpected answers.
     """
     symbol = params.get("symbol") or params.get("from_currency", "")
     cache_key = "alphavantage:" + ":".join(
@@ -1336,8 +1337,8 @@ def no_longer_history(
 
 
 def clear_alpha_vantage_memory() -> None:
-    """Forget Alpha Vantage answers, plan refusals and request spacing kept in memory, and
-    every provider's refusals, pauses and request counts."""
+    """Forget Alpha Vantage answers, plan refusals, and request spacing kept in memory, and
+    every provider's refusals, pauses, and request counts."""
     global _alpha_vantage_next_slot
     _alpha_vantage_memory.clear()
     _alpha_vantage_premium.clear()
@@ -1407,7 +1408,7 @@ async def _alpha_vantage_info(
 ) -> TickerInfo:
     """Fetch ticker info from Alpha Vantage.
 
-    With a paid plan, the company overview gives sector, industry and market cap. A free
+    With a paid plan, the company overview gives sector, industry, and market cap. A free
     key gets the name and currency from the symbol search and the price from a quote, so
     valuation estimates the market cap from shares outstanding.
     """
@@ -1557,7 +1558,7 @@ TIINGO_ASSET_TYPES: dict[str, str] = {"Stock": "EQUITY", "ETF": "ETF", "Mutual F
 async def _tiingo_quote_type(
     symbol: str, api_key: str, client: httpx2.AsyncClient | None
 ) -> str | None:
-    """Whether a US listing is a stock, an ETF, a mutual fund or a money-market fund, from
+    """Whether a US listing is a stock, an ETF, a mutual fund, or a money-market fund, from
     Tiingo's search, which its free plan answers for any ticker; reused for a week, since
     it does not change."""
     key = f"tiingo:type:{symbol}"
@@ -1594,11 +1595,11 @@ MONEY_MARKET_TYPE: str = "MONEYMARKET"
 
 FUND_TYPES: frozenset[str] = frozenset({"ETF", "MUTUALFUND", MONEY_MARKET_TYPE})
 """Quote types of funds, which hold other securities rather than run a business: a
-company's figures, such as its market cap, sector or earnings, do not apply to them."""
+company's figures, such as its market cap, sector, or earnings, do not apply to them."""
 
 
 async def _tiingo_info(symbol: str, api_key: str, client: httpx2.AsyncClient | None) -> TickerInfo:
-    """Fetch the name, exchange and kind (stock, ETF or fund) of any US listing Tiingo
+    """Fetch the name, exchange and kind (stock, ETF, or fund) of any US listing Tiingo
     prices, with a stock's sector and industry where the plan gives them (the Dow 30, on
     the free plan); prices and market caps are left to other providers."""
     listing = await tiingo_get(f"tiingo/daily/{tiingo_symbol(symbol)}", {}, api_key, client)
@@ -1642,8 +1643,8 @@ EODHD_QUOTE_TYPES: dict[str, str] = {
 
 
 async def _eodhd_info(symbol: str, api_key: str, client: httpx2.AsyncClient | None) -> TickerInfo:
-    """Fetch a profile from EODHD: its fundamentals on a paid plan, with sector, industry and
-    market cap; else, on the free plan, its search for the name, exchange, currency and
+    """Fetch a profile from EODHD: its fundamentals on a paid plan, with sector, industry, and
+    market cap; else, on the free plan, its search for the name, exchange, currency, and
     type, or for an index, which search leaves out, its delayed quote."""
     try:
         return await _eodhd_fundamentals_info(symbol, api_key, client)
@@ -1748,7 +1749,7 @@ async def _fill_from_finnhub(info: TickerInfo, client: httpx2.AsyncClient | None
 
 
 async def _fill_from_tiingo(info: TickerInfo, client: httpx2.AsyncClient | None) -> TickerInfo:
-    """Fill the name, sector and industry ``info``'s provider left empty from Tiingo's meta,
+    """Fill the name, sector, and industry ``info``'s provider left empty from Tiingo's meta,
     for a US listing, if the user has a Tiingo key."""
     key = current_provider_keys().tiingo
     missing = [field for field in TIINGO_GAP_FIELDS if getattr(info, field) is None]
@@ -1828,7 +1829,7 @@ async def _fill_from_sec(info: TickerInfo) -> TickerInfo:
 
 async def _fill_info(info: TickerInfo, client: httpx2.AsyncClient | None) -> TickerInfo:
     """Fill the fields ``info``'s provider left empty from the SEC's public industry codes,
-    then Finnhub, Tiingo and Alpha Vantage, if the user has keys for them. A named fund is
+    then Finnhub, Tiingo, and Alpha Vantage, if the user has keys for them. A named fund is
     left as it is: the fields it lacks, such as a sector or a market cap, are a company's,
     which no provider has for it."""
     if info.quote_type in FUND_TYPES and info.name:
@@ -2027,7 +2028,7 @@ def _fmp_frame(rows: list[dict[str, Any]], fields: dict[str, str], zone: str) ->
 
 
 def _resample(frame: pd.DataFrame, frequency: str) -> pd.DataFrame:
-    """Combine bars into ``frequency`` bars, labelled by when each starts."""
+    """Combine bars into ``frequency`` bars, labeled by when each starts."""
     combined = frame.resample(frequency, label="left", closed="left").agg(
         {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}
     )
@@ -2295,7 +2296,7 @@ async def _eodhd_history(
     start: date | None = None,
 ) -> pd.DataFrame:
     """Fetch OHLCV history from EODHD: daily bars adjusted for splits and dividends, for
-    listings, ETFs, funds and indices on exchanges worldwide, or intraday bars.
+    listings, ETFs, funds, and indices on exchanges worldwide, or intraday bars.
 
     Daily bars are scaled by EODHD's adjusted close over the close. Its free plan serves
     the last year of daily bars only; when a longer window was asked for, the frame's
@@ -2866,7 +2867,7 @@ async def fetch_price_history(
 
     Returns:
         A frame indexed by bar time in the exchange's time zone, with ``Open``, ``High``,
-        ``Low``, ``Close`` and ``Volume`` columns, sorted ascending, de-duplicated, and
+        ``Low``, ``Close``, and ``Volume`` columns, sorted ascending, de-duplicated, and
         without rows lacking a close. It is empty when ``symbol`` exists but has no bars
         in the window. When the provider could serve only part of the window, or bars
         that are not adjusted, ``attrs[HISTORY_NOTICE]`` says so.
@@ -2960,7 +2961,7 @@ async def fetch_price_history(
 
 
 def _finite(value: object) -> float | None:
-    """Return ``value`` as a float, mapping missing, NaN and infinite values to ``None``."""
+    """Return ``value`` as a float, mapping missing, NaN, and infinite values to ``None``."""
     if value is None:
         return None
     try:
@@ -3088,7 +3089,7 @@ async def _tiingo_quote(symbol: str, api_key: str, client: httpx2.AsyncClient | 
 
 
 async def _eodhd_quote(symbol: str, api_key: str, client: httpx2.AsyncClient | None) -> Quote:
-    """Fetch the latest price from EODHD, delayed 15 to 20 minutes, for listings, funds and
+    """Fetch the latest price from EODHD, delayed 15 to 20 minutes, for listings, funds, and
     indices worldwide."""
     quote = await eodhd_get(f"real-time/{eodhd_symbol(symbol)}", {}, api_key, client)
     if not isinstance(quote, dict):

@@ -27,7 +27,7 @@ def _serve(
     info: TickerInfo | Exception = INFO,
     rates: dict[tuple[str, str], float] | None = None,
 ) -> None:
-    """Fake the financials, ticker info and exchange rate fetches."""
+    """Fake the financials, ticker info, and exchange rate fetches."""
 
     async def fake_financials(symbol: str) -> Financials:
         if isinstance(financials, Exception):
@@ -76,7 +76,7 @@ def test_fundamentals_and_valuation(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_edgar_errors_map_to_statuses(
     monkeypatch: pytest.MonkeyPatch, error: Exception, status: int
 ) -> None:
-    """Configuration, missing companies and EDGAR outages each get their own status."""
+    """Configuration, missing companies, and EDGAR outages each get their own status."""
     _serve(monkeypatch, error)
 
     response = client.get("/api/v1/stocks/AAPL/fundamentals")

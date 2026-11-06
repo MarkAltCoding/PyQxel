@@ -40,12 +40,12 @@ from app.data.universe import (
     ],
 )
 def test_common_stock_tickers(symbol: str, common: bool) -> None:
-    """Preferreds, warrants, units and rights are told apart from common shares."""
+    """Preferreds, warrants, units, and rights are told apart from common shares."""
     assert is_common_stock(symbol) is common
 
 
 def test_listings_keep_exchange_listed_common_stocks() -> None:
-    """OTC quotes, unlisted tickers, preferreds and repeated tickers are dropped."""
+    """OTC quotes, unlisted tickers, preferreds, and repeated tickers are dropped."""
     payload = {
         "fields": ["cik", "name", "ticker", "exchange"],
         "data": [
@@ -413,5 +413,5 @@ async def test_a_rejected_key_ends_the_download(pauses: list[float]) -> None:
     ],
 )
 def test_common_stock_names(name: str, common: bool) -> None:
-    """Preferred depositary shares, notes, units and warrants are told apart by name."""
+    """Preferred depositary shares, notes, units, and warrants are told apart by name."""
     assert is_common_name(name) is common

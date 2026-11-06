@@ -12,7 +12,7 @@ FactorModel = Literal["ff3", "carhart4", "ff5"]
 
 FactorName = Literal["Mkt-RF", "SMB", "HML", "RMW", "CMA", "Mom"]
 """Factor returns as Ken French names them: market excess return, size, value,
-profitability, investment and momentum."""
+profitability, investment, and momentum."""
 
 RISK_FREE: str = "RF"
 """Column holding the daily risk-free rate, the one-month T-bill compounded daily."""
@@ -29,7 +29,7 @@ FactorPeriod = Literal["1y", "2y", "5y", "10y"]
 
 
 class Coefficient(BaseModel):
-    """An estimate with Newey-West (HAC) standard error, t-statistic and p-value."""
+    """An estimate with Newey-West (HAC) standard error, t-statistic, and p-value."""
 
     estimate: float
     std_error: float = Field(ge=0)

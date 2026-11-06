@@ -139,7 +139,7 @@ def clear_caches() -> None:
 
 
 def _retry_delay(response: httpx2.Response | None, attempt: int) -> float:
-    """Return how long to wait before retry ``attempt``, honouring ``Retry-After``."""
+    """Return how long to wait before retry ``attempt``, honoring ``Retry-After``."""
     if response is not None:
         value = response.headers.get("retry-after")
         try:
@@ -150,7 +150,7 @@ def _retry_delay(response: httpx2.Response | None, attempt: int) -> float:
 
 
 async def edgar_get(client: httpx2.AsyncClient, url: str) -> httpx2.Response:
-    """GET ``url``, retrying throttling, server errors and transport failures with backoff."""
+    """GET ``url``, retrying throttling, server errors, and transport failures with backoff."""
     for attempt in range(MAX_RETRIES + 1):
         response: httpx2.Response | None = None
         try:

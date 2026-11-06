@@ -1,5 +1,5 @@
 // Runs a compiled C++ strategy on the bars and checks the positions it set, on the WASI
-// shim with no files, no network and an empty stdin: only stdout and stderr reach out.
+// shim with no files, no network, and an empty stdin: only stdout and stderr reach out.
 import { ConsoleStdout, File, OpenFile, WASI, WASIProcExit } from '@bjorn3/browser_wasi_shim'
 import type { BarColumns, UniverseColumns } from '../types'
 import type { PositionsOutcome, WeightsOutcome } from '../workerRunner'
@@ -33,7 +33,7 @@ interface UniverseModule {
   pyqxel_run: () => void
 }
 
-/** The column numbers entry.cpp gives open, high, low, close, volume and positions. */
+/** The column numbers entry.cpp gives open, high, low, close, volume, and positions. */
 const COLUMNS = ['open', 'high', 'low', 'close', 'volume'] as const
 const POSITIONS = 5
 
@@ -68,7 +68,7 @@ export function checkPositions(
       message:
         `The position is NaN on ${missing.length} bars, the first on ${date(missing[0]!)}. ` +
         'Positions start at 0.0, so a NaN comes from arithmetic: on a missing open, high, ' +
-        'low or volume (test with pyqxel::missing), or from 0.0 / 0.0.',
+        'low, or volume (test with pyqxel::missing), or from 0.0 / 0.0.',
     }
   }
   const outside = positions.findIndex((value) => !(Math.abs(value) <= MAX_POSITION))
@@ -98,7 +98,7 @@ export function checkWeights(
       ok: false,
       message:
         `The weight of ${where(missing)} is NaN. Weights start at 0.0, so a NaN comes from ` +
-        'arithmetic: on a missing open, high, low or volume (test with pyqxel::missing), or ' +
+        'arithmetic: on a missing open, high, low, or volume (test with pyqxel::missing), or ' +
         'from 0.0 / 0.0.',
     }
   }
@@ -163,7 +163,7 @@ async function execute<Exports>(
       return failure(
         'runtime',
         `The strategy crashed: ${error.message}. Look for an index outside 0 to ` +
-          'bars.size - 1, an integer division by zero, deep recursion or a call to abort().',
+          'bars.size - 1, an integer division by zero, deep recursion, or a call to abort().',
         capped(),
       )
     }

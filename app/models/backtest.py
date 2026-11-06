@@ -456,7 +456,7 @@ class MultiAssetCustomBacktestRequest(BacktestOptions):
         if len(self.weights) * len(self.symbols) > MAX_WEIGHT_CELLS:
             raise ValueError(
                 f"At most {MAX_WEIGHT_CELLS} weights may be sent; request a shorter period, "
-                "weekly bars or fewer symbols"
+                "weekly bars, or fewer symbols"
             )
         if any(later <= earlier for earlier, later in zip(self.dates, self.dates[1:])):
             raise ValueError("dates must be strictly increasing")
@@ -486,9 +486,9 @@ class AssetWeight(BaseModel):
 
 
 class PerformanceMetrics(BaseModel):
-    """Return, risk and drawdown statistics of a periodic return series.
+    """Return, risk, and drawdown statistics of a periodic return series.
 
-    Returns and volatilities are decimals (0.25 = 25%); volatility, Sharpe and Sortino
+    Returns and volatilities are decimals (0.25 = 25%); volatility, Sharpe, and Sortino
     are annualized.
     """
 
@@ -789,7 +789,7 @@ class CrossSectionalBacktestRequest(BaseModel):
     rebalance: RebalanceFrequency = Field(
         default="monthly",
         description="How often the universe is ranked again, at the last close of each "
-        "week, month or quarter.",
+        "week, month, or quarter.",
     )
     quantile: float = Field(
         default=0.2,

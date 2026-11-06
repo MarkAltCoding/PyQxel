@@ -13,7 +13,7 @@ function link(href: string): HTMLElement {
 }
 
 describe('links that leave PyQxel', () => {
-  it('catches web, email and phone links, from anything inside them', () => {
+  it('catches web, email, and phone links, from anything inside them', () => {
     expect(leavingHref(link('https://finnhub.io/register'), ORIGIN)).toBe(
       'https://finnhub.io/register',
     )

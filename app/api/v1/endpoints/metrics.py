@@ -14,7 +14,7 @@ router = APIRouter()
 async def get_metrics(symbol: Symbol) -> CompanyMetrics:
     """Return ``symbol``'s key metrics and peers, from Finnhub's basic financials.
 
-    The metrics cover the 52-week range and returns, beta and trading volume; valuation
+    The metrics cover the 52-week range and returns, beta, and trading volume; valuation
     multiples, including a forward P/E on analysts' estimates; the dividend yield, payout
     and growth; margins and returns on capital; growth; and liquidity and leverage, as
     Finnhub computes them from its own data, so they can differ slightly from the

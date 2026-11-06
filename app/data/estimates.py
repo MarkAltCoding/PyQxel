@@ -165,7 +165,7 @@ async def estimate(
     """About how many requests ``fetches`` would send on each key.
 
     Args:
-        fetches: Each thing a page would fetch: its kind, symbols, period and interval.
+        fetches: Each thing a page would fetch: its kind, symbols, period, and interval.
 
     Returns:
         The requests per provider, the symbols asked of each provider, and how many

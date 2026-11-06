@@ -4,7 +4,7 @@ Statements come from SEC filings, or from Alpha Vantage for what the filings lea
 
 Statement figures are in the currency the company reports in, named by
 ``Financials.currency``; market values are in the listing's currency. Share counts are
-shares. Growth rates, margins, yields
+shares. Growth rates, margins, yields,
 and returns are decimals (0.25 = 25%); valuation multiples are plain ratios.
 """
 
@@ -123,7 +123,7 @@ class Financials(BaseModel):
     net_income: FlowItem | None = None
     operating_cash_flow: FlowItem | None = None
     capital_expenditure: FlowItem | None = Field(
-        default=None, description="Purchases of property, plant and equipment, as a positive sum."
+        default=None, description="Purchases of property, plant, and equipment, as a positive sum."
     )
     depreciation_amortization: FlowItem | None = None
     free_cash_flow: FlowItem | None = Field(

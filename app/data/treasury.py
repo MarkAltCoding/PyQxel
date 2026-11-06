@@ -81,7 +81,7 @@ def parse_bill_rates(text: str) -> dict[str, float]:
 
 
 async def _year(year: int, client: httpx2.AsyncClient) -> dict[str, float]:
-    """One year's rates, from memory, Redis or the Treasury."""
+    """One year's rates, from memory, Redis, or the Treasury."""
     ttl = CURRENT_TTL_SECONDS if year >= date.today().year else PAST_TTL_SECONDS
     remembered = _memory.get(year)
     if remembered is not None and time.monotonic() - remembered[0] < ttl:

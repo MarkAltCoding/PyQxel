@@ -193,7 +193,7 @@ class SimulationRequest(Portfolio):
         if draws > MAX_DRAWS:
             raise ValueError(
                 f"paths x horizon x assets is {draws:,}; at most {MAX_DRAWS:,} are allowed. "
-                "Use fewer paths, a shorter horizon or fewer assets."
+                "Use fewer paths, a shorter horizon, or fewer assets."
             )
         return self
 

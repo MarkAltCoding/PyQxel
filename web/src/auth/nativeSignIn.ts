@@ -1,4 +1,4 @@
-// Signing in to the native app (Tauri) with GitHub, Google or Apple. Providers refuse
+// Signing in to the native app (Tauri) with GitHub, Google, or Apple. Providers refuse
 // sign-ins inside an app's own web view, so the app opens the sign-in in the system
 // browser, which comes back through a `pyqxel://signin#code=…` link that opens the app.
 //

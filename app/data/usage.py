@@ -10,12 +10,12 @@ requests sent from outside PyQxel:
 
 - **EODHD** answers ``/api/user`` with the day's calls and the plan's daily allowance, and
   sends ``X-RateLimit-Limit`` and ``X-RateLimit-Remaining`` for the current minute.
-- **Finnhub** sends ``X-Ratelimit-Limit``, ``X-Ratelimit-Remaining`` and
+- **Finnhub** sends ``X-Ratelimit-Limit``, ``X-Ratelimit-Remaining``, and
   ``X-Ratelimit-Reset`` (epoch seconds) for the current minute.
 - **Anthropic** sends ``anthropic-ratelimit-*`` headers for requests and tokens a minute,
   which refill continuously.
 
-Tiingo, Financial Modeling Prep and Alpha Vantage report nothing, so for them PyQxel's own
+Tiingo, Financial Modeling Prep, and Alpha Vantage report nothing, so for them PyQxel's own
 count is shown, labeled as covering only PyQxel's requests. The plans' limits are those
 published on the providers' pages, as ``docs/data-sources.md`` records them.
 """

@@ -20,7 +20,7 @@ import { useAuth } from '../auth/useAuth'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { Stat } from '../components/Stat'
-import { shortDate } from '../lib/format'
+import { listed, shortDate } from '../lib/format'
 import {
   coverage,
   DATA_FEATURES,
@@ -76,20 +76,20 @@ const PROVIDERS: ProviderInfo[] = [
     signUp: 'https://console.anthropic.com/settings/keys',
     free: 'Pay as you go; a report costs a few cents to a few tens of cents.',
     without: () =>
-      'No AI research reports, portfolio reviews or coding assistant. Everything else works.',
+      'No AI research reports, portfolio reviews, or coding assistant. Everything else works.',
   },
   {
     name: 'Tiingo',
     account: 'tiingo',
     about:
-      'The first source of price history for US stocks, ETFs and funds: 30+ years, adjusted for splits and dividends. Also intraday charts, live US quotes and company names.',
+      'The first source of price history for US stocks, ETFs, and funds: 30+ years, adjusted for splits and dividends. Also intraday charts, live US quotes, and company names.',
     signUp: 'https://www.tiingo.com/account/api/token',
     free: 'The free plan covers most people: 30+ years of daily prices, 500 different symbols a month, 50 requests an hour.',
     without: (account) => {
       const others = otherPriceKeys(account, 'tiingo')
       return others.length
-        ? `US price history comes from ${others.join(' and ')}, which on free plans cover less: see what works above. Intraday charts need a paid key.`
-        : 'No US price history unless you add another price key: charts, volatility, factor exposures, backtests, portfolio tools and AI reports need one. A free Tiingo key is the simplest.'
+        ? `US price history comes from ${listed(others)}, which on free plans cover less: see what works above. Intraday charts need a paid key.`
+        : 'No US price history unless you add another price key: charts, volatility, factor exposures, backtests, portfolio tools, and AI reports need one. A free Tiingo key is the simplest.'
     },
   },
   {
@@ -134,11 +134,11 @@ const PROVIDERS: ProviderInfo[] = [
     name: 'Finnhub',
     account: 'finnhub',
     about:
-      'Company news, analyst ratings, earnings, insider trading, key metrics, lobbying, government contracts and patents on stock pages; market news and the earnings, IPO and holiday calendar on the Markets tab; all of it in AI reports. Also the first source of live US quotes, and a backup for company profiles and for financial statements when SEC EDGAR cannot be read.',
+      'Company news, analyst ratings, earnings, insider trading, key metrics, lobbying, government contracts, and patents on stock pages; market news and the earnings, IPO, and holiday calendar on the Markets tab; all of it in AI reports. Also the first source of live US quotes, and a backup for company profiles and for financial statements when SEC EDGAR cannot be read.',
     signUp: 'https://finnhub.io/register',
     free: 'The free plan is enough: 60 requests a minute, US stocks.',
     without: (account) =>
-      `No company or market news, analyst ratings, earnings dates, insider trades, key metrics, lobbying, government contracts or patents, on stock pages, the Markets tab or in AI reports; the Markets calendar shows FOMC meetings only.${has(account, 'fmp') ? " Live quotes use your FMP plan's daily allowance instead." : ''}`,
+      `No company or market news, analyst ratings, earnings dates, insider trades, key metrics, lobbying, government contracts or patents, on stock pages, the Markets tab, or in AI reports; the Markets calendar shows FOMC meetings only.${has(account, 'fmp') ? " Live quotes use your FMP plan's daily allowance instead." : ''}`,
   },
 ]
 
@@ -155,10 +155,10 @@ const hasPrices = (account: Account) =>
 
 const FEATURES: Feature[] = [
   {
-    name: 'Price charts, volatility, factor exposures, backtests and portfolio tools',
+    name: 'Price charts, volatility, factor exposures, backtests, and portfolio tools',
     works: hasPrices,
     needs:
-      'a price key: Tiingo (free) is the simplest, or Financial Modeling Prep, EODHD or Alpha Vantage',
+      'a price key: Tiingo (free) is the simplest, or Financial Modeling Prep, EODHD, or Alpha Vantage',
   },
   {
     name: 'Live quotes and company profiles',
@@ -176,17 +176,17 @@ const FEATURES: Feature[] = [
     needs: 'an Anthropic key',
   },
   {
-    name: 'News, analyst ratings, earnings, insider trades and key metrics',
+    name: 'News, analyst ratings, earnings, insider trades, and key metrics',
     works: (account) => has(account, 'finnhub'),
     needs: 'a Finnhub key',
   },
   {
-    name: 'Lobbying, government contracts, patents and recent SEC filings',
+    name: 'Lobbying, government contracts, patents, and recent SEC filings',
     works: (account) => has(account, 'finnhub'),
     needs: 'a Finnhub key',
   },
   {
-    name: 'Market news, and earnings, IPOs and holidays on the Markets calendar',
+    name: 'Market news, and earnings, IPOs, and holidays on the Markets calendar',
     works: (account) => has(account, 'finnhub'),
     needs: 'a Finnhub key (FOMC meetings show without one)',
   },
@@ -547,8 +547,8 @@ function LimitsForm({ account, onSaved }: { account: Account; onSaved: (a: Accou
       <div>
         <h2>AI spending limits</h2>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
-          Caps on new AI requests: reports, portfolio reviews and assistant answers. Leave blank for
-          no cap; reused reports are free and not counted.
+          Caps on new AI requests: reports, portfolio reviews, and assistant answers. Leave blank
+          for no cap; reused reports are free and not counted.
         </p>
       </div>
       <div className="stats">
@@ -623,8 +623,8 @@ function AdminSettingsForm({
       )}
       <p className="disclaimer">
         yfinance fills the gaps in free FMP and Alpha Vantage plans (full adjusted price history,
-        ETFs, indices, foreign listings, intraday bars and exchange rates) with Yahoo data, which is
-        unlicensed and can break without notice, so it is for your personal use only. It never
+        ETFs, indices, foreign listings, intraday bars, and exchange rates) with Yahoo data, which
+        is unlicensed and can break without notice, so it is for your personal use only. It never
         reaches another account: their requests use their own keys alone, and a screener refreshed
         with yfinance and Nasdaq data is shown to you alone.
       </p>
@@ -660,7 +660,7 @@ function AdminSettingsForm({
         here.
       </div>
       <AdminSwitch
-        label="Estimate size, value and momentum factors from ETFs, for every account"
+        label="Estimate size, value, and momentum factors from ETFs, for every account"
         on={admin.style_factors}
         disabled={save.isPending}
         onChange={(on) => save.mutate({ style_factors: on })}
@@ -669,7 +669,7 @@ function AdminSettingsForm({
         Matters only while Ken French’s data is not used. Then the market factor is estimated from
         SPY over Treasury bills, which tracks it closely, and stays either way. On, the size, value
         and momentum factors are also estimated from ETFs (IWM, IVV, IWD, IWF, MTUM), which only
-        roughly match the academic factors. Off, factor exposures, backtest attribution, AI reports
+        roughly match the academic factors. Off, factor exposures, backtest attribution, AI reports,
         and the screener use the market factor alone. Ken French’s data, where it is used, is not
         affected.
       </p>
@@ -722,8 +722,8 @@ function DeleteAccount({ email }: { email: string }) {
       <div>
         <h2>Delete account</h2>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
-          Deletes your account at once and for good: your API keys, holdings, backtests, simulations
-          and AI reports. Signing in again starts a new, empty account.
+          Deletes your account at once and for good: your API keys, holdings, backtests,
+          simulations, and AI reports. Signing in again starts a new, empty account.
         </p>
       </div>
       <div className="filter-row">

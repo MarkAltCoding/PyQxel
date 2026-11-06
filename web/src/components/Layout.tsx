@@ -94,7 +94,7 @@ export function Layout() {
       </main>
       <AdviceNotice />
       <footer className="footer">
-        PyQxel helps investors research securities. Analyses, backtests and simulations are built
+        PyQxel helps investors research securities. Analyses, backtests, and simulations are built
         from historical data and are not investment advice. <Link to="/privacy">Privacy</Link>
       </footer>
     </div>

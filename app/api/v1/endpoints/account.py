@@ -132,7 +132,7 @@ async def _account(session: AsyncSession, user: User) -> Account:
 
 @router.get("", response_model=Account, summary="Your account")
 async def read_account(user: CurrentUser, session: Session) -> Account:
-    """Return the account: which provider keys this request carried, AI limits and recent
+    """Return the account: which provider keys this request carried, AI limits, and recent
     usage."""
     try:
         return await _account(session, user)
@@ -245,7 +245,7 @@ async def store_nightly_refresh(
     Each night at ``refresh_time`` in ``time_zone``, your own universe is rebuilt from the
     SEC's shared list of stocks and financials, Finnhub's free metrics on your Finnhub key,
     and price-history columns from whichever price-history key you have (Tiingo, FMP,
-    EODHD or Alpha Vantage). It runs with no browser open, so the market data keys this
+    EODHD, or Alpha Vantage). It runs with no browser open, so the market data keys this
     request carries are stored, encrypted, replacing any stored before; your Anthropic key
     is never stored. Send this again after changing a key.
 
@@ -297,7 +297,7 @@ async def delete_account(user: CurrentUser, session: Session) -> Response:
     """Delete your account and everything it holds, at once and for good.
 
     Your PyQxel API keys, sign-in links to GitHub and Google, holdings, stored backtests,
-    analyses and simulations, and your nightly screener refresh with the keys it stored
+    analyses, and simulations, and your nightly screener refresh with the keys it stored
     and the universe it built are deleted, and every API key stops
     working. Signing in again afterwards starts a new, empty account.
     """
@@ -337,7 +337,7 @@ async def store_admin_settings(request: Request, session: Session) -> Account:
     (``yfinance_fallback``), which never reaches another account, and the whole server's
     use of data sources not cleared for commercial use (``restricted_sources``), or the
     admin's own use of them while the server does not (``own_restricted_sources``), and
-    whether the whole server offers the size, value and momentum factors estimated from
+    whether the whole server offers the size, value, and momentum factors estimated from
     ETFs (``style_factors``); an omitted field is left as it is.
 
     Only the account ``ADMIN_EMAIL`` names may. Everyone else, signed in or not, gets the

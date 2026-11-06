@@ -1,4 +1,4 @@
-"""Schemas for a company's lobbying, government contracts, patents and SEC filings, from
+"""Schemas for a company's lobbying, government contracts, patents, and SEC filings, from
 Finnhub."""
 
 from datetime import date, datetime
@@ -84,7 +84,7 @@ class AlternativeRecords(BaseModel):
 
 
 class AlternativeData(BaseModel):
-    """A company's lobbying, government contracts, patents and SEC filings."""
+    """A company's lobbying, government contracts, patents, and SEC filings."""
 
     symbol: str
     lobbying_years: list[LobbyingYear] = Field(
@@ -113,7 +113,7 @@ class AlternativeData(BaseModel):
 
 
 class AlternativeContext(BaseModel):
-    """A company's lobbying, government contracts, patents and recent filings, as given to
+    """A company's lobbying, government contracts, patents, and recent filings, as given to
     Claude."""
 
     lobbying_years: list[LobbyingYear]

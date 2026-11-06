@@ -59,7 +59,7 @@ class ProviderKeys:
 
 
 def _key(value: str | None) -> SecretStr | None:
-    """A sent key, or ``None`` for a missing, blank or implausible one."""
+    """A sent key, or ``None`` for a missing, blank, or implausible one."""
     value = (value or "").strip()
     if not MIN_KEY_LENGTH <= len(value) <= MAX_KEY_LENGTH or not value.isprintable():
         return None

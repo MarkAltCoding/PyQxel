@@ -1,7 +1,7 @@
 [package]
 name = "pyqxel"
 version = "0.1.0"
-description = "PyQxel, an investment-research app, as a native app for macOS, iOS and more"
+description = "PyQxel, an investment-research app, as a native app for macOS, iOS, and more"
 authors = ["MarkAltCoding"]
 license = "UNLICENSED"
 edition = "2024"

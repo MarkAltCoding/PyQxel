@@ -1,5 +1,5 @@
 """Tests for Alpha Vantage: errors and caching, the market data it stands in for, the ticker
-info and financial statements it fills in.
+info, and financial statements it fills in.
 
 Alpha Vantage is reached through a mock transport, so no test touches the network.
 """

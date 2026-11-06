@@ -1,5 +1,5 @@
 """Tests for Finnhub as a market data provider and as the source of analyst ratings,
-earnings and insider trades.
+earnings, and insider trades.
 
 Finnhub is reached through a mock transport, so no test touches the network.
 """
@@ -278,7 +278,7 @@ def test_each_kind_of_data_tries_every_key_cheapest_first() -> None:
 
 @pytest.mark.asyncio
 async def test_quote_from_finnhub() -> None:
-    """A Finnhub quote has the price, previous close and day's range."""
+    """A Finnhub quote has the price, previous close, and day's range."""
     client, _ = _finnhub()
 
     quote = await fetch_quote("aapl", client)
@@ -371,7 +371,7 @@ async def test_price_history_names_the_keys_that_would_cover_it(
 
 @pytest.mark.asyncio
 async def test_signals_read_every_part() -> None:
-    """Ratings, earnings, the next report and open-market insider trades are read."""
+    """Ratings, earnings, the next report, and open-market insider trades are read."""
     client, _ = _finnhub()
 
     signals = summarize_signals(await fetch_signals("aapl", TODAY, client))
@@ -446,7 +446,7 @@ def test_insider_summary_counts_people_and_value() -> None:
     assert (summary.value_bought, summary.value_sold, summary.net_value) == (1000, 800, 200)
 
 
-# Metrics, peers and search.
+# Metrics, peers, and search.
 
 
 @pytest.mark.asyncio

@@ -36,7 +36,7 @@ export interface DataFeature {
 export const DATA_FEATURES: DataFeature[] = [
   {
     id: 'history-us',
-    name: 'Price history of US stocks, ETFs and funds',
+    name: 'Price history of US stocks, ETFs, and funds',
     steps: [
       {
         provider: 'tiingo',
@@ -94,13 +94,13 @@ export const DATA_FEATURES: DataFeature[] = [
     steps: [
       {
         provider: 'eodhd',
-        free: 'the last year in Europe, Canada, Latin America, Korea, Taiwan, China, Australia and South Africa (not Tokyo, Hong Kong, India, Milan or Singapore), 20 requests a day',
+        free: 'the last year in Europe, Canada, Latin America, Korea, Taiwan, China, Australia and South Africa (not Tokyo, Hong Kong, India, Milan, or Singapore), 20 requests a day',
         freeIsFull: false,
         paid: 'Historian ($19.99 a month): 30+ years on the same exchanges',
       },
       {
         provider: 'alpha_vantage',
-        free: 'the latest 100 days, not adjusted, for London, XETRA, Lisbon, Toronto, India (BSE), Shanghai and Shenzhen',
+        free: 'the latest 100 days, not adjusted, for London, XETRA, Lisbon, Toronto, India (BSE), Shanghai, and Shenzhen',
         freeIsFull: false,
         paid: 'Premium (from $49.99 a month): full adjusted history',
       },
@@ -166,7 +166,7 @@ export const DATA_FEATURES: DataFeature[] = [
   },
   {
     id: 'profiles',
-    name: 'Company profiles: sector, industry and market cap',
+    name: 'Company profiles: sector, industry, and market cap',
     steps: [
       {
         provider: 'fmp',
@@ -181,7 +181,7 @@ export const DATA_FEATURES: DataFeature[] = [
       },
       {
         provider: 'tiingo',
-        free: 'names for any US stock, ETF or fund, and which of the three it is; sectors for the Dow 30',
+        free: 'names for any US stock, ETF, or fund, and which of the three it is; sectors for the Dow 30',
         freeIsFull: false,
       },
       {
@@ -200,11 +200,11 @@ export const DATA_FEATURES: DataFeature[] = [
   },
   {
     id: 'funds',
-    name: 'Fund holdings and costs: expense ratio, net assets, sectors and top holdings',
+    name: 'Fund holdings and costs: expense ratio, net assets, sectors, and top holdings',
     steps: [
       {
         provider: 'alpha_vantage',
-        free: 'expense ratio, yield, turnover and current holdings of ETFs, one of its 25 requests a day each, kept for a day (mutual funds’ holdings come from their SEC filings, which need no key)',
+        free: 'expense ratio, yield, turnover, and current holdings of ETFs, one of its 25 requests a day each, kept for a day (mutual funds’ holdings come from their SEC filings, which need no key)',
         freeIsFull: true,
       },
     ],

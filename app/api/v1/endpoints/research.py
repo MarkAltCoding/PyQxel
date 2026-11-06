@@ -3,8 +3,8 @@
 Reports are grounded in price statistics, factor exposures, a GARCH volatility forecast,
 peer percentiles from the screener and, where available, financial statements and filings
 from SEC EDGAR, recent company news, analyst ratings, earnings, insider trading, key
-metrics, peers, lobbying, government contracts and patents from Finnhub, and the market
-backdrop: FOMC meetings, major earnings reports, IPOs, holidays and market headlines.
+metrics, peers, lobbying, government contracts, and patents from Finnhub, and the market
+backdrop: FOMC meetings, major earnings reports, IPOs, holidays, and market headlines.
 Each report
 can be fetched whole, or streamed as Server-Sent Events while Claude writes it. Reports
 are stored, and one for the same options is reused for a while instead of being paid for
@@ -127,7 +127,7 @@ router = APIRouter()
 """Routes under ``/stocks`` that write analyses."""
 
 ANALYSIS_FACTOR_MODEL: FactorModel = "carhart4"
-"""Factor model whose exposures are given to Claude: market, size, value and momentum."""
+"""Factor model whose exposures are given to Claude: market, size, value, and momentum."""
 
 GARCH_PERIOD: AnalysisPeriod = "5y"
 """Window the volatility forecast is fit to, whatever the analysis period: GARCH needs
@@ -300,7 +300,7 @@ def _news_context(
 def _signals_context(
     result: MarketSignals | BaseException,
 ) -> tuple[SignalsContext | None, str | None]:
-    """Analyst ratings, earnings and insider trades, or why they are missing.
+    """Analyst ratings, earnings, and insider trades, or why they are missing.
 
     They add context but are not essential, so a failure becomes a notice rather than an
     error.
@@ -339,7 +339,7 @@ def _metrics_context(
 def _alternative_context(
     result: AlternativeRecords | BaseException,
 ) -> tuple[AlternativeContext | None, str | None]:
-    """Lobbying, government contracts, patents and filings, or why they are missing.
+    """Lobbying, government contracts, patents, and filings, or why they are missing.
 
     They add context but are not essential, so a failure becomes a notice rather than an
     error. Without a Finnhub key, the signals' notice already says so.
@@ -434,7 +434,7 @@ class PreparedAnalysis:
 async def check_ai_limits(user: User) -> None:
     """Refuse a new AI request beyond the hourly or daily cap the user set.
 
-    The count is read from the stored analyses, portfolio reviews and assistant answers,
+    The count is read from the stored analyses, portfolio reviews, and assistant answers,
     so it holds across workers and restarts.
     When it cannot be read the analysis is refused rather than risk going over.
     """
@@ -480,13 +480,13 @@ async def prepare_analysis(
     user: CurrentUser,
     request: Annotated[AnalysisRequest, Body()] = AnalysisRequest(),
 ) -> PreparedAnalysis:
-    """Fetch the snapshot, prices, filings and financials an analysis is grounded in.
+    """Fetch the snapshot, prices, filings, and financials an analysis is grounded in.
 
     Runs as a dependency, so a streamed analysis fails with an HTTP status before its
     stream opens: 403 without an Anthropic key, 429 beyond the user's AI limits, 404 for
     unknown symbols, 422 when the window has too few bars, and 502 when the price
     provider fails. A missing snapshot, filings, factor exposures, fundamentals,
-    volatility forecast, peer percentiles, news or signals only adds a notice.
+    volatility forecast, peer percentiles, news, or signals only adds a notice.
 
     When the user has a recent report for the same request, nothing is fetched or
     billed and the report is returned with the context it was written from.
@@ -608,7 +608,7 @@ async def gather_analysis_data(
     metrics, metrics_notice = _metrics_context(symbol, metrics_result)
     alternative, alternative_notice = _alternative_context(alternative_result)
     market, market_notice = _market_context(market_result)
-    # A company's peers, ratings, insider trades and lobbying never apply to a fund, so
+    # A company's peers, ratings, insider trades, and lobbying never apply to a fund, so
     # their absence is not news for one.
     company_notices = () if fund is not None else (peer_notice, signals_notice, alternative_notice)
     notices.extend(
@@ -655,16 +655,16 @@ Prepared = Annotated[PreparedAnalysis, Depends(prepare_analysis)]
 async def create_analysis(prepared: Prepared) -> AnalysisResponse:
     """Have Claude write an investment thesis or risk summary for ``symbol``.
 
-    The report is grounded in the ticker snapshot, return, volatility and drawdown
+    The report is grounded in the ticker snapshot, return, volatility, and drawdown
     statistics computed from daily adjusted closes over ``period``, factor exposures, a
     GARCH(1,1) volatility forecast fit to five years of daily returns, the stock's
     screening metrics ranked among its industry or sector peers, the company's financial
     statement figures and valuation multiples, the headlines and summaries of the last
     two weeks of news, analysts' ratings, earnings surprises, the next earnings date,
     insiders' trades and sentiment, key metrics and peers, lobbying, federal contracts,
-    patents and recent SEC filings from Finnhub (with a Finnhub key stored), the market
+    patents, and recent SEC filings from Finnhub (with a Finnhub key stored), the market
     backdrop of upcoming FOMC meetings (for every account) and, with a Finnhub key, major
-    earnings reports, IPOs, holidays and market headlines, and, unless
+    earnings reports, IPOs, holidays, and market headlines, and, unless
     ``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K
     and any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of
     it cannot be fetched the report is written without it and ``context.notice`` says so.
@@ -672,7 +672,7 @@ async def create_analysis(prepared: Prepared) -> AnalysisResponse:
     The report is written with, and billed to, your own Anthropic key, sent in the
     ``X-Anthropic-Key`` header, within the hourly and daily limits you set (``PUT
     /api/v1/me/limits``). Every report is stored under your account. Your report for the
-    same options, model and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by
+    same options, model, and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by
     default) is returned again with ``cached`` set and no charge, unless ``refresh`` is
     true. Identical requests that arrive together are written once.
 
@@ -707,8 +707,8 @@ async def create_analysis(prepared: Prepared) -> AnalysisResponse:
 async def stream_analysis_events(prepared: Prepared) -> AsyncIterator[ServerSentEvent]:
     """Stream the analysis of ``create_analysis`` as Claude writes it.
 
-    Data is gathered first, so unknown symbols, short windows and provider failures
-    return the same 404, 422 and 502 statuses as the non-streaming route. Once the
+    Data is gathered first, so unknown symbols, short windows, and provider failures
+    return the same 404, 422, and 502 statuses as the non-streaming route. Once the
     stream opens, it sends these events, each with a JSON ``data`` payload:
 
     * ``context``: the :class:`AnalysisContext` the report is written from.

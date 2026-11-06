@@ -6,7 +6,7 @@
 #   docker compose run --rm api python -m app.jobs.screener
 #
 # Settings and secrets come from .env, as when running without Docker; the database,
-# Redis and R locations below override it. Postgres and Redis are reachable only from
+# Redis, and R locations below override it. Postgres and Redis are reachable only from
 # the API container, so they do not clash with servers already running on this machine.
 
 services:

@@ -17,7 +17,7 @@ class ProviderCredential(BaseModel):
 
 
 class AiLimits(BaseModel):
-    """Caps on new AI requests (stock analyses, portfolio reviews and coding assistant
+    """Caps on new AI requests (stock analyses, portfolio reviews, and coding assistant
     answers), which are billed to the account's own Anthropic key.
 
     Reused reports do not count. ``null`` means no cap.
@@ -53,7 +53,7 @@ class AdminSettingsUpdate(BaseModel):
     )
     style_factors: bool | None = Field(
         default=None,
-        description="Whether the whole server offers the size, value and momentum factors "
+        description="Whether the whole server offers the size, value, and momentum factors "
         "estimated from ETFs when Ken French's library is not used.",
     )
 
@@ -83,7 +83,7 @@ class Account(BaseModel):
     )
     style_factors: bool = Field(
         default=True,
-        description="Whether the size, value and momentum factors are offered to you; "
+        description="Whether the size, value, and momentum factors are offered to you; "
         "without them, factor models fit the market factor alone.",
     )
     admin: SkipJsonSchema[dict[str, bool | list[str]] | None] = Field(

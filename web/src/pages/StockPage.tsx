@@ -69,7 +69,7 @@ export function StockPage() {
       page="stock"
       signature={symbol}
       title={symbol}
-      what={`${symbol}’s prices, profile, metrics and news`}
+      what={`${symbol}’s prices, profile, metrics, and news`}
       fetches={[
         { kind: 'info', symbols },
         // Asked only of a symbol known to be a fund.
@@ -99,7 +99,7 @@ function StockDetails({ symbol }: { symbol: string }) {
     queryFn: () => getHistory(symbol, period, interval),
     placeholderData: keepPreviousData,
   })
-  // Without size, value and momentum, the server fits the market factor alone, whatever
+  // Without size, value, and momentum, the server fits the market factor alone, whatever
   // model is asked for, so the choice of model is left out.
   const account = useQuery({ queryKey: ['account'], queryFn: () => getAccount() })
   const marketOnly = account.data?.style_factors === false
@@ -171,7 +171,7 @@ function StockDetails({ symbol }: { symbol: string }) {
           <span className="heading-with-info">
             <span>
               {symbol} is a money-market fund: it holds a steady $1 a share and pays its return as
-              interest, so price charts, volatility and factor models have little to show. In a
+              interest, so price charts, volatility, and factor models have little to show. In a
               portfolio it counts as cash.
             </span>
             <InfoTip topic="moneyMarketCash" />
@@ -288,7 +288,7 @@ function StockDetails({ symbol }: { symbol: string }) {
         <section id="signals" className="card">
           <p className="disclaimer heading-with-info" style={{ margin: 0 }}>
             <span>
-              Analyst ratings, earnings, insider trades, lobbying, government contracts and patents
+              Analyst ratings, earnings, insider trades, lobbying, government contracts, and patents
               describe a single company, so they do not apply to {symbol}, a fund. Its holdings each
               have their own: open one from the list above.
             </span>

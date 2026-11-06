@@ -65,7 +65,7 @@ export function StrategyAssistant({
   const abort = useRef<AbortController | null>(null)
   useEffect(() => () => abort.current?.abort(), [])
 
-  /** The question as the API takes it, with the code, its last run and the conversation. */
+  /** The question as the API takes it, with the code, its last run, and the conversation. */
   const requestFor = (text: string): AssistantRequest => ({
     language,
     code,

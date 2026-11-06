@@ -27,7 +27,7 @@ const quarterName = (quarter: Quarter) =>
     : shortDate(quarter.period)
 
 /**
- * What analysts, earnings and insiders say about a stock, from Finnhub on the account's
+ * What analysts, earnings, and insiders say about a stock, from Finnhub on the account's
  * own key.
  */
 export function SignalsCard({ symbol, currency }: { symbol: string; currency: string }) {
@@ -43,7 +43,7 @@ export function SignalsCard({ symbol, currency }: { symbol: string; currency: st
     <section id="signals" className="card" aria-busy={signals.isLoading}>
       <div className="card-header">
         <div>
-          <h2>Analysts, earnings and insiders</h2>
+          <h2>Analysts, earnings, and insiders</h2>
           <div className="subtitle">
             Analyst ratings, earnings against estimates, and insiders' open-market trades, from
             Finnhub

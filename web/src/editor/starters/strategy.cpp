@@ -3,7 +3,7 @@
 // Every position starts at 0.0. The backtest holds each position over the next bar, so
 // a signal never trades on the bar that produced it.
 //
-// bars.open, high, low, close and volume hold each bar's prices and volume, oldest
+// bars.open, high, low, close, and volume hold each bar's prices and volume, oldest
 // first, adjusted for splits and dividends; all but close are NaN where missing (test
 // with pyqxel::missing). bars.timestamp[i] is bar i's time in milliseconds since 1970,
 // UTC. The code is C++20 without exceptions, and whatever it prints appears below.

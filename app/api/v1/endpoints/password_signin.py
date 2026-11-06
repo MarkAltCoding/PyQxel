@@ -11,7 +11,7 @@ The native app signs in here directly, with no browser: these routes answer the 
 origin like any other. Only choosing a password happens on the website, where the
 emailed link opens.
 
-Attempts are limited per client address, per email address and for the whole server,
+Attempts are limited per client address, per email address, and for the whole server,
 so guessing one account's password from many addresses is as slow as from one.
 """
 
@@ -252,7 +252,7 @@ async def send_password_link(
     address has none. The answer is the same either way.
 
     Returns 404 when this server cannot send email, 422 for something that is not an
-    email address, 429 beyond five links an hour from one client, three to one address
+    email address, 429 beyond five links an hour from one client, three to one address,
     or the server's daily number, and 503 when accounts are unavailable.
     """
     sender, site = _sender()
@@ -283,7 +283,7 @@ async def check_password_link(body: LinkToken, request: Request, session: Sessio
     """The address an emailed link was sent to, so its page can name the account,
     without using the link up.
 
-    Returns 400 for a link that is unknown, used or expired, 429 beyond the sign-in
+    Returns 400 for a link that is unknown, used, or expired, 429 beyond the sign-in
     attempts one client may make a minute, and 503 when accounts are unavailable.
     """
     try:
@@ -308,8 +308,8 @@ async def set_password(body: NewPassword, request: Request, session: Session) ->
     if there is none, and sign this browser in. Replacing a password signs out every
     device that signed in with the old one.
 
-    Returns 400 for a link that is unknown, used or expired, 422 for a password too
-    short, too long or too easy to guess (the link still works then), 429 beyond the
+    Returns 400 for a link that is unknown, used, or expired, 422 for a password too
+    short, too long, or too easy to guess (the link still works then), 429 beyond the
     attempts one client may make a minute, and 503 when accounts are unavailable.
     """
     try:

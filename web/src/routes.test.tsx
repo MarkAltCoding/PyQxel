@@ -157,10 +157,10 @@ describe('sign-in', () => {
   it('shows why signing in with a provider failed', async () => {
     serve({ '/api/v1/auth/providers': () => json(PROVIDERS) })
     markSignInStarted()
-    renderAt('/signin#error=Signing+in+with+GitHub+was+cancelled.')
+    renderAt('/signin#error=Signing+in+with+GitHub+was+canceled.')
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Signing in with GitHub was cancelled.',
+      'Signing in with GitHub was canceled.',
     )
   })
 
@@ -323,7 +323,7 @@ describe('the investment advice notice', () => {
     renderAt('/settings')
 
     const notice = await screen.findByRole('dialog', { name: 'Not investment advice' })
-    expect(notice).toHaveTextContent('not recommendations to buy, sell or hold')
+    expect(notice).toHaveTextContent('not recommendations to buy, sell, or hold')
     await userEvent.click(within(notice).getByRole('button', { name: 'I understand' }))
 
     expect(screen.queryByRole('dialog', { name: 'Not investment advice' })).toBeNull()
@@ -391,7 +391,7 @@ describe('deleting the account', () => {
     expect(window.localStorage.getItem('pyqxel.apiKey')).toBeNull()
   })
 
-  it('keeps the account when the warning is cancelled', async () => {
+  it('keeps the account when the warning is canceled', async () => {
     window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
     const calls = serve({
       '/api/v1/me': () => json(ACCOUNT),
@@ -522,7 +522,7 @@ describe('admin settings', () => {
     expect(sent).toEqual([{ own_restricted_sources: true }])
   })
 
-  it('turn the rough ETF estimates of size, value and momentum off', async () => {
+  it('turn the rough ETF estimates of size, value, and momentum off', async () => {
     window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
     const admin = { ...ACCOUNT, admin: ADMIN }
     const sent: unknown[] = []
@@ -535,7 +535,7 @@ describe('admin settings', () => {
     })
     renderAt('/settings')
 
-    const models = await screen.findByRole('checkbox', { name: /size, value and momentum/ })
+    const models = await screen.findByRole('checkbox', { name: /size, value, and momentum/ })
     expect(models).toBeChecked()
     await userEvent.click(models)
 

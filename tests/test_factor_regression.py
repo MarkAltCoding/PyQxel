@@ -67,7 +67,7 @@ def _closes(
 
 @pytest.mark.parametrize("model", ["ff3", "carhart4", "ff5"])
 def test_recovers_known_betas_and_alpha(model: str) -> None:
-    """Betas, alpha and residual volatility come back close to the simulated values."""
+    """Betas, alpha, and residual volatility come back close to the simulated values."""
     factors = _factors(2_000)
 
     fit = fit_factor_model(_closes(factors, model), factors, model)  # type: ignore[arg-type]

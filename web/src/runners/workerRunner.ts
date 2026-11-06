@@ -1,6 +1,6 @@
 // Runs custom strategies in a Web Worker, one at a time. The worker is created on the
 // first run (or `warm()`), so its runtime is only downloaded when someone uses it. A run
-// that takes too long, or is cancelled, terminates the worker; the next run starts a
+// that takes too long, or is canceled, terminates the worker; the next run starts a
 // fresh one, since a stuck interpreter cannot be interrupted any other way.
 import type { CodeLanguage, OHLCVBar } from '../api/types'
 import {
@@ -133,7 +133,7 @@ export class WorkerRunner implements StrategyRunner {
     accept: (outcome: Exclude<WorkerOutcome, Failure>) => T,
   ): Promise<T | Failure> {
     const { signal, onStart } = options
-    if (signal?.aborted) return Promise.resolve(failure('cancelled', 'The run was cancelled.'))
+    if (signal?.aborted) return Promise.resolve(failure('cancelled', 'The run was canceled.'))
     const worker = this.ensure()
     const id = ++this.nextId
     const seconds = (ms: number) => Math.round(ms / 1000)
@@ -173,7 +173,7 @@ export class WorkerRunner implements StrategyRunner {
       }
       const onError = (event: ErrorEvent) =>
         stop('load', event.message || `${RUNTIME_NAMES[this.language]} failed to start.`)
-      const onAbort = () => stop('cancelled', 'The run was cancelled.')
+      const onAbort = () => stop('cancelled', 'The run was canceled.')
 
       let timer = setTimeout(
         () =>

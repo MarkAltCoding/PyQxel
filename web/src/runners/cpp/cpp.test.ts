@@ -315,7 +315,7 @@ describe('C++ strategies across several symbols', () => {
   )
 
   it(
-    'passes each symbol’s name, bars and dates',
+    'passes each symbol’s name, bars, and dates',
     async () => {
       const outcome = await runAcross(
         across(`  std::printf("%zu %zu %s %s %.1f %d %lld\\n", universe.size, universe.count,

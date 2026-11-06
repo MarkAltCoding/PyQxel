@@ -1,4 +1,4 @@
-"""Screening metrics for one stock: liquidity, momentum, risk, valuation and factor betas.
+"""Screening metrics for one stock: liquidity, momentum, risk, valuation, and factor betas.
 
 Every metric is computed from data the refresh job has already downloaded, so the whole
 universe can be scored without further requests.
@@ -21,7 +21,7 @@ from app.stats.volatility import InsufficientDataError
 MONTH_DAYS: int = 21
 HALF_YEAR_DAYS: int = 126
 YEAR_DAYS: int = 252
-"""Trading days in a month, half a year and a year."""
+"""Trading days in a month, half a year, and a year."""
 
 DOLLAR_VOLUME_DAYS: int = 63
 """Trading days the average dollar volume covers: about three months."""
@@ -69,7 +69,7 @@ def _return(closes: pd.Series, start_days_ago: int, end_days_ago: int = 0) -> fl
 
 
 def price_metrics(closes: pd.Series) -> dict[str, float | None]:
-    """Momentum, volatility and drawdown of daily ``closes``, oldest first."""
+    """Momentum, volatility, and drawdown of daily ``closes``, oldest first."""
     year = closes.tail(YEAR_DAYS + 1)
     returns = year.pct_change().dropna()
     volatility = float(returns.std(ddof=1) * math.sqrt(YEAR_DAYS)) if len(returns) > 20 else None
@@ -108,7 +108,7 @@ def fundamental_metrics(
     today: date,
     exchange_rates: dict[str, float] | None = None,
 ) -> dict[str, float | None]:
-    """Valuation, margins, returns and growth from ``financials`` at ``market_cap``.
+    """Valuation, margins, returns, and growth from ``financials`` at ``market_cap``.
 
     ``exchange_rates`` gives US dollars per unit of each currency statements may be in;
     without a rate for theirs, the multiples comparing them with market cap are null.
@@ -209,7 +209,7 @@ def user_screen_metrics(
     """One stock's metrics in a user's own universe, from three sources in turn.
 
     1. The provider's metrics (Finnhub's free basic financials) come first, for market
-       cap, valuation, margins, growth and the six-month return.
+       cap, valuation, margins, growth, and the six-month return.
     2. The SEC financials fill what the provider left out, valued at its market cap.
     3. Price history, when the user's keys could fetch it, gives the price-history
        columns (returns, momentum, volatility, drawdown, factor betas), the price and the
@@ -223,7 +223,7 @@ def user_screen_metrics(
     so the stock is left out when neither price nor volume is known.
 
     Returns:
-        The metrics, or ``None`` when the stock lacks a market cap, price or volume.
+        The metrics, or ``None`` when the stock lacks a market cap, price, or volume.
     """
     market_cap = provider.market_cap
     if market_cap is None or market_cap <= 0:
@@ -273,9 +273,9 @@ def etf_screen_metrics(
     factors: pd.DataFrame | None,
 ) -> ScreenMetrics | None:
     """An ETF's metrics in a user's own universe: those of its price alone, since a fund
-    has no market cap, valuation, margins or growth of its own.
+    has no market cap, valuation, margins, or growth of its own.
 
-    Price history, when the user's keys could fetch it, gives the price, dollar volume and
+    Price history, when the user's keys could fetch it, gives the price, dollar volume, and
     price-history columns, as for a stock. Without it, the provider's quote gives the
     price and its figures stand in as they do for a stock (see
     :func:`user_screen_metrics`).

@@ -4,10 +4,10 @@ Three sources are combined, every one the user can reach:
 
 * **Alpha Vantage's** ``ETF_PROFILE``, which its free plan answers (tested November 5,
   2026) for one of its 25 requests a day, reused for a day: the expense ratio, yield,
-  turnover, inception, leverage, sector weights and current holdings with tickers.
+  turnover, inception, leverage, sector weights, and current holdings with tickers.
 * **The SEC's N-PORT filings** (:mod:`app.data.fund_filings`), public and needing no key:
   every holding of a mutual fund or ETF as of the latest published quarter end, the mix of
-  stocks, bonds and cash, and a bond fund's coupon, maturity and issuers.
+  stocks, bonds, and cash, and a bond fund's coupon, maturity, and issuers.
 * **The companies' own figures**, to weight into the fund's (valuation, margins, growth,
   size, sectors): from the screener the user may see, which costs nothing, then Finnhub's
   free basic financials on the user's key for up to :data:`FINNHUB_LOOKUPS` of the largest
@@ -134,7 +134,7 @@ async def _alpha_vantage_profile(symbol: str, notes: list[str]) -> FundProfile |
     api_key = alpha_vantage_key()
     if api_key is None:
         notes.append(
-            "Add an Alpha Vantage key in Settings for the fund's expense ratio, yield and "
+            "Add an Alpha Vantage key in Settings for the fund's expense ratio, yield, and "
             "turnover: its free plan serves them."
         )
         return None
@@ -146,7 +146,7 @@ async def _alpha_vantage_profile(symbol: str, notes: list[str]) -> FundProfile |
     except ProviderLimitError:
         notes.append(
             "Your Alpha Vantage key has used its 25 free requests for the day, so the fund's "
-            "expense ratio, yield and turnover are left out until it resets."
+            "expense ratio, yield, and turnover are left out until it resets."
         )
     except DataFetchError as exc:
         notes.append(f"The fund's costs from Alpha Vantage are left out: {exc}")
@@ -338,7 +338,7 @@ async def fetch_fund_profile(symbol: str, lookups: int = FINNHUB_LOOKUPS) -> Fun
                 "notes": [
                     *profile.notes,
                     "It holds bonds, not companies, so a company's figures such as P/E do not "
-                    "apply: its bonds' coupon, maturity and issuers are shown instead.",
+                    "apply: its bonds' coupon, maturity, and issuers are shown instead.",
                 ]
             }
         )

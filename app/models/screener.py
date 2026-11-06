@@ -1,6 +1,6 @@
 """Schemas for the stock screener: the screened universe, its metrics, and screen requests.
 
-Returns, growth, margins, yields and volatilities are decimals (0.25 = 25%); volatility
+Returns, growth, margins, yields, and volatilities are decimals (0.25 = 25%); volatility
 is annualized. Money amounts are US dollars.
 """
 
@@ -25,7 +25,7 @@ LIQUID_DOLLAR_VOLUME: float = 5_000_000.0
 AssetType = Literal["stock", "etf"]
 """What a screened security is: a company's common stock, or an exchange-traded fund
 (ETF), which holds many companies. A company's figures, such as its market cap,
-valuation, margins and growth, do not apply to an ETF, and are null for one."""
+valuation, margins, and growth, do not apply to an ETF, and are null for one."""
 
 ETF_FIELDS: frozenset[str] = frozenset(
     {"price", "avg_dollar_volume", "return_1m", "return_6m", "momentum_12_1", "volatility",
@@ -190,7 +190,7 @@ class ScreenFilter(BaseModel):
     @model_validator(mode="after")
     def _has_a_bound(self) -> Self:
         if self.min is None and self.max is None:
-            raise ValueError("A filter needs min, max or both.")
+            raise ValueError("A filter needs min, max, or both.")
         if self.min is not None and self.max is not None and self.min > self.max:
             raise ValueError("min must not exceed max.")
         return self

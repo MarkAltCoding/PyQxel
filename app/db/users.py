@@ -1,4 +1,4 @@
-"""Storage of accounts, their API keys and AI limits.
+"""Storage of accounts, their API keys, and AI limits.
 
 Provider keys are not stored: browsers keep them and send them with each request.
 """
@@ -310,7 +310,7 @@ async def renew_signed_in_key(
 
 
 async def authenticate(session: AsyncSession, key: str) -> User | None:
-    """The account an API key belongs to, or ``None`` for unknown, revoked and expired keys."""
+    """The account an API key belongs to, or ``None`` for unknown, revoked, and expired keys."""
     record = await session.scalar(
         select(ApiKeyRecord).where(
             ApiKeyRecord.key_hash == hash_api_key(key), ApiKeyRecord.revoked_at.is_(None)
@@ -377,7 +377,7 @@ async def update_own_restricted_sources(session: AsyncSession, user_id: str, ena
 
 async def ai_usage(session: AsyncSession, user_id: str) -> AiUsage:
     """New AI requests made for the account in the last hour and day: stock analyses,
-    portfolio reviews and coding assistant answers."""
+    portfolio reviews, and coding assistant answers."""
     now = datetime.now(timezone.utc)
 
     async def since(window: timedelta) -> int:
@@ -412,9 +412,9 @@ async def delete_user(session: AsyncSession, user_id: str) -> bool:
     """Delete the account and everything it holds; return whether it existed.
 
     Its API keys, sign-ins waiting for the native app, sign-in identities, portfolios and
-    their holdings, stored backtests, analyses, portfolio reviews and simulations, its
+    their holdings, stored backtests, analyses, portfolio reviews, and simulations, its
     count of assistant answers, and its nightly screener refresh, with the encrypted keys
-    it stored, its runs and its own screened universe, and the price history kept for it go
+    it stored, its runs, and its own screened universe, and the price history kept for it go
     with it. Rows are deleted
     explicitly rather than left to the foreign keys' cascades, which SQLite does not
     enforce by default.

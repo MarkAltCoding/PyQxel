@@ -12,7 +12,7 @@
 # read by Cloud Run from Secret Manager; none pass through this script.
 #
 # Optional settings, with defaults:
-#   REGION=us-central1        Cloud Run, Artifact Registry and Scheduler region
+#   REGION=us-central1        Cloud Run, Artifact Registry, and Scheduler region
 #   SERVICE=pyqxel            service name; the screener job is "$SERVICE-screener"
 #   MAX_INSTANCES=2           cap on concurrent instances, which bounds the bill
 #   CORS_ORIGINS='["https://app.example"]'   browser origins allowed to call the API

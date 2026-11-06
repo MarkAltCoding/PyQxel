@@ -25,7 +25,7 @@ class NewsArticle(BaseModel):
         le=1,
         description="How much the headline looks to matter, from 0 to 1: for market news, "
         "how market-moving it looks; for a company's news, how much it looks to matter for "
-        "its shares. Both weigh the topics it names, its publisher and how recent it is; "
+        "its shares. Both weigh the topics it names, its publisher, and how recent it is; "
         "null where not scored.",
     )
 

@@ -1,4 +1,4 @@
-"""Tests that keys, tokens and sign-in details stay out of logs, errors and responses.
+"""Tests that keys, tokens, and sign-in details stay out of logs, errors, and responses.
 
 Every address and key here is made up.
 """

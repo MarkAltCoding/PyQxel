@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ApiError } from '../api/client'
 import { getFund } from '../api/endpoints'
 import type { FundProfile } from '../api/types'
-import { compact, number, percent, shortDate, signedPercent } from '../lib/format'
+import { compact, listed, number, percent, shortDate, signedPercent } from '../lib/format'
 import { InfoTip } from './InfoTip'
 import { Notice } from './Notice'
 import { Stat } from './Stat'
@@ -11,7 +11,7 @@ import { Stat } from './Stat'
 const SOURCE_NAMES: Record<string, string> = { alpha_vantage: 'Alpha Vantage', sec: 'the SEC' }
 
 /** What an ETF or mutual fund holds and costs, and the figures of the companies it holds:
- * the fund's stand-in for a company's market cap, valuation and earnings. Costs come from
+ * the fund's stand-in for a company's market cap, valuation, and earnings. Costs come from
  * Alpha Vantage on the account's key, holdings from it or from the fund's SEC filings, and
  * the companies' figures from the account's screener or Finnhub. */
 export function FundCard({ symbol }: { symbol: string }) {
@@ -24,10 +24,9 @@ export function FundCard({ symbol }: { symbol: string }) {
   })
   const status = fund.error instanceof ApiError ? fund.error.status : null
   const data = fund.data
-  const sources = data?.source
-    .split(',')
-    .map((name) => SOURCE_NAMES[name.trim()] ?? name.trim())
-    .join(' and ')
+  const sources = data
+    ? listed(data.source.split(',').map((name) => SOURCE_NAMES[name.trim()] ?? name.trim()))
+    : undefined
 
   return (
     <section id="fund" className="card" aria-busy={fund.isLoading}>
@@ -235,7 +234,7 @@ function WeightedStats({ fund }: { fund: FundProfile }) {
   const stats = fund.stats
   if (!stats) return null
   const size = stats.size_mix ?? {}
-  const from = (fund.stats_sources ?? []).join(' and ')
+  const from = listed(fund.stats_sources ?? [])
   return (
     <div>
       <div className="heading-with-info">

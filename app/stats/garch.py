@@ -43,7 +43,7 @@ MIN_ARCH_EFFECT: float = 0.01
 """``alpha1`` below which the fit found no volatility clustering."""
 
 CONTEXT_HORIZONS: tuple[int, ...] = (1, 5, 21, 63)
-"""Trading days ahead summarized for an analysis: a day, a week, a month and a quarter."""
+"""Trading days ahead summarized for an analysis: a day, a week, a month, and a quarter."""
 
 SHORT_SAMPLE_ADVICE: str = (
     "Request a longer period or a shorter interval, or use the EWMA model, which "
@@ -175,7 +175,7 @@ async def fit_garch(
     Raises:
         ValueError: If ``periods_per_year`` or ``horizon`` is out of range.
         InsufficientDataError: If there are too few returns or prices never change.
-        RUnavailableError: If R, rpy2 or the ``rugarch`` package cannot be loaded.
+        RUnavailableError: If R, rpy2, or the ``rugarch`` package cannot be loaded.
         ModelFitError: If the optimizer fails to converge or R returns invalid output.
     """
     annualization_scale(periods_per_year)  # Validates before any R work.

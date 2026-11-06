@@ -1,4 +1,4 @@
-"""Raw data for the screened universe: listed companies, their prices and their size.
+"""Raw data for the screened universe: listed companies, their prices, and their size.
 
 The universe starts from the SEC's list of companies with exchange-listed tickers, which
 covers every US-listed stock whose issuer files with the SEC. Index memberships such as
@@ -6,7 +6,7 @@ the S&P 500 or the Russell indices are licensed, so size and liquidity filters s
 for them.
 
 Market data comes from Financial Modeling Prep through an :class:`FmpSession` on the
-screener's own key, since every account sees the universe it builds: market caps, sectors
+screener's own key, since every account sees the universe it builds: market caps, sectors,
 and industries from FMP's company screener, a few requests in all, and dividend-adjusted
 daily prices one stock at a time, paced to the plan's rate limit. Market caps the company
 screener lacks come from shares outstanding reported to the SEC, or from FMP company
@@ -51,7 +51,7 @@ SCREENER_LIMIT: int = 10_000
 """Rows asked of the company screener per exchange, more than any exchange lists."""
 NASDAQ_SCREENER_URL: str = "https://api.nasdaq.com/api/screener/stocks"
 """Nasdaq's public stock screener feed, unlicensed: every US-listed stock's market cap,
-sector and industry in one response."""
+sector, and industry in one response."""
 FRAMES_URL: str = "https://data.sec.gov/api/xbrl/frames/{taxonomy}/{concept}/shares/{period}.json"
 
 EXCHANGES: frozenset[str] = frozenset({"NYSE", "Nasdaq", "CBOE"})
@@ -61,7 +61,7 @@ COMMON_STOCK: re.Pattern[str] = re.compile(r"[A-Z]{1,5}(?:-[A-Z])?")
 """Tickers of common shares: up to five letters, or a share class such as BRK-B."""
 
 NON_COMMON_SUFFIXES: frozenset[str] = frozenset({"W", "U", "R"})
-"""Fifth letters Nasdaq gives warrants, units and rights."""
+"""Fifth letters Nasdaq gives warrants, units, and rights."""
 
 NON_COMMON_NAME: re.Pattern[str] = re.compile(
     r"\bpreferred\b|\bnotes?\b|debentures?|\bwarrants?\b|\bunits?\b|\brights?\b|%",
@@ -89,7 +89,7 @@ FMP_TIMEOUT_SECONDS: float = 60.0
 FMP_CONCURRENCY: int = 8
 """FMP requests in flight at once; the pacer bounds how many start each minute."""
 FMP_RETRIES: int = 3
-"""Retries of an FMP request that was throttled, failed on FMP's side or timed out."""
+"""Retries of an FMP request that was throttled, failed on FMP's side, or timed out."""
 FMP_RETRY_PAUSE_SECONDS: float = 15.0
 """Wait before the first retry; later retries wait longer."""
 PROGRESS_EVERY: int = 1_000
@@ -101,7 +101,7 @@ T = TypeVar("T")
 
 @dataclass(frozen=True)
 class Profile:
-    """A security's name, market cap and classification from a stock screener."""
+    """A security's name, market cap, and classification from a stock screener."""
 
     name: str
     market_cap: float | None
@@ -120,10 +120,10 @@ class Listing:
 
 
 def is_common_stock(symbol: str) -> bool:
-    """Whether ``symbol`` looks like common shares rather than preferreds, units or warrants.
+    """Whether ``symbol`` looks like common shares rather than preferreds, units, or warrants.
 
-    EDGAR writes preferred series as ``JPM-PC``, and Nasdaq ends warrant, unit and right
-    tickers with W, U or R as a fifth letter.
+    EDGAR writes preferred series as ``JPM-PC``, and Nasdaq ends warrant, unit, and right
+    tickers with W, U, or R as a fifth letter.
     """
     if not COMMON_STOCK.fullmatch(symbol):
         return False
@@ -225,7 +225,7 @@ class FmpSession:
     """FMP requests for one refresh, on the screener's key.
 
     Requests share one HTTP client, are paced to the plan's rate limit, and are retried
-    when FMP throttles them, fails on its side or times out. Once FMP rejects the key,
+    when FMP throttles them, fails on its side, or times out. Once FMP rejects the key,
     every later request fails at once rather than calling FMP again.
     """
 
@@ -299,7 +299,7 @@ class FmpSession:
 
 
 async def fetch_profiles(session: FmpSession | None) -> dict[str, Profile]:
-    """Every US-listed stock's name, market cap, sector and industry from FMP, or without
+    """Every US-listed stock's name, market cap, sector, and industry from FMP, or without
     a session from Nasdaq's public feed.
 
     Raises:

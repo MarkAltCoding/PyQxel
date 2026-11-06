@@ -245,7 +245,7 @@ describe('strategies across several symbols', () => {
     { timestamp: '2026-10-15T00:00:00-04:00', close: 101, volume: 5 },
     { timestamp: '2026-10-16T00:00:00-04:00', close: 102 },
   ]
-  // A Tokyo listing, a holiday on the 15th and a bad close on the 16th.
+  // A Tokyo listing, a holiday on the 15th, and a bad close on the 16th.
   const sony: OHLCVBar[] = [
     { timestamp: '2026-10-14T00:00:00+09:00', close: 20 },
     { timestamp: '2026-10-16T00:00:00+09:00', close: 0 },

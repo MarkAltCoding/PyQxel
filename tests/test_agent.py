@@ -114,7 +114,7 @@ async def _write(
 
 
 async def test_thesis_request_is_grounded_and_structured() -> None:
-    """The request carries the snapshot, the thesis schema, effort and fallbacks."""
+    """The request carries the snapshot, the thesis schema, effort, and fallbacks."""
     client = FakeClient(_response())
 
     report, model = await _write(client, "thesis")

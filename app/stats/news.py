@@ -91,7 +91,7 @@ COMPANY_TOPICS: tuple[tuple[re.Pattern[str], float], ...] = tuple(
         # Deals and the company's structure.
         (r"\b(merger|acquir\w+|buyout|takeover|agrees? to buy|deal|spin-?off)\b", 1.2),
         (r"\b(buyback|repurchase|dividend|stock split|offering|bankruptcy|delist\w*)\b", 1.0),
-        # Leadership, legal and regulatory trouble.
+        # Leadership, legal, and regulatory trouble.
         (r"\b(ceo|cfo|chief executive|resigns?|steps down|appoint\w*|layoffs?|job cuts)\b", 0.8),
         (r"\b(lawsuit|sued|probe|investigation|sec|antitrust|fine[sd]?|settle\w*|recall)\b", 0.9),
         (r"\b(fda|approval|approves?|clinical trial|patent)\b", 0.8),
@@ -115,7 +115,7 @@ def company_headline_importance(article: NewsArticle, symbol: str, now: datetime
     """Score how much ``article`` looks to matter for ``symbol``'s shares, from 0 to 1.
 
     A heuristic, not a model: the company events its headline names (results and
-    guidance, analyst ratings, deals, leadership, legal and regulatory news), whether it
+    guidance, analyst ratings, deals, leadership, legal, and regulatory news), whether it
     names the ticker, whether a major publisher ran it, and how recent it is, halving every
     :data:`NEWS_HALF_LIFE_HOURS` hours.
     """

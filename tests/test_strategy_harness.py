@@ -128,7 +128,7 @@ def test_a_series_missing_bars_is_nan_on_them() -> None:
     ],
 )
 def test_positions_that_cannot_be_scored_are_errors(returns: str, message: str) -> None:
-    """Out-of-range, wrongly sized and non-numeric results are explained."""
+    """Out-of-range, wrongly sized, and non-numeric results are explained."""
     result = _run(f"def strategy(bars):\n    return {returns}\n")
 
     assert result["ok"] is False

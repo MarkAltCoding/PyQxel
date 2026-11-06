@@ -374,7 +374,7 @@ NPORT = b"""<?xml version="1.0" encoding="UTF-8"?>
     </invstOrSecs>
   </formData>
 </edgarSubmission>"""
-"""An N-PORT filing cut to the fields read: two stocks, two bonds and cash."""
+"""An N-PORT filing cut to the fields read: two stocks, two bonds, and cash."""
 
 
 def test_a_funds_sec_filing_is_summarized() -> None:

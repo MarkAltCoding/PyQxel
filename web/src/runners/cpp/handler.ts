@@ -1,5 +1,5 @@
 // What the C++ worker does with each message, apart from the worker itself so that it can
-// be tested with its compiler, module compiler and runner replaced.
+// be tested with its compiler, module compiler, and runner replaced.
 import type { Command } from '@yowasp/clang'
 import type { BarColumns, UniverseColumns } from '../types'
 import type {

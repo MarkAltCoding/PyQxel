@@ -1,4 +1,4 @@
-"""A company's lobbying, government contracts and patents from Finnhub, on the user's own
+"""A company's lobbying, government contracts, and patents from Finnhub, on the user's own
 key, and its SEC filings from EDGAR, which needs none.
 
 Finnhub's free plan covers the first three for US companies, as checked against a free key
@@ -226,7 +226,7 @@ def _reason(name: str, error: BaseException) -> str:
 async def fetch_alternative(
     symbol: str, today: date, client: httpx2.AsyncClient | None = None
 ) -> AlternativeRecords:
-    """``symbol``'s lobbying, government contracts, patents and SEC filings.
+    """``symbol``'s lobbying, government contracts, patents, and SEC filings.
 
     Raises:
         ProviderNotConfiguredError: If the user has no Finnhub key, or it is rejected.
@@ -246,7 +246,7 @@ async def fetch_alternative(
     )
     if not keyed and isinstance(results[3], BaseException):
         raise ProviderNotConfiguredError(
-            "Lobbying, government contract and patent data come from Finnhub on your own "
+            "Lobbying, government contract, and patent data come from Finnhub on your own "
             "key: add it in Settings."
         )
     parts: dict[str, Any] = {}

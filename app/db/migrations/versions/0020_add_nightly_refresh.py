@@ -58,7 +58,7 @@ def _user_id(primary_key: bool) -> sa.Column[str]:
 
 
 def upgrade() -> None:
-    """Create the listings, companies, opt-in, per-user run and per-user universe tables."""
+    """Create the listings, companies, opt-in, per-user run, and per-user universe tables."""
     op.create_table(
         "screener_listings",
         sa.Column("symbol", sa.String(length=16), primary_key=True),

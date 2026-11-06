@@ -1,4 +1,4 @@
-/* Design tokens. Chart colors are the validated categorical, sequential and diverging
+/* Design tokens. Chart colors are the validated categorical, sequential, and diverging
    palettes; dark mode uses its own steps, not an inversion. */
 :root {
   color-scheme: light;
@@ -315,7 +315,7 @@ main {
 }
 
 /* On a phone the main links move to a tab bar along the bottom of the screen, within reach
-   of a thumb, and the top bar keeps the name, the search and the account buttons. */
+   of a thumb, and the top bar keeps the name, the search, and the account buttons. */
 @media (max-width: 760px) {
   .topbar {
     flex-wrap: wrap;
@@ -1683,7 +1683,7 @@ table.data .muted {
   font-size: 0.8rem;
 }
 
-/* ── Information tips beside stats, models and charts ── */
+/* ── Information tips beside stats, models, and charts ── */
 /* A heading with its "i" beside it, outside the heading so its name stays clean. */
 /* A control with the "i" explaining it beside it, kept on one line. */
 .control-with-info {

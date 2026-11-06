@@ -1,4 +1,4 @@
-"""Sample normalized financials shared by the fundamentals, valuation and API tests."""
+"""Sample normalized financials shared by the fundamentals, valuation, and API tests."""
 
 from datetime import date, timedelta
 from typing import Any

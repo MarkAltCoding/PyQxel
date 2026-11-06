@@ -207,7 +207,7 @@ export function NightlyRefreshCard({
       {data?.enabled && !hasFinnhub && (
         <Notice>
           It is on, with the keys stored on the server. You can turn it off here at any time. To
-          change its keys, time or number of stocks, add your Finnhub key above first.
+          change its keys, time, or number of stocks, add your Finnhub key above first.
         </Notice>
       )}
 

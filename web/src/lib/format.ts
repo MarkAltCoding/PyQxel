@@ -78,7 +78,7 @@ export function dateTime(value: string | null | undefined): string {
   })
 }
 
-/** How long ago `value` was, e.g. "5 minutes ago", "3 hours ago" or "Oct 12" beyond a week. */
+/** How long ago `value` was, e.g. "5 minutes ago", "3 hours ago", or "Oct 12" beyond a week. */
 export function timeAgo(value: string | null | undefined, now: Date = new Date()): string {
   if (!value) return DASH
   const date = new Date(value)
@@ -97,4 +97,11 @@ export function timeAgo(value: string | null | undefined, now: Date = new Date()
 export function tone(value: number | null | undefined): 'up' | 'down' | undefined {
   if (missing(value) || value === 0) return undefined
   return value > 0 ? 'up' : 'down'
+}
+
+/** `items` as an English list, with the serial comma from three items on, as in
+ * "A, B, and C"; two items are joined by the conjunction alone. */
+export function listed(items: readonly string[], conjunction: 'and' | 'or' = 'and'): string {
+  if (items.length < 3) return items.join(` ${conjunction} `)
+  return `${items.slice(0, -1).join(', ')}, ${conjunction} ${items.at(-1)}`
 }

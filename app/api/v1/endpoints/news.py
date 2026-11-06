@@ -48,7 +48,7 @@ async def get_news(
     ``overview`` counts every article in the window by day and by publisher, while
     ``articles`` holds the newest ``limit`` of them. Each article's ``importance``, from 0
     to 1, scores how much it looks to matter for the company's shares: the company events
-    its headline names (results and guidance, analyst ratings, deals, leadership, legal
+    its headline names (results and guidance, analyst ratings, deals, leadership, legal,
     and regulatory news), whether it names the ticker, its publisher, and how recent it
     is. Copies of a syndicated story under the same headline count once. News is fetched
     on your own Finnhub key (``X-Finnhub-Key``), whose free plan covers North American

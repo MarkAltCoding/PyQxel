@@ -188,7 +188,7 @@ class Settings(BaseSettings):
     screener_fmp_api_key: SecretStr | None = Field(
         default=None,
         description="Financial Modeling Prep key the screener refresh uses for prices, "
-        "market caps, sectors and exchange rates. Every account sees the universe it builds, "
+        "market caps, sectors, and exchange rates. Every account sees the universe it builds, "
         "so it must be on a plan whose terms allow showing FMP data to your users, and cover "
         "the company screener. Without it, the refresh runs only with YFINANCE_FALLBACK on.",
     )

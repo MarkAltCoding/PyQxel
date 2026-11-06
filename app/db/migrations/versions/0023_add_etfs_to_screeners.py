@@ -1,7 +1,7 @@
 """Let a screened universe hold ETFs beside stocks.
 
 ``asset_type`` says whether a row is a company's stock or an exchange-traded fund. An ETF
-is not a company, so it has no SEC registrant, market cap or market cap rank, and those
+is not a company, so it has no SEC registrant, market cap, or market cap rank, and those
 columns become nullable. Every existing row is a stock. ``nightly_refreshes.etfs_scanned_at``
 records when a user's refresh last checked every US ETF, which it does once a week.
 

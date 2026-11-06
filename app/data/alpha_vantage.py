@@ -4,7 +4,7 @@ SEC filings remain the source of a company's financials. Alpha Vantage, on the u
 own key (see :mod:`app.core.credentials`), steps in two ways:
 
 * when EDGAR has no statements for the company, or cannot be reached, the financials are
-  built from Alpha Vantage's income statement, balance sheet and cash flow statement;
+  built from Alpha Vantage's income statement, balance sheet, and cash flow statement;
 * when the filings leave items out, such as debt or depreciation that a company tags in
   an unrecognized way, Alpha Vantage fills them in, but only if its figures run to the
   same latest period and are in the same currency, so a filled item never pairs figures

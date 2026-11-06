@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { INFO, type InfoKey } from '../lib/glossary'
 
 /**
- * A small "i" beside a stat, model or chart that explains it. Hovering opens the
+ * A small "i" beside a stat, model, or chart that explains it. Hovering opens the
  * explanation until the cursor leaves both the "i" and the box; clicking pins it open
  * until the "i" is clicked again. Keyboard focus opens it too, and Escape closes it.
  *

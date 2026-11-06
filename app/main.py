@@ -118,7 +118,7 @@ def create_app() -> FastAPI:
     """Build and configure the FastAPI application.
 
     Returns:
-        The configured application with CORS middleware, health checks, the v1 API
+        The configured application with CORS middleware, health checks, the v1 API,
         and the web frontend registered.
     """
     install_log_redaction()

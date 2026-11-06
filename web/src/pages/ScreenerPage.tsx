@@ -261,7 +261,7 @@ export function ScreenerPage() {
       {empty && (
         <Notice>
           The stock screener is not available yet. Once it is, it lists US stocks you can filter and
-          rank by their valuation, growth, momentum and risk.
+          rank by their valuation, growth, momentum, and risk.
           {nightly.data?.available && !nightly.data.enabled && (
             <>
               {' '}
@@ -505,8 +505,8 @@ export function ScreenerPage() {
         {results.data?.items.some((stock) => stock.asset_type === 'etf') && (
           <p className="disclaimer heading-with-info" style={{ marginTop: 12 }}>
             <span>
-              n/a: a company&apos;s figure, such as market cap, P/E, margins or growth, which an ETF
-              does not have, since it holds many companies. Screening on one of them leaves ETFs
+              n/a: a company&apos;s figure, such as market cap, P/E, margins, or growth, which an
+              ETF does not have, since it holds many companies. Screening on one of them leaves ETFs
               out.
             </span>
             <InfoTip topic="notForFunds" />

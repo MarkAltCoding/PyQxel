@@ -662,7 +662,7 @@ def run_backtest(
     """Backtest ``strategy`` on one asset's ``closes``.
 
     Args:
-        closes: Adjusted close prices indexed by bar timestamp. Missing, non-finite and
+        closes: Adjusted close prices indexed by bar timestamp. Missing, non-finite, and
             non-positive closes are dropped before the strategy sees them.
         strategy: Maps the cleaned closes to target positions.
         periods_per_year: Bars per year, used to annualize (252 for daily bars).
@@ -672,7 +672,7 @@ def run_backtest(
             them. Omit to earn nothing.
 
     Returns:
-        Strategy and benchmark returns, equity curves and metrics.
+        Strategy and benchmark returns, equity curves, and metrics.
 
     Raises:
         InsufficientDataError: If there are too few bars to backtest.

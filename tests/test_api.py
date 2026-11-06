@@ -377,7 +377,7 @@ def test_volatility_uses_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     ],
 )
 def test_volatility_rejects_invalid_parameters(params: dict[str, str | int | float]) -> None:
-    """Unsupported bars, periods, horizons, distributions, models and decays fail."""
+    """Unsupported bars, periods, horizons, distributions, models, and decays fail."""
     response = client.get("/api/v1/stocks/SPY/volatility", params=params)
 
     assert response.status_code == 422
@@ -1146,7 +1146,7 @@ def test_missing_factor_data_degrades_or_fails(monkeypatch: pytest.MonkeyPatch) 
     ],
 )
 def test_backtest_rejects_invalid_requests(payload: dict[str, object]) -> None:
-    """Crossed windows, unknown strategies, short periods and negative costs fail validation."""
+    """Crossed windows, unknown strategies, short periods, and negative costs fail validation."""
     assert client.post("/api/v1/stocks/SPY/backtest", json=payload).status_code == 422
 
 
@@ -1235,7 +1235,7 @@ def test_dual_momentum_explains_a_benchmark_it_cannot_use(
     status_code: int,
     message: str,
 ) -> None:
-    """An unknown, unavailable or empty benchmark fails naming the benchmark, not the asset."""
+    """An unknown, unavailable, or empty benchmark fails naming the benchmark, not the asset."""
     frame = _trending_frame(5)
 
     async def fake_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
@@ -1348,7 +1348,7 @@ def test_stored_backtests_page(monkeypatch: pytest.MonkeyPatch) -> None:
     [{"limit": 0}, {"limit": 201}, {"offset": -1}, {"symbol": "BAD$"}, {"strategy": "momentum"}],
 )
 def test_backtest_listing_rejects_invalid_filters(params: dict[str, str | int]) -> None:
-    """Out-of-range pages, malformed symbols and unknown strategies fail validation."""
+    """Out-of-range pages, malformed symbols, and unknown strategies fail validation."""
     assert client.get("/api/v1/backtests", params=params).status_code == 422
 
 
@@ -1458,7 +1458,7 @@ def test_custom_all_long_scores_as_buy_and_hold(monkeypatch: pytest.MonkeyPatch)
 def test_custom_positions_score_as_the_built_in_strategy_they_copy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A 10/30 crossover computed elsewhere matches the built-in one, costs, cash interest
+    """A 10/30 crossover computed elsewhere matches the built-in one, costs, cash interest,
     and factor attribution included."""
     frame = _trending_frame(2)
     _serve_backtest_history(monkeypatch, frame)
@@ -1572,7 +1572,7 @@ THREE_BARS = ["2024-01-02T21:00:00+00:00", "2024-01-03T21:00:00+00:00", "2024-01
 )
 def test_custom_backtest_rejects_invalid_requests(change: dict[str, object]) -> None:
     """Non-finite or out-of-range positions, mismatched lengths, unordered or naive
-    timestamps, unknown languages and oversized code fail validation."""
+    timestamps, unknown languages, and oversized code fail validation."""
     body = {"code": "", "timestamps": THREE_BARS, "positions": [1.0, 0.0, 1.0]} | change
 
     response = client.post(
@@ -1773,7 +1773,7 @@ def _message_start(model: str) -> dict[str, Any]:
 
 
 def _block(index: int, block: dict[str, Any], deltas: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """A content block's start, deltas and stop events."""
+    """A content block's start, deltas, and stop events."""
     return [
         {"type": "content_block_start", "index": index, "content_block": block},
         *({"type": "content_block_delta", "index": index, "delta": d} for d in deltas),
@@ -2067,7 +2067,7 @@ def test_unknown_analysis_is_404() -> None:
     "params", [{"limit": 0}, {"offset": -1}, {"symbol": "BAD$"}, {"kind": "memo"}]
 )
 def test_analysis_listing_rejects_invalid_filters(params: dict[str, str | int]) -> None:
-    """Out-of-range pages, malformed symbols and unknown kinds fail validation."""
+    """Out-of-range pages, malformed symbols, and unknown kinds fail validation."""
     assert client.get("/api/v1/analyses", params=params).status_code == 422
 
 
@@ -2304,7 +2304,7 @@ def test_analysis_notes_stale_news(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_analysis_context_carries_signals(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ratings, earnings and insiders' totals are given to the model, not each trade."""
+    """Ratings, earnings, and insiders' totals are given to the model, not each trade."""
     calls = _serve_analysis(monkeypatch, ANALYZABLE, _recent_frame(), THESIS)
 
     response = client.post("/api/v1/stocks/aapl/analysis", json={"include_filings": False})
@@ -2355,7 +2355,7 @@ def test_analysis_context_has_fomc_dates_without_a_finnhub_key(
 
 
 def test_analysis_context_carries_alternative_data(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Lobbying, contracts, patents and 8-K dates are given to the model."""
+    """Lobbying, contracts, patents, and 8-K dates are given to the model."""
     calls = _serve_analysis(monkeypatch, ANALYZABLE, _recent_frame(), THESIS)
 
     asked: list[date] = []

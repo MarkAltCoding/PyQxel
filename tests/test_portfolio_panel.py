@@ -236,7 +236,7 @@ def test_time_zone_aware_closes_are_matched_by_date() -> None:
 
 
 def test_bad_prices_count_as_missing() -> None:
-    """Zero, negative and non-finite closes are treated as no close that day."""
+    """Zero, negative, and non-finite closes are treated as no close that day."""
     closes = _dated_closes({"A": [100.0, 0.0, 102.0, 103.0], "B": [10.0, 11.0, -1.0, 13.0]})
     closes.loc[closes.index[3], "A"] = np.inf
     closes = pd.concat([closes, _dated_closes({"A": [104.0], "B": [14.0]}, start="2025-01-08")])

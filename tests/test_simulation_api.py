@@ -90,7 +90,7 @@ def test_simulation_defaults_and_shape(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_options_are_passed_through(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Horizon, paths, models and starting value reach the simulation."""
+    """Horizon, paths, models, and starting value reach the simulation."""
     _serve(monkeypatch)
 
     simulation = _simulate(

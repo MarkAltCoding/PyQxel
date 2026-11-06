@@ -5,22 +5,22 @@ const SHORTCUTS = [
   {
     to: '/markets',
     title: 'Markets',
-    text: 'Market news, and the calendar of earnings, IPOs, holidays and Fed meetings.',
+    text: 'Market news, and the calendar of earnings, IPOs, holidays, and Fed meetings.',
   },
   {
     to: '/portfolio',
     title: 'Portfolio',
-    text: 'Your holdings, simulated outcomes and how they move together.',
+    text: 'Your holdings, simulated outcomes, and how they move together.',
   },
   {
     to: '/backtest',
     title: 'Backtest',
-    text: 'Test momentum, trend and mean-reversion rules against buy-and-hold.',
+    text: 'Test momentum, trend, and mean-reversion rules against buy-and-hold.',
   },
   {
     to: '/screener',
     title: 'Screener',
-    text: 'Filter US stocks on valuation, quality, momentum and factor betas.',
+    text: 'Filter US stocks on valuation, quality, momentum, and factor betas.',
   },
 ]
 
@@ -30,7 +30,7 @@ export function HomePage() {
     <>
       <section className="hero-search">
         <h1>Research a security</h1>
-        <p>Prices, factor exposures, volatility and an AI-written thesis, in one place.</p>
+        <p>Prices, factor exposures, volatility, and an AI-written thesis, in one place.</p>
         <SearchBox
           large
           autoFocus

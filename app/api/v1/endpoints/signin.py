@@ -1,4 +1,4 @@
-"""Signing in with GitHub, Google or Apple, and signing out.
+"""Signing in with GitHub, Google, or Apple, and signing out.
 
 These routes come before an account has an API key, so they are not behind the API key
 check. A completed sign-in issues the browser an API key, as the rest of the API expects,
@@ -345,7 +345,7 @@ async def start_sign_in(
 
 
 def _cookie_parts(request: Request) -> tuple[str, str, str, str] | None:
-    """The sign-in cookie's state, PKCE verifier, encoded destination and app challenge
+    """The sign-in cookie's state, PKCE verifier, encoded destination, and app challenge
     (empty for the website), or ``None`` without a well-formed cookie."""
     parts = request.cookies.get(COOKIE, "").split(".")
     if len(parts) == 3:
@@ -414,7 +414,7 @@ async def _finish(
     if error:
         # The error comes from the URL, which anyone can write, so it is not shown.
         message = (
-            f"Signing in with {oauth.label} was cancelled."
+            f"Signing in with {oauth.label} was canceled."
             if error in ("access_denied", "user_cancelled_authorize")
             else f"{oauth.label} did not complete the sign-in. Please try again."
         )

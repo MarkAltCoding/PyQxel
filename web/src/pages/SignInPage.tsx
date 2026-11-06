@@ -19,7 +19,7 @@ import { useAuth } from '../auth/useAuth'
 import { ErrorNotice, Notice } from '../components/Notice'
 import { OpenInBrowserDialog } from '../components/OpenInBrowserDialog'
 
-/** What a GitHub, Google or Apple sign-in sends back in the URL fragment, which never
+/** What a GitHub, Google, or Apple sign-in sends back in the URL fragment, which never
  * reaches a server: an API key (or, in the native app, a one-time code for one) and the
  * page to return to, or why signing in failed. */
 function readFragment(hash: string): {

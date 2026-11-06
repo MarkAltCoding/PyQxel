@@ -4,7 +4,7 @@ be read.
 Finnhub's as-reported financials, which its free plan covers for US companies, list each
 10-K and 10-Q with the XBRL concepts and values its statements tag. They are the same
 figures EDGAR's company facts hold, so they are rearranged into that document's form and
-read by :func:`app.data.fundamentals.normalize`, giving the same TTM figures, growth and
+read by :func:`app.data.fundamentals.normalize`, giving the same TTM figures, growth, and
 fiscal-year history. A 10-Q's income and cash flow figures run from the start of the
 fiscal year, as the TTM calculation expects.
 

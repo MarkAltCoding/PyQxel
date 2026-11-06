@@ -200,7 +200,7 @@ async def fetch_factor_file(
     instead, with a warning logged.
 
     Args:
-        file: ``"ff3"``, ``"ff5"`` or ``"momentum"``.
+        file: ``"ff3"``, ``"ff5"``, or ``"momentum"``.
         client: Optional shared HTTP client. A short-lived client is created when omitted.
 
     Returns:
@@ -249,12 +249,12 @@ async def fetch_factors(
     They come from Ken French's library, or, when the server does not use it or it cannot
     be reached, are estimated from ETF prices on the user's own keys
     (:func:`app.data.etf_factors.fetch_etf_factors`): every factor when the server offers
-    those estimates of size, value and momentum, else the market factor alone. The table's
+    those estimates of size, value, and momentum, else the market factor alone. The table's
     ``attrs`` say which (``FACTOR_SOURCE``, ``MARKET_ONLY``), and a market-only table has
     no columns for the other factors.
 
     Args:
-        model: ``"ff3"``, ``"carhart4"`` (three factors plus momentum) or ``"ff5"``.
+        model: ``"ff3"``, ``"carhart4"`` (three factors plus momentum), or ``"ff5"``.
         client: Optional shared HTTP client for the downloads.
 
     Returns:
@@ -275,7 +275,7 @@ async def fetch_factors(
         return await _library_factors(model, client)
     except (SourceTurnedOffError, FactorDataError) as exc:
         # Without the library, ETFs stand in: for every factor when the server offers
-        # their rougher estimates of size, value and momentum, else for the market alone,
+        # their rougher estimates of size, value, and momentum, else for the market alone,
         # which SPY tracks closely. A model with no ETF for a factor (FF5) falls back to
         # the market alone too.
         attempts = [False, True] if await style_factors_allowed() else [True]

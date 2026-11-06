@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 /**
- * Asks before the native app hands the person to another app (the browser, mail or the
+ * Asks before the native app hands the person to another app (the browser, mail, or the
  * phone), as iOS does when an app opens a web page, so leaving is never a surprise.
  */
 export function OpenInBrowserDialog({

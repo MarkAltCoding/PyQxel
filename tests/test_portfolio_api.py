@@ -168,7 +168,7 @@ def _equities(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_holdings_the_fit_cannot_use_are_left_out(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Cash, recent listings and failed downloads are listed; the rest are fitted."""
+    """Cash, recent listings, and failed downloads are listed; the rest are fitted."""
     closes = _closes(["SPY", "QQQ", "IWM", "NEW"], days=1_310)
     closes.loc[closes.index[:-170], "NEW"] = np.nan
     calls: list[list[str]] = []
@@ -262,7 +262,7 @@ def test_fewer_than_two_usable_holdings_is_422(monkeypatch: pytest.MonkeyPatch) 
     ],
 )
 def test_invalid_requests_are_rejected(payload: dict[str, object]) -> None:
-    """One symbol, repeats, too many symbols, short periods and missing symbols fail."""
+    """One symbol, repeats, too many symbols, short periods, and missing symbols fail."""
     assert client.post("/api/v1/portfolio/copula", json=payload).status_code == 422
 
 

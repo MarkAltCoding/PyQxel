@@ -56,7 +56,7 @@ def _serve_r(monkeypatch: pytest.MonkeyPatch, output: dict[str, RValue]) -> list
 
 
 def test_log_returns_drops_invalid_closes() -> None:
-    """Missing, non-positive and duplicated closes are removed before differencing."""
+    """Missing, non-positive, and duplicated closes are removed before differencing."""
     index = pd.to_datetime(["2026-01-05", "2026-01-02", "2026-01-06", "2026-01-07", "2026-01-07"])
     closes = pd.Series([math.nan, 100.0, -1.0, 110.0, 121.0], index=index)
 

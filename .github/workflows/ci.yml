@@ -7,7 +7,7 @@ on:
 
 jobs:
   checks:
-    name: Tests, types and lint
+    name: Tests, types, and lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -87,7 +87,7 @@ jobs:
           PYODIDE_OFFLINE: "1"
 
   docker:
-    name: Docker image, Postgres, Redis and R
+    name: Docker image, Postgres, Redis, and R
     runs-on: ubuntu-latest
     env:
       PYQXEL_TARGET: app-r
@@ -100,7 +100,7 @@ jobs:
       - name: Start the stack
         run: docker compose up -d --wait
 
-      - name: Readiness covers the database, Redis and R
+      - name: Readiness covers the database, Redis, and R
         run: |
           curl -s http://localhost:8000/health/ready | tee ready.json
           python3 -c "import json; checks = json.load(open('ready.json'))['checks']; \

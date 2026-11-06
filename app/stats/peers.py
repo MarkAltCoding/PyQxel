@@ -31,7 +31,7 @@ PEER_FIELDS: tuple[ScreenField, ...] = (
     "max_drawdown",
     "beta_market",
 )
-"""Metrics compared with peers: size, valuation, profitability, growth, price momentum
+"""Metrics compared with peers: size, valuation, profitability, growth, price momentum,
 and risk. The remaining factor betas are in the analysis's own factor exposures."""
 
 MIN_PEERS_WITH_DATA: int = 5

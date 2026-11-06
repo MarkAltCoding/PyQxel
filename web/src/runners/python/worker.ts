@@ -1,4 +1,4 @@
-// The Web Worker that runs custom Python strategies on Pyodide, NumPy and pandas.
+// The Web Worker that runs custom Python strategies on Pyodide, NumPy, and pandas.
 //
 // Pyodide is loaded from the app's own copy (scripts/vendor-pyodide.mjs), never a CDN,
 // at VITE_PYODIDE_URL or /pyodide/. Once the packages are in, the worker loses its

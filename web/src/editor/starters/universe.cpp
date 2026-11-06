@@ -4,7 +4,7 @@
 // weights may add up to at most 2.0 on a bar. The backtest holds each bar's weights over
 // the next bar, so a signal never trades on the bar that produced it.
 //
-// universe[j] is symbol j's pyqxel::Bars (open, high, low, close and volume, adjusted for
+// universe[j] is symbol j's pyqxel::Bars (open, high, low, close, and volume, adjusted for
 // splits and dividends; all but close NaN where missing), universe.symbols[j] its ticker,
 // universe.size the number of bars and universe.count the number of symbols. The bars
 // are those of the dates every symbol traded, oldest first; universe.timestamp[i] is bar

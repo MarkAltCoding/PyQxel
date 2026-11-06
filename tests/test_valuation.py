@@ -1,4 +1,4 @@
-"""Tests for valuation multiples, margins and returns."""
+"""Tests for valuation multiples, margins, and returns."""
 
 import pytest
 

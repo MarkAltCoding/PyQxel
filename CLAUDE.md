@@ -2,9 +2,9 @@
 
 A personal investment-research web app: a FastAPI backend (`app/`, Python 3.14, with R
 for GARCH) and a React + TypeScript frontend (`web/`, Vite) that FastAPI serves in
-production. Market data comes from Tiingo, FMP, EODHD, Finnhub and Alpha Vantage on each
+production. Market data comes from Tiingo, FMP, EODHD, Finnhub, and Alpha Vantage on each
 user's own keys, cheapest first for each kind of data (`docs/data-sources.md`), with
-yfinance as a fallback. Claude writes stock reports, portfolio reviews and
+yfinance as a fallback. Claude writes stock reports, portfolio reviews, and
 strategy code. Custom strategies run in the browser (Pyodide for Python, Clang compiled
 to WebAssembly for C++). Only their positions go to the server, which scores them.
 
@@ -61,7 +61,7 @@ side you are changing before searching the code.
 - **App Store:** not submitted; `docs/app-store.md` lists what is in place (advice notice,
   privacy manifest `web/src-tauri/PrivacyInfo.xcprivacy`, Mac sandbox
   `web/src-tauri/Entitlements.plist`, export compliance), the listing and review notes, and
-  the steps left. Keep the manifest, the privacy page and that doc in agreement.
+  the steps left. Keep the manifest, the privacy page, and that doc in agreement.
 - **Migrations:** `venv/bin/alembic upgrade head` (local Postgres from `.env`). A test
   fails if the models and migrations differ, so every table change needs a new revision
   in `app/db/migrations/versions/` (numbered `00NN_...`; use `batch_alter_table`, since
@@ -86,7 +86,7 @@ side you are changing before searching the code.
   parentheses, and the code uses it; it is not a bug.
 - The shell is zsh: an unquoted `$VAR` holding several words is not split into arguments.
 - Provider keys are never stored on the server. The browser sends them as
-  `X-FMP-Key`, `X-Finnhub-Key`, `X-Alpha-Vantage-Key` and `X-Anthropic-Key` on each
+  `X-FMP-Key`, `X-Finnhub-Key`, `X-Alpha-Vantage-Key`, and `X-Anthropic-Key` on each
   request.
 - Everything must work on a free FMP plan, which prices only a sample of symbols, so
   production runs with the yfinance fallback on.
@@ -95,6 +95,11 @@ side you are changing before searching the code.
   `app.api.v1.endpoints.portfolio`, not in `app.data.panel`.
 - Write like the surrounding code: docstrings and comments are full, plain sentences
   about what something is for; user-facing text explains itself to a beginner investor.
+- All writing (UI text, `glossary.ts`, the AI prompts, the README, docs, and comments)
+  uses American English ("labeled", "behavior", "canceled"), correct grammar, and the
+  serial comma: "stocks, bonds, and cash". Identifiers keep their spelling (`aria-labelledby`,
+  a `'cancelled'` run kind). Code that writes a list in English uses `listed()`
+  (`app/core/text.py`, `web/src/lib/format.ts`), never a bare `join(' and ')`.
 
 ## 4. Architecture Guidelines for Claude Code
 
@@ -117,10 +122,10 @@ When generating code and scaffolding this codebase, strictly adhere to the follo
 
 5. **Get the Most Out of Every Key**:
    - A user should get as much as possible out of whatever API keys they have added, paid or free. Every feature and every kind of data uses every key that can serve it, tried cheapest first (`PROVIDER_ORDER` in `app/data/fetcher.py`, explained in `docs/data-sources.md`), so a free plan's partial answer is used when nothing better is available and a paid plan's fuller one is used when the user has it.
-   - Data a public source publishes with no key comes before any key: SEC EDGAR, the US Treasury, the Federal Reserve Board and the ECB (see "Keyless public sources" in `docs/data-sources.md`). Use only sources whose terms allow commercial use, since the app may be sold: not FRED, whose terms forbid commercial use and caching.
+   - Data a public source publishes with no key comes before any key: SEC EDGAR, the US Treasury, the Federal Reserve Board, and the ECB (see "Keyless public sources" in `docs/data-sources.md`). Use only sources whose terms allow commercial use, since the app may be sold: not FRED, whose terms forbid commercial use and caching.
    - When adding a feature or a kind of data, check what each provider's free and paid plans give for it, wire in every one that can serve it, and record the findings in `docs/data-sources.md`. When no key the user has can serve something, say which key or plan would, and what free stand-in exists (as a listing abroad names its US listing).
 
-6. **Explain Every Stat, Model and Graph**:
-   - Every stat, model, chart, metric row or table column added to the web app gets an information icon (`<InfoTip topic=... />`, the circled "i") with a beginner-friendly explanation: what it measures, a rule-of-thumb range of good and worrying values where one applies, and any caveat.
+6. **Explain Every Stat, Model, and Graph**:
+   - Every stat, model, chart, metric row, or table column added to the web app gets an information icon (`<InfoTip topic=... />`, the circled "i") with a beginner-friendly explanation: what it measures, a rule-of-thumb range of good and worrying values where one applies, and any caveat.
    - Write the explanation as an entry in `web/src/lib/glossary.ts`, and reference it by key. `Stat` and `ChartCard` require an `info` prop, so the build fails until one is given.
    - Keep the "i" beside a heading (in a `heading-with-info` wrapper), not inside it, so the heading's accessible name stays clean.

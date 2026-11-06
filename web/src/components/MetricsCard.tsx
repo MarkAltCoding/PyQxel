@@ -128,7 +128,7 @@ export function MetricsCard({
         <div>
           <h2>Key metrics</h2>
           <div className="subtitle">
-            Trading, valuation, profitability and balance sheet metrics, as Finnhub computes them
+            Trading, valuation, profitability, and balance sheet metrics, as Finnhub computes them
           </div>
         </div>
       </div>
@@ -197,8 +197,8 @@ function MetricsBody({
       {fund ? (
         <p className="disclaimer heading-with-info">
           <span>
-            Valuation, profitability and balance sheet figures describe a single company, so they do
-            not apply to a fund: its holdings and costs above take their place.
+            Valuation, profitability, and balance sheet figures describe a single company, so they
+            do not apply to a fund: its holdings and costs above take their place.
           </span>
           <InfoTip topic="notForFunds" />
         </p>

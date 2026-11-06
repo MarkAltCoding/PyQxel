@@ -404,7 +404,7 @@ async def search_stocks(
 
     An exact symbol comes first, then symbols starting with ``query``, then names
     containing it; within each, larger companies first. Matching ignores case. Without
-    ``details``, matches carry only their symbol, name and exchange, which come from the
+    ``details``, matches carry only their symbol, name, and exchange, which come from the
     SEC's list of listings, in alphabetical order within each group.
     """
     text = query.strip().lower()

@@ -35,7 +35,7 @@ DEFAULT_LISTING_CURRENCY: str = "USD"
 
 
 def edgar_http_error(exc: FilingFetchError) -> HTTPException:
-    """Translate an EDGAR failure into an HTTP error: 503, 404 or 502."""
+    """Translate an EDGAR failure into an HTTP error: 503, 404, or 502."""
     if isinstance(exc, EdgarNotConfiguredError):
         return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
     if isinstance(exc, (CompanyNotFoundError, FinancialsNotFoundError)):
@@ -49,7 +49,7 @@ def financials_failure_notice(symbol: str, exc: FilingFetchError) -> str:
         return "SEC financial data is not configured, so fundamentals were left out."
     if isinstance(exc, (CompanyNotFoundError, FinancialsNotFoundError)):
         return (
-            f"{symbol} has no US GAAP or IFRS financial statements on SEC EDGAR, Finnhub or "
+            f"{symbol} has no US GAAP or IFRS financial statements on SEC EDGAR, Finnhub, or "
             "Alpha Vantage."
         )
     return "SEC financial data could not be fetched, so fundamentals were left out."
@@ -186,11 +186,11 @@ async def get_fundamentals(symbol: Symbol) -> FundamentalsResponse:
 
     Figures come from the company's XBRL filings on SEC EDGAR, under US GAAP or IFRS and
     in the currency it reports in (``financials.currency``): trailing-twelve-month (TTM)
-    revenue, profits, cash flows and EBITDA with year-on-year
+    revenue, profits, cash flows, and EBITDA with year-on-year
     growth, five fiscal years of history, and the latest balance sheet. They are combined
-    with the current market cap into P/E, P/S, EV/EBITDA, free-cash-flow yield, margins
+    with the current market cap into P/E, P/S, EV/EBITDA, free-cash-flow yield, margins,
     and return on equity, converting statements in another currency at the latest
-    exchange rate. Growth rates, margins, yields and returns are decimals.
+    exchange rate. Growth rates, margins, yields, and returns are decimals.
 
     Items a company does not report under a recognized concept are null, as are ratios
     that are not meaningful; ``valuation.notes`` and ``notice`` say why.

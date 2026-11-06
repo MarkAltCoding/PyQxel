@@ -24,7 +24,7 @@ class GarchParameter(BaseModel):
     """A fitted GARCH coefficient.
 
     ``mu`` and ``omega`` are in percent-return units (``omega`` in percent squared);
-    ``alpha1``, ``beta1`` and ``shape`` are unitless.
+    ``alpha1``, ``beta1``, and ``shape`` are unitless.
     """
 
     name: str

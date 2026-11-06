@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from app.models.usage import HistoryShortfall
 
 SYMBOL_PATTERN: str = r"^[A-Za-z0-9.\-^=]{1,15}$"
-"""Letters, digits and the ``.``, ``-``, ``^``, ``=`` used by class shares, indices and FX."""
+"""Letters, digits, and the ``.``, ``-``, ``^``, ``=`` used by class shares, indices, and FX."""
 
 HistoryPeriod = Literal["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
 """Lookback periods accepted by yfinance."""
@@ -35,14 +35,14 @@ class TickerInfo(BaseModel):
     price: float | None = Field(default=None, ge=0)
     quote_type: str | None = Field(
         default=None,
-        description="Kind of security as the provider classes it, e.g. EQUITY, ETF or "
+        description="Kind of security as the provider classes it, e.g. EQUITY, ETF, or "
         "MONEYMARKET; null when it does not say.",
     )
     source: str = Field(description="Data provider that produced this record.")
     filled_fields: list[str] = Field(
         default_factory=list,
         description="Fields ``source`` left empty that the SEC (sector and industry), "
-        "Finnhub, Tiingo, Alpha Vantage or a quote filled in.",
+        "Finnhub, Tiingo, Alpha Vantage, or a quote filled in.",
     )
 
 
@@ -60,7 +60,7 @@ class FundHolding(BaseModel):
     name: str
     weight: float = Field(description="Share of the fund's assets, as a decimal.")
     asset_class: str | None = Field(
-        default=None, description="Stocks, Bonds, Cash or Other, where the source says."
+        default=None, description="Stocks, Bonds, Cash, or Other, where the source says."
     )
 
 
@@ -108,7 +108,7 @@ class HoldingsStats(BaseModel):
     )
     size_mix: dict[str, float] = Field(
         default_factory=dict,
-        description="Share in large (over $10B), mid ($2-10B) and small companies.",
+        description="Share in large (over $10B), mid ($2-10B), and small companies.",
     )
     sectors: dict[str, float] = Field(
         default_factory=dict, description="Share in each sector, of the classified holdings."
@@ -120,7 +120,7 @@ class HoldingsStats(BaseModel):
 
 class FundProfile(BaseModel):
     """What an ETF or mutual fund holds and costs: the figures that take the place, for a
-    fund, of a company's market cap, sector and earnings.
+    fund, of a company's market cap, sector, and earnings.
 
     Rates are decimals (0.0003 = 0.03%).
     """
@@ -159,12 +159,12 @@ class FundProfile(BaseModel):
     )
     asset_mix: list[FundWeight] = Field(
         default_factory=list,
-        description="Share of net assets in stocks, bonds, cash and other, from its SEC filing.",
+        description="Share of net assets in stocks, bonds, cash, and other, from its SEC filing.",
     )
     bonds: FundBonds | None = Field(default=None, description="Null when it holds few bonds.")
     stats: HoldingsStats | None = Field(
         default=None,
-        description="Valuation, profitability, growth, size and sectors weighted from the "
+        description="Valuation, profitability, growth, size, and sectors weighted from the "
         "companies it holds; null when none could be looked up, as for a bond fund.",
     )
     stats_as_of: date | None = Field(

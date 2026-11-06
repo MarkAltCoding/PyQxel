@@ -85,7 +85,7 @@ class _Marginal:
 
     sorted_returns: np.ndarray
     t_params: tuple[float, float, float] | None
-    """Degrees of freedom, location and scale of a fitted Student t, if used."""
+    """Degrees of freedom, location, and scale of a fitted Student t, if used."""
 
     def quantiles(self, uniforms: np.ndarray) -> np.ndarray:
         """Map uniforms in (0, 1) to daily returns."""
@@ -161,7 +161,7 @@ def _draw_uniforms(
 
 
 def _distribution(values: np.ndarray) -> Distribution:
-    """Summarize ``values`` by mean, standard deviation and percentiles."""
+    """Summarize ``values`` by mean, standard deviation, and percentiles."""
     levels = np.percentile(values, DISTRIBUTION_PERCENTILES)
     return Distribution(
         mean=float(values.mean()),
@@ -271,7 +271,7 @@ def _validate(
     if draws > MAX_DRAWS:
         raise SimulationError(
             f"paths x horizon x assets is {draws:,}; at most {MAX_DRAWS:,} are allowed. "
-            "Use fewer paths, a shorter horizon or fewer assets."
+            "Use fewer paths, a shorter horizon, or fewer assets."
         )
 
 

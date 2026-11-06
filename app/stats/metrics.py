@@ -1,4 +1,4 @@
-"""Performance metrics of a periodic return series: returns, Sharpe, Sortino and drawdown.
+"""Performance metrics of a periodic return series: returns, Sharpe, Sortino, and drawdown.
 
 Inputs are simple (not log) returns as decimals, one per bar, so a strategy's
 returns compound as ``(1 + r).prod()``. Definitions follow common practice and match
@@ -45,7 +45,7 @@ def performance_metrics(
     risk_free_rate: float = 0.0,
     inception: pd.Timestamp | None = None,
 ) -> PerformanceMetrics:
-    """Compute return, risk-adjusted return and drawdown metrics of ``returns``.
+    """Compute return, risk-adjusted return, and drawdown metrics of ``returns``.
 
     Args:
         returns: Simple returns per bar as decimals, indexed by the bar they end on.

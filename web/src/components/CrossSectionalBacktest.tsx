@@ -127,7 +127,7 @@ const DEFAULTS: Form = {
   cashInterest: true,
 }
 
-/** Distinct upper-case symbols in `text`, split on spaces, commas and semicolons. */
+/** Distinct upper-case symbols in `text`, split on spaces, commas, and semicolons. */
 function parseSymbols(text: string): string[] {
   const symbols = text
     .split(/[\s,;]+/)

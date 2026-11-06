@@ -25,7 +25,7 @@ from App Store Connect when the app is submitted should be updated here too.
 2. **Turn on Sign in with Apple.** Guideline 4.8 requires an option such as Sign in with
    Apple in an app that offers Google sign-in; PyQxel's own email and password do not
    count, since the guideline asks for a login service that can hide the email address. The README's *Signing in with GitHub and
-   Google* section lists the Services ID, key and the five settings it takes.
+   Google* section lists the Services ID, key, and the five settings it takes.
 3. **Register the app**: the App ID `com.markaltcoding.pyqxel` in the developer portal, then
    one App Store Connect record for iOS and macOS (one record covers both platforms).
 4. **Version numbers**: `version` in `tauri.conf.json` (`0.1.0` now) becomes both the
@@ -66,19 +66,19 @@ portfolio, using market data and AI on your own provider keys.
 >
 > RESEARCH A STOCK
 > Price history, valuation and quality metrics, factor exposures, volatility forecasts,
-> trading signals and recent news, each explained in plain language with an "i" beside it.
+> trading signals, and recent news, each explained in plain language with an "i" beside it.
 >
 > BACKTEST A STRATEGY
 > Replay built-in rules, such as moving-average crossovers, or your own strategy written in
 > Python or C++, on years of daily prices. Your code runs on your device; PyQxel scores the
-> positions it takes and shows returns, drawdowns and risk against simply holding.
+> positions it takes and shows returns, drawdowns, and risk against simply holding.
 >
 > UNDERSTAND YOUR PORTFOLIO
 > Enter your holdings to see how they move together, what could happen in a bad year from
 > thousands of simulations, and how to rebalance toward the weights you want.
 >
 > SCREEN THE MARKET
-> Filter US stocks by size, sector, valuation, growth and momentum.
+> Filter US stocks by size, sector, valuation, growth, and momentum.
 >
 > AI THAT EXPLAINS
 > With your own Anthropic key, Claude writes research reports on a company and reviews of
@@ -116,9 +116,9 @@ tracking, and every type below is linked to the user and used only for App Funct
 | App Store Connect type | What it is in PyQxel |
 | --- | --- |
 | Contact Info: Email Address | The verified email that identifies the account. |
-| Identifiers: User ID | The account ID, and the GitHub, Google or Apple ID it signs in with. |
+| Identifiers: User ID | The account ID, and the GitHub, Google, or Apple ID it signs in with. |
 | Financial Info: Other Financial Info | Portfolio holdings. |
-| User Content: Other User Content | Saved backtests with strategy code, simulations, AI reports and portfolio reviews. |
+| User Content: Other User Content | Saved backtests with strategy code, simulations, AI reports, and portfolio reviews. |
 | Other Data | Provider API keys, stored encrypted only for users who turn on the nightly screener refresh. |
 
 Not collected: name, location, contacts, browsing history, usage data, diagnostics,
@@ -140,7 +140,7 @@ Paste into *App Review Information → Notes*, with the demo account's values fi
 > personalized advice; a notice says so on first launch and must be acknowledged.
 >
 > SIGNING IN: Under "Sign in to PyQxel", enter the demo account's email, app-review@…,
-> and password, …, then press Sign in. The GitHub, Google and Apple buttons open the
+> and password, …, then press Sign in. The GitHub, Google, and Apple buttons open the
 > device's browser and return to the app.
 >
 > MARKET DATA: PyQxel uses market data from providers on the user's own API keys (users
@@ -185,7 +185,7 @@ look at.
    production database. Then give it a password: on the website's sign-in page choose
    **Forgot password?**, and open the emailed link. The email and password go in the review
    notes. (The API key it prints, which does not expire, is a fallback.)
-2. **Create provider keys just for review**, on free plans: Finnhub, Tiingo and Alpha
+2. **Create provider keys just for review**, on free plans: Finnhub, Tiingo, and Alpha
    Vantage, under a separate email so they can be closed afterwards. Create an Anthropic
    key in its own workspace with a monthly spend limit of a few dollars.
 3. **Fill the account** by signing in with its key once: add the review keys in Settings,

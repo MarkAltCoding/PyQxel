@@ -8,24 +8,24 @@ Each run refreshes every user whose chosen time has come since their last refres
 :func:`app.db.nightly.due_refreshes`), several at once, each on their own keys alone:
 
 1. Starts from the shared SEC first stage that :mod:`app.jobs.screener` stores: every
-   listed common stock, its shares outstanding and its company's financials.
+   listed common stock, its shares outstanding, and its company's financials.
 2. Reads each stock's market cap, valuation, margins, growth, 26- and 52-week returns,
-   three-month volatility, beta and volume from Finnhub's free basic financials on the
+   three-month volatility, beta, and volume from Finnhub's free basic financials on the
    user's Finnhub key, one request per stock, paced under the free plan's limit: about an
    hour and a half for every listed stock.
 3. Keeps stocks above the market cap floor, and fetches daily prices for as many of them
    as the user chose, largest first, on the price-history keys they let it use (Tiingo,
-   FMP, EODHD or Alpha Vantage, cheapest first), stopping sooner if those keys' plans stop
+   FMP, EODHD, or Alpha Vantage, cheapest first), stopping sooner if those keys' plans stop
    answering for the night. The requests sent on each key are recorded with the run. Those
    stocks get the price-history columns: one-month return, 12-1 momentum, volatility,
-   drawdown and Carhart factor betas. The rest keep Finnhub's stand-ins (see
+   drawdown, and Carhart factor betas. The rest keep Finnhub's stand-ins (see
    :func:`app.stats.screening.user_screen_metrics`), and those whose price is unknown
    take a Finnhub quote.
 4. Adds the ETFs listed on US exchanges. Once every :data:`ETF_SCAN_DAYS` days it checks
    them all, from Finnhub's free symbol list; on the other nights only those already in
    the user's universe, so a refresh takes about two hours rather than four, and a new or
    newly traded ETF joins within the week. Each costs one request for its basic
-   financials (its returns, volatility, beta and volume; an ETF has no market cap or
+   financials (its returns, volatility, beta, and volume; an ETF has no market cap or
    company figures). Those that could clear the dollar
    volume floor even at their 52-week high share the price histories with the stocks, in
    proportion to their number, most traded first, and the rest take a Finnhub quote.

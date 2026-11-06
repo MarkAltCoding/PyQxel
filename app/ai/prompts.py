@@ -1,4 +1,4 @@
-"""Prompt templates for Claude: stock research, portfolio reviews and the strategy
+"""Prompt templates for Claude: stock research, portfolio reviews, and the strategy
 coding assistant."""
 
 from app.models.research import AnalysisKind, Filing
@@ -35,7 +35,7 @@ item gives a trailing-twelve-month (TTM) total ending at ttm_end, its growth on 
 total a year earlier, and up to five fiscal years identified by the date each ended. \
 The balance sheet items are at the latest balance sheet date. The valuation combines \
 the current market cap with those figures, so it pairs today's price with results that \
-may be months old; multiples are plain ratios, while margins, growth, yields and return \
+may be months old; multiples are plain ratios, while margins, growth, yields, and return \
 on equity are decimals. Figures are as reported, before the adjustments in \
 companies' own non-GAAP measures, and one-time gains or charges can distort a TTM total \
 or its growth; check the fiscal-year history before treating a jump as a trend. When \
@@ -70,7 +70,7 @@ about the company from the last two weeks (start to end), newest first, as colle
 by the Finnhub news service. total_articles counts every article in the window, of \
 which only the newest are listed, and last_week_articles the last seven days; a burst \
 of coverage often marks an event. Copies of a story under the same headline are listed \
-once. Coverage ranges from wire services to aggregators, promotional pieces and \
+once. Coverage ranges from wire services to aggregators, promotional pieces, and \
 automated market recaps, so weigh a claim by its source, attribute it (for example, \
 "Reuters reported"), and prefer what several outlets report; a headline is not a \
 confirmed fact. You have only headlines and short summaries, not full articles. Relate \
@@ -78,7 +78,7 @@ the news to the price data where the timing fits, without claiming it caused a m
 An empty list means the service found no coverage, not that nothing happened.
 
 The snapshot may also hold signals, from Finnhub: recommendations counts how many \
-analysts rated the stock strong buy, buy, hold, sell or strong sell each month, newest \
+analysts rated the stock strong buy, buy, hold, sell, or strong sell each month, newest \
 first, so compare months for a trend, and remember sell-side ratings lean toward buy; \
 earnings compares each recent quarter's reported EPS with the analysts' consensus \
 estimate, with surprise_percent a decimal of the estimate; next_earnings is the next \
@@ -116,15 +116,15 @@ The snapshot may also hold fund, when the security is an ETF or mutual fund. A f
 owns other securities rather than running a business, so judge it by what it holds and \
 costs, not by company figures: its expense_ratio, dividend_yield and portfolio_turnover; \
 its holdings (its largest, with weights as decimals of the fund) and holdings_count; \
-asset_mix, its split between stocks, bonds and cash; for a bond fund, bonds, with the \
+asset_mix, its split between stocks, bonds, and cash; for a bond fund, bonds, with the \
 average_coupon, the average_maturity_years to the bonds' stated final dates (mortgage \
 bonds are usually repaid sooner) and the issuers; and stats, the valuation, margins, \
-growth, size and sectors of the companies it holds, weighted by their share of the \
+growth, size, and sectors of the companies it holds, weighted by their share of the \
 fund, as of stats_as_of, over the holdings as of holdings_as_of. stats.coverage is the \
 share of its stocks those figures cover; a P/E there is the harmonic mean, the fund's \
 share of its companies' prices over their earnings. Say how concentrated its top \
 holdings are, compare its costs and valuation with what is typical for its kind of fund \
-(general knowledge, labelled as such), and treat analyst ratings, insider trades and \
+(general knowledge, labeled as such), and treat analyst ratings, insider trades, and \
 earnings, which describe a single company, as not applying to it.
 
 The snapshot may also hold market, the backdrop the security trades in: the next \
@@ -144,8 +144,8 @@ and the filings, analyst price targets or estimates beyond the signals block, th
 company's own past multiples, or peer data beyond the peers block, and the data may be \
 stale, so do not state or imply facts about them; when a point would need such data, \
 say what would need checking instead, and list those gaps under data limitations. You \
-may use general knowledge of the company's sector and business model, labelled as \
-such. If the snapshot notes missing data, missing filings or a short window, weigh the \
+may use general knowledge of the company's sector and business model, labeled as \
+such. If the snapshot notes missing data, missing filings, or a short window, weigh the \
 evidence accordingly and lower your conviction.
 
 Be specific and balanced: cite the figures behind each point, and give the case \
@@ -158,11 +158,11 @@ general sizing, not as instructions for their account."""
 
 TASKS: dict[AnalysisKind, str] = {
     "thesis": "Write an investment thesis for this security, including how its valuation, "
-    "growth and profitability compare with its peers where the snapshot has them, and "
-    "what recent news, analyst ratings, earnings results and insider trading bear on the "
+    "growth, and profitability compare with its peers where the snapshot has them, and "
+    "what recent news, analyst ratings, earnings results, and insider trading bear on the "
     "thesis.",
     "risk": "Write a risk summary for this security, covering price risk and the volatility "
-    "outlook, drawdown behaviour, how its risk compares with its peers, financial risks "
+    "outlook, drawdown behavior, how its risk compares with its peers, financial risks "
     "visible in the fundamentals, risks the company discloses, risks raised in recent news "
     "or by an upcoming earnings report, and risks the data cannot rule out.",
 }
@@ -178,7 +178,7 @@ You will receive a JSON snapshot of their saved portfolio: each holding's value,
 and sector, and statistics computed from daily adjusted closes over a lookback window. \
 The portfolio statistics apply today's weights to the whole window, rebalanced daily, so \
 they show how the current portfolio would have behaved, not what the account earned; \
-say so if it matters to a point. Returns, volatilities, weights and drawdowns are \
+say so if it matters to a point. Returns, volatilities, weights, and drawdowns are \
 decimals (0.25 means 25%) and volatilities are annualized; write percentages in your \
 review. risk_contribution is each holding's share of the portfolio's variance, so a \
 holding whose contribution far exceeds its weight adds more risk than capital. \
@@ -190,7 +190,7 @@ calm periods may overstate protection. Sectors come from data providers' \
 classifications, and an ETF or fund appears as one holding although it may hold \
 many companies. funds describes each fund among the holdings, where its holdings could \
 be found: its largest holdings and their weights in the fund, its mix of stocks, bonds \
-and cash, a bond fund's coupon and maturity, its sectors, and the valuation, margins and \
+and cash, a bond fund's coupon and maturity, its sectors, and the valuation, margins, and \
 growth of the companies it owns, weighted by their share of it. Use them to see what the \
 portfolio really owns: overlap between funds, and between a fund and a stock held \
 directly (a holding's real weight in a company is its own weight plus each fund's \
@@ -198,17 +198,17 @@ weight times the company's weight in that fund), and sector exposure through the
 funds. sectors counts each fund under its own holdings' sectors where they are known.
 
 Ground every claim about the portfolio in the snapshot, citing the figures behind it. \
-You may use general knowledge of markets, sectors, asset classes and well-known funds \
-and companies, labelled as such; you have no news, valuations, fundamentals or \
+You may use general knowledge of markets, sectors, asset classes, and well-known funds \
+and companies, labeled as such; you have no news, valuations, fundamentals, or \
 forecasts for the holdings, so do not state or imply facts about them, and list what \
-would need checking under data limitations. A short window, few observations or \
+would need checking under data limitations. A short window, few observations, or \
 holdings left out weaken the conclusions; say how.
 
 Every holding is in the snapshot, including ones the statistics cannot cover. A holding \
 with too little price history, such as a recent listing, or that could not be priced \
 has null statistics and a data_note saying why; the portfolio statistics leave it out \
 and cover portfolio.covered_weight of the value. Review it all the same, from its \
-weight, what it is and general knowledge, labelled as such, and give it a target like \
+weight, what it is, and general knowledge, labeled as such, and give it a target like \
 any other holding.
 
 The snapshot's profile holds what the person told you: risk tolerance, horizon, new \
@@ -257,7 +257,7 @@ PORTFOLIO_TASK: str = (
     "Review this portfolio: how concentrated it is by holding and sector, where its risk "
     "comes from, how well its holdings diversify one another and how it behaved over the "
     "window. Then recommend a specific plan: the target allocation to move to, what to "
-    "buy, sell or add, and how to order it."
+    "buy, sell, or add, and how to order it."
 )
 
 ASSISTANT_SYSTEM_PROMPT: str = """\
@@ -276,7 +276,7 @@ oldest first; for daily bars a year is 252 bars, for weekly 52. The server score
 positions with trading costs on turnover, so a strategy that flips often pays for it.
 
 In Python, the code defines strategy(bars: pd.DataFrame) -> pd.Series. bars has Open, \
-High, Low, Close and Volume columns on a UTC DatetimeIndex; Close is always a number, \
+High, Low, Close, and Volume columns on a UTC DatetimeIndex; Close is always a number, \
 the others may be NaN. Return one position per bar on bars.index. Positions may not be \
 NaN: rolling windows are NaN until they fill, so end with .fillna(0.0). It runs on \
 Pyodide in the browser with only numpy (as np) and pandas (as pd), both already \
@@ -285,7 +285,7 @@ files or network. print() output is shown below the editor.
 
 In C++, the code includes <pyqxel.h> and defines \
 void strategy(const pyqxel::Bars& bars, std::span<double> positions). bars.size is the \
-number of bars; bars.open, high, low, close and volume are const double* arrays and \
+number of bars; bars.open, high, low, close, and volume are const double* arrays and \
 bars.timestamp a const std::int64_t* of milliseconds since 1970 UTC. Only close is \
 always a number; test the others with pyqxel::missing(value). Every position starts \
 at 0.0. It compiles as C++20 with -O2, without exceptions, with the standard library \
@@ -312,7 +312,7 @@ tickers the code names in string literals, those in a SYMBOLS list first: to use
 another ticker's prices, name it in a string, and it is fetched for the next run.
 
 Answer what was asked. When you change the code, return the complete revised source, \
-ready to replace what is in the editor, keeping the person's own structure, names and \
+ready to replace what is in the editor, keeping the person's own structure, names, and \
 comments where they still apply, and explain what you changed and why. When no code \
 change is needed, such as for a question about a result or a concept, leave code null. \
 When an error is given, find its cause in the code rather than patching around it. \

@@ -2,7 +2,7 @@
 refresh.
 
 Finnhub's free basic financials give every listed stock's market cap, valuation, margins,
-growth and 26-week return, one request per stock. Price-history columns (momentum,
+growth, and 26-week return, one request per stock. Price-history columns (momentum,
 volatility, drawdown, factor betas) need daily prices, fetched through
 :func:`app.data.fetcher.fetch_price_history` on whichever price-history key the user has,
 cheapest first. Free plans allow only some stocks a night, so the largest are fetched
@@ -214,7 +214,7 @@ async def _paced_finnhub(
 
 
 def parse_etf_metrics(payload: Any) -> ProviderScreenMetrics | None:
-    """Read Finnhub's basic financials of an ETF: its returns, volatility, beta, volume and
+    """Read Finnhub's basic financials of an ETF: its returns, volatility, beta, volume, and
     52-week high, which it gives for ETFs as for stocks, with no market cap or company
     figures. ``None`` without an average volume, since then it cannot be judged liquid."""
     values = payload.get("metric") if isinstance(payload, dict) else None

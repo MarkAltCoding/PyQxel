@@ -24,7 +24,7 @@ export function leavingHref(target: EventTarget | null, origin: string): string 
   return url.href
 }
 
-/** How to name `href` to someone deciding whether to open it: its site, email or number. */
+/** How to name `href` to someone deciding whether to open it: its site, email, or number. */
 export function describeHref(href: string): string {
   const url = new URL(href)
   if (url.protocol === 'mailto:' || url.protocol === 'tel:') return decodeURIComponent(url.pathname)

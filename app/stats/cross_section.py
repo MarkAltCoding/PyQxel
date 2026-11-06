@@ -1,6 +1,6 @@
 """Cross-sectional backtests: rank a universe of stocks against one another and hold the best.
 
-At the last close of every week, month or quarter, each stock with enough history is
+At the last close of every week, month, or quarter, each stock with enough history is
 scored by a signal such as its trailing return, and the universe is ranked by it. The
 top stocks are bought, and with ``long_short`` the same number of the bottom ones are
 shorted, each leg one unit of capital. Between rebalances the weights drift with prices,
@@ -113,7 +113,7 @@ def universe_prices(closes: pd.DataFrame) -> pd.DataFrame:
 
     Args:
         closes: Adjusted closes, one column per stock, indexed by bar timestamp; missing,
-            non-finite and non-positive values count as no close that day.
+            non-finite, and non-positive values count as no close that day.
 
     Returns:
         Closes on the dates at least :data:`MIN_TRADING_SHARE` of the stocks then listed
@@ -167,7 +167,7 @@ def signal_scores(prices: pd.DataFrame, signal: RankingSignal) -> pd.DataFrame:
 
 
 def rebalance_bars(dates: pd.DatetimeIndex, frequency: RebalanceFrequency) -> list[int]:
-    """Positions of the last date of each week, month or quarter, but the final date's."""
+    """Positions of the last date of each week, month, or quarter, but the final date's."""
     periods = dates.to_period(PERIOD_CODES[frequency])
     return [bar for bar in range(len(dates) - 1) if periods[bar] != periods[bar + 1]]
 

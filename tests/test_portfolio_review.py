@@ -1,4 +1,4 @@
-"""Tests for Claude's review of the saved portfolio: its statistics, routes and storage.
+"""Tests for Claude's review of the saved portfolio: its statistics, routes, and storage.
 
 Claude and the price providers are faked.
 """

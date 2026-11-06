@@ -1,4 +1,4 @@
-"""Signing in with GitHub, Google or Apple, by the OAuth 2.0 authorization code flow.
+"""Signing in with GitHub, Google, or Apple, by the OAuth 2.0 authorization code flow.
 
 The browser is sent to the provider with a random ``state``, which comes back with the
 code and must match the one kept in a cookie, and a PKCE challenge, whose verifier the

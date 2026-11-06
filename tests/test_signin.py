@@ -231,7 +231,7 @@ def test_a_returning_identity_keeps_its_account_and_updates_its_email() -> None:
     [
         ({"code": "c", "state": "forged"}, "expired or was started in another browser"),
         ({"code": "c"}, "expired or was started in another browser"),
-        ({"error": "access_denied"}, "Signing in with GitHub was cancelled."),
+        ({"error": "access_denied"}, "Signing in with GitHub was canceled."),
     ],
 )
 def test_callbacks_that_cannot_be_trusted_are_refused(
@@ -558,7 +558,7 @@ def test_a_failed_app_sign_in_goes_back_to_the_app(
     response = client.get("/api/v1/auth/github/callback", params={"error": "access_denied"})
 
     link = _app_link(response)
-    assert link == {"error": "Signing in with GitHub was cancelled."}
+    assert link == {"error": "Signing in with GitHub was canceled."}
     assert "did not finish" in response.text
 
 

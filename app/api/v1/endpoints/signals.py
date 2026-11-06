@@ -17,10 +17,10 @@ router = APIRouter()
 @router.get(
     "/{symbol}/signals",
     response_model=MarketSignals,
-    summary="Analyst ratings, earnings and insider trades",
+    summary="Analyst ratings, earnings, and insider trades",
 )
 async def get_signals(symbol: Symbol) -> MarketSignals:
-    """Return what analysts, earnings and insiders say about ``symbol``, from Finnhub.
+    """Return what analysts, earnings, and insiders say about ``symbol``, from Finnhub.
 
     ``recommendations`` counts analysts' ratings by month, ``earnings`` compares the last
     quarters' reported EPS with the estimate, ``next_earnings`` gives the next report

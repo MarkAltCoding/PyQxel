@@ -1,5 +1,5 @@
 """Markets routes: market-wide news, and a calendar of FOMC meetings, major companies'
-earnings reports, IPOs and market holidays.
+earnings reports, IPOs, and market holidays.
 
 FOMC dates come from the Federal Reserve and need no key; the rest comes from Finnhub on
 the user's own key. :func:`market_context` gathers the same data for AI analyses.
@@ -79,7 +79,7 @@ def _missing(name: str, error: BaseException) -> str:
 async def _finnhub_parts(
     start: date, end: date, min_market_cap: float = MAJOR_MARKET_CAP
 ) -> tuple[list[Any], list[str]]:
-    """Earnings, IPOs, holidays and the market status, each ``None`` when Finnhub could
+    """Earnings, IPOs, holidays, and the market status, each ``None`` when Finnhub could
     not supply it, and why."""
     if finnhub_key() is None:
         return [None] * len(PART_NAMES), []
@@ -148,7 +148,7 @@ async def get_calendar(
     notices = []
     if finnhub_key() is None:
         notices.append(
-            "Earnings reports, IPOs and market holidays come from Finnhub: add a key in "
+            "Earnings reports, IPOs, and market holidays come from Finnhub: add a key in "
             "Settings to see them."
         )
     if missing:
@@ -174,7 +174,7 @@ async def get_market_news(
     ``general`` is business and markets news, ``forex`` currencies, ``crypto``
     cryptocurrencies, and ``merger`` mergers and acquisitions. Each article's
     ``importance``, from 0 to 1, scores how market-moving it looks: the topics its
-    headline names, its publisher and its age. Reused for five minutes. Returns 403
+    headline names, its publisher, and its age. Reused for five minutes. Returns 403
     without a valid Finnhub key, and 502 when Finnhub fails.
     """
     try:
@@ -199,7 +199,7 @@ async def _general_news() -> MarketNews | None:
 
 async def fetch_market_context(today: date) -> MarketContext:
     """The market backdrop for an analysis: upcoming FOMC meetings, holidays, major
-    earnings reports and IPOs, and the newest market headlines.
+    earnings reports, and IPOs, and the newest market headlines.
 
     FOMC meetings come for every account; the rest needs a Finnhub key and is left empty
     without one, or when Finnhub cannot supply it.

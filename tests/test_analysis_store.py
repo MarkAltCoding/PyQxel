@@ -171,7 +171,7 @@ async def test_reports_are_reused_only_for_identical_requests(
     request_change: dict[str, object],
     settings_change: dict[str, object],
 ) -> None:
-    """Any option, model or effort that changes the report needs a new one."""
+    """Any option, model, or effort that changes the report needs a new one."""
     _use_settings(monkeypatch, anthropic_model="claude-opus-5-5", anthropic_effort="medium")
     await remember_analysis(OWNER, RISK, _response())
 

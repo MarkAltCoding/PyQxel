@@ -7,7 +7,7 @@ FEAR = "^VIX"
 
 # bars is a pandas DataFrame on the dates every ticker traded, oldest first, whose
 # columns are (field, symbol): bars["Close"]["SPY"] is SPY's close, and
-# bars.xs("SPY", axis=1, level="symbol") its Open, High, Low, Close and Volume. Prices
+# bars.xs("SPY", axis=1, level="symbol") its Open, High, Low, Close, and Volume. Prices
 # are adjusted for splits and dividends. numpy is np and pandas is pd; whatever you
 # print() appears below.
 #

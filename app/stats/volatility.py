@@ -31,7 +31,7 @@ def clean_prices(closes: pd.Series) -> pd.Series:
 def log_returns(closes: pd.Series) -> pd.Series:
     """Return percent log returns between consecutive valid closes.
 
-    Missing, non-finite and non-positive closes are dropped first, so a return spans
+    Missing, non-finite, and non-positive closes are dropped first, so a return spans
     from one valid bar to the next. Non-trading days never appear as zero returns
     because the series only holds bars that traded.
 

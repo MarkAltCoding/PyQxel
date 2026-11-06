@@ -56,7 +56,7 @@ async def search(
     A listing whose ticker is exactly ``q`` comes first. Searches the screened universe of
     US common stocks, which the screener refresh job builds, first. With a Finnhub key,
     Finnhub's search of US listings fills the rest of the ``limit``, or adds the exact
-    ticker when the universe lacks it, finding ETFs, ADRs and stocks outside the universe
+    ticker when the universe lacks it, finding ETFs, ADRs, and stocks outside the universe
     (``source`` is ``finnhub``, with their ``kind`` and no market cap). The SEC's list of listed
     companies, which needs no key, fills any room left (``source`` ``sec``), so typing
     the start of a ticker suggests it even when the universe is empty and there is no

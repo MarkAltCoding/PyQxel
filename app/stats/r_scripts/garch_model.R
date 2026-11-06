@@ -32,7 +32,7 @@ pyqxel_fit_garch <- function(returns, horizon, distribution) {
     distribution.model = distribution
   )
 
-  # hybrid tries solnp, then nlminb, gosolnp and lbfgs until one converges.
+  # hybrid tries solnp, then nlminb, gosolnp, and lbfgs until one converges.
   fit <- tryCatch(
     ugarchfit(spec, data = returns, solver = "hybrid"),
     error = function(e) e

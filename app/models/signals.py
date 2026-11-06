@@ -1,4 +1,4 @@
-"""Schemas for what analysts, earnings and insiders say about a company, from Finnhub."""
+"""Schemas for what analysts, earnings, and insiders say about a company, from Finnhub."""
 
 from datetime import date
 from datetime import date as Day
@@ -77,7 +77,7 @@ class InsiderSentimentMonth(BaseModel):
 
 
 class InsiderSummary(BaseModel):
-    """Insiders' open-market trades over a window. Grants, option exercises and tax
+    """Insiders' open-market trades over a window. Grants, option exercises, and tax
     withholding are left out, since they say nothing about insiders' views."""
 
     start: date
@@ -127,7 +127,7 @@ class MarketSignals(BaseModel):
 
 
 class SignalsContext(BaseModel):
-    """Analyst ratings, earnings and insider trading as given to Claude."""
+    """Analyst ratings, earnings, and insider trading as given to Claude."""
 
     recommendations: list[RecommendationMonth] = Field(
         description="The last few months of analyst rating counts, newest first."

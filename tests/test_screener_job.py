@@ -166,7 +166,7 @@ async def _stored() -> dict[str, ScreenerStockRecord]:
 
 @pytest.mark.asyncio
 async def test_refresh_builds_the_filtered_universe(fakes: Fakes, tmp_path: Path) -> None:
-    """Price, liquidity and market cap floors pick the universe; every metric is stored."""
+    """Price, liquidity, and market cap floors pick the universe; every metric is stored."""
     result = await job.refresh_universe()
 
     stored = await _stored()

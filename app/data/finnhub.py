@@ -1,4 +1,4 @@
-"""Analyst recommendations, earnings, insider trading, key metrics, peers and symbol search
+"""Analyst recommendations, earnings, insider trading, key metrics, peers, and symbol search
 from Finnhub, on the user's own key.
 
 Finnhub's free plan covers each of these for US companies, as checked against a free key
@@ -6,7 +6,7 @@ in October 2026: monthly analyst rating counts, the last four quarters' earnings
 surprises, three months of the upcoming earnings calendar, insider transactions filed on
 SEC Form 4 and the monthly insider sentiment built from them, basic financials (key
 metrics), peers, and symbol search. It does not cover price history, price targets,
-estimates, dividends or international listings. They change at most daily, so answers are kept
+estimates, dividends, or international listings. They change at most daily, so answers are kept
 for :data:`SIGNALS_TTL_SECONDS` in memory and in Redis, under the provider's name, and
 only served to users who query Finnhub themselves.
 
@@ -127,7 +127,7 @@ def _api_key() -> str:
     api_key = finnhub_key()
     if api_key is None:
         raise ProviderNotConfiguredError(
-            "Analyst ratings, earnings and insider trades come from Finnhub on your own "
+            "Analyst ratings, earnings, and insider trades come from Finnhub on your own "
             "key: add it in Settings."
         )
     return api_key

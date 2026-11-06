@@ -109,7 +109,7 @@ describe('PresetOrCustom', () => {
 })
 
 describe('Pager', () => {
-  it('shows the first, last and nearby pages, eliding the rest', () => {
+  it('shows the first, last, and nearby pages, eliding the rest', () => {
     expect(pageNumbers(1, 3)).toEqual([1, 2, 3])
     expect(pageNumbers(6, 12)).toEqual([1, null, 4, 5, 6, 7, 8, null, 12])
     expect(pageNumbers(1, 12)).toEqual([1, 2, 3, null, 12])

@@ -3,7 +3,7 @@
 EDGAR's company facts API returns every figure a company has tagged in its filings,
 each with the period it covers and the filing it came from. This module picks the
 figures for a handful of income statement, cash flow and balance sheet items and turns
-them into trailing-twelve-month (TTM) totals, fiscal-year histories and the latest
+them into trailing-twelve-month (TTM) totals, fiscal-year histories, and the latest
 balance sheet.
 
 Four things make that harder than reading one number:
@@ -220,7 +220,7 @@ BALANCE_SHARES: str = "CommonStockSharesOutstanding"
 class FinancialsNotFoundError(FilingFetchError):
     """Raised when a company has no US GAAP or IFRS financial data on EDGAR.
 
-    Funds, shell companies and foreign issuers filing only PDF reports are examples.
+    Funds, shell companies, and foreign issuers filing only PDF reports are examples.
     """
 
 
@@ -284,7 +284,7 @@ def _label(taxonomy: str, concept: str) -> str:
 
 
 def _key_concepts() -> list[tuple[str, str]]:
-    """The main statement items' concepts: revenue, net income, operating cash flow and
+    """The main statement items' concepts: revenue, net income, operating cash flow, and
     equity, in both taxonomies."""
     return [
         pair

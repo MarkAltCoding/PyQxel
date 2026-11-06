@@ -2,7 +2,7 @@
 
 Finnhub's free plan covers, as checked against a free key in October 2026: the latest
 market news by category, the earnings calendar of every US company, the IPO calendar,
-US market holidays and whether the market is open. Answers are kept in memory and in
+US market holidays, and whether the market is open. Answers are kept in memory and in
 Redis under the provider's name, so they are only served to users who query Finnhub
 themselves.
 
@@ -139,7 +139,7 @@ async def fetch_earnings_calendar(
 async def fetch_ipo_calendar(
     start: date, end: date, client: httpx2.AsyncClient | None = None
 ) -> list[IpoEvent]:
-    """IPOs scheduled, priced, filed or withdrawn from ``start`` to ``end``, by date."""
+    """IPOs scheduled, priced, filed, or withdrawn from ``start`` to ``end``, by date."""
     payload = await cached_get(
         "calendar/ipo",
         {"from": start.isoformat(), "to": end.isoformat()},

@@ -1,5 +1,5 @@
 """Schemas for market-wide news and the calendar of events that move markets: FOMC
-meetings, major companies' earnings reports, IPOs and market holidays."""
+meetings, major companies' earnings reports, IPOs, and market holidays."""
 
 from datetime import date, datetime
 from datetime import date as Day
@@ -51,7 +51,7 @@ class IpoEvent(BaseModel):
     shares: float | None = None
     price: str | None = Field(default=None, description="The price or range, e.g. 10.00-12.00.")
     status: str | None = Field(
-        default=None, description="``expected``, ``priced``, ``filed`` or ``withdrawn``."
+        default=None, description="``expected``, ``priced``, ``filed``, or ``withdrawn``."
     )
     value: float | None = Field(default=None, description="Shares times price, in US dollars.")
 
@@ -71,7 +71,7 @@ class MarketStatus(BaseModel):
 
     is_open: bool
     session: str | None = Field(
-        default=None, description="``pre-market``, ``regular`` or ``post-market``."
+        default=None, description="``pre-market``, ``regular``, or ``post-market``."
     )
     holiday: str | None = None
     as_of: datetime

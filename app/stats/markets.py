@@ -94,7 +94,7 @@ def market_context(
     news: MarketNews | None,
     status: MarketStatus | None,
 ) -> MarketContext:
-    """The upcoming FOMC meetings, holidays, major earnings reports and IPOs, and the
+    """The upcoming FOMC meetings, holidays, major earnings reports, and IPOs, and the
     newest market headlines; parts passed as ``None`` are left empty."""
     soon = today + timedelta(days=CONTEXT_EVENT_DAYS)
     return MarketContext(

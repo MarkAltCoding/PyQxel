@@ -3,7 +3,7 @@
 # The backtest holds each position over the next bar, so a signal never trades on the
 # bar that produced it.
 #
-# bars is a pandas DataFrame with Open, High, Low, Close and Volume columns, one row per
+# bars is a pandas DataFrame with Open, High, Low, Close, and Volume columns, one row per
 # bar, oldest first, on a UTC DatetimeIndex. Prices are adjusted for splits and
 # dividends. numpy is np and pandas is pd; whatever you print() appears below.
 

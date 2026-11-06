@@ -1181,7 +1181,7 @@ async def _portfolio_context(
         weight = float(weights[h.symbol])
         fund = looked_through.get(h.symbol)
         if fund is not None and h.symbol not in usable.cash:
-            # A fund counts under what it holds: its stocks' sectors, its bonds and cash.
+            # A fund counts under what it holds: its stocks' sectors, its bonds, and cash.
             for name, share in look_through(weight, fund).items():
                 add(name, share)
             continue
@@ -1533,7 +1533,7 @@ async def create_portfolio_review(prepared: PreparedPortfolioReview) -> Portfoli
 
     The review is grounded in your holdings valued at the latest prices, their sectors,
     and statistics of today's weights over ``period`` of daily returns: each holding's
-    return, volatility, drawdown and share of the portfolio's risk, the portfolio's
+    return, volatility, drawdown, and share of the portfolio's risk, the portfolio's
     volatility, drawdowns and diversification, and the most and least correlated pairs.
     All of it is in ``context``.
 
@@ -1570,7 +1570,7 @@ async def stream_portfolio_review_events(
     """Stream the review of ``create_portfolio_review`` as Claude writes it.
 
     The same failures return the same statuses before the stream opens. Then it sends
-    ``context`` (the :class:`PortfolioContext`), ``thinking`` and ``report`` fragments,
+    ``context`` (the :class:`PortfolioContext`), ``thinking``, and ``report`` fragments,
     ``fallback`` when a model declines part-way and another continues, and ``result``
     (the :class:`PortfolioAnalysisResponse`) or ``error``, as the stock analysis stream
     does. A reused review is sent as ``context`` then ``result`` alone.

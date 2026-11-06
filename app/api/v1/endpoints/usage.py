@@ -99,12 +99,12 @@ async def read_usage(
     ] = [],  # noqa: B006
 ) -> UsageResponse:
     """Return, for each key the request carries, its plan's limits (per second, minute,
-    hour, day or month, and different symbols a month where one applies), how much of
+    hour, day, or month, and different symbols a month where one applies), how much of
     each is used and left, and when each resets.
 
-    EODHD's daily figures come from its account page, and Finnhub's, EODHD's and
+    EODHD's daily figures come from its account page, and Finnhub's, EODHD's, and
     Anthropic's per-minute figures from the headers of their latest answers, so they count
-    use from anywhere. Tiingo, FMP and Alpha Vantage report nothing, so their figures are
+    use from anywhere. Tiingo, FMP, and Alpha Vantage report nothing, so their figures are
     PyQxel's own count of its requests, labeled ``pyqxel``. Also says how much price
     history PyQxel keeps for the user. Returns 503 when the database is unavailable.
     """

@@ -20,7 +20,7 @@ colors.
 
 | Page | Main pieces |
 | --- | --- |
-| `StockPage` | `PriceChart`, `FactorChart`, `VolatilityChart`, `FundCard` (an ETF or mutual fund's costs, holdings, asset mix, bond figures and the figures weighted from its companies, in place of a company's; a mutual fund has no news or metrics cards), `MetricsCard`, `SignalsCard`, `NewsCard` (paged by `Pager`), `AlternativeCard`, `AnalysisPanel` (AI report) |
+| `StockPage` | `PriceChart`, `FactorChart`, `VolatilityChart`, `FundCard` (an ETF or mutual fund's costs, holdings, asset mix, bond figures, and the figures weighted from its companies, in place of a company's; a mutual fund has no news or metrics cards), `MetricsCard`, `SignalsCard`, `NewsCard` (paged by `Pager`), `AlternativeCard`, `AnalysisPanel` (AI report) |
 | `MarketsPage` | market news (paged), event calendar (`lib/calendar.ts`) |
 | `PortfolioPage` | `HoldingsTable` (2 portfolios, up to 40 holdings; sortable, two gain/loss windows and a 52-week range per holding from `lib/holdings.ts`, and an account total), late-listing cutoff, `SimulationCard` (`FanChart`), `CopulaCard` (`CopulaHeatmap`), `PortfolioReviewCard` (one portfolio, or both together) |
 | `BacktestPage` | Chosen symbols (`mode` absent; a stock, ETF or fund): built-in rules or custom code, with "Also trade" for several symbols. Across tickers: `CrossSectionalBacktest` (rank by a signal), or the same component with `across` (code that trades every ticker it names, `lib/tickers.ts`) |
@@ -61,7 +61,7 @@ Web Worker that goes off the network once loaded (`runners/lockdown.ts`).
 
 ## Conventions
 
-- **Every stat, chart, table column and badge gets an explanation:** an `InfoTip` keyed
+- **Every stat, chart, table column, and badge gets an explanation:** an `InfoTip` keyed
   to `lib/glossary.ts`. `Stat` and `ChartCard` require `info`.
 - **Reuse the controls:**
   - `Segmented` for a few exclusive choices.

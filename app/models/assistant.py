@@ -1,7 +1,7 @@
 """Schemas for the coding assistant that helps write custom backtest strategies.
 
 The conversation lives in the browser: each request carries the turns so far, the code
-in the editor and how its last run went, and nothing of it is stored on the server.
+in the editor, and how its last run went, and nothing of it is stored on the server.
 """
 
 from typing import Annotated, Literal
@@ -39,7 +39,7 @@ class LastRun(BaseModel):
     error_kind: str | None = Field(
         default=None,
         max_length=32,
-        description="``syntax``, ``compile``, ``runtime``, ``result`` or ``timeout``; null "
+        description="``syntax``, ``compile``, ``runtime``, ``result``, or ``timeout``; null "
         "when the run succeeded.",
     )
     message: str | None = Field(default=None, max_length=MAX_OUTPUT_LENGTH)

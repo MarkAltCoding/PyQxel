@@ -211,7 +211,7 @@ def _line(exc: BaseException) -> int | None:
 
 
 def _failure(kind: str, exc: BaseException, output: str) -> dict[str, Any]:
-    """An error result: ``exc``'s message, the user's line and their part of the traceback."""
+    """An error result: ``exc``'s message, the user's line, and their part of the traceback."""
     if isinstance(exc, StrategyError):
         trace = f"{exc}\n"
     else:
@@ -242,8 +242,8 @@ def run_strategy(code: str, payload_json: str) -> str:
     Returns:
         JSON of ``{"ok": true, "positions", "output"}``, with ``weights`` (a row per bar)
         in place of ``positions`` for several symbols, or ``{"ok": false, "error",
-        "output"}`` where ``error`` has ``kind`` (``syntax``, ``runtime`` or ``result``),
-        ``message``, ``line`` and ``traceback``.
+        "output"}`` where ``error`` has ``kind`` (``syntax``, ``runtime``, or ``result``),
+        ``message``, ``line``, and ``traceback``.
     """
     linecache.cache[FILENAME] = (len(code), None, code.splitlines(keepends=True), FILENAME)
     payload = json.loads(payload_json)

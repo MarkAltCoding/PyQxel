@@ -135,7 +135,7 @@ async def test_sec_filings() -> None:
 @needs_screener_fmp
 @pytest.mark.asyncio
 async def test_screener_universe_sources() -> None:
-    """The SEC listing and FMP's company screener give tickers, market caps and sectors to
+    """The SEC listing and FMP's company screener give tickers, market caps, and sectors to
     join."""
     assert settings.screener_fmp_api_key is not None
     async with edgar_client() as sec:
@@ -155,7 +155,7 @@ async def test_screener_universe_sources() -> None:
 
 @needs_sec
 def test_fundamentals(client: TestClient) -> None:
-    """EDGAR's company facts give Microsoft's June fiscal years, TTM figures and multiples."""
+    """EDGAR's company facts give Microsoft's June fiscal years, TTM figures, and multiples."""
     response = client.get("/api/v1/stocks/MSFT/fundamentals")
 
     assert response.status_code == 200
@@ -343,7 +343,7 @@ def test_portfolio_backtest_with_cash_and_attribution(client: TestClient) -> Non
 @pytest.mark.paid
 @needs_sec
 def test_claude_analysis_with_filings(client: TestClient) -> None:
-    """The full research path: prices, filings and a structured report from Claude.
+    """The full research path: prices, filings, and a structured report from Claude.
 
     Makes one billed request with filings, roughly $0.10-$0.20.
     """
@@ -381,7 +381,7 @@ def test_quote_websocket(client: TestClient) -> None:
 
 @pytest.mark.paid
 def test_claude_analysis_stream(client: TestClient) -> None:
-    """The streamed thesis sends the context, report fragments and a validated result.
+    """The streamed thesis sends the context, report fragments, and a validated result.
 
     Makes one billed request without filings, roughly $0.05.
     """
@@ -433,7 +433,7 @@ async def test_finnhub_free_plan_covers_everything_used(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With only a Finnhub key, free or paid, quotes, profiles, news, analyst ratings,
-    earnings, insider trades and sentiment, key metrics, peers and search all answer for
+    earnings, insider trades and sentiment, key metrics, peers, and search all answer for
     a large US stock.
 
     Uses twelve of the free plan's 60 requests a minute. A part the plan refuses shows up
@@ -479,7 +479,7 @@ async def test_finnhub_free_plan_covers_market_and_alternative_data(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Market news, the earnings and IPO calendars, holidays and status, a company's
-    lobbying, contracts, patents and filings, and its as-reported financials all answer.
+    lobbying, contracts, patents, and filings, and its as-reported financials all answer.
 
     Uses about 15 requests, more in earnings season, when the calendar is split.
     """

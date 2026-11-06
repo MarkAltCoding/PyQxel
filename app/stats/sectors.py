@@ -2,7 +2,7 @@
 
 Every company filing with the SEC is assigned a four-digit SIC code, public in its EDGAR
 submissions. The code's title is the industry, and ranges of codes map to the sector names
-the screener uses (Nasdaq's: Technology, Health Care, Finance and so on). SIC is older and
+the screener uses (Nasdaq's: Technology, Health Care, Finance, and so on). SIC is older and
 coarser than commercial classifications, so a company can land in a different sector than
 a data provider would put it in; the mapping follows where most companies of each code
 belong.

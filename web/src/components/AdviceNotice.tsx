@@ -26,9 +26,9 @@ export function AdviceNotice() {
       >
         <h2 id="advice-notice-title">Not investment advice</h2>
         <p>
-          PyQxel is a research tool. Its prices, statistics, backtests, simulations, screens and
+          PyQxel is a research tool. Its prices, statistics, backtests, simulations, screens, and
           AI-written reports help you study securities, but they are not recommendations to buy,
-          sell or hold anything, and PyQxel is not a financial adviser or broker.
+          sell, or hold anything, and PyQxel is not a financial adviser or broker.
         </p>
         <p>
           Backtests and simulations replay or model the past, and past results do not predict future

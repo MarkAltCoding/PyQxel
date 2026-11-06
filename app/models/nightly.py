@@ -116,7 +116,7 @@ class NightlyRefreshStatus(BaseModel):
         default=None, description="When the next refresh is due to start."
     )
     latest_run: NightlyRun | None = Field(
-        default=None, description="The latest refresh, running, finished or failed."
+        default=None, description="The latest refresh, running, finished, or failed."
     )
     last_success: NightlyRun | None = Field(
         default=None, description="The latest refresh that succeeded, whose universe is shown."

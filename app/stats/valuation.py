@@ -1,4 +1,4 @@
-"""Valuation multiples, margins and returns from a market value and financial statements."""
+"""Valuation multiples, margins, and returns from a market value and financial statements."""
 
 from app.models.fundamentals import Financials, FlowItem, MarketCapSource, Valuation
 
@@ -35,7 +35,7 @@ def value_company(
     exchange_rate: float | None = None,
     exchange_rate_source: str | None = None,
 ) -> Valuation | None:
-    """Combine the market value with ``financials`` into multiples, margins and returns.
+    """Combine the market value with ``financials`` into multiples, margins, and returns.
 
     Args:
         financials: The company's normalized financial statements.
@@ -69,7 +69,7 @@ def value_company(
     rate = 1.0 if same_currency else exchange_rate
     if rate is None:
         notes.append(
-            f"P/E, P/S, EV/EBITDA and free-cash-flow yield are not computed: the financial "
+            f"P/E, P/S, EV/EBITDA, and free-cash-flow yield are not computed: the financial "
             f"statements are in {financials.currency} and no exchange rate to "
             f"{listing_currency} is available."
         )

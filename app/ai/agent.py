@@ -74,7 +74,7 @@ class AIRateLimitError(AnalysisError):
 
 
 class AIUnavailableError(AnalysisError):
-    """Raised on network failures, timeouts or Anthropic server errors."""
+    """Raised on network failures, timeouts, or Anthropic server errors."""
 
 
 class AIRefusalError(AnalysisError):
@@ -102,7 +102,7 @@ def anthropic_client(api_key: SecretStr) -> AsyncAnthropic:
 
     The key is always passed explicitly: the SDK would otherwise look for credentials in
     the environment or a saved login, and bill the server's owner. The SDK retries
-    connection errors, 429s and 5xx responses with backoff. Close the client when done.
+    connection errors, 429s, and 5xx responses with backoff. Close the client when done.
     """
     from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
 

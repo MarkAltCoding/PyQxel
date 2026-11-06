@@ -365,7 +365,7 @@ def test_single_asset_needs_no_copula() -> None:
 def test_invalid_settings_are_rejected(
     weights: dict[str, float], options: dict[str, object], message: str
 ) -> None:
-    """Missing or unbalanced weights, empty runs and oversized runs are refused."""
+    """Missing or unbalanced weights, empty runs, and oversized runs are refused."""
     settings = {"horizon": 5, "paths": 100, **options}
 
     with pytest.raises(SimulationError, match=message):

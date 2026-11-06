@@ -110,7 +110,7 @@ def _client(handler: Handler) -> httpx2.AsyncClient:
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Start each test with empty caches, default settings and no retry delays."""
+    """Start each test with empty caches, default settings, and no retry delays."""
     sec_edgar.clear_caches()
     monkeypatch.setattr(sec_edgar, "get_settings", lambda: Settings(sec_user_agent="Test t@e.com"))
 

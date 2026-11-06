@@ -120,7 +120,7 @@ function MarketsDetails() {
             <h2>Calendar</h2>
             <div className="subtitle">
               FOMC meetings from the Federal Reserve; earnings of companies above the market cap
-              chosen, IPOs and market holidays from Finnhub
+              chosen, IPOs, and market holidays from Finnhub
             </div>
           </div>
           <div className="filter-row">

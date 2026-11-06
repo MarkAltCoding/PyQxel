@@ -33,7 +33,7 @@ from app.models.stock import FundBonds
 logger = logging.getLogger(__name__)
 
 FUND_TICKERS_URL: str = "https://www.sec.gov/files/company_tickers_mf.json"
-"""The SEC's list of mutual fund and ETF share classes: CIK, series, class and ticker."""
+"""The SEC's list of mutual fund and ETF share classes: CIK, series, class, and ticker."""
 SERIES_FILINGS_URL: str = (
     "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={series}&type=NPORT-P"
     "&dateb=&owner=include&count=5&output=atom"
@@ -81,7 +81,7 @@ class FiledHolding(BaseModel):
 
     name: str
     weight: float = Field(description="Share of the fund's net assets, as a decimal.")
-    asset_class: str = Field(description="Stocks, Bonds, Cash or Other.")
+    asset_class: str = Field(description="Stocks, Bonds, Cash, or Other.")
     cusip: str | None = None
 
 
@@ -94,7 +94,7 @@ class FundFiling(BaseModel):
     net_assets: float | None = Field(default=None, description="US dollars.")
     holdings_count: int = Field(ge=0)
     asset_mix: dict[str, float] = Field(
-        description="Share of net assets in stocks, bonds, cash and other, as decimals."
+        description="Share of net assets in stocks, bonds, cash, and other, as decimals."
     )
     top_holdings: list[FiledHolding] = Field(
         description="The largest issuers, of any kind, each with its issues' combined weight."

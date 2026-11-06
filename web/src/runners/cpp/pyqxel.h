@@ -73,7 +73,7 @@ struct Weights {
     }
 };
 
-// Whether a value is missing, as open, high, low and volume may be.
+// Whether a value is missing, as open, high, low, and volume may be.
 inline bool missing(double value) { return std::isnan(value); }
 
 }  // namespace pyqxel

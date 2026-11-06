@@ -15,7 +15,7 @@ export interface AdminSettings {
   restricted_sources: boolean
   /** Whether the admin's own requests use them while the server does not. */
   own_restricted_sources: boolean
-  /** Whether the whole server offers the size, value and momentum factors estimated from
+  /** Whether the whole server offers the size, value, and momentum factors estimated from
    * ETFs when Ken French's library is not used. */
   style_factors: boolean
   /** What turning `restricted_sources` off stops, one source per line. */

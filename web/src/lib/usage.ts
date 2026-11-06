@@ -1,5 +1,5 @@
 // Plan usage: which plan each key is on, whether each page may load without asking first,
-// and the words for limits, windows and resets.
+// and the words for limits, windows, and resets.
 import type { ProviderUsage, UsageLimit } from '../api/types'
 import { readStored, writeStored } from './storage'
 

@@ -1,4 +1,4 @@
-"""A fund's figures weighted from its holdings: the valuation, profitability, growth, size
+"""A fund's figures weighted from its holdings: the valuation, profitability, growth, size,
 and sector mix of the companies it owns, as a stock's own figures are shown.
 
 Ratios of price to a flow (P/E, price to sales) are combined as a harmonic mean: the

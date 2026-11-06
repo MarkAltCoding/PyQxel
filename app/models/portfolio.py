@@ -266,7 +266,7 @@ class HoldingValue(BaseModel):
     )
     kind: str | None = Field(
         default=None,
-        description="What it is, as the provider classes it: EQUITY, ETF, MUTUALFUND or "
+        description="What it is, as the provider classes it: EQUITY, ETF, MUTUALFUND, or "
         "MONEYMARKET; null when it does not say.",
     )
     local_price: float | None = Field(

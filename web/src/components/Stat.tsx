@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { InfoKey } from '../lib/glossary'
 import { InfoTip } from './InfoTip'
 
-/** A labelled figure, with an "i" explaining it: every stat needs an explanation. */
+/** A labeled figure, with an "i" explaining it: every stat needs an explanation. */
 export function Stat({
   label,
   value,

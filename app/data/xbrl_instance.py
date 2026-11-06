@@ -16,7 +16,7 @@ from datetime import date
 from typing import Any
 
 XBRLI = "{http://www.xbrl.org/2003/instance}"
-"""Namespace of the XBRL instance elements: contexts, units and periods."""
+"""Namespace of the XBRL instance elements: contexts, units, and periods."""
 
 TAXONOMIES: tuple[tuple[str, str], ...] = (
     ("fasb.org/us-gaap/", "us-gaap"),

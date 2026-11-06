@@ -1,8 +1,8 @@
-// Plain-language explanations of every stat, model and chart in the app, shown by the
-// "i" beside each (components/InfoTip). Every new stat, model or chart gets an entry here.
+// Plain-language explanations of every stat, model, and chart in the app, shown by the
+// "i" beside each (components/InfoTip). Every new stat, model, or chart gets an entry here.
 //
 // Ranges are rules of thumb for a typical US stock or a long-only portfolio; they vary by
-// industry, market and era, and are a starting point for judgement, not a verdict.
+// industry, market, and era, and are a starting point for judgment, not a verdict.
 
 export interface Info {
   /** What it is called. */
@@ -31,7 +31,7 @@ const entries = {
   },
   notForFunds: {
     title: 'Does not apply to funds',
-    what: 'An ETF or mutual fund holds many companies instead of running a business, so a single company’s figures, such as its market cap, sector, earnings, margins or valuation ratios, have no value for it. A fund is judged instead by what it holds and what it costs: its net assets, expense ratio and holdings.',
+    what: 'An ETF or mutual fund holds many companies instead of running a business, so a single company’s figures, such as its market cap, sector, earnings, margins, or valuation ratios, have no value for it. A fund is judged instead by what it holds and what it costs: its net assets, expense ratio, and holdings.',
   },
   netAssets: {
     title: 'Net assets',
@@ -72,7 +72,7 @@ const entries = {
   },
   assetMix: {
     title: 'What it holds',
-    what: 'How the fund’s money is split between stocks, bonds and cash, from its latest holdings report to the SEC.',
+    what: 'How the fund’s money is split between stocks, bonds, and cash, from its latest holdings report to the SEC.',
     note: 'Stocks grow more over the long run and swing more; bonds pay steady interest and usually fall less in a crash; cash is steady but earns least.',
   },
   weightedFromHoldings: {
@@ -164,7 +164,7 @@ const entries = {
     title: '52-week return',
     what: 'The price change over the past year, and how it compares with the S&P 500 over the same year.',
     good: 'Ahead of the S&P 500.',
-    bad: 'Far behind the market can signal trouble, or just an out-of-favour sector.',
+    bad: 'Far behind the market can signal trouble, or just an out-of-favor sector.',
   },
   averageVolume: {
     title: 'Average volume',
@@ -316,7 +316,7 @@ const entries = {
   },
   factorRSquared: {
     title: 'Factor R²',
-    what: 'The share of the stock’s return swings explained by the market, size, value and momentum factors.',
+    what: 'The share of the stock’s return swings explained by the market, size, value, and momentum factors.',
     note: 'Low values mean company-specific news dominates, which diversifies better in a portfolio.',
   },
   systematicRisk: {
@@ -372,7 +372,7 @@ const entries = {
   },
   evEbitda: {
     title: 'EV / EBITDA',
-    what: 'Enterprise value divided by earnings before interest, taxes, depreciation and amortization: a valuation that works across companies with different debts.',
+    what: 'Enterprise value divided by earnings before interest, taxes, depreciation, and amortization: a valuation that works across companies with different debts.',
     good: 'Below about 10 is often considered reasonable.',
     bad: 'Above about 20 is expensive unless growth is high.',
   },
@@ -404,7 +404,7 @@ const entries = {
   },
   netMargin: {
     title: 'Net margin',
-    what: 'The share of revenue that ends up as profit after every cost, interest and tax.',
+    what: 'The share of revenue that ends up as profit after every cost, interest, and tax.',
     good: 'Above about 10%.',
     bad: 'Negative: the company made a loss.',
   },
@@ -489,7 +489,7 @@ const entries = {
     bad: 'Below about 2: interest eats much of the profit.',
   },
 
-  // ── Analysts, earnings and insiders ──
+  // ── Analysts, earnings, and insiders ──
   analystsAtBuy: {
     title: 'Analysts at buy',
     what: 'The share of Wall Street analysts covering the stock who rate it a buy or strong buy.',
@@ -584,17 +584,17 @@ const entries = {
   // ── Backtests ──
   backtestMode: {
     title: 'Chosen symbols or across tickers',
-    what: 'Two ways to backtest. Chosen symbols tests a strategy on symbols you pick: a built-in rule on one stock, ETF or fund, or your own code on it, with Also trade adding up to 19 more for the code to move money between. Across tickers ranks a set of stocks against one another at each rebalance and holds the best, or runs code that trades every ticker it names.',
+    what: 'Two ways to backtest. Chosen symbols tests a strategy on symbols you pick: a built-in rule on one stock, ETF, or fund, or your own code on it, with Also trade adding up to 19 more for the code to move money between. Across tickers ranks a set of stocks against one another at each rebalance and holds the best, or runs code that trades every ticker it names.',
     note: 'Pick Chosen symbols to time one investment or split money among a few you already know. Pick Across tickers to test a rule for choosing among many, such as “hold the three sectors that rose most last quarter”.',
   },
   backtestPerformance: {
     title: 'Performance',
-    what: 'The strategy’s return, risk and drawdowns compared with the benchmark over the same window.',
+    what: 'The strategy’s return, risk, and drawdowns compared with the benchmark over the same window.',
     note: 'Judge return and risk together: a higher return with much deeper drawdowns may not be better.',
   },
   attribution: {
     title: 'Return attribution',
-    what: 'A regression of the strategy’s daily returns on market factors, separating returns from simple market, size, value or momentum exposure (betas) from what remains (alpha).',
+    what: 'A regression of the strategy’s daily returns on market factors, separating returns from simple market, size, value, or momentum exposure (betas) from what remains (alpha).',
     note: 'A strategy whose return is all beta could be had more cheaply with an index fund.',
   },
   rankIc: {
@@ -787,12 +787,12 @@ const entries = {
   },
   portfolioReview: {
     title: 'AI portfolio review',
-    what: 'Claude reviews your saved holdings, where the risk comes from and how well they diversify, and recommends specific changes, which the app turns into exact orders.',
-    note: 'An AI’s recommendation from past prices, not a licensed adviser’s; check taxes, costs and prices before trading.',
+    what: 'Claude reviews your saved holdings (where the risk comes from and how well they diversify) and recommends specific changes, which the app turns into exact orders.',
+    note: 'An AI’s recommendation from past prices, not a licensed adviser’s; check taxes, costs, and prices before trading.',
   },
   reviewHistory: {
     title: 'Price history to measure',
-    what: 'How many years of daily prices the review’s statistics are measured over: each holding’s return, volatility, drawdown and correlations. It is not how far ahead Claude looks. Pick a preset or choose Custom for any length from 12 to 120 months.',
+    what: 'How many years of daily prices the review’s statistics are measured over: each holding’s return, volatility, drawdown, and correlations. It is not how far ahead Claude looks. Pick a preset or choose Custom for any length from 12 to 120 months.',
     good: 'Two to five years usually spans both rising and falling markets.',
     bad: 'One year can miss a whole market regime, such as a sell-off; ten years may describe companies that have since changed.',
     note: 'Holdings listed more recently than the window starts shorten it for all of them, or are left out.',
@@ -831,17 +831,17 @@ const entries = {
   },
   riskLevel: {
     title: 'Risk level',
-    what: 'Claude’s overall grade of how risky the portfolio is, from low to high, based on its volatility, drawdowns and concentration.',
+    what: 'Claude’s overall grade of how risky the portfolio is, from low to high, based on its volatility, drawdowns, and concentration.',
   },
   diversification: {
     title: 'Diversification',
-    what: 'Claude’s grade of how well the holdings offset one another, from poor to strong, based on correlations, sectors and concentration.',
+    what: 'Claude’s grade of how well the holdings offset one another, from poor to strong, based on correlations, sectors, and concentration.',
   },
 
   // ── Account ──
   aiRequestsHour: {
     title: 'AI requests in the last hour',
-    what: 'New AI reports, portfolio reviews and assistant answers written for you in the last hour, which count toward your hourly limit. Reused reports are free and not counted.',
+    what: 'New AI reports, portfolio reviews, and assistant answers written for you in the last hour, which count toward your hourly limit. Reused reports are free and not counted.',
   },
   aiRequestsDay: {
     title: 'AI requests in the last day',
@@ -855,13 +855,13 @@ const entries = {
   // ── News order ──
   marketNewsOrder: {
     title: 'Most important market news',
-    what: 'Most important puts first the headlines that look most likely to move markets as a whole. PyQxel scores each one from what it is about (the Fed, interest rates, inflation, jobs and the economy count most, then big market moves, trade and large company events such as mergers and earnings), whether a major publisher such as Reuters, Bloomberg or The Wall Street Journal ran it, and how recent it is: a headline counts about half as much after a day. Newest simply lists them by time.',
-    note: 'It is a rule of thumb that reads headlines for key words, not a judgement of each story, so an important story with a plain headline can rank low.',
+    what: 'Most important puts first the headlines that look most likely to move markets as a whole. PyQxel scores each one from what it is about (the Fed, interest rates, inflation, jobs and the economy count most, then big market moves, trade and large company events such as mergers and earnings), whether a major publisher such as Reuters, Bloomberg, or The Wall Street Journal ran it, and how recent it is: a headline counts about half as much after a day. Newest simply lists them by time.',
+    note: 'It is a rule of thumb that reads headlines for key words, not a judgment of each story, so an important story with a plain headline can rank low.',
   },
   companyNewsOrder: {
     title: 'Most important company news',
-    what: 'Most important puts first the headlines that look most likely to matter for this company’s shares. PyQxel scores each one from what it is about (results and guidance count most, then analyst upgrades and downgrades, mergers and deals, buybacks and dividends, leadership changes, lawsuits and regulators, and drug approvals), whether the headline names the ticker, whether a major publisher such as Reuters or Bloomberg ran it, and how recent it is: a headline counts about half as much after two days. Newest simply lists them by time.',
-    note: 'It is a rule of thumb that reads headlines for key words, not a judgement of each story, so an important story with a plain headline can rank low, and a market-wide story that mentions the company can rank high.',
+    what: 'Most important puts first the headlines that look most likely to matter for this company’s shares. PyQxel scores each one from what it is about (results and guidance count most, then analyst upgrades and downgrades, mergers and deals, buybacks and dividends, leadership changes, lawsuits, and regulators, and drug approvals), whether the headline names the ticker, whether a major publisher such as Reuters or Bloomberg ran it, and how recent it is: a headline counts about half as much after two days. Newest simply lists them by time.',
+    note: 'It is a rule of thumb that reads headlines for key words, not a judgment of each story, so an important story with a plain headline can rank low, and a market-wide story that mentions the company can rank high.',
   },
 
   // ── Nightly screener refresh ──
@@ -878,14 +878,14 @@ const entries = {
   },
   nightlyStocks: {
     title: 'Stocks in your screener',
-    what: 'How many US-listed stocks passed the screener’s floors (market cap, share price and trading volume) in your last refresh.',
+    what: 'How many US-listed stocks passed the screener’s floors (market cap, share price, and trading volume) in your last refresh.',
     note: 'Usually a few thousand. Fewer can mean Finnhub left some stocks out, for example when its limit was reached.',
   },
   nightlyPriced: {
     title: 'With price history',
-    what: 'How many of those stocks also have the columns that need a year of daily prices: one-month return, 12-1 momentum, volatility, maximum drawdown and factor betas. They come from your Tiingo, FMP, EODHD or Alpha Vantage key.',
+    what: 'How many of those stocks also have the columns that need a year of daily prices: one-month return, 12-1 momentum, volatility, maximum drawdown, and factor betas. They come from your Tiingo, FMP, EODHD, or Alpha Vantage key.',
     good: 'Close to the number of stocks, which takes a paid price-history plan.',
-    note: 'Free plans allow only some stocks a day, so this is often a few hundred or fewer. For the rest, Finnhub’s figures stand in: its 52-week return for 12-1 momentum (it also counts the latest month), its three-month volatility for the year’s, and its beta for the market beta. Maximum drawdown and the size, value and momentum betas stay empty for them.',
+    note: 'Free plans allow only some stocks a day, so this is often a few hundred or fewer. For the rest, Finnhub’s figures stand in: its 52-week return for 12-1 momentum (it also counts the latest month), its three-month volatility for the year’s, and its beta for the market beta. Maximum drawdown and the size, value, and momentum betas stay empty for them.',
   },
   nightlyNextRefresh: {
     title: 'Next refresh',
@@ -902,8 +902,8 @@ const entries = {
   // ── Plan usage ──
   planUsage: {
     title: 'Plan usage',
-    what: 'How much of this key’s plan has been used: each limit the plan sets (per minute, hour, day or month, and different symbols a month where one applies), how much is used and left, and when each resets.',
-    note: 'Where the provider reports its own figures, they count every use of the key, from PyQxel or anywhere else. Tiingo, FMP and Alpha Vantage report nothing, so for them PyQxel shows its own count of its requests, which leaves out use of the same key elsewhere.',
+    what: 'How much of this key’s plan has been used: each limit the plan sets (per minute, hour, day, or month, and different symbols a month where one applies), how much is used and left, and when each resets.',
+    note: 'Where the provider reports its own figures, they count every use of the key, from PyQxel or anywhere else. Tiingo, FMP, and Alpha Vantage report nothing, so for them PyQxel shows its own count of its requests, which leaves out use of the same key elsewhere.',
   },
   usageLimit: {
     title: 'Limit',
@@ -926,7 +926,7 @@ const entries = {
   },
   loadEstimate: {
     title: 'Before this page loads',
-    what: 'Opening this page asks your keys’ providers for prices, profiles or news right away. This shows about how many requests that would send on each key, and how much of the tightest limit is left, so you can choose whether to spend them now.',
+    what: 'Opening this page asks your keys’ providers for prices, profiles, or news right away. This shows about how many requests that would send on each key, and how much of the tightest limit is left, so you can choose whether to spend them now.',
     note: 'Prices PyQxel already keeps for you, and recent answers it remembers, cost nothing, so the real count is often lower.',
   },
   storedPrices: {

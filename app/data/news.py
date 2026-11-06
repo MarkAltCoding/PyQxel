@@ -103,7 +103,7 @@ def _headline_key(headline: str) -> str:
 
 
 def _article(row: Any, start: datetime) -> NewsArticle | None:
-    """Read one Finnhub row, or ``None`` when it lacks a headline, link or time in the window."""
+    """Read one Finnhub row, or ``None`` when it lacks a headline, link, or time in the window."""
     if not isinstance(row, dict):
         return None
     headline, url = _clean(row.get("headline")), _clean(row.get("url"))

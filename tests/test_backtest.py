@@ -247,7 +247,7 @@ def test_idle_and_short_capital_earn_cash_interest() -> None:
 
 
 def test_portfolio_backtest_weights_each_holding() -> None:
-    """Returns, costs and contributions are each holding's, scaled by its weight."""
+    """Returns, costs, and contributions are each holding's, scaled by its weight."""
     index = pd.bdate_range("2024-01-01", periods=40)
     prices = pd.DataFrame(
         {"UP": [100.0 * 1.01**i for i in range(40)], "DOWN": [100.0 * 0.99**i for i in range(40)]},

@@ -373,7 +373,7 @@ async def mark_etfs_scanned(session: AsyncSession, user_id: str, when: datetime)
 
 
 async def user_etfs(session: AsyncSession, user_id: str) -> list[tuple[str, str, str]]:
-    """The symbol, name and exchange of each ETF in ``user_id``'s own universe."""
+    """The symbol, name, and exchange of each ETF in ``user_id``'s own universe."""
     rows = await session.execute(
         select(
             UserScreenerStockRecord.symbol,

@@ -20,7 +20,7 @@ const FORM_NAMES: Record<string, string> = {
 }
 
 /**
- * A company's lobbying, federal contracts, patents and SEC filings, from public records
+ * A company's lobbying, federal contracts, patents, and SEC filings, from public records
  * Finnhub relays on the account's own key.
  */
 export function AlternativeCard({ symbol }: { symbol: string }) {
@@ -34,9 +34,9 @@ export function AlternativeCard({ symbol }: { symbol: string }) {
     <section id="alternative-data" className="card" aria-busy={alternative.isLoading}>
       <div className="card-header">
         <div>
-          <h2>Lobbying, government contracts and patents</h2>
+          <h2>Lobbying, government contracts, and patents</h2>
           <div className="subtitle">
-            Federal lobbying disclosures, USAspending.gov awards, USPTO patents and SEC filings,
+            Federal lobbying disclosures, USAspending.gov awards, USPTO patents, and SEC filings,
             from Finnhub
           </div>
         </div>
@@ -44,7 +44,7 @@ export function AlternativeCard({ symbol }: { symbol: string }) {
       {noKey ? (
         <div className="empty">
           Add a Finnhub key in <Link to="/settings">Settings</Link> to see lobbying, government
-          contracts, patents and recent filings.
+          contracts, patents, and recent filings.
         </div>
       ) : alternative.error ? (
         <ErrorNotice error={alternative.error} />

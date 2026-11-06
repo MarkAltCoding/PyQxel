@@ -1,4 +1,4 @@
-"""Health checks for containers, load balancers and uptime monitors; no API key needed.
+"""Health checks for containers, load balancers, and uptime monitors; no API key needed.
 
 ``/health`` is a liveness check: it answers whenever the process does, so a database
 outage does not get every app instance restarted. ``/health/ready`` checks the database

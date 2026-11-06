@@ -4,7 +4,7 @@ Financial Modeling Prep and Alpha Vantage take keys in the query string, and HTT
 quote the URL they failed on, so an error can carry a user's key. Every log record is
 scrubbed as it is made, tracebacks included, and so is every error detail the API sends;
 PyQxel and Anthropic keys are scrubbed wherever they appear, and query parameters that
-hold keys, tokens or sign-in codes are scrubbed by name.
+hold keys, tokens, or sign-in codes are scrubbed by name.
 """
 
 import logging
@@ -30,7 +30,7 @@ _installed = False
 
 
 def redact(text: str) -> str:
-    """``text`` with API keys, tokens and sign-in codes replaced by ``[redacted]``."""
+    """``text`` with API keys, tokens, and sign-in codes replaced by ``[redacted]``."""
     for pattern in _PATTERNS:
         text = pattern.sub(
             lambda match: (match.group(1) if match.groups() else "") + REDACTED, text
