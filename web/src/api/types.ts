@@ -15,11 +15,16 @@ export interface AdminSettings {
   restricted_sources: boolean
   /** Whether the admin's own requests use them while the server does not. */
   own_restricted_sources: boolean
+  /** Whether the whole server offers factor models, from any source. */
+  factor_models: boolean
   /** What turning `restricted_sources` off stops, one source per line. */
   restricted_source_uses: string[]
 }
 export type AdminSettingsUpdate = Partial<
-  Pick<AdminSettings, 'yfinance_fallback' | 'restricted_sources' | 'own_restricted_sources'>
+  Pick<
+    AdminSettings,
+    'yfinance_fallback' | 'restricted_sources' | 'own_restricted_sources' | 'factor_models'
+  >
 >
 export type Account = Schemas['Account'] & { admin?: AdminSettings }
 export type NightlyRefreshSettings = Schemas['NightlyRefreshSettings']

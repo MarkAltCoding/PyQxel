@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useParams } from 'react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { ApiError } from '../api/client'
-import { getFactors, getHistory, getTicker, getVolatility } from '../api/endpoints'
+import { getAccount, getFactors, getHistory, getTicker, getVolatility } from '../api/endpoints'
 import type { FactorRegression, VolatilityEstimate } from '../api/types'
 import { ChartCard, Legend } from '../charts/ChartCard'
 import { FactorChart, FactorTable } from '../charts/FactorChart'
@@ -99,10 +99,14 @@ function StockDetails({ symbol }: { symbol: string }) {
     queryFn: () => getHistory(symbol, period, interval),
     placeholderData: keepPreviousData,
   })
+  // A server can turn factor models off; then the page leaves them out.
+  const account = useQuery({ queryKey: ['account'], queryFn: () => getAccount() })
+  const factorsOn = account.data?.factor_models !== false
   const factors = useQuery({
     queryKey: ['factors', symbol, period, factorModel],
     queryFn: () => getFactors(symbol, period, factorModel),
     placeholderData: keepPreviousData,
+    enabled: factorsOn && account.isFetched,
   })
   // GARCH needs about four years of daily returns to estimate reliably (two years often
   // leave it with no volatility clustering and a flat line), so shorter periods are fitted
@@ -200,14 +204,16 @@ function StockDetails({ symbol }: { symbol: string }) {
           value={percent(volatility.data?.estimate.fit.current_volatility)}
           detail="Annualized, conditional"
         />
-        <Stat
-          info="marketBeta"
-          label="Market beta"
-          value={number(
-            factors.data?.fit.exposures.find((row) => row.factor === 'Mkt-RF')?.estimate,
-          )}
-          detail={factors.data ? `R² ${percent(factors.data.fit.r_squared, 0)}` : undefined}
-        />
+        {factorsOn && (
+          <Stat
+            info="marketBeta"
+            label="Market beta"
+            value={number(
+              factors.data?.fit.exposures.find((row) => row.factor === 'Mkt-RF')?.estimate,
+            )}
+            detail={factors.data ? `R² ${percent(factors.data.fit.r_squared, 0)}` : undefined}
+          />
+        )}
       </div>
 
       <ChartCard
@@ -224,15 +230,17 @@ function StockDetails({ symbol }: { symbol: string }) {
         footer={history.data?.notice && <Notice tone="warning">{history.data.notice}</Notice>}
       />
 
-      <div className="grid-2">
-        <FactorCard
-          regression={factors.data}
-          loading={factors.isLoading}
-          refreshing={factors.isPlaceholderData}
-          error={factors.error}
-          model={factorModel}
-          onModel={setFactorModel}
-        />
+      <div className={factorsOn ? 'grid-2' : 'stack'}>
+        {factorsOn && (
+          <FactorCard
+            regression={factors.data}
+            loading={factors.isLoading}
+            refreshing={factors.isPlaceholderData}
+            error={factors.error}
+            model={factorModel}
+            onModel={setFactorModel}
+          />
+        )}
         <ChartCard
           id="volatility"
           info="volatilityChart"

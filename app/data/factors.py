@@ -261,11 +261,16 @@ async def fetch_factors(
         value are kept, oldest first.
 
     Raises:
-        SourceTurnedOffError: If the server does not use Ken French's library, whose
-            terms do not clearly allow use in a paid product, and ETFs cannot stand in.
+        SourceTurnedOffError: If the server offers no factor models, or does not use Ken
+            French's library, whose terms do not clearly allow use in a paid product, and
+            ETFs cannot stand in.
         FactorDataError: If a file cannot be downloaded, no stored copy exists, and ETFs
             cannot stand in.
     """
+    from app.db.app_settings import factor_models_allowed  # Imports the database.
+
+    if not await factor_models_allowed():
+        raise SourceTurnedOffError("Factor models are turned off on this server.")
     try:
         return await _library_factors(model, client)
     except (SourceTurnedOffError, FactorDataError) as exc:

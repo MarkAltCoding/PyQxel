@@ -1449,7 +1449,7 @@ function ResultDetails({ result }: { result: BacktestResponse }) {
             benchmarkLabel={benchmarkLabel(result)}
           />
         </section>
-        <AttributionCard attribution={result.attribution} />
+        {result.attribution && <AttributionCard attribution={result.attribution} />}
       </div>
       {result.assets && (
         <section id="allocation" className="card">

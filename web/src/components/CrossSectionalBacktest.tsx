@@ -540,7 +540,7 @@ function UniverseResult({
           </div>
           <MetricsTable strategy={m} benchmark={b} benchmarkLabel={BENCHMARK} />
         </section>
-        <AttributionCard attribution={result.attribution} />
+        {result.attribution && <AttributionCard attribution={result.attribution} />}
       </div>
       <section id="stocks" className="card">
         <div className="card-header">

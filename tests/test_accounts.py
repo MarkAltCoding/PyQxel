@@ -916,3 +916,47 @@ def test_the_admin_can_keep_those_sources_for_their_own_requests_alone(
     assert asyncio.run(ask(bob[0].id)) == "turned off"
     assert current_provider_keys().restricted_sources is False
     assert asyncio.run(restricted_sources_allowed()) is False
+
+
+def test_the_admin_can_turn_factor_models_off_for_every_account(
+    monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str], bob: tuple[User, str]
+) -> None:
+    from app.core.credentials import ProviderKeys, use_provider_keys
+    from app.data import etf_factors
+    from app.data import factors as factor_data
+    from app.data.fetcher import SourceTurnedOffError
+
+    monkeypatch.setattr(get_settings(), "admin_email", "tester@example.com")
+    _, alice_key = alice
+    _, bob_key = bob
+
+    async def estimated(model: str) -> None:
+        raise AssertionError("No stand-in is asked for once factor models are off.")
+
+    monkeypatch.setattr(etf_factors, "fetch_etf_factors", estimated)
+    turned_off = client.put(
+        "/api/v1/me/admin", headers=_headers(alice_key), json={"factor_models": False}
+    ).json()
+
+    assert turned_off["admin"]["factor_models"] is False
+    assert turned_off["factor_models"] is False
+    assert client.get("/api/v1/me", headers=_headers(bob_key)).json()["factor_models"] is False
+    with pytest.raises(SourceTurnedOffError, match="turned off"):
+        asyncio.run(factor_data.fetch_factors("ff3"))
+
+    # The admin's own switch for restricted sources keeps Ken French's for them alone.
+    mine = client.put(
+        "/api/v1/me/admin", headers=_headers(alice_key), json={"own_restricted_sources": True}
+    ).json()
+    assert mine["factor_models"] is True
+
+    async def library(name: str, client: object = None) -> None:
+        raise RuntimeError("the library was asked")
+
+    monkeypatch.setattr(factor_data, "fetch_factor_file", library)
+    use_provider_keys(ProviderKeys(restricted_sources=True))
+    try:
+        with pytest.raises(RuntimeError, match="library was asked"):
+            asyncio.run(factor_data.fetch_factors("ff3"))
+    finally:
+        use_provider_keys(ProviderKeys())

@@ -22,6 +22,12 @@
           "eodhd": {
             "$ref": "#/components/schemas/ProviderCredential"
           },
+          "factor_models": {
+            "default": true,
+            "description": "Whether factor models (Fama-French and Carhart exposures, return attribution, factor betas) are offered to you.",
+            "title": "Factor Models",
+            "type": "boolean"
+          },
           "finnhub": {
             "$ref": "#/components/schemas/ProviderCredential"
           },

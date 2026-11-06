@@ -659,6 +659,19 @@ function AdminSettingsForm({
         Pages then use a stand-in where there is one, and say so, or say the data is not available
         here.
       </div>
+      <AdminSwitch
+        label="Offer factor models, for every account"
+        on={admin.factor_models}
+        disabled={save.isPending}
+        onChange={(on) => save.mutate({ factor_models: on })}
+      />
+      <p className="disclaimer">
+        Fama–French and Carhart factor exposures, return attribution in backtests, factor betas in
+        the screener and in AI reports. With the sources above off, they would be estimated from
+        ETFs, which only roughly match the academic factors. Turning this off removes them for every
+        account, from any source; your own requests keep Ken French’s while your switch for them is
+        on.
+      </p>
       {save.error !== null && <ErrorNotice error={save.error} />}
     </section>
   )
