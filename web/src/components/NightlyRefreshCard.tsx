@@ -62,6 +62,14 @@ export function NightlyRefreshCard({
     onSuccess: onChanged,
   })
   const disable = useMutation({ mutationFn: disableNightlyRefresh, onSuccess: onChanged })
+  // Each attempt clears what the other left, so turning it off never shows why turning
+  // it on failed earlier.
+  const turn = (on: boolean) => {
+    enable.reset()
+    disable.reset()
+    if (on) enable.mutate(choice)
+    else disable.mutate()
+  }
   const data = status.data
   const busy = enable.isPending || disable.isPending
   const hasFinnhub = Boolean(account.finnhub?.configured)
@@ -99,6 +107,8 @@ export function NightlyRefreshCard({
     placeholderData: keepPreviousData,
   })
   const error = enable.error ?? disable.error ?? status.error
+  /** Off, and this browser has no Finnhub key to turn it on with. */
+  const needsFinnhub = Boolean(data?.available && !data.enabled && !hasFinnhub)
 
   return (
     <section id="nightly-refresh" className="card stack" style={{ gap: 14 }}>
@@ -126,26 +136,36 @@ export function NightlyRefreshCard({
           needs to set CREDENTIALS_ENCRYPTION_KEY.
         </Notice>
       )}
-      {data?.available && !hasFinnhub && !data.enabled && (
-        <Notice>Add your Finnhub key above first: its free plan fills the screener.</Notice>
-      )}
-
       <div className="filter-row" style={{ alignItems: 'flex-end' }}>
         <label className="filter-row" style={{ alignItems: 'center', gap: 10 }}>
           <input
             type="checkbox"
+            // Checked only once the server says it is on: never before a Finnhub key is
+            // added. Turning it off is never blocked, with or without the key.
             checked={Boolean(data?.enabled)}
             disabled={!data?.available || busy || (!data.enabled && !hasFinnhub)}
-            onChange={(event) => (event.target.checked ? enable.mutate(choice) : disable.mutate())}
+            aria-describedby={needsFinnhub ? 'nightly-needs-finnhub' : undefined}
+            onChange={(event) => turn(event.target.checked)}
           />
           <span>Refresh my own screener every night</span>
         </label>
+        {needsFinnhub && (
+          // On a line of its own, right under the box it explains.
+          <p
+            id="nightly-needs-finnhub"
+            className="disclaimer"
+            style={{ margin: 0, flexBasis: '100%' }}
+          >
+            To turn this on, add a Finnhub key under Provider keys above. Finnhub’s free plan is
+            enough: it lists the stocks and ETFs and supplies their metrics.
+          </p>
+        )}
         <label className="field" style={{ width: 150 }}>
           <span>Start at</span>
           <input
             type="time"
             value={shownTime}
-            disabled={!data?.available || busy}
+            disabled={!data?.available || busy || !hasFinnhub}
             onChange={(event) => setTime(event.target.value)}
           />
         </label>
@@ -153,7 +173,7 @@ export function NightlyRefreshCard({
           <span>Time zone</span>
           <select
             value={shownZone}
-            disabled={!data?.available || busy}
+            disabled={!data?.available || busy || !hasFinnhub}
             onChange={(event) => setZone(event.target.value)}
           >
             <optgroup label="United States">
@@ -172,7 +192,7 @@ export function NightlyRefreshCard({
             </optgroup>
           </select>
         </label>
-        {data?.enabled && changed && (
+        {data?.enabled && changed && hasFinnhub && (
           <button
             type="button"
             className="button primary"
@@ -183,6 +203,13 @@ export function NightlyRefreshCard({
           </button>
         )}
       </div>
+
+      {data?.enabled && !hasFinnhub && (
+        <Notice>
+          It is on, with the keys stored on the server. You can turn it off here at any time. To
+          change its keys, time or number of stocks, add your Finnhub key above first.
+        </Notice>
+      )}
 
       {data?.available && hasFinnhub && (
         <div className="stack" style={{ gap: 10 }}>

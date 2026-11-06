@@ -327,13 +327,13 @@ function strategyOf(form: Form): Strategy {
 type Mode = 'stock' | 'universe'
 
 const MODES: { value: Mode; label: string }[] = [
-  { value: 'stock', label: 'Single security' },
+  { value: 'stock', label: 'Chosen symbols' },
   { value: 'universe', label: 'Across tickers' },
 ]
 
 const SUBTITLES: Record<Mode, string> = {
   stock:
-    'Run a trading rule over the history of a stock, ETF or fund and compare it with buying and holding.',
+    'Run a trading rule over the history of a stock, ETF or fund, or your own code over it and any others you add, and compare it with buying and holding.',
   universe:
     'Rank a set of stocks against one another and hold the best, or write code that trades any tickers it names, and compare it with holding them all.',
 }
@@ -356,12 +356,15 @@ export function BacktestPage() {
           <h1>Backtest</h1>
           <div className="subtitle">{SUBTITLES[mode]}</div>
         </div>
-        <Segmented
-          label="What to backtest"
-          value={mode}
-          options={MODES}
-          onChange={(next) => setParams(next === 'universe' ? { mode: 'universe' } : {})}
-        />
+        <div className="heading-with-info">
+          <Segmented
+            label="What to backtest"
+            value={mode}
+            options={MODES}
+            onChange={(next) => setParams(next === 'universe' ? { mode: 'universe' } : {})}
+          />
+          <InfoTip topic="backtestMode" />
+        </div>
       </header>
       {mode === 'universe' && (
         <Segmented
@@ -734,7 +737,7 @@ function SingleStockBacktest({ across = false }: { across?: boolean }) {
               <SearchBox
                 label="Add a ticker"
                 clearOnSelect
-                placeholder="Beside those your code names"
+                placeholder="Ticker or company"
                 onSelect={addTicker}
               />
             </div>
@@ -763,7 +766,7 @@ function SingleStockBacktest({ across = false }: { across?: boolean }) {
                 placeholder={
                   form.extraSymbols.length + 1 >= MAX_CUSTOM_SYMBOLS
                     ? `At most ${MAX_CUSTOM_SYMBOLS} symbols`
-                    : 'Add a symbol to allocate between'
+                    : 'Ticker or company'
                 }
                 onSelect={(symbol) => {
                   if (

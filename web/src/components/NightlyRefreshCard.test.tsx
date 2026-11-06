@@ -101,7 +101,7 @@ describe('NightlyRefreshCard', () => {
     renderCard(false)
 
     const box = await screen.findByRole('checkbox', { name: /refresh my own screener/i })
-    await screen.findByText(/Add your Finnhub key above first/)
+    await screen.findByText(/To turn this on, add a Finnhub key/)
     expect(box).toBeDisabled()
   })
 
@@ -188,5 +188,61 @@ describe('NightlyRefreshCard', () => {
         price_history_stocks: 40,
       })
     })
+  })
+})
+
+describe('NightlyRefreshCard without a Finnhub key', () => {
+  it('starts unchecked and explains why it cannot be turned on yet', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify(OFF)))
+    renderCard(false)
+    const box = await screen.findByRole('checkbox', { name: /refresh my own screener/i })
+
+    await waitFor(() => expect(box).toBeDisabled())
+    expect(box).not.toBeChecked()
+    expect(box).toHaveAccessibleDescription(/add a Finnhub key/i)
+  })
+
+  it('never blocks turning it off, and says nothing about adding a key after', async () => {
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(
+        async (_url, init) => new Response(JSON.stringify(init?.method === 'DELETE' ? OFF : ON)),
+      )
+    renderCard(false)
+    const box = await screen.findByRole('checkbox', { name: /refresh my own screener/i })
+    await waitFor(() => expect(box).toBeChecked())
+    expect(box).toBeEnabled()
+    expect(screen.getByText(/You can turn it off here at any time/)).toBeInTheDocument()
+
+    await userEvent.click(box)
+
+    await waitFor(() => expect(box).not.toBeChecked())
+    expect(fetch.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(true)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('clears an earlier failure to turn it on once it is turned off', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      if (init?.method === 'PUT') {
+        return new Response(JSON.stringify({ detail: 'Add your Finnhub key first.' }), {
+          status: 422,
+        })
+      }
+      return new Response(JSON.stringify(init?.method === 'DELETE' ? OFF : ON))
+    })
+    renderCard(true)
+    const box = await screen.findByRole('checkbox', { name: /refresh my own screener/i })
+    await waitFor(() => expect(box).toBeChecked())
+    // A failed save leaves an error, which turning the refresh off then clears.
+    await userEvent.clear(screen.getByLabelText('Start at'))
+    await userEvent.type(screen.getByLabelText('Start at'), '20:00')
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByText(/Add your Finnhub key first/)).toBeInTheDocument()
+
+    await userEvent.click(box)
+
+    await waitFor(() =>
+      expect(screen.queryByText(/Add your Finnhub key first/)).not.toBeInTheDocument(),
+    )
   })
 })

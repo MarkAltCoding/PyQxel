@@ -582,6 +582,11 @@ const entries = {
   },
 
   // ── Backtests ──
+  backtestMode: {
+    title: 'Chosen symbols or across tickers',
+    what: 'Two ways to backtest. Chosen symbols tests a strategy on symbols you pick: a built-in rule on one stock, ETF or fund, or your own code on it, with Also trade adding up to 19 more for the code to move money between. Across tickers ranks a set of stocks against one another at each rebalance and holds the best, or runs code that trades every ticker it names.',
+    note: 'Pick Chosen symbols to time one investment or split money among a few you already know. Pick Across tickers to test a rule for choosing among many, such as “hold the three sectors that rose most last quarter”.',
+  },
   backtestPerformance: {
     title: 'Performance',
     what: 'The strategy’s return, risk and drawdowns compared with the benchmark over the same window.',

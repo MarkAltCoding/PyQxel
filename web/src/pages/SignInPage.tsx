@@ -17,6 +17,7 @@ import {
 import { PasswordSignIn } from '../auth/PasswordSignIn'
 import { useAuth } from '../auth/useAuth'
 import { ErrorNotice, Notice } from '../components/Notice'
+import { OpenInBrowserDialog } from '../components/OpenInBrowserDialog'
 
 /** What a GitHub, Google or Apple sign-in sends back in the URL fragment, which never
  * reaches a server: an API key (or, in the native app, a one-time code for one) and the
@@ -268,10 +269,7 @@ export function SignInPage() {
   )
 }
 
-/**
- * Asks before the native app hands the person to the system browser to sign in, as iOS
- * does when an app opens a web sign-in, so leaving the app is never a surprise.
- */
+/** Asks before the native app hands the person to the system browser to sign in. */
 function LeaveForBrowser({
   label,
   onCancel,
@@ -282,34 +280,16 @@ function LeaveForBrowser({
   onContinue: () => void
 }) {
   return (
-    <div
-      className="modal-backdrop"
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onCancel()
-      }}
+    <OpenInBrowserDialog
+      title={`Sign in with ${label} in your browser?`}
+      continueLabel="Continue"
+      onCancel={onCancel}
+      onContinue={onContinue}
     >
-      <section
-        className="card modal stack"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="leave-for-browser-title"
-        aria-describedby="leave-for-browser-text"
-        style={{ gap: 12 }}
-      >
-        <h2 id="leave-for-browser-title">Sign in with {label} in your browser?</h2>
-        <p id="leave-for-browser-text" style={{ color: 'var(--text-secondary)' }}>
-          PyQxel opens your web browser to sign you in with {label}. When you finish, the browser
-          brings you back to PyQxel. It may ask first whether to open PyQxel.
-        </p>
-        <div className="modal-actions">
-          <button type="button" className="button ghost" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="button primary" onClick={onContinue} autoFocus>
-            Continue
-          </button>
-        </div>
-      </section>
-    </div>
+      <p style={{ margin: 0 }}>
+        PyQxel opens your web browser to sign you in with {label}. When you finish, the browser
+        brings you back to PyQxel. It may ask first whether to open PyQxel.
+      </p>
+    </OpenInBrowserDialog>
   )
 }

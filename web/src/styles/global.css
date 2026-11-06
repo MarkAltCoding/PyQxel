@@ -873,6 +873,131 @@ table.data .muted {
   padding: 0;
 }
 
+/* On a phone (HoldingsTable renders "holdings-cards" under 760px) each holding is a
+   card that fits the screen: symbol and remove on top, the name under them, then two
+   columns of labeled figures, and the 52-week range across the bottom. */
+.holdings-phone-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+  margin-bottom: 4px;
+}
+
+.holdings-phone-controls > label.field {
+  grid-column: 1 / -1;
+}
+
+.holdings-phone-controls .window-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.holdings-phone-controls .window-picker select,
+.holdings-phone-controls .window-picker input {
+  width: 100%;
+}
+
+.holdings-cards {
+  /* Holds the screen-reader-only header row, which is positioned out of sight. */
+  position: relative;
+  overflow: hidden;
+}
+
+.holdings-cards table.data,
+.holdings-cards tbody,
+.holdings-cards tfoot {
+  display: block;
+  width: 100%;
+}
+
+.holdings-cards tr {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.holdings-cards table.data td,
+.holdings-cards table.data th {
+  display: block;
+  padding: 0;
+  border: 0;
+  text-align: left;
+  white-space: normal;
+  min-width: 0;
+}
+
+.holdings-cards [data-label]::before {
+  content: attr(data-label);
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.holdings-cards .symbol-col {
+  grid-row: 1;
+  align-self: center;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.holdings-cards .remove-col {
+  grid-row: 1;
+  grid-column: 2;
+  justify-self: end;
+}
+
+.holdings-cards .holdings-table .name-col {
+  grid-column: 1 / -1;
+  max-width: none;
+  margin-top: -4px;
+}
+
+.holdings-cards .holdings-table .range-col {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.holdings-cards .gain-cell {
+  align-items: flex-start;
+}
+
+.holdings-cards .range-bar {
+  display: flex;
+}
+
+.holdings-cards .range-track {
+  flex: 1;
+}
+
+.holdings-cards .shares-col input {
+  width: 100% !important;
+  text-align: left !important;
+}
+
+.holdings-cards tfoot tr {
+  border-top: 2px solid var(--border-strong);
+  border-bottom: 0;
+}
+
+.holdings-cards table.data tfoot .total-row th,
+.holdings-cards table.data tfoot .total-row td {
+  border-top: 0;
+}
+
+.holdings-cards tfoot .total-row th {
+  grid-column: 1 / -1;
+}
+
+.holdings-cards .weight-col:not([data-label]),
+.holdings-cards .filler-col {
+  display: none !important;
+}
+
 /* The 52-week low and high at the ends of a line, with a dot at the latest price. */
 .range-bar {
   display: inline-flex;

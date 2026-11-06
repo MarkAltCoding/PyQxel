@@ -20,6 +20,7 @@ import {
   type HoldingSortKey,
 } from '../lib/holdings'
 import { InfoTip } from './InfoTip'
+import { PHONE_QUERY, useMediaQuery } from '../lib/useMediaQuery'
 
 /** A row being edited: the symbol and the share count as typed. */
 export interface HoldingRow {
@@ -175,10 +176,55 @@ export function HoldingsTable({
   )
 
   const showTotal = !dirty && holdings.length > 0
+  // On a phone each holding is a card (see "holdings-cards" in global.css), labeled field
+  // by field, and the sort and windows the header row holds move into a bar above it.
+  const phone = useMediaQuery(PHONE_QUERY)
+  const gainLabel = (column: 0 | 1) => `Gain/loss, ${choiceLabel(choices[column])}`
   return (
-    <div className="table-wrap">
+    <div className={phone ? 'holdings-cards' : 'table-wrap'}>
+      {phone && (
+        <div className="holdings-phone-controls">
+          <label className="field">
+            <span>Sort by</span>
+            <select
+              value={sort ? `${sort.key}:${sort.descending ? 'down' : 'up'}` : ''}
+              onChange={(event) => {
+                const [key, direction] = event.target.value.split(':') as [HoldingSortKey, string]
+                const next = event.target.value ? { key, descending: direction === 'down' } : null
+                storeHoldingSort(next)
+                setSort(next)
+              }}
+            >
+              <option value="">As entered</option>
+              {PHONE_SORTS.map(([key, label]) => (
+                <optgroup key={key} label={label}>
+                  <option value={`${key}:up`}>
+                    {label}, {ascendingWord(key)}
+                  </option>
+                  <option value={`${key}:down`}>
+                    {label}, {descendingWord(key)}
+                  </option>
+                </optgroup>
+              ))}
+            </select>
+          </label>
+          {([0, 1] as const).map((column) => (
+            <div className="field" key={column}>
+              <span className="heading-with-info">
+                Gain/loss window {column + 1}
+                <InfoTip topic="holdingGainLoss" />
+              </span>
+              <WindowPicker
+                column={column}
+                choice={choices[column]}
+                onChange={(choice) => choose(column, choice)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
       <table className="data holdings-table">
-        <thead>
+        <thead className={phone ? 'visually-hidden' : undefined}>
           <tr>
             {header('symbol', 'Symbol')}
             {header('name', 'Name')}
@@ -230,7 +276,7 @@ export function HoldingsTable({
             const holding = shown(row.symbol)
             return (
               <tr key={row.symbol}>
-                <td>
+                <td className="symbol-col">
                   <Link to={`/stocks/${encodeURIComponent(row.symbol)}`}>{row.symbol}</Link>
                 </td>
                 <td className="muted name-col" title={known?.name ?? undefined}>
@@ -242,7 +288,7 @@ export function HoldingsTable({
                     </span>
                   )}
                 </td>
-                <td className="num">
+                <td className="num shares-col" data-label="Shares">
                   <input
                     type="number"
                     min="0"
@@ -254,7 +300,7 @@ export function HoldingsTable({
                     onChange={(event) => onShares(row.symbol, event.target.value)}
                   />
                 </td>
-                <td className="num">
+                <td className="num price-col" data-label="Price">
                   {money(known?.price)}
                   {known?.local_price != null && known.currency && (
                     <div
@@ -265,17 +311,19 @@ export function HoldingsTable({
                     </div>
                   )}
                 </td>
-                <td className="num">{money(holding?.value)}</td>
-                <td className="num">
+                <td className="num value-col" data-label="Value">
+                  {money(holding?.value)}
+                </td>
+                <td className="num weight-col" data-label="Weight">
                   <WeightBar weight={holding?.weight} />
                 </td>
-                <td className="num">
+                <td className="num gain-col" data-label={gainLabel(0)}>
                   <GainCell gain={gains(0, row.symbol)} />
                 </td>
-                <td className="num">
+                <td className="num gain-col" data-label={gainLabel(1)}>
                   <GainCell gain={gains(1, row.symbol)} />
                 </td>
-                <td className="range-col">
+                <td className="range-col" data-label="52-week range">
                   {known?.cash ? (
                     <Unavailable topic="gainUnavailableCash" />
                   ) : (
@@ -288,7 +336,7 @@ export function HoldingsTable({
                     />
                   )}
                 </td>
-                <td>
+                <td className="remove-col">
                   <button
                     type="button"
                     className="button ghost small danger remove-holding"
@@ -312,10 +360,12 @@ export function HoldingsTable({
                   <InfoTip topic="accountTotal" />
                 </span>
               </th>
-              <td className="num">{money(totalValue)}</td>
-              <td className="num">{totalValue ? percent(1, 0) : ''}</td>
+              <td className="num value-col" data-label="Value">
+                {money(totalValue)}
+              </td>
+              <td className="num weight-col">{totalValue ? percent(1, 0) : ''}</td>
               {([0, 1] as const).map((column) => (
-                <td key={column} className="num">
+                <td key={column} className="num gain-col" data-label={gainLabel(column)}>
                   <GainCell
                     gain={totalGain(
                       holdings,
@@ -324,7 +374,7 @@ export function HoldingsTable({
                   />
                 </td>
               ))}
-              <td colSpan={2} />
+              <td colSpan={2} className="filler-col" />
             </tr>
           </tfoot>
         )}
@@ -460,6 +510,30 @@ function WeightBar({ weight }: { weight: number | null | undefined }) {
       <span style={{ minWidth: 44, textAlign: 'right' }}>{percent(weight)}</span>
     </span>
   )
+}
+
+/** What a phone's sort menu offers, in the order the table's columns come. */
+const PHONE_SORTS: [HoldingSortKey, string][] = [
+  ['symbol', 'Symbol'],
+  ['name', 'Name'],
+  ['shares', 'Shares'],
+  ['price', 'Price'],
+  ['value', 'Value'],
+  ['weight', 'Weight'],
+  ['gain0', 'Gain/loss 1'],
+  ['gain1', 'Gain/loss 2'],
+  ['range', '52-week range'],
+]
+
+const ascendingWord = (key: HoldingSortKey) =>
+  key === 'symbol' || key === 'name' ? 'A to Z' : 'lowest first'
+const descendingWord = (key: HoldingSortKey) =>
+  key === 'symbol' || key === 'name' ? 'Z to A' : 'highest first'
+
+/** A gain/loss window as a phone's card names it, such as "1 month" or "since Mar 3, 2024". */
+function choiceLabel(choice: GainChoice): string {
+  if (typeof choice !== 'string') return `since ${sinceLabel(choice.since)}`
+  return GAIN_WINDOWS.find((option) => option.value === choice)?.label.toLowerCase() ?? choice
 }
 
 const SINCE_OPTION = 'since'

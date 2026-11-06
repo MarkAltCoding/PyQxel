@@ -1,6 +1,7 @@
 import { NativeSignInLinks } from './auth/NativeSignInLinks'
 import { RequireKey } from './components/RequireKey'
 import { Layout } from './components/Layout'
+import { PublicLayout } from './components/PublicLayout'
 import { BacktestPage } from './pages/BacktestPage'
 import { HomePage } from './pages/HomePage'
 import { MarketsPage } from './pages/MarketsPage'
@@ -21,8 +22,9 @@ export const routes = [
       { path: '/signin', element: <SignInPage /> },
       // Where an emailed link leads, before there is a key.
       { path: '/signin/password', element: <SetPasswordPage /> },
-      // Public, so it can be read before signing in.
-      { path: '/privacy', element: <PrivacyPage /> },
+      // Public, so it can be read before signing in; inside the app's own layout once
+      // signed in, so every tab is a tap away.
+      { element: <PublicLayout />, children: [{ path: '/privacy', element: <PrivacyPage /> }] },
       {
         element: (
           <RequireKey>

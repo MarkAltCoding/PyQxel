@@ -150,6 +150,24 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks())
 
+describe('choosing what to backtest', () => {
+  it('names the modes accurately and explains them', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('[]'))
+    renderPage('/backtest')
+
+    const modes = screen.getByRole('group', { name: 'What to backtest' })
+    expect(within(modes).getByRole('button', { name: 'Chosen symbols' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(within(modes).getByRole('button', { name: 'Across tickers' })).toBeInTheDocument()
+    expect(screen.queryByText('Single security')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'About Chosen symbols or across tickers' }),
+    ).toBeInTheDocument()
+  })
+})
+
 describe('custom strategies on the Backtest page', () => {
   it('says plainly before running that a key served a shorter history, and runs on agreement', async () => {
     const warning =

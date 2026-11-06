@@ -233,7 +233,8 @@ export function StrategyAssistant({
         <label className="field" style={{ flex: 1 }}>
           <span className="visually-hidden">Question for Claude</span>
           <textarea
-            rows={2}
+            // Three lines, so the example below reads in full on a phone.
+            rows={3}
             maxLength={MAX_MESSAGE_LENGTH}
             placeholder="Ask about your strategy, or describe a change, e.g. “add a 10% trailing stop”"
             value={message}

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
+import { useAuth } from '../auth/useAuth'
 
 const UPDATED = 'November 6, 2026'
 const CONTACT = 'https://github.com/MarkAltCoding'
@@ -16,8 +17,9 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 /** What PyQxel keeps about the people who use it, and why. Public, so it can be read
  * before signing in, as Google's sign-in requires. */
 export function PrivacyPage() {
+  const { apiKey } = useAuth()
   return (
-    <main>
+    <>
       <article className="card privacy stack" style={{ gap: 20 }}>
         <header>
           <h1>Privacy policy</h1>
@@ -154,9 +156,12 @@ export function PrivacyPage() {
             To delete your account and everything it holds, including any keys the nightly screener
             refresh stored, use Delete account in Settings. It takes effect at once and cannot be
             undone. To delete only the stored keys, turn the nightly refresh off. If you can no
-            longer sign in, contact me through <a href={CONTACT}>GitHub</a> and I will delete it for
-            you. Removing PyQxel’s access in your GitHub or Google settings stops it signing you in,
-            but does not by itself delete your account.
+            longer sign in, contact me through{' '}
+            <a href={CONTACT} target="_blank" rel="noopener noreferrer">
+              GitHub
+            </a>{' '}
+            and I will delete it for you. Removing PyQxel’s access in your GitHub or Google settings
+            stops it signing you in, but does not by itself delete your account.
           </p>
         </Section>
 
@@ -168,10 +173,13 @@ export function PrivacyPage() {
         </Section>
 
         <p className="disclaimer">
-          Questions? Reach me through <a href={CONTACT}>GitHub</a>.{' '}
-          <Link to="/signin">Sign in</Link>
+          Questions? Reach me through{' '}
+          <a href={CONTACT} target="_blank" rel="noopener noreferrer">
+            GitHub
+          </a>
+          . {apiKey ? <Link to="/">Back to PyQxel</Link> : <Link to="/signin">Sign in</Link>}
         </p>
       </article>
-    </main>
+    </>
   )
 }

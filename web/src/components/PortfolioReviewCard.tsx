@@ -281,7 +281,7 @@ export function PortfolioReviewCard({
             <input
               type="text"
               maxLength={1000}
-              placeholder="e.g. taxable account; keep AAPL; no tobacco"
+              placeholder="e.g. keep AAPL; no tobacco"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
             />

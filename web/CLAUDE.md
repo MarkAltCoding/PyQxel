@@ -23,7 +23,7 @@ colors.
 | `StockPage` | `PriceChart`, `FactorChart`, `VolatilityChart`, `FundCard` (an ETF or mutual fund's costs, holdings, asset mix, bond figures and the figures weighted from its companies, in place of a company's; a mutual fund has no news or metrics cards), `MetricsCard`, `SignalsCard`, `NewsCard` (paged by `Pager`), `AlternativeCard`, `AnalysisPanel` (AI report) |
 | `MarketsPage` | market news (paged), event calendar (`lib/calendar.ts`) |
 | `PortfolioPage` | `HoldingsTable` (2 portfolios, up to 40 holdings; sortable, two gain/loss windows and a 52-week range per holding from `lib/holdings.ts`, and an account total), late-listing cutoff, `SimulationCard` (`FanChart`), `CopulaCard` (`CopulaHeatmap`), `PortfolioReviewCard` (one portfolio, or both together) |
-| `BacktestPage` | Single security (a stock, ETF or fund): built-in rules or custom code, with "Also trade" for several symbols. Across tickers: `CrossSectionalBacktest` (rank by a signal), or the same component with `across` (code that trades every ticker it names, `lib/tickers.ts`) |
+| `BacktestPage` | Chosen symbols (`mode` absent; a stock, ETF or fund): built-in rules or custom code, with "Also trade" for several symbols. Across tickers: `CrossSectionalBacktest` (rank by a signal), or the same component with `across` (code that trades every ticker it names, `lib/tickers.ts`) |
 | `ScreenerPage`, `SettingsPage`, `SignInPage`, `PrivacyPage` | Settings shows each key's plan usage (`KeyUsage`, `lib/usage.ts`; plan choices kept in the browser) and which pages ask before loading. Its `NightlyRefreshCard` opts in to the nightly refresh of the user's own screener (`lib/nightlyRefresh.ts`), with the keys and number of price histories it may use and what one refresh spends, and re-sends the keys after one changes. `SignInPage` also signs in with an email and password (`auth/PasswordSignIn`, in the page itself, the native app too), and `SetPasswordPage` (`/signin/password#token=…`) is where an emailed link chooses the password. In the native app, `SignInPage` signs in with GitHub or Google through the system browser (`auth/nativeSignIn.ts`); `auth/NativeSignInLinks` takes the `pyqxel://signin` link back to it |
 
 Pages that call providers as soon as they open (Stock, Markets, Portfolio) ask first:
@@ -72,10 +72,19 @@ Web Worker that goes off the network once loaded (`runners/lockdown.ts`).
   - `SearchBox` for picking a ticker.
 - **Formatting** goes through `lib/format.ts` (`percent`, `money`, `number`,
   `signedPercent`, `tone`). Decimals are fractions (0.25 = 25%).
+- **Links that leave PyQxel:** write them as usual, `target="_blank" rel="noopener noreferrer"`.
+  In the native app `ExternalLinkGuard` (mounted in `App.tsx`) catches every one, asks with
+  `OpenInBrowserDialog`, and opens the system browser; a web view cannot open them itself.
+- **Every page has a way in and out:** public pages (the privacy policy) sit in
+  `PublicLayout`, which is the app's `Layout` once signed in and a bar with Back and Sign
+  in before.
 - **Phones and touch:** under 760px the main links are a bottom tab bar (`Layout.tsx`),
   and the bars are padded by `env(safe-area-inset-*)`. Touch screens (`pointer: coarse`)
   get 44px controls and 16px fields, since iOS zooms into smaller text: give a new
-  control's small size an override in that block of `global.css`.
+  control's small size an override in that block of `global.css`. Nothing may scroll sideways at
+  375px: a wide table becomes cards there (`HoldingsTable` with `useMediaQuery(PHONE_QUERY)`,
+  `.holdings-cards`), and every placeholder must fit its field (keep them short and put
+  guidance in the label or a note).
 - **Browser storage** only through `lib/storage.ts` (`readStored`/`writeStored`, which
   never throw), under `pyqxel.*` keys. In the native app, `pyqxel.apiKey` and
   `pyqxel.providerKeys` go to secure storage instead (`lib/secureStorage.ts`, loaded before
