@@ -151,3 +151,23 @@ def test_a_missing_sector_comes_from_the_sec_before_any_key(
 
     assert (info.sector, info.industry) == ("Technology", "Services-Prepackaged Software")
     assert info.filled_fields == ["industry", "sector"]
+
+
+def test_with_the_factor_library_turned_off_cash_earns_from_2002(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.data.fetcher import SourceTurnedOffError
+
+    async def bills(start: date) -> pd.Series:
+        return pd.Series(0.0001, index=pd.bdate_range("2002-01-02", "2002-01-10"))
+
+    async def turned_off(model: str) -> pd.DataFrame:
+        raise SourceTurnedOffError("Factor models are not available here.")
+
+    monkeypatch.setattr(backtest_route, "fetch_bill_returns", bills)
+    monkeypatch.setattr(backtest_route, "fetch_factors", turned_off)
+
+    factors, notice = asyncio.run(backtest_route.load_factors("ff3", True, "max"))
+
+    assert factors is not None and list(factors.columns) == [RISK_FREE]
+    assert notice is not None and "only from 2002" in notice and "not used here" in notice

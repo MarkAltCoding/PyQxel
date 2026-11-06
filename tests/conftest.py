@@ -108,6 +108,16 @@ def no_ecb_rates(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def fresh_app_settings() -> Iterator[None]:
+    """Server settings start at their defaults, read again from each test's database."""
+    from app.db import app_settings
+
+    app_settings.clear_memory()
+    yield
+    app_settings.clear_memory()
+
+
+@pytest.fixture(autouse=True)
 def no_sec_industries(monkeypatch: pytest.MonkeyPatch) -> None:
     """The SEC's industry codes are unreachable, so no test reaches sec.gov to fill a
     snapshot's sector; tests of that fill fake it themselves."""

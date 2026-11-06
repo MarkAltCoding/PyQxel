@@ -55,8 +55,9 @@ async def get_factor_exposures(
     Factor data is published monthly, about a month late, so the window ends at
     ``factor_data_end`` and ``notice`` says how many recent days were left out.
 
-    Returns 404 for unknown symbols, 422 when too few days overlap the factor data,
-    and 502 when the price provider or the factor library fails.
+    Returns 404 for unknown symbols, 422 when too few days overlap the factor data, 503
+    when this server does not use the factor library, and 502 when the price provider or
+    the factor library fails.
     """
     prices_result, factors_result = await asyncio.gather(
         fetch_price_history(symbol, period=period, interval="1d"),

@@ -36,6 +36,12 @@ from app.api.auth import CurrentUser, authenticate, uses_yfinance
 from app.core.config import get_settings
 from app.core.credentials import ProviderKeys, current_provider_keys
 from app.core.security import CredentialsUnavailableError, encryption_available, key_hint
+from app.db.app_settings import (
+    RESTRICTED_SOURCE_USES,
+    RESTRICTED_SOURCES,
+    restricted_sources_allowed,
+    set_setting,
+)
 from app.db.nightly import MissingFinnhubKeyError, disable, enable, refresh_status
 from app.db.session import get_session
 from app.db.users import (
@@ -105,6 +111,8 @@ async def _account(session: AsyncSession, user: User) -> Account:
             {
                 "yfinance_fallback": user.yfinance_fallback,
                 "yfinance_fallback_from_server": get_settings().yfinance_fallback,
+                "restricted_sources": await restricted_sources_allowed(),
+                "restricted_source_uses": list(RESTRICTED_SOURCE_USES),
             }
             if user.is_admin
             else None
@@ -316,8 +324,9 @@ def _as_if_missing(request: Request) -> HTTPException:
 
 async def store_admin_settings(request: Request, session: Session) -> Account:
     """Turn the yfinance fallback for the admin's own requests on or off, with ``PUT``
-    (``yfinance_fallback``); an omitted field is left as it is. It never reaches another
-    account.
+    (``yfinance_fallback``), which never reaches another account, and the whole server's
+    use of data sources not cleared for commercial use (``restricted_sources``); an
+    omitted field is left as it is.
 
     Only the account ``ADMIN_EMAIL`` names may. Everyone else, signed in or not, gets the
     answer a path that does not exist gets, and the route is left out of the API schema,
@@ -336,6 +345,8 @@ async def store_admin_settings(request: Request, session: Session) -> Account:
     try:
         if changes.yfinance_fallback is not None:
             user = await update_yfinance_fallback(session, user.id, changes.yfinance_fallback)
+        if changes.restricted_sources is not None:
+            await set_setting(session, RESTRICTED_SOURCES, changes.restricted_sources)
         logger.info("Admin %s changed admin settings: %s.", user.id, changes.model_dump())
         return await _account(session, user)
     except SQLAlchemyError as exc:

@@ -42,6 +42,11 @@ class AdminSettingsUpdate(BaseModel):
         description="Whether your own requests fall back to yfinance when no licensed "
         "provider answers.",
     )
+    restricted_sources: bool | None = Field(
+        default=None,
+        description="Whether the whole server uses data sources whose terms do not clearly "
+        "allow use in a paid product.",
+    )
 
 
 class Account(BaseModel):
@@ -67,11 +72,13 @@ class Account(BaseModel):
         description="Whether the server reads financial statements and filings from SEC "
         "EDGAR, which needs no account key."
     )
-    admin: SkipJsonSchema[dict[str, bool] | None] = Field(
+    admin: SkipJsonSchema[dict[str, bool | list[str]] | None] = Field(
         default=None, exclude_if=lambda settings: settings is None
     )
-    """The admin's switch, ``yfinance_fallback``, and the read-only
-    ``yfinance_fallback_from_server`` (``YFINANCE_FALLBACK``). Sent to the
+    """The admin's switches, ``yfinance_fallback`` and the server-wide
+    ``restricted_sources``, the read-only ``yfinance_fallback_from_server``
+    (``YFINANCE_FALLBACK``), and ``restricted_source_uses``, what turning that one off
+    stops. Sent to the
     admin alone, and left out of the API schema, so other accounts cannot tell there are
     admin settings. A plain dict, since FastAPI would list a model's schema even for a
     field it skips."""

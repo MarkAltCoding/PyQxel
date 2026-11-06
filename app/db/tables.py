@@ -524,3 +524,14 @@ class StoredHistoryRecord(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     data: Mapped[bytes] = mapped_column(LargeBinary)
+
+
+class AppSettingRecord(Base):
+    """A setting of the whole server, changed by its admin, such as whether data sources not
+    cleared for commercial use are used at all. ``value`` holds JSON."""
+
+    __tablename__ = "app_settings"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[Any] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

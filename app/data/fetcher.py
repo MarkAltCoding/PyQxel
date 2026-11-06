@@ -309,6 +309,11 @@ class ProviderPlanError(DataFetchError):
         self.remembered = remembered
 
 
+class SourceTurnedOffError(DataFetchError):
+    """Raised when the data comes only from a source the server does not use, as one whose
+    terms do not clearly allow use in a paid product."""
+
+
 class AlphaVantageBurstError(DataFetchError):
     """Raised when Alpha Vantage refuses requests sent less than a second apart."""
 

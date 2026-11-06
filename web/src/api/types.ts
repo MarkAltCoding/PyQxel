@@ -10,8 +10,15 @@ export interface AdminSettings {
   /** YFINANCE_FALLBACK, set where the server is deployed; read-only here. It too reaches
    * the admin's requests alone. */
   yfinance_fallback_from_server: boolean
+  /** Whether the whole server uses data sources whose terms do not clearly allow use in a
+   * paid product. */
+  restricted_sources: boolean
+  /** What turning `restricted_sources` off stops, one source per line. */
+  restricted_source_uses: string[]
 }
-export type AdminSettingsUpdate = Partial<Pick<AdminSettings, 'yfinance_fallback'>>
+export type AdminSettingsUpdate = Partial<
+  Pick<AdminSettings, 'yfinance_fallback' | 'restricted_sources'>
+>
 export type Account = Schemas['Account'] & { admin?: AdminSettings }
 export type NightlyRefreshSettings = Schemas['NightlyRefreshSettings']
 export type NightlyRefreshStatus = Schemas['NightlyRefreshStatus']

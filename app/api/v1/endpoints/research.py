@@ -68,6 +68,7 @@ from app.data.alternative import fetch_alternative
 from app.data.finnhub import fetch_company_metrics, fetch_signals
 from app.data.fetcher import (
     DataFetchError,
+    SourceTurnedOffError,
     ProviderNotConfiguredError,
     ProviderPlanError,
     SymbolNotFoundError,
@@ -175,6 +176,8 @@ def _factor_context(
     Exposures add context but are not essential, so a failure becomes a notice rather
     than an error.
     """
+    if isinstance(result, SourceTurnedOffError):
+        return None, "Factor exposures were left out: this server does not use factor data."
     if isinstance(result, DataFetchError):
         return None, "Factor exposures were left out: the factor data could not be fetched."
     if isinstance(result, BaseException):

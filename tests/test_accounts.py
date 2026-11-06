@@ -723,7 +723,8 @@ def test_only_the_admin_can_turn_yfinance_on_and_only_for_themselves(
         "/api/v1/me/admin", headers=_headers(alice_key), json={"yfinance_fallback": True}
     ).json()
 
-    assert before["admin"] == {"yfinance_fallback": False, "yfinance_fallback_from_server": False}
+    assert before["admin"]["yfinance_fallback"] is False
+    assert before["admin"]["yfinance_fallback_from_server"] is False
     assert before["market_data_fallback"] is False
     assert "admin" not in client.get("/api/v1/me", headers=_headers(bob_key)).json()
     assert refused.status_code in (404, 405)
@@ -828,3 +829,37 @@ def test_the_api_schema_does_not_mention_admin_settings() -> None:
     schema = client.get("/openapi.json").text.lower()
 
     assert "admin" not in schema
+
+
+def test_the_admin_can_turn_off_sources_a_paid_product_may_not_use_for_everyone(
+    monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str], bob: tuple[User, str]
+) -> None:
+    from app.data.factors import fetch_factors
+    from app.data.fetcher import SourceTurnedOffError
+
+    monkeypatch.setattr(get_settings(), "admin_email", "tester@example.com")
+    _, alice_key = alice
+    _, bob_key = bob
+
+    before = client.get("/api/v1/me", headers=_headers(alice_key)).json()
+    refused = client.put(
+        "/api/v1/me/admin", headers=_headers(bob_key), json={"restricted_sources": False}
+    )
+    turned_off = client.put(
+        "/api/v1/me/admin", headers=_headers(alice_key), json={"restricted_sources": False}
+    ).json()
+
+    assert before["admin"]["restricted_sources"] is True
+    assert any("Ken French" in use for use in before["admin"]["restricted_source_uses"])
+    assert refused.status_code in (404, 405)
+    assert turned_off["admin"]["restricted_sources"] is False
+    # Every account's requests stop using the source, not just the admin's.
+    with pytest.raises(SourceTurnedOffError):
+        asyncio.run(fetch_factors("ff3"))
+    from app.api.v1.endpoints.stocks import upstream_error
+
+    try:
+        asyncio.run(fetch_factors("ff3"))
+    except SourceTurnedOffError as exc:
+        error = upstream_error(exc)
+    assert error.status_code == 503 and "Ken French" in str(error.detail)

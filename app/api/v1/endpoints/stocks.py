@@ -19,6 +19,7 @@ from app.data.fetcher import (
     shortfall_text,
     ProviderNotConfiguredError,
     ProviderPlanError,
+    SourceTurnedOffError,
     SymbolNotFoundError,
     fetch_price_history,
     fetch_ticker_info,
@@ -200,7 +201,8 @@ def upstream_error(exc: DataFetchError) -> HTTPException:
     """Translate a provider failure into an HTTP error.
 
     403 when the user has no usable FMP key, 402 when their FMP plan does not cover the
-    request, 404 for unknown symbols, and 502 for other provider failures.
+    request, 404 for unknown symbols, 503 when the data's only source is not used by this
+    server, and 502 for other provider failures.
     """
     if isinstance(exc, ProviderNotConfiguredError):
         return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
@@ -208,6 +210,8 @@ def upstream_error(exc: DataFetchError) -> HTTPException:
         return HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(exc))
     if isinstance(exc, SymbolNotFoundError):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, SourceTurnedOffError):
+        return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
     return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
 

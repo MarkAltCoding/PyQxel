@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 from app.core.cache import cache_get, cache_set
-from app.data.fetcher import DataFetchError
+from app.data.fetcher import DataFetchError, SourceTurnedOffError
 from app.models.factors import MODEL_FACTORS, RISK_FREE, FactorModel
 
 logger = logging.getLogger(__name__)
@@ -256,8 +256,17 @@ async def fetch_factors(
         value are kept, oldest first.
 
     Raises:
+        SourceTurnedOffError: If the server does not use Ken French's library, whose
+            terms do not clearly allow use in a paid product.
         FactorDataError: If a file cannot be downloaded and no stored copy exists.
     """
+    from app.db.app_settings import restricted_sources_allowed  # Imports the database.
+
+    if not await restricted_sources_allowed():
+        raise SourceTurnedOffError(
+            "Factor models are not available here: their data comes from Ken French's data "
+            "library, which this server does not use."
+        )
     if model == "ff5":
         frame = await fetch_factor_file("ff5", client)
     else:

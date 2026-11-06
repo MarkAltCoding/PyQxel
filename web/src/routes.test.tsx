@@ -437,7 +437,12 @@ describe('admin settings', () => {
     expect(screen.queryByText(/Fall back to yfinance/)).toBeNull()
   })
 
-  const ADMIN = { yfinance_fallback: false, yfinance_fallback_from_server: false }
+  const ADMIN = {
+    yfinance_fallback: false,
+    yfinance_fallback_from_server: false,
+    restricted_sources: true,
+    restricted_source_uses: ["Ken French's data library: factor models"],
+  }
 
   it('turn the yfinance fallback on for the admin alone', async () => {
     window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
@@ -465,6 +470,28 @@ describe('admin settings', () => {
       method: 'PUT',
       authorization: 'Bearer pq_mine',
     })
+  })
+
+  it('turn off the sources a paid product may not use, for every account', async () => {
+    window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
+    const admin = { ...ACCOUNT, admin: ADMIN }
+    const sent: unknown[] = []
+    serve({
+      '/api/v1/me': () => json(admin),
+      '/api/v1/me/admin': (init) => {
+        sent.push(JSON.parse(String(init?.body)))
+        return json({ ...admin, admin: { ...ADMIN, restricted_sources: false } })
+      },
+    })
+    renderAt('/settings')
+
+    const sources = await screen.findByRole('checkbox', { name: /not cleared for a paid product/ })
+    expect(sources).toBeChecked()
+    expect(screen.getByText(/Ken French's data library/)).toBeInTheDocument()
+    await userEvent.click(sources)
+
+    await waitFor(() => expect(sources).not.toBeChecked())
+    expect(sent).toEqual([{ restricted_sources: false }])
   })
 
   it('say when the server forces the fallback on', async () => {

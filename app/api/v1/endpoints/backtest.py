@@ -22,7 +22,12 @@ from app.api.v1.endpoints.stocks import (
 )
 from app.api.auth import CurrentUser
 from app.data.factors import fetch_factors
-from app.data.fetcher import DataFetchError, SymbolNotFoundError, fetch_price_history
+from app.data.fetcher import (
+    DataFetchError,
+    SourceTurnedOffError,
+    SymbolNotFoundError,
+    fetch_price_history,
+)
 from app.data.fetcher import _window_start as window_start
 from app.data.treasury import fetch_bill_returns, with_bill_rates
 from app.data.panel import fetch_close_panel
@@ -121,8 +126,20 @@ async def load_factors(
         except DataFetchError as exc:
             if cash_interest and bills is None:
                 raise upstream_error(exc) from exc
+            turned_off = isinstance(exc, SourceTurnedOffError)
+            notices = []
             if model is not None:
-                notice = "Factor attribution was left out: the factor data could not be fetched."
+                notices.append(
+                    "Factor attribution was left out: "
+                    + (str(exc) if turned_off else "the factor data could not be fetched.")
+                )
+            if cash_interest and bills is not None:
+                notices.append(
+                    "Cash earns interest only from 2002, when the Treasury's daily bill "
+                    "rates begin: the earlier rate "
+                    + ("is not used here." if turned_off else "could not be fetched.")
+                )
+            notice = " ".join(notices) or None
     if bills is not None:
         factors = with_bill_rates(factors, bills)
     return factors, notice

@@ -628,6 +628,23 @@ function AdminSettingsForm({
         reaches another account: their requests use their own keys alone, and a screener refreshed
         with yfinance and Nasdaq data is shown to you alone.
       </p>
+      <AdminSwitch
+        label="Use data sources not cleared for a paid product, for every account"
+        on={admin.restricted_sources}
+        disabled={save.isPending}
+        onChange={(on) => save.mutate({ restricted_sources: on })}
+      />
+      <div className="disclaimer">
+        These sources are free to use, but their terms do not clearly allow use in a product people
+        pay for. Turn this off before charging for PyQxel, unless you have their permission. Turning
+        it off stops:
+        <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>
+          {admin.restricted_source_uses.map((use) => (
+            <li key={use}>{use}</li>
+          ))}
+        </ul>
+        Pages then say the data is not available here instead of showing it.
+      </div>
       {save.error !== null && <ErrorNotice error={save.error} />}
     </section>
   )
