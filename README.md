@@ -76,6 +76,15 @@ The iPhone app is not on the App Store yet, so you build it with Xcode and insta
 
 The apps you build call the hosted PyQxel server, named in `web/.env.native`; point that at your own server to use it instead.
 
+**To update an app you built**, get the newest code and build it again. The app's pages are built into it, so new features appear only after a rebuild; changes on the server reach it at once.
+
+```bash
+cd PyQxel && git pull && cd web && npm install
+```
+
+* **The Mac app**: quit PyQxel, run the same `npx tauri build --bundles dmg` and install the new `.dmg` over the old app. Your sign-in and keys are kept.
+* **Your iPhone**: run the same `npx tauri ios run --release` command with the phone connected (and install it with `xcrun devicectl` if it ends with the `exportOptionsPlist` error). This also restarts the 7 days a free Apple ID's install lasts.
+
 ### Publishing a release (maintainers)
 
 Raise `version` in `web/src-tauri/tauri.conf.json`, commit, then tag that version and push the tag:
