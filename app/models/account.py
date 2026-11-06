@@ -47,6 +47,10 @@ class AdminSettingsUpdate(BaseModel):
         description="Whether the whole server uses data sources whose terms do not clearly "
         "allow use in a paid product.",
     )
+    own_restricted_sources: bool | None = Field(
+        default=None,
+        description="Whether your own requests use them while the server does not.",
+    )
 
 
 class Account(BaseModel):
@@ -75,8 +79,8 @@ class Account(BaseModel):
     admin: SkipJsonSchema[dict[str, bool | list[str]] | None] = Field(
         default=None, exclude_if=lambda settings: settings is None
     )
-    """The admin's switches, ``yfinance_fallback`` and the server-wide
-    ``restricted_sources``, the read-only ``yfinance_fallback_from_server``
+    """The admin's switches, ``yfinance_fallback``, ``own_restricted_sources`` and the
+    server-wide ``restricted_sources``, the read-only ``yfinance_fallback_from_server``
     (``YFINANCE_FALLBACK``), and ``restricted_source_uses``, what turning that one off
     stops. Sent to the
     admin alone, and left out of the API schema, so other accounts cannot tell there are

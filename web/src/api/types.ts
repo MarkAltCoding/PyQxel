@@ -13,11 +13,13 @@ export interface AdminSettings {
   /** Whether the whole server uses data sources whose terms do not clearly allow use in a
    * paid product. */
   restricted_sources: boolean
+  /** Whether the admin's own requests use them while the server does not. */
+  own_restricted_sources: boolean
   /** What turning `restricted_sources` off stops, one source per line. */
   restricted_source_uses: string[]
 }
 export type AdminSettingsUpdate = Partial<
-  Pick<AdminSettings, 'yfinance_fallback' | 'restricted_sources'>
+  Pick<AdminSettings, 'yfinance_fallback' | 'restricted_sources' | 'own_restricted_sources'>
 >
 export type Account = Schemas['Account'] & { admin?: AdminSettings }
 export type NightlyRefreshSettings = Schemas['NightlyRefreshSettings']

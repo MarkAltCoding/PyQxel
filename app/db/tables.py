@@ -45,6 +45,9 @@ class UserRecord(Base):
     ai_requests_per_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ai_requests_per_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     yfinance_fallback: Mapped[bool] = mapped_column(Boolean, server_default=false())
+    own_restricted_sources: Mapped[bool] = mapped_column(Boolean, server_default=false())
+    """Whether the admin's own requests use data sources not cleared for a paid product
+    while the server does not; it applies only to the admin."""
     """Whether the admin turned on the yfinance fallback for their own requests; ignored
     for every other account."""
 

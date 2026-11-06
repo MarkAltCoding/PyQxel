@@ -39,7 +39,7 @@ from app.core.security import CredentialsUnavailableError, encryption_available,
 from app.db.app_settings import (
     RESTRICTED_SOURCE_USES,
     RESTRICTED_SOURCES,
-    restricted_sources_allowed,
+    server_uses_restricted_sources,
     set_setting,
 )
 from app.db.nightly import MissingFinnhubKeyError, disable, enable, refresh_status
@@ -52,6 +52,7 @@ from app.db.users import (
     list_api_keys,
     revoke_api_key,
     update_limits,
+    update_own_restricted_sources,
     update_yfinance_fallback,
 )
 from app.models.account import (
@@ -111,7 +112,8 @@ async def _account(session: AsyncSession, user: User) -> Account:
             {
                 "yfinance_fallback": user.yfinance_fallback,
                 "yfinance_fallback_from_server": get_settings().yfinance_fallback,
-                "restricted_sources": await restricted_sources_allowed(),
+                "restricted_sources": await server_uses_restricted_sources(),
+                "own_restricted_sources": user.own_restricted_sources,
                 "restricted_source_uses": list(RESTRICTED_SOURCE_USES),
             }
             if user.is_admin
@@ -325,7 +327,8 @@ def _as_if_missing(request: Request) -> HTTPException:
 async def store_admin_settings(request: Request, session: Session) -> Account:
     """Turn the yfinance fallback for the admin's own requests on or off, with ``PUT``
     (``yfinance_fallback``), which never reaches another account, and the whole server's
-    use of data sources not cleared for commercial use (``restricted_sources``); an
+    use of data sources not cleared for commercial use (``restricted_sources``), or the
+    admin's own use of them while the server does not (``own_restricted_sources``); an
     omitted field is left as it is.
 
     Only the account ``ADMIN_EMAIL`` names may. Everyone else, signed in or not, gets the
@@ -347,6 +350,10 @@ async def store_admin_settings(request: Request, session: Session) -> Account:
             user = await update_yfinance_fallback(session, user.id, changes.yfinance_fallback)
         if changes.restricted_sources is not None:
             await set_setting(session, RESTRICTED_SOURCES, changes.restricted_sources)
+        if changes.own_restricted_sources is not None:
+            user = await update_own_restricted_sources(
+                session, user.id, changes.own_restricted_sources
+            )
         logger.info("Admin %s changed admin settings: %s.", user.id, changes.model_dump())
         return await _account(session, user)
     except SQLAlchemyError as exc:

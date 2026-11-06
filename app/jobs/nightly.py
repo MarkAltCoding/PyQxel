@@ -45,7 +45,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
-from app.api.auth import sees_unlicensed_data, uses_yfinance
+from app.api.auth import sees_unlicensed_data, uses_restricted_sources, uses_yfinance
 from app.core.config import get_settings
 from app.core.credentials import use_provider_keys
 from app.core.redact import install_log_redaction
@@ -390,6 +390,7 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None) -> None:
             due.keys,
             yfinance=user is not None and uses_yfinance(user),
             unlicensed=user is not None and sees_unlicensed_data(user),
+            restricted_sources=user is not None and uses_restricted_sources(user),
             user_id=due.user_id,
             store_history=False,
         )

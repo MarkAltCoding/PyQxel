@@ -53,6 +53,7 @@ class User:
     created_at: datetime
     limits: AiLimits
     yfinance_fallback: bool = False
+    own_restricted_sources: bool = False
 
     @property
     def is_admin(self) -> bool:
@@ -71,6 +72,7 @@ def _user(record: UserRecord) -> User:
             ai_requests_per_day=record.ai_requests_per_day,
         ),
         yfinance_fallback=bool(record.yfinance_fallback),
+        own_restricted_sources=bool(record.own_restricted_sources),
     )
 
 
@@ -321,6 +323,16 @@ async def update_yfinance_fallback(session: AsyncSession, user_id: str, enabled:
     record = await session.get(UserRecord, user_id)
     assert record is not None
     record.yfinance_fallback = enabled
+    await session.commit()
+    return _user(record)
+
+
+async def update_own_restricted_sources(session: AsyncSession, user_id: str, enabled: bool) -> User:
+    """Turn the account's own use of data sources not cleared for a paid product on or off;
+    it applies only to the admin."""
+    record = await session.get(UserRecord, user_id)
+    assert record is not None
+    record.own_restricted_sources = enabled
     await session.commit()
     return _user(record)
 

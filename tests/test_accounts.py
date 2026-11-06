@@ -863,3 +863,56 @@ def test_the_admin_can_turn_off_sources_a_paid_product_may_not_use_for_everyone(
     except SourceTurnedOffError as exc:
         error = upstream_error(exc)
     assert error.status_code == 503 and "Ken French" in str(error.detail)
+
+
+def test_the_admin_can_keep_those_sources_for_their_own_requests_alone(
+    monkeypatch: pytest.MonkeyPatch, alice: tuple[User, str], bob: tuple[User, str]
+) -> None:
+    from app.core.credentials import current_provider_keys
+    from app.data import factors as factor_data
+    from app.db.app_settings import restricted_sources_allowed
+
+    monkeypatch.setattr(get_settings(), "admin_email", "tester@example.com")
+    _, alice_key = alice
+    _, bob_key = bob
+    client.put("/api/v1/me/admin", headers=_headers(alice_key), json={"restricted_sources": False})
+    mine = client.put(
+        "/api/v1/me/admin", headers=_headers(alice_key), json={"own_restricted_sources": True}
+    ).json()
+    refused = client.put(
+        "/api/v1/me/admin", headers=_headers(bob_key), json={"own_restricted_sources": True}
+    )
+
+    assert mine["admin"]["own_restricted_sources"] is True
+    assert mine["admin"]["restricted_sources"] is False
+    assert refused.status_code in (404, 405)
+
+    from app.api.auth import uses_restricted_sources
+    from app.core.credentials import ProviderKeys, use_provider_keys
+    from app.data.fetcher import SourceTurnedOffError
+    from app.db.users import get_user
+
+    async def reached(name: str, client: object = None) -> None:
+        raise RuntimeError("the library was asked")
+
+    monkeypatch.setattr(factor_data, "fetch_factor_file", reached)
+
+    async def ask(user_id: str) -> str:
+        async with get_sessionmaker()() as session:
+            user = await get_user(session, user_id)
+        assert user is not None
+        use_provider_keys(ProviderKeys(restricted_sources=uses_restricted_sources(user)))
+        try:
+            await factor_data.fetch_factors("ff3")
+        except SourceTurnedOffError:
+            return "turned off"
+        except RuntimeError as exc:
+            return str(exc)
+        finally:
+            use_provider_keys(ProviderKeys())
+        return "fetched"
+
+    assert asyncio.run(ask(alice[0].id)) == "the library was asked"
+    assert asyncio.run(ask(bob[0].id)) == "turned off"
+    assert current_provider_keys().restricted_sources is False
+    assert asyncio.run(restricted_sources_allowed()) is False

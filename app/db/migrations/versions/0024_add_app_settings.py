@@ -1,7 +1,8 @@
 """Add settings of the whole server, changed by its admin.
 
 ``app_settings`` holds named JSON values, such as whether the server uses data sources
-not cleared for commercial use.
+not cleared for commercial use, and ``users.own_restricted_sources`` whether the admin's
+own requests use them while the server does not.
 
 Revision ID: 0024
 Revises: 0023
@@ -27,8 +28,17 @@ def upgrade() -> None:
         sa.Column("value", sa.JSON(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
+    with op.batch_alter_table("users") as batch:
+        batch.add_column(
+            sa.Column(
+                "own_restricted_sources", sa.Boolean(), server_default=sa.false(), nullable=False
+            )
+        )
 
 
 def downgrade() -> None:
-    """Drop the settings table; every setting returns to its default."""
+    """Drop the settings table and the admin's own switch; every setting returns to its
+    default."""
+    with op.batch_alter_table("users") as batch:
+        batch.drop_column("own_restricted_sources")
     op.drop_table("app_settings")

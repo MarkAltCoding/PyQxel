@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.credentials import current_provider_keys
 from app.db.session import get_sessionmaker
 from app.db.tables import AppSettingRecord
 
@@ -54,9 +55,16 @@ async def _read(name: str, default: Any) -> Any:
     return value
 
 
-async def restricted_sources_allowed() -> bool:
-    """Whether the server uses data sources not cleared for commercial use."""
+async def server_uses_restricted_sources() -> bool:
+    """Whether the server uses data sources not cleared for commercial use, for every
+    account."""
     return bool(await _read(RESTRICTED_SOURCES, True))
+
+
+async def restricted_sources_allowed() -> bool:
+    """Whether the current request uses data sources not cleared for commercial use: when
+    the server does, or when it is the admin's own and their switch is on."""
+    return current_provider_keys().restricted_sources or await server_uses_restricted_sources()
 
 
 async def set_setting(session: AsyncSession, name: str, value: Any) -> None:

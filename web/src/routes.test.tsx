@@ -441,6 +441,7 @@ describe('admin settings', () => {
     yfinance_fallback: false,
     yfinance_fallback_from_server: false,
     restricted_sources: true,
+    own_restricted_sources: false,
     restricted_source_uses: ["Ken French's data library: factor models"],
   }
 
@@ -457,7 +458,7 @@ describe('admin settings', () => {
     })
     renderAt('/settings')
 
-    const mine = await screen.findByRole('checkbox', { name: /for my own requests/ })
+    const mine = await screen.findByRole('checkbox', { name: /yfinance for my own requests/ })
     expect(mine).not.toBeChecked()
     await userEvent.click(mine)
 
@@ -485,13 +486,39 @@ describe('admin settings', () => {
     })
     renderAt('/settings')
 
-    const sources = await screen.findByRole('checkbox', { name: /not cleared for a paid product/ })
+    const sources = await screen.findByRole('checkbox', {
+      name: /not cleared for a paid product, for every account/,
+    })
     expect(sources).toBeChecked()
     expect(screen.getByText(/Ken French's data library/)).toBeInTheDocument()
     await userEvent.click(sources)
 
     await waitFor(() => expect(sources).not.toBeChecked())
     expect(sent).toEqual([{ restricted_sources: false }])
+  })
+
+  it('keep the sources a paid product may not use for the admin alone', async () => {
+    window.localStorage.setItem('pyqxel.apiKey', 'pq_mine')
+    const off = { ...ADMIN, restricted_sources: false }
+    const admin = { ...ACCOUNT, admin: off }
+    const sent: unknown[] = []
+    serve({
+      '/api/v1/me': () => json(admin),
+      '/api/v1/me/admin': (init) => {
+        sent.push(JSON.parse(String(init?.body)))
+        return json({ ...admin, admin: { ...off, own_restricted_sources: true } })
+      },
+    })
+    renderAt('/settings')
+
+    const mine = await screen.findByRole('checkbox', {
+      name: /not cleared for a paid product, for my own requests/,
+    })
+    expect(mine).not.toBeChecked()
+    await userEvent.click(mine)
+
+    await waitFor(() => expect(mine).toBeChecked())
+    expect(sent).toEqual([{ own_restricted_sources: true }])
   })
 
   it('say when the server forces the fallback on', async () => {
@@ -501,7 +528,7 @@ describe('admin settings', () => {
     renderAt('/settings')
 
     expect(await screen.findByText(/YFINANCE_FALLBACK is on/)).toBeInTheDocument()
-    const mine = screen.getByRole('checkbox', { name: /for my own requests/ })
+    const mine = screen.getByRole('checkbox', { name: /yfinance for my own requests/ })
     expect(mine).toBeChecked()
     expect(mine).toBeDisabled()
   })

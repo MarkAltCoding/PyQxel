@@ -99,6 +99,7 @@ async def authenticate(connection: HTTPConnection) -> User:
             yfinance=uses_yfinance(user),
             unlicensed=sees_unlicensed_data(user),
             user_id=user.id,
+            restricted_sources=uses_restricted_sources(user),
         )
     )
     return user
@@ -108,6 +109,12 @@ def sees_unlicensed_data(user: User) -> bool:
     """Whether ``user`` may be shown data from unlicensed sources: the account
     ``ADMIN_EMAIL`` names, or everyone on a development server, where it is unset."""
     return user.is_admin or get_settings().admin_email is None
+
+
+def uses_restricted_sources(user: User) -> bool:
+    """Whether ``user``'s own requests use data sources not cleared for a paid product even
+    while the server does not: only the admin's, with their own switch on."""
+    return user.is_admin and user.own_restricted_sources
 
 
 def uses_yfinance(user: User) -> bool:
