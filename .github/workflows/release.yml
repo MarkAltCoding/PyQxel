@@ -1,0 +1,99 @@
+name: Release
+
+# Builds the Mac app as a .dmg that runs on Apple silicon and Intel Macs.
+#
+# Pushing a version tag (git tag v0.2.0 && git push origin v0.2.0) builds it and attaches
+# it to a GitHub Release for that tag, made if it does not exist. The tag must match
+# "version" in web/src-tauri/tauri.conf.json. Running the workflow by hand (Actions,
+# Release, Run workflow) only builds it and keeps it as the run's artifact, to try a
+# build without publishing anything.
+#
+# The app is signed ad hoc, not with an Apple Developer ID, so macOS asks people to
+# confirm before its first launch; the README's Install section explains how.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mac:
+    name: Mac .dmg
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The tag matches the app's version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $version in tauri.conf.json."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # Rust is on the runner already; the build needs both Mac architectures.
+      - name: Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            web/src-tauri/target
+          key: mac-cargo-${{ hashFiles('web/src-tauri/Cargo.lock') }}
+          restore-keys: mac-cargo-
+
+      - run: npm ci
+
+      # Offline, as in CI: Pyodide's wheels are committed in web/vendor.
+      - name: Build
+        run: npx tauri build --target universal-apple-darwin --bundles dmg
+        env:
+          PYODIDE_OFFLINE: "1"
+
+      - name: Find the .dmg
+        id: dmg
+        run: |
+          dmg=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          echo "path=web/$dmg" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$dmg")" >> "$GITHUB_OUTPUT"
+          codesign --verify --deep --strict "src-tauri/target/universal-apple-darwin/release/bundle/macos/PyQxel.app"
+          lipo -archs "src-tauri/target/universal-apple-darwin/release/bundle/macos/PyQxel.app/Contents/MacOS/pyqxel"
+
+      - name: Keep the build
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.dmg.outputs.name }}
+          path: ${{ steps.dmg.outputs.path }}
+          if-no-files-found: error
+
+      - name: Attach it to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${{ steps.dmg.outputs.path }}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${{ steps.dmg.outputs.path }}" \
+              --title "PyQxel ${GITHUB_REF_NAME#v}" --generate-notes
+          fi

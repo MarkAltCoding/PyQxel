@@ -27,6 +27,67 @@ An AI-native research and quantitative analysis platform that helps investors ch
 
 ---
 
+## Install the App
+
+PyQxel runs in a web browser at the hosted site, and as an app for Mac and iPhone. The app is the same PyQxel: it signs in to the same account and shows the same portfolios and saved work. It is free.
+
+### Mac: download it
+
+1. Open the [latest release](https://github.com/MarkAltCoding/PyQxel/releases/latest) and, under **Assets**, download the file ending in `.dmg` (for example `PyQxel_0.1.0_universal.dmg`). It runs on both Apple silicon and Intel Macs.
+2. Open the downloaded file. In the window that appears, drag **PyQxel** onto the **Applications** folder, then eject the disk image.
+3. Open PyQxel from Applications. The first time, macOS says it could not verify that PyQxel is free of malware. That is because the app is not signed with a paid Apple developer certificate, not because something was found. Choose **Done**, then:
+   * open **System Settings**, then **Privacy & Security**;
+   * scroll down to the message that PyQxel was blocked and choose **Open Anyway**;
+   * enter your Mac's password, and choose **Open Anyway** once more.
+
+   macOS remembers this, so later launches open normally. (On macOS 14 or earlier you can instead Control-click the app, choose **Open**, then **Open**.)
+4. Acknowledge that PyQxel is not investment advice, then sign in with GitHub or Google. Your browser opens to sign in, and when you finish it offers to open PyQxel again: allow it.
+5. In **Settings**, add your market data keys. Free plans from Tiingo, Finnhub and Alpha Vantage are enough to start; the page says what each one adds.
+
+To update, download the newer `.dmg` and replace the app in Applications. To uninstall, drag PyQxel from Applications to the Trash; its saved sign-in and keys on your Mac are in `~/Library/Containers/com.markaltcoding.pyqxel`, which you can delete too. Your account and saved work stay on the server until you use **Delete account** in Settings.
+
+### iPhone, or the Mac app from source
+
+The iPhone app is not on the App Store yet, so you build it with Xcode and install it on your own phone. A free Apple ID works, but apps installed with one stop opening after 7 days until you install them again.
+
+1. Install **Xcode** from the Mac App Store, open it once so it finishes installing, and in **Xcode → Settings → Components** add the iOS platform. In **Xcode → Settings → Accounts**, add your Apple ID.
+2. Get the code and prepare it. The setup script installs what is missing (Homebrew's Node.js and XcodeGen, Rust, and the app's packages), and prints your Apple ID's team ID at the end:
+   ```bash
+   git clone https://github.com/MarkAltCoding/PyQxel.git
+   cd PyQxel
+   scripts/setup-xcode.sh
+   ```
+   If it stops, it says what to do first (such as installing [Homebrew](https://brew.sh)); then run it again.
+3. Open a new Terminal window, so it finds Rust, and go to the app's folder: `cd PyQxel/web`. Then build what you want:
+   * **The Mac app**: `npx tauri build --bundles dmg`. The `.dmg` is in `src-tauri/target/release/bundle/dmg/`, and installs as in the steps above.
+   * **The iPhone Simulator**: `npx tauri ios run "iPhone 17 Pro"` (`xcrun simctl list devices` lists the others).
+   * **Your iPhone**: connect it with a cable, unlock it, and choose **Trust** if it asks. Turn on **Settings → Privacy & Security → Developer Mode** on the phone (it restarts). Then, using the team ID the setup script printed and your phone's name from **Settings → General → About**:
+     ```bash
+     APPLE_DEVELOPMENT_TEAM=YOURTEAMID npx tauri ios run --release "Your iPhone"
+     ```
+     The first time, the phone refuses to open the app until you trust yourself as its developer: **Settings → General → VPN & Device Management**, choose your Apple ID, then **Trust**.
+
+     If the command ends with an error about `exportOptionsPlist` after building, the app is built but was not installed, which happens with free Apple IDs. Install it with:
+     ```bash
+     xcrun devicectl list devices      # shows your phone's identifier
+     xcrun devicectl device install app --device <identifier> \
+       ~/Library/Developer/Xcode/DerivedData/pyqxel-*/Build/Products/release-iphoneos/PyQxel.app
+     ```
+
+The apps you build call the hosted PyQxel server, named in `web/.env.native`; point that at your own server to use it instead.
+
+### Publishing a release (maintainers)
+
+Raise `version` in `web/src-tauri/tauri.conf.json`, commit, then tag that version and push the tag:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The [Release workflow](.github/workflows/release.yml) builds the universal `.dmg` on a Mac runner and attaches it to a GitHub Release for the tag, creating the release with notes from the commits since the last one. A tag that does not match the version fails the build. To try a build without publishing, run the workflow by hand from the Actions tab; its `.dmg` is kept with the run.
+
+---
+
 ## Quickstart & Local Setup
 
 ### Prerequisites
