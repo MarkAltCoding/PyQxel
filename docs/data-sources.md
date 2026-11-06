@@ -85,7 +85,10 @@ Checked November 6, 2026, five years of daily returns, Carhart model:
 | VTV | ETF estimate | 0.93 | 0.00 | 0.54 | 0.07 | 0.97 |
 
 Market betas agree closely; the others point the same way but differ in size, since the
-academic factors are long-short portfolios and the ETFs long-only funds.
+academic factors are long-short portfolios and the ETFs long-only funds. The market factor
+itself is near-identical: over the year to November 2026, SPY's daily return over the
+bill rate correlated 0.993 with Ken French's, and AAPL's market-only beta was 0.59 from SPY
+against 0.64 from Ken French's.
 
 ### Not replaced, and why
 
