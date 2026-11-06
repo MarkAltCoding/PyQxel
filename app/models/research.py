@@ -18,13 +18,13 @@ from app.models.metrics import CompanyMetrics
 from app.models.news import NewsContext
 from app.models.signals import SignalsContext
 from app.models.screener import PeerComparison
-from app.models.stock import HistoryCoverage, TickerInfo
+from app.models.stock import FundProfile, HistoryCoverage, TickerInfo
 from app.models.volatility import GarchContext, VolatilityPeriod
 
 AnalysisKind = Literal["thesis", "risk"]
 """Report types: an investment thesis, or a risk summary."""
 
-ANALYSIS_CONTEXT_VERSION: int = 7
+ANALYSIS_CONTEXT_VERSION: int = 8
 """Version of the data an analysis is written from. Bump it when the context gains data
 that changes reports, so stored reports written without it are not reused. Version 2
 added factor exposures; version 3 added fundamentals and valuation; version 4 added
@@ -33,7 +33,8 @@ added the GARCH volatility forecast and peer percentiles from the screener; vers
 added company news, analyst ratings, earnings results and dates, insider trading, key
 metrics and peers from Finnhub; version 7 added lobbying, government contracts, patents
 and SEC filings, and the market backdrop of FOMC meetings, major earnings reports, IPOs,
-holidays and market headlines."""
+holidays and market headlines; version 8 added a fund's holdings, costs and the figures
+weighted from them."""
 
 AnalysisPeriod = VolatilityPeriod
 """Lookback windows an analysis may cover; ``6mo`` or more gives a usable sample."""
@@ -161,6 +162,13 @@ class AnalysisContext(BaseModel):
         default=None,
         description="A GARCH(1,1) fit to the last five years of daily returns, whatever the "
         "analysis period, and its volatility forecast; null when it could not be fit.",
+    )
+    fund: FundProfile | None = Field(
+        default=None,
+        description="For an ETF or mutual fund: its costs, its largest holdings with their "
+        "weights, its mix of stocks, bonds and cash, a bond fund's coupon, maturity and "
+        "issuers, and the valuation, margins, growth, size and sectors weighted from the "
+        "companies it holds; null for a stock, or when none could be found.",
     )
     peers: PeerComparison | None = Field(
         default=None,

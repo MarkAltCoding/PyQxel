@@ -128,23 +128,35 @@ async def _info_cost(symbol: str) -> Counter[Provider]:
     return cost
 
 
-async def _fund_cost(symbol: str) -> bool:
-    """Whether a fund profile of ``symbol`` would spend an Alpha Vantage request: only for a
-    symbol already known to be a fund, as the page asks for one only then, and when the
-    answer is not cached."""
+async def _fund_cost(symbol: str) -> Counter[Provider]:
+    """The requests a fund's holdings and costs would send: only for a symbol already known
+    to be a fund, as the page asks for them only then. Alpha Vantage's profile, unless
+    cached, and Finnhub's figures for up to :data:`app.data.funds.FINNHUB_LOOKUPS` of its
+    largest holdings, fewer when the user's screener or the cache has them; the SEC's
+    filings need no key."""
+    from app.data.funds import FINNHUB_LOOKUPS  # It imports the database layer.
+
+    cost: Counter[Provider] = Counter()
     keys = current_provider_keys()
-    if keys.alpha_vantage is None or fetcher.symbol_kind(symbol) != "us":
-        return False
-    secret = keys.alpha_vantage.get_secret_value()
-    if await paused("alpha_vantage", secret):
-        return False
+    if fetcher.symbol_kind(symbol) != "us":
+        return cost
     type_key = f"tiingo:type:{symbol}"
     known = fetcher._tiingo_meta_memory.get(type_key)
     quote_type = known[1].get("type") if known is not None else await cache_get(type_key)
-    if quote_type not in fetcher.FUND_TYPES:
-        return False
-    cached = f"alphavantage:ETF_PROFILE:symbol={symbol}"
-    return cached not in fetcher._alpha_vantage_memory and await cache_get(cached) is None
+    if quote_type not in fetcher.FUND_TYPES or quote_type == fetcher.MONEY_MARKET_TYPE:
+        return cost
+    if keys.alpha_vantage is not None:
+        secret = keys.alpha_vantage.get_secret_value()
+        cached = f"alphavantage:ETF_PROFILE:symbol={symbol}"
+        if (
+            not await paused("alpha_vantage", secret)
+            and cached not in fetcher._alpha_vantage_memory
+            and await cache_get(cached) is None
+        ):
+            cost["alpha_vantage"] += 1
+    if keys.finnhub is not None and not await paused("finnhub", keys.finnhub.get_secret_value()):
+        cost["finnhub"] += FINNHUB_LOOKUPS
+    return cost
 
 
 async def estimate(
@@ -184,9 +196,10 @@ async def estimate(
                     requests[found[0]] += 1
                     symbols.setdefault(found[0], set()).add(symbol)
             elif kind == "fund":
-                if await _fund_cost(symbol):
-                    requests["alpha_vantage"] += 1
-                    symbols.setdefault("alpha_vantage", set()).add(symbol)
+                cost = await _fund_cost(symbol)
+                requests.update(cost)
+                for provider in cost:
+                    symbols.setdefault(provider, set()).add(symbol)
             elif kind == "info":
                 cost = await _info_cost(symbol)
                 requests.update(cost)

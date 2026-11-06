@@ -22,6 +22,8 @@ _PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bpq_[A-Za-z0-9_-]{16,}"),
     re.compile(r"\bsk-ant-[A-Za-z0-9_-]{8,}"),
     re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{16,}"),
+    # Alpha Vantage's limit message quotes the key: "We have detected your API key as ...".
+    re.compile(r"(?i)\b(api key as\s+)[A-Za-z0-9_-]{6,}"),
 )
 
 _installed = False

@@ -30,6 +30,8 @@ from app.api.v1.endpoints.backtest import attribute, equity_points, load_benchma
 from app.api.v1.endpoints.stocks import COVERAGE_TOLERANCE, PERIOD_OFFSETS, upstream_error
 from app.data.cash import MONEY_MARKET_PRICE, is_money_market
 from app.data.exchange_rates import dollars_per_unit
+from app.data.funds import fetch_fund_profile
+from app.stats.fund_stats import look_through
 from app.data.fetcher import (
     HISTORY_NOTICE,
     DataFetchError,
@@ -100,7 +102,7 @@ from app.models.portfolio_analysis import (
 )
 from app.models.research import AnalysisDelta, AnalysisStreamError
 from app.models.simulation import SimulationList, SimulationRequest, SimulationResponse
-from app.models.stock import SYMBOL_PATTERN, TickerInfo
+from app.models.stock import SYMBOL_PATTERN, FundProfile, TickerInfo
 from app.stats.backtest import cash_returns, run_portfolio_backtest, strategy_for
 from app.stats.copulas import (
     CopulaFit,
@@ -729,6 +731,7 @@ async def _value_holdings(
                 cash=cash,
                 currency=info.currency,
                 local_price=local if info.currency not in (None, "USD") else None,
+                kind=info.quote_type,
             )
         )
     total = sum(position.value for position in valued if position.value is not None)
@@ -1099,6 +1102,33 @@ async def _review_holdings(
     return ReviewHoldings(merged, accounts)
 
 
+FUNDS: frozenset[str] = frozenset({"ETF", "MUTUALFUND"})
+"""Kinds of holding whose holdings a review looks through."""
+
+REVIEW_FUNDS: int = 8
+"""Most funds whose holdings a review is given, largest first."""
+
+REVIEW_FUND_LOOKUPS: int = 10
+"""Most of each fund's companies whose figures a review asks of Finnhub, so a portfolio of
+several funds stays within Finnhub's free 60 requests a minute."""
+
+
+async def _fund_profiles(symbols: list[str]) -> list[FundProfile]:
+    """The holdings and costs of up to :data:`REVIEW_FUNDS` of ``symbols``, in order; those
+    that cannot be found are left out."""
+
+    async def one(symbol: str) -> FundProfile | None:
+        try:
+            profile = await fetch_fund_profile(symbol, lookups=REVIEW_FUND_LOOKUPS)
+        except DataFetchError as exc:
+            logger.info("No holdings for the fund %s: %s", symbol, exc)
+            return None
+        return profile.model_copy(update={"notes": []})
+
+    found = await asyncio.gather(*(one(symbol) for symbol in symbols[:REVIEW_FUNDS]))
+    return [profile for profile in found if profile is not None]
+
+
 async def _portfolio_context(
     holdings: list[HoldingShares],
     period: PortfolioPeriod,
@@ -1137,10 +1167,25 @@ async def _portfolio_context(
         pd.Series({h.symbol: (h.value or 0.0) / measured_total for h in measured}),
     )
     most, least = ranked_pairs(stats.correlations, CORRELATED_PAIRS)
+    funds = await _fund_profiles(
+        [h.symbol for h in sorted(priced, key=lambda h: -(h.value or 0.0)) if h.kind in FUNDS]
+    )
+    looked_through = {fund.symbol: fund for fund in funds if fund.sectors or fund.asset_mix}
     sectors: dict[str, float] = {}
+
+    def add(sector: str, share: float) -> None:
+        if share > 1e-9:
+            sectors[sector] = sectors.get(sector, 0.0) + share
+
     for h in priced:
-        sector = "Cash" if h.symbol in usable.cash else h.sector or "Unclassified"
-        sectors[sector] = sectors.get(sector, 0.0) + float(weights[h.symbol])
+        weight = float(weights[h.symbol])
+        fund = looked_through.get(h.symbol)
+        if fund is not None and h.symbol not in usable.cash:
+            # A fund counts under what it holds: its stocks' sectors, its bonds and cash.
+            for name, share in look_through(weight, fund).items():
+                add(name, share)
+            continue
+        add("Cash" if h.symbol in usable.cash else h.sector or "Unclassified", weight)
     short = {holding.symbol: holding.detail for holding in usable.left_out}
     data_notes = {
         h.symbol: (
@@ -1218,6 +1263,7 @@ async def _portfolio_context(
             for h in valued.holdings
         ],
         sectors=dict(sorted(sectors.items(), key=lambda item: -item[1])),
+        funds=funds,
         portfolio=PortfolioRiskStats(
             start=stats.start.to_pydatetime(),
             end=stats.end.to_pydatetime(),

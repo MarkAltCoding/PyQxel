@@ -112,6 +112,21 @@ subjects; and filing_counts and recent_8k_dates show its SEC filings of the last
 days, where 8-Ks report material events and Forms 4 and 144 insider trades. Patent \
 coverage is incomplete, so a low count is not evidence of little research.
 
+The snapshot may also hold fund, when the security is an ETF or mutual fund. A fund \
+owns other securities rather than running a business, so judge it by what it holds and \
+costs, not by company figures: its expense_ratio, dividend_yield and portfolio_turnover; \
+its holdings (its largest, with weights as decimals of the fund) and holdings_count; \
+asset_mix, its split between stocks, bonds and cash; for a bond fund, bonds, with the \
+average_coupon, the average_maturity_years to the bonds' stated final dates (mortgage \
+bonds are usually repaid sooner) and the issuers; and stats, the valuation, margins, \
+growth, size and sectors of the companies it holds, weighted by their share of the \
+fund, as of stats_as_of, over the holdings as of holdings_as_of. stats.coverage is the \
+share of its stocks those figures cover; a P/E there is the harmonic mean, the fund's \
+share of its companies' prices over their earnings. Say how concentrated its top \
+holdings are, compare its costs and valuation with what is typical for its kind of fund \
+(general knowledge, labelled as such), and treat analyst ratings, insider trades and \
+earnings, which describe a single company, as not applying to it.
+
 The snapshot may also hold market, the backdrop the security trades in: the next \
 FOMC meetings, whose rate decision is announced on the end date and moves the whole \
 market (projections marks those with the Fed's economic projections); market holidays \
@@ -173,7 +188,14 @@ equal positions the portfolio's concentration matches. Correlations are of daily
 returns over the window and can rise in a sell-off, so diversification measured in \
 calm periods may overstate protection. Sectors come from data providers' \
 classifications, and an ETF or fund appears as one holding although it may hold \
-many companies, or be classified with no sector at all.
+many companies. funds describes each fund among the holdings, where its holdings could \
+be found: its largest holdings and their weights in the fund, its mix of stocks, bonds \
+and cash, a bond fund's coupon and maturity, its sectors, and the valuation, margins and \
+growth of the companies it owns, weighted by their share of it. Use them to see what the \
+portfolio really owns: overlap between funds, and between a fund and a stock held \
+directly (a holding's real weight in a company is its own weight plus each fund's \
+weight times the company's weight in that fund), and sector exposure through the \
+funds. sectors counts each fund under its own holdings' sectors where they are known.
 
 Ground every claim about the portfolio in the snapshot, citing the figures behind it. \
 You may use general knowledge of markets, sectors, asset classes and well-known funds \

@@ -21,9 +21,12 @@ Each run refreshes every user whose chosen time has come since their last refres
    drawdown and Carhart factor betas. The rest keep Finnhub's stand-ins (see
    :func:`app.stats.screening.user_screen_metrics`), and those whose price is unknown
    take a Finnhub quote.
-4. Adds the ETFs listed on US exchanges, from Finnhub's free symbol list: one request
-   for the list and one for each ETF's basic financials (its returns, volatility, beta and
-   volume; an ETF has no market cap or company figures). Those that could clear the dollar
+4. Adds the ETFs listed on US exchanges. Once every :data:`ETF_SCAN_DAYS` days it checks
+   them all, from Finnhub's free symbol list; on the other nights only those already in
+   the user's universe, so a refresh takes about two hours rather than four, and a new or
+   newly traded ETF joins within the week. Each costs one request for its basic
+   financials (its returns, volatility, beta and volume; an ETF has no market cap or
+   company figures). Those that could clear the dollar
    volume floor even at their 52-week high share the price histories with the stocks, in
    proportion to their number, most traded first, and the rest take a Finnhub quote.
 5. Takes sectors and industries from the companies' SEC industry codes, keeps stocks and
@@ -64,8 +67,10 @@ from app.db.nightly import (
     DueRefresh,
     due_refreshes,
     finish_run,
+    mark_etfs_scanned,
     replace_user_universe,
     start_run,
+    user_etfs,
 )
 from app.db.screener import load_companies, load_fundamentals, load_listings
 from app.db.session import close_database, get_sessionmaker, init_db
@@ -78,6 +83,10 @@ from app.stats.sectors import industry_name, sector_for_sic
 
 logger = logging.getLogger(__name__)
 
+ETF_SCAN_DAYS: int = 7
+"""Days between the refreshes that check every US ETF; the nights between check only the
+ETFs already in the user's universe."""
+
 
 @dataclass(frozen=True)
 class UserRefreshResult:
@@ -88,6 +97,8 @@ class UserRefreshResult:
     priced: int
     """Those with price-history columns."""
     prices_as_of: date | None
+    scanned_etfs: bool = False
+    """Whether it checked every US ETF, rather than those already in the universe."""
 
 
 @dataclass(frozen=True)
@@ -205,9 +216,17 @@ def _score(
     return universe
 
 
-async def _etfs(skip: set[str]) -> list[_Etf]:
+def scans_every_etf(scanned_at: datetime | None, now: datetime) -> bool:
+    """Whether tonight's refresh checks every US ETF: when it never has, or last did
+    :data:`ETF_SCAN_DAYS` or more days ago (less an hour, so a refresh that ran a little
+    later last week does not wait another week)."""
+    return scanned_at is None or now - scanned_at >= timedelta(days=ETF_SCAN_DAYS, hours=-1)
+
+
+async def _etfs(skip: set[str], kept: list[EtfListing] | None = None) -> list[_Etf]:
     """The ETFs on US exchanges that could clear the dollar volume floor, most traded
-    first, with Finnhub's metrics, on the user's key. Empty, with a warning, when Finnhub's
+    first, with Finnhub's metrics, on the user's key: those in ``kept``, or, when it is
+    ``None``, every one on Finnhub's symbol list. Empty, with a warning, when Finnhub's
     symbol list fails, so the stocks are still refreshed.
 
     Raises:
@@ -215,7 +234,8 @@ async def _etfs(skip: set[str]) -> list[_Etf]:
     """
     settings = get_settings()
     try:
-        listings = [etf for etf in await fetch_etf_listings() if etf.symbol not in skip]
+        found = kept if kept is not None else await fetch_etf_listings()
+        listings = [etf for etf in found if etf.symbol not in skip]
     except ProviderNotConfiguredError:
         raise
     except DataFetchError as exc:
@@ -241,7 +261,10 @@ async def _etfs(skip: set[str]) -> list[_Etf]:
 
 
 async def build_user_universe(
-    user_id: str, now: datetime, price_history_stocks: int | None = None
+    user_id: str,
+    now: datetime,
+    price_history_stocks: int | None = None,
+    etfs_scanned_at: datetime | None = None,
 ) -> UserRefreshResult:
     """Build and store ``user_id``'s own universe on the current provider keys.
 
@@ -273,7 +296,14 @@ async def build_user_universe(
         len(stocks),
     )
 
-    etfs = await _etfs(set(by_symbol))
+    known_etfs: list[EtfListing] | None = None
+    if not scans_every_etf(etfs_scanned_at, now):
+        async with get_sessionmaker()() as session:
+            known_etfs = [EtfListing(*row) for row in await user_etfs(session, user_id)]
+        if not known_etfs:
+            # None were kept last time, as when that refresh failed: check them all.
+            known_etfs = None
+    etfs = await _etfs(set(by_symbol), known_etfs)
 
     # The user chose how many stocks and ETFs get price histories: one request each on
     # their price-history keys, which free plans allow only so many of a day.
@@ -335,7 +365,10 @@ async def build_user_universe(
     priced = [symbol for symbol in histories if symbol in kept]
     last_closes = [pd.Timestamp(histories[symbol].index[-1]).date() for symbol in priced]
     return UserRefreshResult(
-        stocks=count, priced=len(priced), prices_as_of=max(last_closes, default=None)
+        stocks=count,
+        priced=len(priced),
+        prices_as_of=max(last_closes, default=None),
+        scanned_etfs=known_etfs is None,
     )
 
 
@@ -363,7 +396,9 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None) -> None:
     )
     with usage.track() as sent:
         try:
-            result = await build_user_universe(due.user_id, now, due.price_history_stocks)
+            result = await build_user_universe(
+                due.user_id, now, due.price_history_stocks, due.etfs_scanned_at
+            )
         except Exception as exc:
             logger.warning("User %s's nightly refresh failed: %s", due.user_id, exc)
             async with get_sessionmaker()() as session:
@@ -373,6 +408,8 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None) -> None:
             await usage.flush()
             return
     async with get_sessionmaker()() as session:
+        if result.scanned_etfs:
+            await mark_etfs_scanned(session, due.user_id, now)
         await finish_run(
             session,
             run_id,

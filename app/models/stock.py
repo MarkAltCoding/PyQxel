@@ -58,6 +58,63 @@ class FundHolding(BaseModel):
     symbol: str | None = Field(default=None, description="The holding's ticker, when it has one.")
     name: str
     weight: float = Field(description="Share of the fund's assets, as a decimal.")
+    asset_class: str | None = Field(
+        default=None, description="Stocks, Bonds, Cash or Other, where the source says."
+    )
+
+
+class FundBonds(BaseModel):
+    """What a fund's bonds add up to, from its SEC filing."""
+
+    weight: float = Field(description="Share of the fund's net assets in bonds.")
+    count: int = Field(ge=0, description="How many bonds it holds.")
+    average_coupon: float | None = Field(
+        default=None, description="Interest rate the bonds pay, weighted by value, as a decimal."
+    )
+    average_maturity_years: float | None = Field(
+        default=None,
+        description="Years until the bonds are due, weighted by value: their stated final "
+        "maturity, which mortgage-backed bonds usually beat by being repaid early.",
+    )
+    issuers: dict[str, float] = Field(
+        default_factory=dict,
+        description="Share of the bonds by kind of issuer, e.g. US Treasury, as decimals.",
+    )
+
+
+class HoldingsStats(BaseModel):
+    """A fund's figures weighted from the companies it holds, as a stock's own are shown.
+
+    Each figure is over the holdings that have it; ``coverage`` says how much of the
+    fund's stocks have any. Rates are decimals.
+    """
+
+    coverage: float = Field(ge=0, le=1, description="Share of the fund's stocks with figures.")
+    pe_ratio: float | None = Field(
+        default=None, description="Price over earnings, as a weighted harmonic mean."
+    )
+    price_to_sales: float | None = Field(
+        default=None, description="Price over sales, as a weighted harmonic mean."
+    )
+    gross_margin: float | None = None
+    operating_margin: float | None = None
+    net_margin: float | None = None
+    return_on_equity: float | None = None
+    revenue_growth: float | None = Field(default=None, description="TTM revenue, year on year.")
+    earnings_growth: float | None = Field(default=None, description="TTM earnings, year on year.")
+    average_market_cap: float | None = Field(
+        default=None, description="The holdings' market caps, weighted, in US dollars."
+    )
+    size_mix: dict[str, float] = Field(
+        default_factory=dict,
+        description="Share in large (over $10B), mid ($2-10B) and small companies.",
+    )
+    sectors: dict[str, float] = Field(
+        default_factory=dict, description="Share in each sector, of the classified holdings."
+    )
+    sector_coverage: float = Field(
+        default=0, ge=0, le=1, description="Share of the fund's stocks with a sector."
+    )
 
 
 class FundProfile(BaseModel):
@@ -93,7 +150,33 @@ class FundProfile(BaseModel):
     holdings_count: int | None = Field(
         default=None, ge=0, description="How many holdings the provider listed."
     )
-    source: str = Field(description="Data provider that produced this record.")
+    holdings_as_of: date | None = Field(
+        default=None, description="The date the holdings are reported as of, where known."
+    )
+    holdings_source: str | None = Field(
+        default=None, description="Where the holdings come from: alpha_vantage or sec."
+    )
+    asset_mix: list[FundWeight] = Field(
+        default_factory=list,
+        description="Share of net assets in stocks, bonds, cash and other, from its SEC filing.",
+    )
+    bonds: FundBonds | None = Field(default=None, description="Null when it holds few bonds.")
+    stats: HoldingsStats | None = Field(
+        default=None,
+        description="Valuation, profitability, growth, size and sectors weighted from the "
+        "companies it holds; null when none could be looked up, as for a bond fund.",
+    )
+    stats_as_of: date | None = Field(
+        default=None, description="When the companies' figures were current."
+    )
+    stats_sources: list[str] = Field(
+        default_factory=list,
+        description="Where the companies' figures come from: your screener, Finnhub.",
+    )
+    notes: list[str] = Field(
+        default_factory=list, description="What is missing and why, in plain sentences."
+    )
+    source: str = Field(description="Data providers that produced this record.")
 
 
 class OHLCVBar(BaseModel):

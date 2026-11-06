@@ -264,6 +264,11 @@ class HoldingValue(BaseModel):
     currency: str | None = Field(
         default=None, description="The currency the listing trades in, e.g. EUR or GBX (pence)."
     )
+    kind: str | None = Field(
+        default=None,
+        description="What it is, as the provider classes it: EQUITY, ETF, MUTUALFUND or "
+        "MONEYMARKET; null when it does not say.",
+    )
     local_price: float | None = Field(
         default=None,
         description="The latest price in ``currency``, for a listing priced in another "

@@ -54,6 +54,7 @@ from app.api.v1.endpoints.stocks import (
     upstream_error,
 )
 from app.data.factors import fetch_factors
+from app.data.funds import fetch_fund_profile
 from app.data.alpha_vantage import fetch_financials_filled
 from app.data.news import (
     NewsFetchError,
@@ -105,7 +106,7 @@ from app.models.research import (
     RiskSummary,
 )
 from app.models.screener import PeerComparison
-from app.models.stock import SYMBOL_PATTERN, TickerInfo
+from app.models.stock import SYMBOL_PATTERN, FundProfile, TickerInfo
 from app.models.factors import FactorContext, FactorModel
 from app.models.volatility import GarchContext
 from app.stats.factors import fit_factor_model
@@ -579,7 +580,20 @@ async def gather_analysis_data(
     if factor_notice:
         notices.append(factor_notice)
 
-    fundamentals, fundamentals_notices = await _fundamentals(symbol, financials_result, market_info)
+    fund: FundProfile | None = None
+    if market_info is not None and market_info.quote_type in ("ETF", "MUTUALFUND"):
+        try:
+            fund = await fetch_fund_profile(symbol)
+        except DataFetchError as exc:
+            notices.append(f"The fund's holdings and costs could not be fetched: {exc}")
+        else:
+            notices.extend(fund.notes)
+        fundamentals_notices: list[str] = []
+        fundamentals = None
+    else:
+        fundamentals, fundamentals_notices = await _fundamentals(
+            symbol, financials_result, market_info
+        )
     notices.extend(fundamentals_notices)
 
     volatility_forecast, garch_notice = _garch_context(garch_result)
@@ -589,15 +603,16 @@ async def gather_analysis_data(
     metrics, metrics_notice = _metrics_context(symbol, metrics_result)
     alternative, alternative_notice = _alternative_context(alternative_result)
     market, market_notice = _market_context(market_result)
+    # A company's peers, ratings, insider trades and lobbying never apply to a fund, so
+    # their absence is not news for one.
+    company_notices = () if fund is not None else (peer_notice, signals_notice, alternative_notice)
     notices.extend(
         notice
         for notice in (
             garch_notice,
-            peer_notice,
+            *company_notices,
             news_notice,
-            signals_notice,
             metrics_notice,
-            alternative_notice,
             market_notice,
         )
         if notice
@@ -612,6 +627,7 @@ async def gather_analysis_data(
         factors=factors,
         fundamentals=fundamentals,
         volatility_forecast=volatility_forecast,
+        fund=fund,
         peers=peers,
         news=news,
         signals=signals,

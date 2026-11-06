@@ -204,7 +204,7 @@ export const DATA_FEATURES: DataFeature[] = [
     steps: [
       {
         provider: 'alpha_vantage',
-        free: 'ETFs and funds, one of its 25 requests a day each, kept for a day',
+        free: 'expense ratio, yield, turnover and current holdings of ETFs, one of its 25 requests a day each, kept for a day (mutual funds’ holdings come from their SEC filings, which need no key)',
         freeIsFull: true,
       },
     ],

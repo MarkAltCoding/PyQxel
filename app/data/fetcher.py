@@ -1535,7 +1535,13 @@ async def _tiingo_meta(
     return meta
 
 
-TIINGO_EXCHANGES: dict[str, str] = {"NASDAQ": "NASDAQ", "NYSE": "NYSE", "NYSE ARCA": "NYSEArca"}
+TIINGO_EXCHANGES: dict[str, str] = {
+    "NASDAQ": "NASDAQ",
+    "NYSE": "NYSE",
+    "NYSE ARCA": "NYSEArca",
+    # Nasdaq's quotation service for mutual funds, which trade with the fund, not on it.
+    "NMFQS": "",
+}
 """Exchange names for Tiingo's exchange codes, as the other providers write them."""
 
 

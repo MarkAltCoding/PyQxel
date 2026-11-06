@@ -62,7 +62,8 @@ The cells below record what happened when each free key requested that kind of d
 | Quote, international | Refused | Refused (SAP.DE) | Yes on its suffixes (SAP.DEX) | None | Delayed (VOD.LSE) |
 | Company info, US | Sector, industry and market cap for the sample (ETFs included) | **Industry and market cap, any US stock**; for an ADR, the home listing's (ASML.AS, in euros); nothing for ETFs | Premium | Name for any US stock, ETF or fund; **whether it is a stock, ETF or mutual fund** (its search); sector, industry and market cap only for the Dow 30 | Name, exchange, currency and type from its search (1 call); fundamentals refused |
 | Company info, international | Refused | Refused (SAP.DE) | Name and currency from its search | None | **Name, exchange, currency and type** from its search |
-| ETF and fund holdings and costs | Not tested | Refused (`etf/profile`) | **Yes (`ETF_PROFILE`): net assets, expense ratio, yield, turnover, inception, leverage, sectors and every holding** | Refused (mutual fund add-on) | Refused (fundamentals) |
+| ETF and fund holdings and costs | Not tested | Refused (`etf/profile`, `mutual-fund/profile`) | **Yes for ETFs (`ETF_PROFILE`): net assets, expense ratio, yield, turnover, inception, leverage, sectors and every holding**; mutual funds not tested (the day's 25 requests were used) | Refused (mutual fund add-on) | Refused (fundamentals) |
+| Quote, mutual fund | Not tested | Refused (VFIAX) | Not tested | **Yes (last NAV, e.g. VFIAX)** | Not tested |
 | List of every US ETF | Not tested | **Yes (`stock/symbol`): 6,626 exchange-traded products, 5,700 of them on US exchanges, in one request** | None | Its public ticker file | None |
 | Exchange rates | Quote only | None | **Current rate**, plus 100 days of history | **Daily history, 5+ years** | Last 1 year |
 | Screener: bulk market caps or sectors | Refused | One call per stock (see below) | None | None | None |
@@ -131,9 +132,38 @@ keeps its name and industry, prices it in dollars, and converts its market cap.
   company's figures (market cap, sector, earnings, analyst ratings, insider trades) do not
   apply to a fund, and the app says so instead of showing blanks.
 - **Screener:** each user's nightly refresh adds the ETFs on US exchanges from Finnhub's
-  free symbol list, with Finnhub's free basic financials for each (one request per ETF,
-  about two more hours a night at 50 a minute). Those that could clear the dollar volume
-  floor even at their 52-week high are kept and share the price histories with the stocks.
+  free symbol list, with Finnhub's free basic financials for each, one request per ETF.
+  Once a week it checks all of them (about two more hours at 50 a minute); the other nights
+  only those already in the user's universe (about 30 to 50 minutes), so a new or newly
+  traded ETF joins within the week. Those that could clear the dollar volume floor even at
+  their 52-week high are kept and share the price histories with the stocks.
+- **Mutual funds:** Tiingo's free plan prices them (its last NAV) and gives their history;
+  Finnhub's free plan refuses them. Their holdings come from their SEC filings (below).
+
+## What funds hold: SEC N-PORT filings
+
+Every US mutual fund and ETF reports its whole portfolio to the SEC on Form N-PORT, and
+the SEC publishes the quarter-end reports about 60 days later. They are public, so PyQxel
+reads them with no key and may show them to every account (`app/data/fund_filings.py`):
+
+- **Ticker to fund:** the SEC's `company_tickers_mf.json` maps each share class to its fund
+  ("series"); VOO and VFIAX are two classes of one fund. Unit investment trusts such as
+  SPY do not file N-PORT.
+- **Latest filing:** EDGAR's feed of the series' `NPORT-P` filings, then the filing's
+  `primary_doc.xml`: every holding's name, CUSIP, value, share of net assets, kind of asset
+  (stock, bond, mortgage-backed, cash) and issuer (company, Treasury, agency,
+  municipality), and a bond's maturity and coupon. Holdings carry no tickers, so they are
+  matched to listed companies by name.
+- **Size and age:** about 0.5 MB for an S&P 500 fund, 20 MB and 17,000 holdings for a
+  total bond market fund; parsed in under a second and summarized, the summary kept for a
+  week. Tested November 6, 2026: VFIAX (as of June 30), FXAIX (August 31) and VBTLX
+  (June 30, 98.8% bonds).
+
+From the holdings, PyQxel weights the companies' own figures into the fund's
+(`app/stats/fund_stats.py`): P/E and price to sales as harmonic means, margins, return on
+equity, growth and market cap as weighted means, and sectors from the companies' SEC
+industry codes. The figures come from the user's own screener where it has the company,
+and otherwise from Finnhub's free basic financials for the 25 largest holdings.
 
 ## Keeping each user's price history
 
@@ -189,7 +219,8 @@ and use the first one that covers the request. "Free" means the provider's free 
 | Quotes, US | Finnhub (free, real time) → Tiingo (free) → FMP (free sample) → EODHD (free, delayed) → Alpha Vantage (free, end of day) | **Covered** |
 | Quotes, international | EODHD (free, delayed; Historian for volume) → FMP (paid) → Alpha Vantage (free, on its exchanges) → Finnhub (paid) | 20 requests a day, then 25 |
 | Kind of listing: stock, ETF, mutual or money-market fund | FMP profile flags (free sample) → Tiingo search (free, any US listing; reused for a week) → EODHD search (free) | **Covered** |
-| ETF and fund holdings and costs | Alpha Vantage `ETF_PROFILE` (free; reused for a day) | **Covered, at one of Alpha Vantage's 25 requests a day per fund** |
+| ETF and fund holdings and costs | Alpha Vantage `ETF_PROFILE` (free; reused for a day) for costs and current holdings, beside the SEC's N-PORT filings (public, no key) for every holding, the asset mix and bond figures | **Covered:** holdings for any mutual fund or ETF that files N-PORT, with no key; costs at one of Alpha Vantage's 25 requests a day per fund |
+| Figures of a fund's companies (for holdings-weighted P/E, margins, growth, size, sectors) | The user's own screener (no request) → Finnhub basic financials (free, one request per company, the 25 largest) | **Covered** |
 | Screener: the US ETFs and their metrics | Each user's own Finnhub key (symbol list, then basic financials per ETF) | **Covered for that user** |
 | Company info, US: name, sector, industry | FMP profile (free sample) → Finnhub profile (free: industry, any US stock) → Tiingo meta (free: the Dow 30's sectors) → EODHD Fundamentals ($59.99) | **Name and industry covered**; a sector name for most stocks needs FMP's sample or a paid key |
 | Market cap, US | Finnhub (free) → FMP (free sample) | **Covered** |

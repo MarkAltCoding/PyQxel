@@ -1337,13 +1337,14 @@ export interface paths {
     }
     /**
      * A fund's holdings and costs
-     * @description Return what the ETF or mutual fund ``symbol`` holds and costs: its net assets,
-     *     expense ratio, yield, turnover, sectors and largest holdings, from Alpha Vantage on
-     *     your key.
+     * @description Return what the ETF or mutual fund ``symbol`` holds and costs: its expense ratio,
+     *     yield and turnover from Alpha Vantage on your key; its holdings, mix of stocks, bonds
+     *     and cash, and a bond fund's coupon, maturity and issuers from its SEC filings; and the
+     *     valuation, margins, growth, size and sectors weighted from the companies it holds, from
+     *     your screener or Finnhub. ``notes`` says what is missing and why.
      *
-     *     Returns 403 without an Alpha Vantage key, 404 when it has no fund profile for
-     *     ``symbol`` (as for a stock), and 502 when Alpha Vantage fails or its daily limit is
-     *     reached.
+     *     Returns 403 when the SEC has no filing for ``symbol`` and you have no Alpha Vantage key,
+     *     and 404 when no source describes it as a fund, as for a stock.
      */
     get: operations['get_fund_profile_api_v1_stocks__symbol__fund_get']
     put?: never
@@ -1882,6 +1883,8 @@ export interface components {
        * @description SEC filings whose sections were given to the model.
        */
       filings?: components['schemas']['FilingReference'][]
+      /** @description For an ETF or mutual fund: its costs, its largest holdings with their weights, its mix of stocks, bonds and cash, a bond fund's coupon, maturity and issuers, and the valuation, margins, growth, size and sectors weighted from the companies it holds; null for a stock, or when none could be found. */
+      fund?: components['schemas']['FundProfile'] | null
       /** @description Financial statement figures from SEC filings and the valuation built on them; null when they could not be fetched. */
       fundamentals?: components['schemas']['Fundamentals'] | null
       /** @description The market backdrop: upcoming FOMC meetings, market holidays, major companies' earnings reports and IPOs, and the newest market headlines. */
@@ -3647,10 +3650,48 @@ export interface components {
       start: string
     }
     /**
+     * FundBonds
+     * @description What a fund's bonds add up to, from its SEC filing.
+     */
+    FundBonds: {
+      /**
+       * Average Coupon
+       * @description Interest rate the bonds pay, weighted by value, as a decimal.
+       */
+      average_coupon?: number | null
+      /**
+       * Average Maturity Years
+       * @description Years until the bonds are due, weighted by value: their stated final maturity, which mortgage-backed bonds usually beat by being repaid early.
+       */
+      average_maturity_years?: number | null
+      /**
+       * Count
+       * @description How many bonds it holds.
+       */
+      count: number
+      /**
+       * Issuers
+       * @description Share of the bonds by kind of issuer, e.g. US Treasury, as decimals.
+       */
+      issuers?: {
+        [key: string]: number
+      }
+      /**
+       * Weight
+       * @description Share of the fund's net assets in bonds.
+       */
+      weight: number
+    }
+    /**
      * FundHolding
      * @description One of a fund's largest holdings.
      */
     FundHolding: {
+      /**
+       * Asset Class
+       * @description Stocks, Bonds, Cash or Other, where the source says.
+       */
+      asset_class?: string | null
       /** Name */
       name: string
       /**
@@ -3673,6 +3714,13 @@ export interface components {
      */
     FundProfile: {
       /**
+       * Asset Mix
+       * @description Share of net assets in stocks, bonds, cash and other, from its SEC filing.
+       */
+      asset_mix?: components['schemas']['FundWeight'][]
+      /** @description Null when it holds few bonds. */
+      bonds?: components['schemas']['FundBonds'] | null
+      /**
        * Dividend Yield
        * @description Distributions over the last year as a share of the price.
        */
@@ -3688,10 +3736,20 @@ export interface components {
        */
       holdings?: components['schemas']['FundHolding'][]
       /**
+       * Holdings As Of
+       * @description The date the holdings are reported as of, where known.
+       */
+      holdings_as_of?: string | null
+      /**
        * Holdings Count
        * @description How many holdings the provider listed.
        */
       holdings_count?: number | null
+      /**
+       * Holdings Source
+       * @description Where the holdings come from: alpha_vantage or sec.
+       */
+      holdings_source?: string | null
       /**
        * Inception Date
        * @description When the fund started.
@@ -3708,6 +3766,11 @@ export interface components {
        */
       net_assets?: number | null
       /**
+       * Notes
+       * @description What is missing and why, in plain sentences.
+       */
+      notes?: string[]
+      /**
        * Portfolio Turnover
        * @description Share of the holdings replaced in a year.
        */
@@ -3719,9 +3782,21 @@ export interface components {
       sectors?: components['schemas']['FundWeight'][]
       /**
        * Source
-       * @description Data provider that produced this record.
+       * @description Data providers that produced this record.
        */
       source: string
+      /** @description Valuation, profitability, growth, size and sectors weighted from the companies it holds; null when none could be looked up, as for a bond fund. */
+      stats?: components['schemas']['HoldingsStats'] | null
+      /**
+       * Stats As Of
+       * @description When the companies' figures were current.
+       */
+      stats_as_of?: string | null
+      /**
+       * Stats Sources
+       * @description Where the companies' figures come from: your screener, Finnhub.
+       */
+      stats_sources?: string[]
       /** Symbol */
       symbol: string
     }
@@ -4143,6 +4218,11 @@ export interface components {
       /** Industry */
       industry?: string | null
       /**
+       * Kind
+       * @description What it is, as the provider classes it: EQUITY, ETF, MUTUALFUND or MONEYMARKET; null when it does not say.
+       */
+      kind?: string | null
+      /**
        * Local Price
        * @description The latest price in ``currency``, for a listing priced in another currency than dollars; null for dollar listings.
        */
@@ -4200,6 +4280,73 @@ export interface components {
        * @description Sum of the priced holdings' values.
        */
       total_value: number
+    }
+    /**
+     * HoldingsStats
+     * @description A fund's figures weighted from the companies it holds, as a stock's own are shown.
+     *
+     *     Each figure is over the holdings that have it; ``coverage`` says how much of the
+     *     fund's stocks have any. Rates are decimals.
+     */
+    HoldingsStats: {
+      /**
+       * Average Market Cap
+       * @description The holdings' market caps, weighted, in US dollars.
+       */
+      average_market_cap?: number | null
+      /**
+       * Coverage
+       * @description Share of the fund's stocks with figures.
+       */
+      coverage: number
+      /**
+       * Earnings Growth
+       * @description TTM earnings, year on year.
+       */
+      earnings_growth?: number | null
+      /** Gross Margin */
+      gross_margin?: number | null
+      /** Net Margin */
+      net_margin?: number | null
+      /** Operating Margin */
+      operating_margin?: number | null
+      /**
+       * Pe Ratio
+       * @description Price over earnings, as a weighted harmonic mean.
+       */
+      pe_ratio?: number | null
+      /**
+       * Price To Sales
+       * @description Price over sales, as a weighted harmonic mean.
+       */
+      price_to_sales?: number | null
+      /** Return On Equity */
+      return_on_equity?: number | null
+      /**
+       * Revenue Growth
+       * @description TTM revenue, year on year.
+       */
+      revenue_growth?: number | null
+      /**
+       * Sector Coverage
+       * @description Share of the fund's stocks with a sector.
+       * @default 0
+       */
+      sector_coverage?: number
+      /**
+       * Sectors
+       * @description Share in each sector, of the classified holdings.
+       */
+      sectors?: {
+        [key: string]: number
+      }
+      /**
+       * Size Mix
+       * @description Share in large (over $10B), mid ($2-10B) and small companies.
+       */
+      size_mix?: {
+        [key: string]: number
+      }
     }
     /**
      * HoldingsUpdate
@@ -5962,6 +6109,11 @@ export interface components {
        */
       accounts?: components['schemas']['AccountValue'][]
       /**
+       * Funds
+       * @description Each ETF or mutual fund among the holdings, largest first, with its largest holdings, mix of stocks, bonds and cash, sectors, costs and the figures weighted from the companies it holds, where they could be found.
+       */
+      funds?: components['schemas']['FundProfile'][]
+      /**
        * History Months
        * @description The custom window, in months, the statistics cover; null when they cover ``period``.
        */
@@ -5991,7 +6143,7 @@ export interface components {
       profile?: components['schemas']['InvestorProfile']
       /**
        * Sectors
-       * @description Weight in each sector, by the providers' classification; holdings without one are under Unclassified.
+       * @description Weight in each sector, by the providers' classification; a fund's stocks are spread over their sectors where they are known, and its bonds and cash count as Bonds and Cash; holdings without a sector are under Unclassified.
        */
       sectors: {
         [key: string]: number

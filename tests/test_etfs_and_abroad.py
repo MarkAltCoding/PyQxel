@@ -24,7 +24,10 @@ from app.data.fetcher import (
     fetch_ticker_info,
     provider_covers,
 )
+from app.data.fund_filings import parse_filing
 from app.data.funds import parse_etf_profile
+from app.stats.fund_stats import HeldCompany, holdings_stats, look_through
+from app.models.stock import FundProfile, FundWeight
 from app.main import app
 from app.models.stock import TickerInfo
 
@@ -343,3 +346,121 @@ def test_a_holding_abroad_is_valued_in_dollars(monkeypatch: pytest.MonkeyPatch) 
     assert held["SAP.DE"]["value"] == pytest.approx(10 * 200.0 * 1.1)
     assert held["VOO"]["local_price"] is None
     assert body["total_value"] == pytest.approx(150.0 + 2200.0 + 600.0)
+
+
+# A fund's SEC filing and the figures weighted from its holdings.
+
+NPORT = b"""<?xml version="1.0" encoding="UTF-8"?>
+<edgarSubmission xmlns="http://www.sec.gov/edgar/nport">
+  <formData>
+    <genInfo><seriesName>EXAMPLE BALANCED FUND</seriesName><seriesId>S000000001</seriesId>
+      <repPdDate>2026-06-30</repPdDate></genInfo>
+    <fundInfo><netAssets>1000000.00</netAssets></fundInfo>
+    <invstOrSecs>
+      <invstOrSec><name>Apple Inc</name><cusip>037833100</cusip><pctVal>40.0</pctVal>
+        <assetCat>EC</assetCat><issuerCat>CORP</issuerCat></invstOrSec>
+      <invstOrSec><name>Unlisted Co</name><pctVal>10.0</pctVal>
+        <assetCat>EC</assetCat><issuerCat>CORP</issuerCat></invstOrSec>
+      <invstOrSec><name>United States Treasury Note/Bond</name><pctVal>30.0</pctVal>
+        <assetCat>DBT</assetCat><issuerCat>UST</issuerCat>
+        <debtSec><maturityDt>2036-06-30</maturityDt><annualizedRt>4.0</annualizedRt></debtSec>
+      </invstOrSec>
+      <invstOrSec><name>Fannie Mae Pool</name><pctVal>15.0</pctVal>
+        <assetCat>ABS-MBS</assetCat><issuerCat>USGSE</issuerCat>
+        <debtSec><maturityDt>2031-06-30</maturityDt><annualizedRt>2.0</annualizedRt></debtSec>
+      </invstOrSec>
+      <invstOrSec><name>Money Market Fund</name><pctVal>5.0</pctVal>
+        <assetCat>STIV</assetCat><issuerCat>RF</issuerCat></invstOrSec>
+    </invstOrSecs>
+  </formData>
+</edgarSubmission>"""
+"""An N-PORT filing cut to the fields read: two stocks, two bonds and cash."""
+
+
+def test_a_funds_sec_filing_is_summarized() -> None:
+    filing = parse_filing(NPORT)
+
+    assert (filing.series_id, str(filing.as_of), filing.net_assets) == (
+        "S000000001",
+        "2026-06-30",
+        1e6,
+    )
+    assert filing.asset_mix == pytest.approx({"Stocks": 0.5, "Bonds": 0.45, "Cash": 0.05})
+    assert [h.name for h in filing.stocks] == ["Apple Inc", "Unlisted Co"]
+    bonds = filing.bonds
+    assert bonds is not None and bonds.count == 2
+    # Weighted by value: (0.30 x 4% + 0.15 x 2%) / 0.45, and (0.30 x 10 + 0.15 x 5) / 0.45.
+    assert bonds.average_coupon == pytest.approx(0.0333, abs=1e-4)
+    assert bonds.average_maturity_years == pytest.approx(8.33, abs=0.01)
+    assert bonds.issuers == pytest.approx(
+        {"US Treasury": 2 / 3, "US agencies and mortgages": 1 / 3}
+    )
+
+
+def test_figures_are_weighted_from_the_holdings() -> None:
+    stats = holdings_stats(
+        [
+            HeldCompany(0.6, {"pe_ratio": 20.0, "net_margin": 0.3, "market_cap": 3e12}, "Tech"),
+            HeldCompany(0.3, {"pe_ratio": 40.0, "net_margin": 0.1, "market_cap": 5e9}),
+            HeldCompany(0.1, None),
+        ]
+    )
+
+    assert stats is not None and stats.coverage == pytest.approx(0.9)
+    # Harmonic: 0.9 / (0.6 / 20 + 0.3 / 40) = 24, not the arithmetic 26.7.
+    assert stats.pe_ratio == pytest.approx(24.0)
+    assert stats.net_margin == pytest.approx((0.6 * 0.3 + 0.3 * 0.1) / 0.9)
+    assert stats.size_mix == pytest.approx({"large": 2 / 3, "mid": 1 / 3, "small": 0.0})
+    assert stats.sectors == {"Tech": 1.0} and stats.sector_coverage == pytest.approx(0.6)
+    assert holdings_stats([HeldCompany(0.5, None)]) is None
+
+
+def test_a_mutual_fund_is_described_from_its_filing_without_any_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def filing(symbol: str) -> Any:
+        return parse_filing(NPORT)
+
+    async def names(known: Any) -> list[tuple[str, str]]:
+        return [("AAPL", "Apple Inc.")]
+
+    async def figures(symbols: list[str]) -> dict[str, dict[str, float | None]]:
+        assert symbols == ["AAPL"]
+        return {"AAPL": {"pe_ratio": 30.0, "net_margin": 0.25, "market_cap": 3.5e12}}
+
+    monkeypatch.setattr(funds, "fetch_fund_filing", filing)
+    monkeypatch.setattr(funds, "_listed_names", names)
+    monkeypatch.setattr(funds, "_finnhub_figures", figures)
+
+    response = TestClient(app).get("/api/v1/stocks/EXBAX/fund")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body["source"], body["holdings_source"], body["holdings_as_of"]) == (
+        "sec",
+        "sec",
+        "2026-06-30",
+    )
+    # Apple is 40 of the fund's 50 points in stocks; the unlisted company has no figures.
+    assert body["stats"]["coverage"] == pytest.approx(0.8)
+    assert body["stats"]["pe_ratio"] == pytest.approx(30.0)
+    assert body["stats_sources"] == ["Finnhub"] and body["stats_as_of"] is not None
+    assert body["bonds"]["count"] == 2
+    assert any("Alpha Vantage" in note for note in body["notes"])
+
+
+def test_a_funds_weight_counts_under_what_it_holds() -> None:
+    balanced = FundProfile(
+        symbol="BAL",
+        source="sec",
+        asset_mix=[FundWeight(name="Stocks", weight=0.6), FundWeight(name="Bonds", weight=0.4)],
+        sectors=[FundWeight(name="Technology", weight=0.5), FundWeight(name="Energy", weight=0.25)],
+    )
+
+    split = look_through(0.5, balanced)
+
+    # Of the 0.3 in stocks, three quarters is classified: two thirds of it technology.
+    assert split == pytest.approx(
+        {"Technology": 0.15, "Energy": 0.075, "Unclassified": 0.075, "Bonds": 0.2}
+    )
+    assert sum(split.values()) == pytest.approx(0.5)

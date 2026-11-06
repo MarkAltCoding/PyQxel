@@ -2,7 +2,8 @@
 
 ``asset_type`` says whether a row is a company's stock or an exchange-traded fund. An ETF
 is not a company, so it has no SEC registrant, market cap or market cap rank, and those
-columns become nullable. Every existing row is a stock.
+columns become nullable. Every existing row is a stock. ``nightly_refreshes.etfs_scanned_at``
+records when a user's refresh last checked every US ETF, which it does once a week.
 
 Revision ID: 0023
 Revises: 0022
@@ -33,10 +34,14 @@ def upgrade() -> None:
             batch.alter_column("cik", existing_type=sa.Integer(), nullable=True)
             batch.alter_column("market_cap", existing_type=sa.Float(), nullable=True)
             batch.alter_column("market_cap_rank", existing_type=sa.Integer(), nullable=True)
+    with op.batch_alter_table("nightly_refreshes") as batch:
+        batch.add_column(sa.Column("etfs_scanned_at", sa.DateTime(timezone=True), nullable=True))
 
 
 def downgrade() -> None:
     """Delete the ETF rows, then drop ``asset_type`` and require the company columns."""
+    with op.batch_alter_table("nightly_refreshes") as batch:
+        batch.drop_column("etfs_scanned_at")
     for table in TABLES:
         op.execute(sa.text(f"DELETE FROM {table} WHERE asset_type = 'etf'"))
         with op.batch_alter_table(table) as batch:

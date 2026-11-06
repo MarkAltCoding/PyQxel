@@ -275,7 +275,9 @@ function StockDetails({ symbol }: { symbol: string }) {
 
       {isFund && <FundCard symbol={symbol} />}
 
-      <NewsCard key={`news-${symbol}`} symbol={symbol} />
+      {/* Finnhub's free plan has no news or metrics for mutual funds, which trade only with
+      the fund itself. */}
+      {fundType !== 'MUTUALFUND' && <NewsCard key={`news-${symbol}`} symbol={symbol} />}
 
       {isFund ? (
         <section id="signals" className="card">
@@ -292,7 +294,9 @@ function StockDetails({ symbol }: { symbol: string }) {
         <SignalsCard symbol={symbol} currency={currency} />
       )}
 
-      <MetricsCard symbol={symbol} currency={currency} fund={isFund} />
+      {fundType !== 'MUTUALFUND' && (
+        <MetricsCard symbol={symbol} currency={currency} fund={isFund} />
+      )}
 
       {!isFund && <AlternativeCard symbol={symbol} />}
 

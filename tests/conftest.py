@@ -37,8 +37,10 @@ from app.core.credentials import ProviderKeys, use_provider_keys  # noqa: E402
 from app.core.rate_limit import clear_local_counts  # noqa: E402
 from app.data.factors import clear_factor_memory  # noqa: E402
 from app.data import exchange_rates  # noqa: E402
+from app.data import funds as fund_data  # noqa: E402
 from app.data.fetcher import (  # noqa: E402
     DataFetchError,
+    SymbolNotFoundError,
     clear_alpha_vantage_memory,
     clear_quote_cache,
 )  # noqa: E402
@@ -102,6 +104,17 @@ def no_ecb_rates(monkeypatch: pytest.MonkeyPatch) -> None:
         raise DataFetchError("The ECB is not reached in tests.")
 
     monkeypatch.setattr(exchange_rates, "fetch_ecb_rates", unreachable)
+
+
+@pytest.fixture(autouse=True)
+def no_fund_filings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The SEC's fund filings are unreachable, so no test reaches sec.gov for a fund's
+    holdings; tests of them serve them themselves."""
+
+    async def unreachable(symbol: str) -> None:
+        raise SymbolNotFoundError(f"{symbol} has no fund filing in tests.")
+
+    monkeypatch.setattr(fund_data, "fetch_fund_filing", unreachable)
 
 
 @pytest.fixture(autouse=True)

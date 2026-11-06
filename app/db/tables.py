@@ -446,6 +446,9 @@ class NightlyRefreshRecord(Base):
     many as the keys' plans allow, as before the user could choose."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     keys_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    etfs_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    """When the refresh last checked every US ETF; on other nights it checks only the ETFs
+    already in the user's universe."""
 
 
 class UserScreenerRunRecord(Base):

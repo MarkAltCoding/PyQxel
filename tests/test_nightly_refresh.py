@@ -13,7 +13,12 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.core.config import get_settings
-from app.core.credentials import PROVIDER_HEADERS, ProviderKeys, current_provider_keys
+from app.core.credentials import (
+    PROVIDER_HEADERS,
+    ProviderKeys,
+    current_provider_keys,
+    use_provider_keys,
+)
 from app.core.security import decrypt_secret, generate_encryption_key
 from app.data import usage
 from app.data.fetcher import DataFetchError, ProviderNotConfiguredError
@@ -256,6 +261,7 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
         "histories": [],
         "quotes": [],
         "etf_metrics": [],
+        "etf_lists": [],
     }
 
     async def seed() -> None:
@@ -297,6 +303,7 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
         return {"DUAL": 40.0, "SPY": 680.0}
 
     async def etf_listings() -> list[EtfListing]:
+        seen["etf_lists"].append("asked")
         # BIG is a stock's ticker, so it is not taken for an ETF too.
         return [
             EtfListing("SPY", "SPDR S&P 500 ETF", "NYSE Arca"),
@@ -305,14 +312,16 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
         ]
 
     async def etf_metrics(symbols: Iterable[str]) -> dict[str, ProviderScreenMetrics]:
-        seen["etf_metrics"].extend(symbols)
-        return {
+        asked = list(symbols)
+        seen["etf_metrics"].extend(asked)
+        known = {
             "SPY": ProviderScreenMetrics(
                 average_volume=6e7, week_52_high=700.0, return_52w=0.13, beta=1.0
             ),
             # Too little trades in it to clear the floor even at its 52-week high.
             "THIN": ProviderScreenMetrics(average_volume=100.0, week_52_high=20.0),
         }
+        return {symbol: metrics for symbol, metrics in known.items() if symbol in asked}
 
     monkeypatch.setattr(job, "fetch_etf_listings", etf_listings)
     monkeypatch.setattr(job, "fetch_etf_metrics", etf_metrics)
@@ -631,3 +640,46 @@ def test_stocks_and_etfs_share_histories_in_proportion() -> None:
     assert [name for name in merged if name.startswith("E")] == etfs
     assert sum(name.startswith("E") for name in merged[:6]) == 2
     assert job.interleave([], etfs) == etfs and job.interleave(stocks, []) == stocks
+
+
+def test_every_etf_is_checked_once_a_week() -> None:
+    now = datetime(2026, 11, 6, 3, 0, tzinfo=timezone.utc)
+
+    assert job.scans_every_etf(None, now)
+    assert not job.scans_every_etf(now - timedelta(days=3), now)
+    # A refresh that ran a little later last week still scans tonight.
+    assert job.scans_every_etf(now - timedelta(days=6, hours=23, minutes=30), now)
+
+
+def test_between_weekly_scans_only_the_kept_etfs_are_checked(
+    user: User, fakes: dict[str, list[str]]
+) -> None:
+    use_provider_keys(ProviderKeys(finnhub=SecretStr(FINNHUB), user_id=user.id))
+    now = datetime.now(timezone.utc)
+
+    first = asyncio.run(job.build_user_universe(user.id, now, None, None))
+    assert first.scanned_etfs and fakes["etf_lists"] == ["asked"]
+    assert fakes["etf_metrics"] == ["SPY", "THIN"]
+
+    second = asyncio.run(job.build_user_universe(user.id, now, None, now - timedelta(days=1)))
+
+    # The symbol list is not asked for again, and only SPY, which was kept, is checked.
+    assert not second.scanned_etfs and fakes["etf_lists"] == ["asked"]
+    assert fakes["etf_metrics"] == ["SPY", "THIN", "SPY"]
+    assert second.stocks == first.stocks
+
+
+@pytest.mark.usefixtures("encryption")
+def test_a_refresh_that_scans_every_etf_records_when(
+    user: User, fakes: dict[str, list[str]]
+) -> None:
+    _opt_in(user)
+
+    asyncio.run(job.refresh_due_users())
+
+    async def scanned() -> datetime | None:
+        async with get_sessionmaker()() as session:
+            record = await session.get(NightlyRefreshRecord, user.id)
+            return None if record is None else record.etfs_scanned_at
+
+    assert asyncio.run(scanned()) is not None

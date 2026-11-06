@@ -61,6 +61,8 @@ class DueRefresh:
     keys: ProviderKeys
     price_history_stocks: int | None = None
     """Most stocks to fetch price histories for; ``None`` for as many as the plans allow."""
+    etfs_scanned_at: datetime | None = None
+    """When the refresh last checked every US ETF; ``None`` if never."""
 
 
 def stored_providers(keys: ProviderKeys) -> list[NightlyProvider]:
@@ -354,9 +356,35 @@ async def due_refreshes(session: AsyncSession, now: datetime) -> list[DueRefresh
                 user_id=record.user_id,
                 keys=keys,
                 price_history_stocks=record.price_history_stocks,
+                etfs_scanned_at=(
+                    None if record.etfs_scanned_at is None else as_utc(record.etfs_scanned_at)
+                ),
             )
         )
     return due
+
+
+async def mark_etfs_scanned(session: AsyncSession, user_id: str, when: datetime) -> None:
+    """Record that ``user_id``'s refresh checked every US ETF at ``when``."""
+    record = await session.get(NightlyRefreshRecord, user_id)
+    if record is not None:
+        record.etfs_scanned_at = when
+        await session.commit()
+
+
+async def user_etfs(session: AsyncSession, user_id: str) -> list[tuple[str, str, str]]:
+    """The symbol, name and exchange of each ETF in ``user_id``'s own universe."""
+    rows = await session.execute(
+        select(
+            UserScreenerStockRecord.symbol,
+            UserScreenerStockRecord.name,
+            UserScreenerStockRecord.exchange,
+        ).where(
+            UserScreenerStockRecord.user_id == user_id,
+            UserScreenerStockRecord.asset_type == "etf",
+        )
+    )
+    return [(symbol, name, exchange) for symbol, name, exchange in rows]
 
 
 async def start_run(session: AsyncSession, user_id: str, now: datetime | None = None) -> str:

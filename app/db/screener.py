@@ -504,3 +504,42 @@ async def peer_group(session: AsyncSession, symbol: str) -> PeerGroup | None:
         universe_size=universe_size or 1,
         prices_as_of=None if succeeded is None else succeeded.prices_as_of,
     )
+
+
+@dataclass(frozen=True)
+class CompanyFigures:
+    """The stocks a request may see figures of, for weighting a fund's holdings: those of
+    the user's own universe, else of the shared one when it may be shown, and the SEC's
+    names of every listed company, which are public."""
+
+    stocks: list[ScreenedStock]
+    refreshed_at: datetime | None
+    own: bool
+    listings: list[tuple[str, str]]
+    """(symbol, name) of every listed company on the SEC's list, for matching names."""
+
+
+async def company_figures(session: AsyncSession) -> CompanyFigures:
+    """The figures the current request may be shown, and the SEC's listed company names."""
+    user_id = current_provider_keys().user_id
+    universe = None if user_id is None else await user_universe(session, user_id)
+    if universe is None and await shows_universe(session):
+        universe = await shared_universe(session)
+    stocks: list[ScreenedStock] = []
+    if universe is not None:
+        records = await session.scalars(
+            select(universe.table).where(universe.rows, universe.table.asset_type == "stock")
+        )
+        stocks = [ScreenedStock.model_validate(r, from_attributes=True) for r in records]
+    listings = [
+        (symbol, name)
+        for symbol, name in await session.execute(
+            select(ScreenerListingRecord.symbol, ScreenerListingRecord.name)
+        )
+    ]
+    return CompanyFigures(
+        stocks=stocks,
+        refreshed_at=None if universe is None else universe.refreshed_at,
+        own=universe is not None and universe.own,
+        listings=listings,
+    )

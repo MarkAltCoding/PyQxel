@@ -180,3 +180,12 @@ def test_signing_in_logs_no_email_or_key(
     logged = "\n".join(record.getMessage() for record in caplog.records).lower()
     assert "octo@example.com" not in logged
     assert fragment["key"].lower() not in logged
+
+
+def test_a_key_a_provider_quotes_back_is_redacted() -> None:
+    fake = "FAKEKEY0000TEST1"
+    message = f"We have detected your API key as {fake} and our standard API rate limit is 25."
+
+    scrubbed = redact(message)
+
+    assert fake not in scrubbed and "API key as [redacted] and" in scrubbed

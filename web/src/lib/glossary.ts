@@ -70,6 +70,64 @@ const entries = {
     what: 'How the fund’s money is split among the market’s sectors, such as technology or health care.',
     note: 'A fund heavy in one sector rises and falls with it: the S&P 500 has recently held about a third in technology.',
   },
+  assetMix: {
+    title: 'What it holds',
+    what: 'How the fund’s money is split between stocks, bonds and cash, from its latest holdings report to the SEC.',
+    note: 'Stocks grow more over the long run and swing more; bonds pay steady interest and usually fall less in a crash; cash is steady but earns least.',
+  },
+  weightedFromHoldings: {
+    title: 'Weighted from its holdings',
+    what: 'A fund has no earnings or sales of its own, so these figures are those of the companies it owns, each counted by its share of the fund: what you own a slice of when you buy it. They use the holdings in the fund’s latest report and each company’s latest figures, as of the dates shown.',
+    note: 'Only the companies whose figures could be found are counted; the coverage says how much of the fund’s stocks that is. Sectors come from each company’s SEC industry code where known, which can differ from the fund’s own classification.',
+  },
+  fundPe: {
+    title: 'P/E, weighted from holdings',
+    what: 'What the fund pays for each dollar of its companies’ yearly earnings: its share of their prices over its share of their profits. It is a harmonic mean, so one company with a huge P/E cannot swamp it.',
+    good: 'Below about 20 is cheaper than the US market’s recent average.',
+    bad: 'Above about 30 means its companies are priced for strong growth, which leaves less room for disappointment.',
+  },
+  fundPriceSales: {
+    title: 'Price / sales, weighted from holdings',
+    what: 'What the fund pays for each dollar of its companies’ yearly sales.',
+    note: 'The S&P 500 has recently traded around 3 times sales; value funds lower, growth funds higher.',
+  },
+  fundMargins: {
+    title: 'Margins, weighted from holdings',
+    what: 'The share of each dollar of sales its companies keep: after the cost of goods (gross), after running the business (operating), and after everything including tax (net), weighted by their share of the fund.',
+    note: 'Large technology companies push a fund’s margins up; banks have no gross margin and are left out of it.',
+  },
+  fundRoe: {
+    title: 'Return on equity, weighted from holdings',
+    what: 'Its companies’ yearly profit as a share of the money their shareholders have put in, weighted by their share of the fund.',
+    note: 'Companies that buy back many shares can show very high figures, which lifts the average.',
+  },
+  fundGrowth: {
+    title: 'Growth, weighted from holdings',
+    what: 'How much its companies’ sales and earnings grew over the last year, weighted by their share of the fund.',
+    note: 'A few fast growers among its largest holdings can lift these a lot.',
+  },
+  fundSize: {
+    title: 'Company size',
+    what: 'The average market cap of its companies, weighted by their share of the fund, and how much is in large (over $10 billion), mid-sized ($2–10 billion) and small companies.',
+    note: 'Small companies have grown faster in some eras and swing more; most index funds are dominated by large ones.',
+  },
+  bondCoupon: {
+    title: 'Average coupon',
+    what: 'The interest rate the fund’s bonds pay on their face value, weighted by their share of the fund.',
+    note: 'What you earn also depends on the price paid for the bonds: their yield, which this is close to only when they trade near face value.',
+  },
+  bondMaturity: {
+    title: 'Average maturity',
+    what: 'How many years until the fund’s bonds are due to be repaid, weighted by their share of the fund.',
+    good: 'Shorter, below about 3 years, means prices barely move when interest rates change.',
+    bad: 'Longer, above about 10 years, means a bigger price fall when rates rise.',
+    note: 'This is the bonds’ stated final date; mortgage-backed bonds are usually repaid years earlier, so the fund is less sensitive to rates than this suggests.',
+  },
+  bondIssuers: {
+    title: 'Who the bonds are from',
+    what: 'How the fund’s bonds split between the US Treasury, government agencies and the mortgages they guarantee, companies, cities and states, and foreign governments.',
+    note: 'Treasuries are the safest; corporate bonds pay more to make up for the chance a company cannot pay.',
+  },
   fundHoldings: {
     title: 'Largest holdings',
     what: 'The fund’s biggest positions and the share of its money in each.',
@@ -805,7 +863,7 @@ const entries = {
   nightlyRefresh: {
     title: 'Nightly screener refresh',
     what: 'Rebuilds your own copy of the stock screener every night, on your own market data keys, so its numbers come from data you are licensed to see. Until it first runs, the screener shows the shared universe if there is one.',
-    note: 'Finnhub’s free plan allows about 60 requests a minute and the refresh makes one per listed stock and ETF, about 10,000 in all, so it takes three to four hours. While it runs it uses most of your Finnhub allowance, so news, ratings and quotes may be slow or briefly unavailable: pick an hour when you are not using PyQxel. Free price-history plans cover only some stocks and ETFs a night: the largest stocks and most-traded ETFs come first, sharing them in proportion. ETFs have no market cap or company figures, so a screen on those leaves them out. Sectors come from each company’s SEC industry code, which can differ from a data provider’s.',
+    note: 'Finnhub’s free plan allows about 60 requests a minute and the refresh makes one per listed stock and ETF: about two hours most nights, and about four once a week, when it checks every US ETF for new and newly traded ones, which join within the week. While it runs it uses most of your Finnhub allowance, so news, ratings and quotes may be slow or briefly unavailable: pick an hour when you are not using PyQxel. Free price-history plans cover only some stocks and ETFs a night: the largest stocks and most-traded ETFs come first, sharing them in proportion. ETFs have no market cap or company figures, so a screen on those leaves them out. Sectors come from each company’s SEC industry code, which can differ from a data provider’s.',
   },
   nightlyLastRefresh: {
     title: 'Last refresh',

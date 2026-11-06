@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.models.portfolio import MAX_PORTFOLIOS, MAX_SYMBOLS, PortfolioNumber, PortfolioPeriod
 from app.models.research import RiskFactor
+from app.models.stock import FundProfile
 
 
 class InvestorProfile(BaseModel):
@@ -219,8 +220,15 @@ class PortfolioContext(BaseModel):
         "empty when one portfolio is reviewed. Weights are shares of all of them combined.",
     )
     sectors: dict[str, float] = Field(
-        description="Weight in each sector, by the providers' classification; holdings "
-        "without one are under Unclassified."
+        description="Weight in each sector, by the providers' classification; a fund's "
+        "stocks are spread over their sectors where they are known, and its bonds and cash "
+        "count as Bonds and Cash; holdings without a sector are under Unclassified."
+    )
+    funds: list[FundProfile] = Field(
+        default_factory=list,
+        description="Each ETF or mutual fund among the holdings, largest first, with its "
+        "largest holdings, mix of stocks, bonds and cash, sectors, costs and the figures "
+        "weighted from the companies it holds, where they could be found.",
     )
     portfolio: PortfolioRiskStats
     most_correlated: list[PairCorrelation] = Field(default_factory=list)

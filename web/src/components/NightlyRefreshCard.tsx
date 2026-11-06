@@ -111,11 +111,12 @@ export function NightlyRefreshCard({
           Builds your own screener of US stocks and ETFs every night from your keys: the SEC’s list
           of stocks and their financials, Finnhub’s list of ETFs and its free metrics on your
           Finnhub key, and price-history columns (momentum, volatility, drawdown, factor betas) from
-          the price-history keys you choose below, for as many stocks and ETFs as you choose. With
-          ETFs, a refresh takes about three to four hours at Finnhub’s free pace. It runs while your
-          browser is closed, so turning it on stores your market data keys on PyQxel’s server,
-          encrypted. Your Anthropic key is never stored. Turning it off, or deleting your account,
-          deletes them at once.
+          the price-history keys you choose below, for as many stocks and ETFs as you choose. A
+          refresh takes about two hours at Finnhub’s free pace; once a week it checks every US ETF
+          for new and newly traded ones, which takes about four. It runs while your browser is
+          closed, so turning it on stores your market data keys on PyQxel’s server, encrypted. Your
+          Anthropic key is never stored. Turning it off, or deleting your account, deletes them at
+          once.
         </p>
       </div>
 

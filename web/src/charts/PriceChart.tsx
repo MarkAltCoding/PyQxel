@@ -68,7 +68,11 @@ export function PriceChart({ bars, currency }: { bars: OHLCVBar[]; currency: str
           scale: true,
           ...axis,
           axisLine: { show: false },
-          axisLabel: { ...axis.axisLabel, formatter: (v: number) => money(v, currency, 0) },
+          axisLabel: {
+            ...axis.axisLabel,
+            // Whole units for prices in the tens and up; cents below, as for a $9 bond fund.
+            formatter: (v: number) => money(v, currency, Math.abs(v) < 50 ? 2 : 0),
+          },
         },
         ...(hasVolume
           ? [
