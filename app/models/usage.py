@@ -92,6 +92,7 @@ EstimateKind = Literal[
     "history",
     "quote",
     "info",
+    "fund",
     "news",
     "metrics",
     "signals",
@@ -99,8 +100,8 @@ EstimateKind = Literal[
     "market_news",
     "calendar",
 ]
-"""What a page asks the providers for: price history, quotes, company profiles, or one of
-the Finnhub-backed sections."""
+"""What a page asks the providers for: price history, quotes, company profiles, a fund's
+holdings and costs, or one of the Finnhub-backed sections."""
 
 
 class PlannedFetch(BaseModel):

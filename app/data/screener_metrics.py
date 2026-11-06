@@ -16,6 +16,7 @@ import asyncio
 import logging
 import math
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import date
 from typing import Any, TypeVar
 
@@ -71,6 +72,63 @@ FIELDS: dict[str, tuple[str, float]] = {
 """The Finnhub basic financials field each :class:`ProviderScreenMetrics` field comes
 from, and the factor converting it: Finnhub gives ratios in percent and totals in
 millions."""
+
+
+ETF_EXCHANGES: dict[str, str] = {
+    "ARCX": "NYSE Arca",
+    "BATS": "Cboe BZX",
+    "XNAS": "Nasdaq",
+    "XNYS": "NYSE",
+    "XASE": "NYSE American",
+}
+"""Exchanges whose ETFs are screened, by the market identifier code Finnhub gives, and the
+name shown; ETFs traded over the counter are not."""
+
+SYMBOL_LIST_TIMEOUT_SECONDS: float = 120.0
+"""Time allowed for Finnhub's list of every US symbol, about 7 MB."""
+
+
+@dataclass(frozen=True)
+class EtfListing:
+    """An exchange-traded fund listed on a US exchange, from Finnhub's symbol list."""
+
+    symbol: str
+    name: str
+    exchange: str
+
+
+def parse_etf_listings(rows: Any) -> list[EtfListing]:
+    """The exchange-listed ETFs in Finnhub's list of US symbols, whose ``type`` is ``ETP``
+    (exchange-traded products: ETFs, and the exchange-traded notes beside them)."""
+    found: dict[str, EtfListing] = {}
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or row.get("type") != "ETP":
+            continue
+        symbol = str(row.get("symbol") or "").strip().upper()
+        exchange = ETF_EXCHANGES.get(str(row.get("mic") or ""))
+        if not symbol or exchange is None or not symbol.isalpha() or len(symbol) > 5:
+            continue
+        name = str(row.get("description") or symbol).strip()
+        found[symbol] = EtfListing(symbol=symbol, name=name, exchange=exchange)
+    return sorted(found.values(), key=lambda listing: listing.symbol)
+
+
+async def fetch_etf_listings() -> list[EtfListing]:
+    """Every ETF on a US exchange, from Finnhub's free list of US symbols on the user's
+    key: one request.
+
+    Raises:
+        ProviderNotConfiguredError: If the user has no Finnhub key, or it is rejected.
+        DataFetchError: If Finnhub fails.
+    """
+    api_key = finnhub_key()
+    if api_key is None:
+        raise ProviderNotConfiguredError("The nightly refresh needs your Finnhub key.")
+    async with httpx2.AsyncClient(
+        timeout=SYMBOL_LIST_TIMEOUT_SECONDS, follow_redirects=True
+    ) as client:
+        rows = await finnhub_get("stock/symbol", {"exchange": "US"}, api_key, client)
+    return parse_etf_listings(rows)
 
 
 def _number(value: object) -> float | None:
@@ -153,6 +211,37 @@ async def _paced_finnhub(
     async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
         await asyncio.gather(*(worker(client) for _ in range(FINNHUB_WORKERS)))
     return found
+
+
+def parse_etf_metrics(payload: Any) -> ProviderScreenMetrics | None:
+    """Read Finnhub's basic financials of an ETF: its returns, volatility, beta, volume and
+    52-week high, which it gives for ETFs as for stocks, with no market cap or company
+    figures. ``None`` without an average volume, since then it cannot be judged liquid."""
+    values = payload.get("metric") if isinstance(payload, dict) else None
+    if not isinstance(values, dict):
+        return None
+    fields: dict[str, float] = {}
+    for name in ("return_6m", "return_52w", "volatility_3m", "beta", "average_volume"):
+        source, factor = FIELDS[name]
+        number = _number(values.get(source))
+        if number is not None:
+            fields[name] = number * factor
+    high = _number(values.get("52WeekHigh"))
+    if high is not None and high > 0:
+        fields["week_52_high"] = high
+    if fields.get("average_volume", 0.0) <= 0:
+        return None
+    return ProviderScreenMetrics(**fields)
+
+
+async def fetch_etf_metrics(symbols: Iterable[str]) -> dict[str, ProviderScreenMetrics]:
+    """Finnhub's metrics for each of the ETFs ``symbols`` it has them for, on the user's
+    key, one request each.
+
+    Raises:
+        ProviderNotConfiguredError: If the user has no Finnhub key, or it is rejected.
+    """
+    return await _paced_finnhub(symbols, "stock/metric", {"metric": "all"}, parse_etf_metrics)
 
 
 async def fetch_screen_metrics(symbols: Iterable[str]) -> dict[str, ProviderScreenMetrics]:

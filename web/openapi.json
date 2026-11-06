@@ -3999,6 +3999,182 @@
         "title": "FomcMeeting",
         "type": "object"
       },
+      "FundHolding": {
+        "description": "One of a fund's largest holdings.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The holding's ticker, when it has one.",
+            "title": "Symbol"
+          },
+          "weight": {
+            "description": "Share of the fund's assets, as a decimal.",
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "weight"
+        ],
+        "title": "FundHolding",
+        "type": "object"
+      },
+      "FundProfile": {
+        "description": "What an ETF or mutual fund holds and costs: the figures that take the place, for a\nfund, of a company's market cap, sector and earnings.\n\nRates are decimals (0.0003 = 0.03%).",
+        "properties": {
+          "dividend_yield": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Distributions over the last year as a share of the price.",
+            "title": "Dividend Yield"
+          },
+          "expense_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of assets the fund charges each year, after waivers.",
+            "title": "Expense Ratio"
+          },
+          "holdings": {
+            "description": "Its largest holdings, largest first.",
+            "items": {
+              "$ref": "#/components/schemas/FundHolding"
+            },
+            "title": "Holdings",
+            "type": "array"
+          },
+          "holdings_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many holdings the provider listed.",
+            "title": "Holdings Count"
+          },
+          "inception_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the fund started.",
+            "title": "Inception Date"
+          },
+          "leveraged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether it borrows or uses derivatives to multiply returns.",
+            "title": "Leveraged"
+          },
+          "net_assets": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The fund's total assets, in US dollars.",
+            "title": "Net Assets"
+          },
+          "portfolio_turnover": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of the holdings replaced in a year.",
+            "title": "Portfolio Turnover"
+          },
+          "sectors": {
+            "description": "Its holdings' sectors, largest first.",
+            "items": {
+              "$ref": "#/components/schemas/FundWeight"
+            },
+            "title": "Sectors",
+            "type": "array"
+          },
+          "source": {
+            "description": "Data provider that produced this record.",
+            "title": "Source",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "source"
+        ],
+        "title": "FundProfile",
+        "type": "object"
+      },
+      "FundWeight": {
+        "description": "One sector's share of a fund's holdings.",
+        "properties": {
+          "name": {
+            "description": "The sector, e.g. Information Technology.",
+            "title": "Name",
+            "type": "string"
+          },
+          "weight": {
+            "description": "Share of the fund's assets, as a decimal.",
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "weight"
+        ],
+        "title": "FundWeight",
+        "type": "object"
+      },
       "Fundamentals": {
         "description": "Financial statement figures and the valuation built on them.",
         "properties": {
@@ -4819,6 +4995,18 @@
             "title": "Cash",
             "type": "boolean"
           },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The currency the listing trades in, e.g. EUR or GBX (pence).",
+            "title": "Currency"
+          },
           "industry": {
             "anyOf": [
               {
@@ -4829,6 +5017,18 @@
               }
             ],
             "title": "Industry"
+          },
+          "local_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest price in ``currency``, for a listing priced in another currency than dollars; null for dollar listings.",
+            "title": "Local Price"
           },
           "name": {
             "anyOf": [
@@ -4850,7 +5050,7 @@
                 "type": "null"
               }
             ],
-            "description": "Latest price; null if unavailable.",
+            "description": "Latest price in US dollars; a listing abroad's is converted at the latest reference rate. Null if unavailable.",
             "title": "Price"
           },
           "sector": {
@@ -4881,7 +5081,7 @@
                 "type": "null"
               }
             ],
-            "description": "``shares`` x ``price``.",
+            "description": "``shares`` x ``price``, in dollars.",
             "title": "Value"
           },
           "weight": {
@@ -8019,6 +8219,7 @@
               "history",
               "quote",
               "info",
+              "fund",
               "news",
               "metrics",
               "signals",
@@ -9486,6 +9687,16 @@
       "RankedStock": {
         "description": "A stock matching a screen, with its position in the sorted results.",
         "properties": {
+          "asset_type": {
+            "default": "stock",
+            "description": "A company's stock, or an ETF.",
+            "enum": [
+              "stock",
+              "etf"
+            ],
+            "title": "Asset Type",
+            "type": "string"
+          },
           "avg_dollar_volume": {
             "description": "Average close times volume over the last three months.",
             "title": "Avg Dollar Volume",
@@ -9540,8 +9751,16 @@
             "title": "Beta Value"
           },
           "cik": {
-            "title": "Cik",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The SEC registrant behind a stock; null for an ETF.",
+            "title": "Cik"
           },
           "earnings_growth": {
             "anyOf": [
@@ -9630,14 +9849,29 @@
             "title": "Industry"
           },
           "market_cap": {
-            "title": "Market Cap",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for an ETF, which is not a company.",
+            "title": "Market Cap"
           },
           "market_cap_rank": {
-            "description": "Rank by market cap in the universe.",
-            "minimum": 1.0,
-            "title": "Market Cap Rank",
-            "type": "integer"
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rank by market cap in the universe; null for an ETF.",
+            "title": "Market Cap Rank"
           },
           "market_cap_source": {
             "enum": [
@@ -9809,14 +10043,11 @@
         },
         "required": [
           "price",
-          "market_cap",
           "avg_dollar_volume",
           "symbol",
           "name",
           "exchange",
-          "cik",
           "market_cap_source",
-          "market_cap_rank",
           "rank"
         ],
         "title": "RankedStock",
@@ -10258,6 +10489,19 @@
       "ScreenRequest": {
         "description": "A screen: which universe, which filters, and how to order and page the results.",
         "properties": {
+          "asset_types": {
+            "description": "Keep only stocks, only ETFs, or both when empty. A screen on a company's figures, such as P/E, keeps only stocks, since ETFs have none.",
+            "items": {
+              "enum": [
+                "stock",
+                "etf"
+              ],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "title": "Asset Types",
+            "type": "array"
+          },
           "filters": {
             "items": {
               "$ref": "#/components/schemas/ScreenFilter"
@@ -14163,6 +14407,7 @@
               "schema": {
                 "$ref": "#/components/schemas/ScreenRequest",
                 "default": {
+                  "asset_types": [],
                   "filters": [],
                   "industries": [],
                   "limit": 50,
@@ -14230,7 +14475,7 @@
     },
     "/api/v1/search": {
       "get": {
-        "description": "Find US listings by symbol prefix or part of the company name.\n\nSearches the screened universe of US common stocks, which the screener refresh job\nbuilds, first. With a Finnhub key, Finnhub's search of US listings fills the rest of\nthe ``limit``, finding ETFs, ADRs and stocks outside the universe (``source`` is\n``finnhub``, with their ``kind`` and no market cap). The SEC's list of listed\ncompanies, which needs no key, fills any room left (``source`` ``sec``), so typing\nthe start of a ticker suggests it even when the universe is empty and there is no\nFinnhub key. Every listing works on the\n``/stocks/{symbol}`` routes whether it is found here or not.\n\nReturns 503 when the database is unavailable and Finnhub finds nothing.",
+        "description": "Find US listings by symbol prefix or part of the company name.\n\nA listing whose ticker is exactly ``q`` comes first. Searches the screened universe of\nUS common stocks, which the screener refresh job builds, first. With a Finnhub key,\nFinnhub's search of US listings fills the rest of the ``limit``, or adds the exact\nticker when the universe lacks it, finding ETFs, ADRs and stocks outside the universe\n(``source`` is ``finnhub``, with their ``kind`` and no market cap). The SEC's list of listed\ncompanies, which needs no key, fills any room left (``source`` ``sec``), so typing\nthe start of a ticker suggests it even when the universe is empty and there is no\nFinnhub key. Every listing works on the\n``/stocks/{symbol}`` routes whether it is found here or not.\n\nReturns 503 when the database is unavailable and Finnhub finds nothing.",
         "operationId": "search_api_v1_search_get",
         "parameters": [
           {
@@ -14837,6 +15082,52 @@
         "summary": "Fama-French factor exposures (multi-factor regression)",
         "tags": [
           "factors"
+        ]
+      }
+    },
+    "/api/v1/stocks/{symbol}/fund": {
+      "get": {
+        "description": "Return what the ETF or mutual fund ``symbol`` holds and costs: its net assets,\nexpense ratio, yield, turnover, sectors and largest holdings, from Alpha Vantage on\nyour key.\n\nReturns 403 without an Alpha Vantage key, 404 when it has no fund profile for\n``symbol`` (as for a stock), and 502 when Alpha Vantage fails or its daily limit is\nreached.",
+        "operationId": "get_fund_profile_api_v1_stocks__symbol__fund_get",
+        "parameters": [
+          {
+            "description": "Ticker symbol, e.g. AAPL, BRK-B or ^GSPC.",
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "description": "Ticker symbol, e.g. AAPL, BRK-B or ^GSPC.",
+              "pattern": "^[A-Za-z0-9.\\-^=]{1,15}$",
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FundProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "A fund's holdings and costs",
+        "tags": [
+          "stocks"
         ]
       }
     },

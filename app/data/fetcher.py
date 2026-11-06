@@ -83,6 +83,7 @@ ALPHA_VANTAGE_TTL_SECONDS: dict[str, float] = {
     "TIME_SERIES_INTRADAY": 60,
     "GLOBAL_QUOTE": 60,
     "CURRENCY_EXCHANGE_RATE": 60 * 60,
+    "ETF_PROFILE": 24 * 60 * 60,
 }
 """How long each Alpha Vantage answer is reused, unknown symbols included. Its free plan
 allows 25 requests a day, so even quotes are kept a minute."""
@@ -92,10 +93,11 @@ ALPHA_VANTAGE_PLAN_TTL_SECONDS: float = 24 * 60 * 60
 """How long a key's plan is taken not to cover a premium function before asking again."""
 ALPHA_VANTAGE_FREE_FUNCTIONS: frozenset[str] = frozenset(
     {"GLOBAL_QUOTE", "SYMBOL_SEARCH", "TIME_SERIES_DAILY", "INCOME_STATEMENT",
-     "BALANCE_SHEET", "CASH_FLOW", "CURRENCY_EXCHANGE_RATE"}
+     "BALANCE_SHEET", "CASH_FLOW", "CURRENCY_EXCHANGE_RATE", "ETF_PROFILE"}
 )  # fmt: skip
-"""Functions a free key may call, as checked against a free key in October 2026; the
-company overview, adjusted daily bars and every intraday series need a paid plan.
+"""Functions a free key may call, as checked against a free key in October 2026 (and
+``ETF_PROFILE`` on November 5, 2026); the company overview, adjusted daily bars and every
+intraday series need a paid plan.
 Alpha Vantage answers an invalid key as if it asked for a premium function, so a premium
 refusal of one of these means a bad key."""
 ALPHA_VANTAGE_SPACING_SECONDS: float = 1.1
@@ -213,6 +215,32 @@ SUFFIX_TIMEZONES: dict[str, str] = {
     ".NS": "Asia/Kolkata",
     ".BO": "Asia/Kolkata",
     ".AX": "Australia/Sydney",
+    ".BR": "Europe/Brussels",
+    ".LS": "Europe/Lisbon",
+    ".OL": "Europe/Oslo",
+    ".CO": "Europe/Copenhagen",
+    ".HE": "Europe/Helsinki",
+    ".IR": "Europe/Dublin",
+    ".VI": "Europe/Vienna",
+    ".WA": "Europe/Warsaw",
+    ".PR": "Europe/Prague",
+    ".AT": "Europe/Athens",
+    ".BD": "Europe/Budapest",
+    ".IS": "Europe/Istanbul",
+    ".NE": "America/Toronto",
+    ".BA": "America/Argentina/Buenos_Aires",
+    ".SN": "America/Santiago",
+    ".KQ": "Asia/Seoul",
+    ".TW": "Asia/Taipei",
+    ".TWO": "Asia/Taipei",
+    ".SI": "Asia/Singapore",
+    ".JK": "Asia/Jakarta",
+    ".BK": "Asia/Bangkok",
+    ".KL": "Asia/Kuala_Lumpur",
+    ".NZ": "Pacific/Auckland",
+    ".JO": "Africa/Johannesburg",
+    ".TA": "Asia/Jerusalem",
+    ".SR": "Asia/Riyadh",
 }
 """Exchange time zones by Yahoo-style symbol suffix; other symbols trade in New York.
 FMP dates its bars by exchange-local date, and they are stamped at midnight there, as
@@ -369,7 +397,8 @@ def available_providers(
             ones that would.
     """
     keys = current_provider_keys()
-    order = PROVIDER_ORDER.get((kind, symbol_kind(symbol)), PROVIDER_ORDER.get((kind, "us"), ()))
+    every = PROVIDER_ORDER.get((kind, symbol_kind(symbol)), PROVIDER_ORDER.get((kind, "us"), ()))
+    order = tuple(provider for provider in every if provider_covers(provider, symbol))
     providers: list[tuple[Provider, str | None]] = []
     for provider in order:
         secret = getattr(keys, provider, None)
@@ -377,6 +406,15 @@ def available_providers(
             providers.append((provider, secret.get_secret_value()))
     if yfinance_fallback_on():
         providers.append(("yfinance", None))
+    if not providers and any(
+        getattr(keys, provider, None) is not None for provider in every if provider not in order
+    ):
+        names = [PROVIDER_NAMES[provider] for provider in order]
+        listed = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else names[0]
+        raise ProviderPlanError(
+            f"None of your keys' providers lists {symbol} on {exchange_name(symbol)}: "
+            f"only a paid {listed} plan covers it."
+        )
     if not providers:
         names = [PROVIDER_NAMES[provider] for provider in order]
         listed = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else names[0]
@@ -392,11 +430,106 @@ def keys_to_add(kind: DataKind, symbol: str = "") -> str:
     the user has not given, cheapest first; empty when they have given every one."""
     keys = current_provider_keys()
     order = PROVIDER_ORDER.get((kind, symbol_kind(symbol)), ())
-    names = [PROVIDER_NAMES[p] for p in order if getattr(keys, p, None) is None]
+    names = [
+        PROVIDER_NAMES[p]
+        for p in order
+        if getattr(keys, p, None) is None and provider_covers(p, symbol)
+    ]
     if not names:
         return ""
     listed = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else names[0]
     return f"A {listed} key may cover it: add one in Settings."
+
+
+US_LISTING_TTL_SECONDS: float = 7 * 24 * 60 * 60
+"""How long the US listings found for a listing abroad are reused."""
+_us_listing_memory: dict[str, tuple[float, list[str]]] = {}
+"""Symbol abroad -> (time found, its company's US listings), for deployments without Redis."""
+
+
+def _name_words(name: str) -> list[str]:
+    """A company name's words, lower case, without punctuation or legal endings, for
+    telling whether two listings are the same company's."""
+    endings = {"inc", "corp", "corporation", "co", "ltd", "plc", "ag", "se", "sa", "nv",
+               "ab", "asa", "spa", "kk", "limited", "holding", "holdings", "group", "the",
+               "adr"}  # fmt: skip
+    words = "".join(c if c.isalnum() else " " for c in name.lower()).split()
+    return [word for word in words if word not in endings]
+
+
+async def us_listings(symbol: str) -> list[str]:
+    """US listings of the company behind a listing abroad, such as Toyota's TM for 7203.T,
+    which Tiingo's free plan prices: its depositary receipts on a US exchange, or its
+    shares traded over the counter. Exchange-listed tickers (four letters or fewer) come
+    first. Empty without both a Finnhub key, whose search names the company, and a Tiingo
+    key, whose search finds its US listings, or when nothing is found.
+
+    A listing in the US is a different security from the one abroad: priced in dollars,
+    sometimes as a fraction or multiple of a share, so it is suggested, never swapped in.
+    """
+    keys = current_provider_keys()
+    if symbol_suffix(symbol) is None or keys.finnhub is None or keys.tiingo is None:
+        return []
+    cache_key = f"uslisting:{symbol}"
+    remembered = _us_listing_memory.get(cache_key)
+    if remembered is not None and time.monotonic() - remembered[0] < US_LISTING_TTL_SECONDS:
+        return list(remembered[1])
+    text = await cache_get(cache_key)
+    if text is not None:
+        try:
+            return [str(ticker) for ticker in json.loads(text)]
+        except ValueError:
+            logger.warning("Ignoring unreadable cached US listings for %s.", symbol)
+    try:
+        found = await finnhub_get("search", {"q": symbol}, keys.finnhub.get_secret_value(), None)
+        name = next(
+            (
+                str(row.get("description") or "")
+                for row in (found or {}).get("result") or []
+                if isinstance(row, dict) and str(row.get("symbol", "")).upper() == symbol
+            ),
+            "",
+        )
+        words = _name_words(name)
+        if not words:
+            return []
+        rows = await tiingo_get(
+            "tiingo/utilities/search",
+            {"query": " ".join(words[:3]), "limit": "20"},
+            keys.tiingo.get_secret_value(),
+        )
+    except DataFetchError as exc:
+        logger.info("No US listing could be looked up for %s: %s", symbol, exc)
+        return []
+    tickers = [
+        str(row["ticker"]).upper()
+        for row in (rows if isinstance(rows, list) else [])
+        if isinstance(row, dict)
+        and row.get("ticker")
+        and row.get("countryCode") == "US"
+        and row.get("isActive", True)
+        and str(row.get("assetType") or "Stock") == "Stock"
+        and _name_words(str(row.get("name") or ""))[: len(words[:2])] == words[:2]
+    ]
+    tickers = sorted(dict.fromkeys(tickers), key=lambda ticker: (len(ticker) > 4, ticker))[:2]
+    _us_listing_memory[cache_key] = (time.monotonic(), tickers)
+    await cache_set(cache_key, json.dumps(tickers), US_LISTING_TTL_SECONDS)
+    return tickers
+
+
+async def plan_hint(kind: DataKind, symbol: str) -> str:
+    """What could cover ``kind`` for ``symbol`` when the user's plans do not: the keys they
+    have not added, and, for a listing abroad, the company's US listings their Tiingo key
+    covers."""
+    parts = [hint] if (hint := keys_to_add(kind, symbol)) else []
+    listings = await us_listings(symbol)
+    if listings:
+        names = " and ".join(listings)
+        parts.append(
+            f"The same company also trades in the US as {names}, priced in dollars, which "
+            "your Tiingo key covers: look that up instead."
+        )
+    return " ".join(parts)
 
 
 def finnhub_key() -> str | None:
@@ -417,11 +550,14 @@ async def first_success(
     attempts: list[tuple[Provider, Callable[[], Awaitable[T]]]],
     partial: Callable[[T], bool] | None = None,
     passed: list[tuple[Provider, Exception]] | None = None,
+    no_better: Callable[[Provider, T], bool] | None = None,
 ) -> T:
     """Return the first provider's answer, trying the next when one fails.
 
     With ``partial``, an answer it marks as partial, such as a free plan's short history,
     is kept while the later providers are tried, and returned only if none does better.
+    ``no_better`` names the later providers known not to beat the partial answer kept,
+    such as a free plan known to serve fewer days, which are then not asked.
     With ``passed``, each provider that failed before the answer is added to it, with its
     error, so a caller can say why a better source was not used.
 
@@ -433,6 +569,8 @@ async def first_success(
     errors: list[Exception] = []
     fallback: T | None = None
     for provider, attempt in attempts:
+        if fallback is not None and no_better is not None and no_better(provider, fallback):
+            continue
         try:
             answer = await attempt()
         except Exception as exc:
@@ -451,6 +589,16 @@ async def first_success(
         raise SymbolNotFoundError(f"Unknown ticker symbol {symbol!r}.") from errors[-1]
     if len(errors) == 1 and isinstance(errors[0], DataFetchError):
         raise errors[0]
+    refusals = [error for error in errors if not isinstance(error, SymbolNotFoundError)]
+    if (
+        refusals
+        and all(isinstance(error, ProviderPlanError | ProviderLimitError) for error in refusals)
+        and any(isinstance(error, ProviderPlanError) for error in refusals)
+    ):
+        # Every key that could answer refused, or has used its plan's requests for now.
+        raise ProviderPlanError(
+            f"None of your keys' plans covers {what} for {symbol} right now."
+        ) from errors[-1]
     raise DataFetchError(f"Could not fetch {what} for {symbol!r}.") from errors[-1]
 
 
@@ -754,6 +902,57 @@ async def tiingo_get(
     raise DataFetchError(f"Tiingo returned an error ({response.status_code}).")
 
 
+EXCHANGE_NAMES: dict[str, str] = {
+    "L": "London Stock Exchange",
+    "DE": "XETRA (Germany)",
+    "F": "Frankfurt Stock Exchange",
+    "PA": "Euronext Paris",
+    "AS": "Euronext Amsterdam",
+    "BR": "Euronext Brussels",
+    "LS": "Euronext Lisbon",
+    "MI": "Borsa Italiana (Milan)",
+    "SW": "SIX Swiss Exchange",
+    "MC": "Madrid Stock Exchange",
+    "ST": "Nasdaq Stockholm",
+    "OL": "Oslo Stock Exchange",
+    "CO": "Nasdaq Copenhagen",
+    "HE": "Nasdaq Helsinki",
+    "IR": "Euronext Dublin",
+    "VI": "Vienna Stock Exchange",
+    "WA": "Warsaw Stock Exchange",
+    "PR": "Prague Stock Exchange",
+    "AT": "Athens Stock Exchange",
+    "BD": "Budapest Stock Exchange",
+    "IS": "Borsa Istanbul",
+    "TO": "Toronto Stock Exchange",
+    "V": "TSX Venture Exchange",
+    "NE": "Cboe Canada",
+    "MX": "Mexican Stock Exchange",
+    "SA": "B3 (São Paulo)",
+    "BA": "Buenos Aires Stock Exchange",
+    "SN": "Santiago Stock Exchange",
+    "T": "Tokyo Stock Exchange",
+    "HK": "Hong Kong Stock Exchange",
+    "SS": "Shanghai Stock Exchange",
+    "SZ": "Shenzhen Stock Exchange",
+    "KS": "Korea Exchange",
+    "KQ": "KOSDAQ",
+    "TW": "Taiwan Stock Exchange",
+    "TWO": "Taipei Exchange",
+    "NS": "National Stock Exchange of India",
+    "BO": "BSE (Bombay Stock Exchange)",
+    "SI": "Singapore Exchange",
+    "JK": "Indonesia Stock Exchange",
+    "BK": "Stock Exchange of Thailand",
+    "KL": "Bursa Malaysia",
+    "AX": "Australian Securities Exchange",
+    "NZ": "New Zealand Exchange",
+    "JO": "Johannesburg Stock Exchange",
+    "TA": "Tel Aviv Stock Exchange",
+    "SR": "Saudi Exchange",
+}
+"""The exchange each Yahoo-style symbol suffix names, for messages about it."""
+
 EODHD_EXCHANGES: dict[str, str] = {
     "L": "LSE",
     "DE": "XETRA",
@@ -761,32 +960,76 @@ EODHD_EXCHANGES: dict[str, str] = {
     "PA": "PA",
     "AS": "AS",
     "BR": "BR",
+    "LS": "LS",
     "SW": "SW",
     "MC": "MC",
-    "MI": "MI",
     "ST": "ST",
     "OL": "OL",
     "CO": "CO",
     "HE": "HE",
+    "IR": "IR",
+    "VI": "VI",
+    "WA": "WAR",
+    "PR": "PR",
+    "AT": "AT",
+    "BD": "BUD",
     "TO": "TO",
     "V": "V",
+    "NE": "NEO",
     "MX": "MX",
     "SA": "SA",
-    "T": "TSE",
-    "HK": "HK",
+    "BA": "BA",
+    "SN": "SN",
     "SS": "SHG",
     "SZ": "SHE",
     "KS": "KO",
     "KQ": "KQ",
-    "NS": "NSE",
-    "BO": "BSE",
-    "AX": "AU",
-    "NZ": "NZ",
     "TW": "TW",
-    "SI": "SG",
+    "TWO": "TWO",
     "JK": "JK",
+    "BK": "BK",
+    "KL": "KLSE",
+    "AX": "AU",
+    "JO": "JSE",
 }
-"""EODHD's exchange code for each Yahoo-style symbol suffix."""
+"""EODHD's exchange code for each Yahoo-style symbol suffix whose exchange it lists, as its
+exchange list read on November 5, 2026. It lists no exchange in Tokyo, Hong Kong, India,
+Milan, Singapore, New Zealand, Istanbul, Tel Aviv or Saudi Arabia, so those are not asked
+of it."""
+
+EODHD_CODES: frozenset[str] = frozenset(EODHD_EXCHANGES.values())
+"""EODHD's own exchange codes, which a symbol may carry instead, as in ``SAP.XETRA``."""
+
+ALPHA_VANTAGE_EXCHANGES: dict[str, str] = {
+    "L": "LON",
+    "DE": "DEX",
+    "LS": "LIS",
+    "TO": "TRT",
+    "V": "TRV",
+    "BO": "BSE",
+    "SS": "SHH",
+    "SZ": "SHZ",
+}
+"""Alpha Vantage's suffix for each Yahoo-style suffix whose exchange it covers, as its
+documentation lists them (London, XETRA, Toronto, TSX Venture, BSE India, Shanghai and
+Shenzhen) and its search answered (Lisbon). A free key's quote of ``SAP.DEX`` answered on
+November 5, 2026; ``7203.TYO`` and ``7203.T`` did not."""
+
+
+def symbol_suffix(symbol: str) -> str | None:
+    """The exchange suffix of a listing abroad, as ``L`` in ``VOD.L``; ``None`` for a US
+    listing, an index or an exchange rate."""
+    symbol = symbol.strip().upper()
+    if symbol_kind(symbol) != "international" or "." not in symbol:
+        return None
+    return symbol.rsplit(".", 1)[1]
+
+
+def exchange_name(symbol: str) -> str:
+    """The exchange a listing abroad trades on, for messages: "the Tokyo Stock Exchange"."""
+    suffix = symbol_suffix(symbol)
+    name = EXCHANGE_NAMES.get(suffix or "")
+    return f"the {name}" if name else f"its exchange (.{suffix})" if suffix else "its exchange"
 
 
 def eodhd_symbol(symbol: str) -> str:
@@ -800,6 +1043,33 @@ def eodhd_symbol(symbol: str) -> str:
         code, suffix = symbol.rsplit(".", 1)
         return f"{code}.{EODHD_EXCHANGES.get(suffix, suffix)}"
     return f"{symbol}.US"
+
+
+def alpha_vantage_symbol(symbol: str) -> str:
+    """``symbol`` as Alpha Vantage names it: a listing abroad takes its own suffix, as
+    ``VOD.LON`` for ``VOD.L`` and ``SAP.DEX`` for ``SAP.DE``; others are unchanged."""
+    symbol = symbol.strip().upper()
+    suffix = symbol_suffix(symbol)
+    if suffix is None or suffix not in ALPHA_VANTAGE_EXCHANGES:
+        return symbol
+    return f"{symbol.rsplit('.', 1)[0]}.{ALPHA_VANTAGE_EXCHANGES[suffix]}"
+
+
+def provider_covers(provider: Provider, symbol: str) -> bool:
+    """Whether ``provider`` lists ``symbol``'s exchange on any plan. A listing abroad is
+    asked only of the providers that list its exchange, so no request, nor any of a free
+    plan's few, is spent on one that cannot answer."""
+    suffix = symbol_suffix(symbol)
+    if suffix is None:
+        return True
+    if provider == "eodhd":
+        return suffix in EODHD_EXCHANGES or suffix in EODHD_CODES
+    if provider == "alpha_vantage":
+        return suffix in ALPHA_VANTAGE_EXCHANGES
+    if provider == "tiingo":
+        # Tiingo's prices abroad cover Chinese A-shares alone, under names of its own.
+        return False
+    return True
 
 
 async def eodhd_get(
@@ -1032,6 +1302,34 @@ async def alpha_vantage_get(
     return result
 
 
+def alpha_vantage_free_history(api_key: str) -> bool:
+    """Whether ``api_key``'s Alpha Vantage plan is known to serve only the latest
+    :data:`ALPHA_VANTAGE_FREE_DAILY_BARS` daily bars, as the free plan does: it refused the
+    full adjusted series within the last :data:`ALPHA_VANTAGE_PLAN_TTL_SECONDS`."""
+    digest = hashlib.sha256(api_key.encode()).hexdigest()[:16]
+    refused = _alpha_vantage_premium.get((digest, "TIME_SERIES_DAILY_ADJUSTED:full"))
+    return refused is not None and time.monotonic() - refused < ALPHA_VANTAGE_PLAN_TTL_SECONDS
+
+
+def no_longer_history(
+    keys: dict[Provider, str | None],
+) -> Callable[[Provider, pd.DataFrame | None], bool]:
+    """For :func:`first_success`: whether a provider is known not to serve more daily bars
+    than a partial history already found, among the providers in ``keys``."""
+
+    def check(provider: Provider, found: pd.DataFrame | None) -> bool:
+        api_key = keys.get(provider)
+        return (
+            provider == "alpha_vantage"
+            and api_key is not None
+            and found is not None
+            and len(found) >= ALPHA_VANTAGE_FREE_DAILY_BARS
+            and alpha_vantage_free_history(api_key)
+        )
+
+    return check
+
+
 def clear_alpha_vantage_memory() -> None:
     """Forget Alpha Vantage answers, plan refusals and request spacing kept in memory, and
     every provider's refusals, pauses and request counts."""
@@ -1090,9 +1388,10 @@ async def alpha_vantage_name(
     Raises:
         SymbolNotFoundError: If no listing has exactly ``symbol`` as its symbol.
     """
-    payload = await alpha_vantage_get("SYMBOL_SEARCH", {"keywords": symbol}, api_key, client)
+    named = alpha_vantage_symbol(symbol)
+    payload = await alpha_vantage_get("SYMBOL_SEARCH", {"keywords": named}, api_key, client)
     for match in payload.get("bestMatches") or []:
-        if isinstance(match, dict) and str(match.get("1. symbol", "")).upper() == symbol:
+        if isinstance(match, dict) and str(match.get("1. symbol", "")).upper() == named:
             currency = match.get("8. currency")
             return str(match.get("2. name") or symbol), None if not currency else str(currency)
     raise SymbolNotFoundError(f"Alpha Vantage lists no {symbol!r}.")
@@ -1148,18 +1447,43 @@ async def _finnhub_profile(
     if not isinstance(payload, dict) or not payload.get("name"):
         raise SymbolNotFoundError(f"Finnhub has no profile for {symbol!r}.")
     market_cap = _positive(payload.get("marketCapitalization"))
+    # Finnhub gives the market cap in millions, in the currency of the company's home
+    # listing.
+    market_cap = None if market_cap is None else market_cap * 1e6
+    currency = payload.get("currency") or None
+    exchange = payload.get("exchange") or None
+    home = str(payload.get("ticker") or "").upper()
+    if symbol_kind(symbol) == "us" and symbol_suffix(home) is not None:
+        # A depositary receipt, such as ASML for ASML.AS: Finnhub describes the home
+        # listing, so the price is in dollars, on a US exchange, and the market cap is
+        # converted from the home currency.
+        if market_cap is not None and currency not in (None, "USD"):
+            market_cap = await _in_dollars(market_cap, currency)
+        currency, exchange = "USD", None
     profile = TickerInfo(
         symbol=symbol,
         name=payload.get("name") or None,
-        currency=payload.get("currency") or None,
-        exchange=payload.get("exchange") or None,
+        currency=currency,
+        exchange=exchange,
         industry=payload.get("finnhubIndustry") or None,
-        # Finnhub gives the market cap in millions.
-        market_cap=None if market_cap is None else market_cap * 1e6,
+        market_cap=market_cap,
+        quote_type="EQUITY",
         source="finnhub",
     )
     await cache_set(key, profile.model_dump_json(), FINNHUB_PROFILE_TTL_SECONDS)
     return profile
+
+
+async def _in_dollars(amount: float, currency: str) -> float | None:
+    """``amount`` of ``currency`` in US dollars at the latest reference rate; ``None`` when
+    no rate can be found."""
+    from app.data.exchange_rates import fetch_exchange_rate  # It imports this module.
+
+    try:
+        return amount * await fetch_exchange_rate(currency, "USD")
+    except DataFetchError as exc:
+        logger.info("No %s rate to convert a market cap: %s", currency, exc)
+        return None
 
 
 async def _finnhub_info(symbol: str, api_key: str, client: httpx2.AsyncClient | None) -> TickerInfo:
@@ -1215,17 +1539,73 @@ TIINGO_EXCHANGES: dict[str, str] = {"NASDAQ": "NASDAQ", "NYSE": "NYSE", "NYSE AR
 """Exchange names for Tiingo's exchange codes, as the other providers write them."""
 
 
+TIINGO_ASSET_TYPES: dict[str, str] = {"Stock": "EQUITY", "ETF": "ETF", "Mutual Fund": "MUTUALFUND"}
+"""Yahoo-style quote types for the ``assetType`` of Tiingo's search, as the app uses them."""
+
+
+async def _tiingo_quote_type(
+    symbol: str, api_key: str, client: httpx2.AsyncClient | None
+) -> str | None:
+    """Whether a US listing is a stock, an ETF, a mutual fund or a money-market fund, from
+    Tiingo's search, which its free plan answers for any ticker; reused for a week, since
+    it does not change."""
+    key = f"tiingo:type:{symbol}"
+    cached = _tiingo_meta_memory.get(key)
+    if cached is not None and time.monotonic() - cached[0] < US_LISTING_TTL_SECONDS:
+        return cached[1].get("type")
+    text = await cache_get(key)
+    if text is not None:
+        found: str | None = text or None
+        _tiingo_meta_memory[key] = (time.monotonic(), {"type": found})
+        return found
+    ticker = tiingo_symbol(symbol)
+    rows = await tiingo_get(
+        "tiingo/utilities/search", {"query": ticker, "limit": "10"}, api_key, client
+    )
+    quote_type: str | None = None
+    for row in rows if isinstance(rows, list) else []:
+        if (
+            isinstance(row, dict)
+            and str(row.get("ticker") or "").lower() == ticker
+            and row.get("countryCode") in (None, "US")
+        ):
+            quote_type = TIINGO_ASSET_TYPES.get(str(row.get("assetType") or ""))
+            if quote_type == "MUTUALFUND" and "MONEY MARKET" in str(row.get("name") or "").upper():
+                quote_type = MONEY_MARKET_TYPE
+            break
+    _tiingo_meta_memory[key] = (time.monotonic(), {"type": quote_type})
+    await cache_set(key, quote_type or "", US_LISTING_TTL_SECONDS)
+    return quote_type
+
+
+MONEY_MARKET_TYPE: str = "MONEYMARKET"
+"""The quote type of a money-market fund, which the portfolio counts as cash."""
+
+FUND_TYPES: frozenset[str] = frozenset({"ETF", "MUTUALFUND", MONEY_MARKET_TYPE})
+"""Quote types of funds, which hold other securities rather than run a business: a
+company's figures, such as its market cap, sector or earnings, do not apply to them."""
+
+
 async def _tiingo_info(symbol: str, api_key: str, client: httpx2.AsyncClient | None) -> TickerInfo:
-    """Fetch the name and exchange of any US listing Tiingo prices, stocks, ETFs and funds
-    alike, with its sector and industry where the plan gives them (the Dow 30, on the free
-    plan); prices and market caps are left to other providers."""
+    """Fetch the name, exchange and kind (stock, ETF or fund) of any US listing Tiingo
+    prices, with a stock's sector and industry where the plan gives them (the Dow 30, on
+    the free plan); prices and market caps are left to other providers."""
     listing = await tiingo_get(f"tiingo/daily/{tiingo_symbol(symbol)}", {}, api_key, client)
     if not isinstance(listing, dict) or not listing.get("ticker"):
         raise SymbolNotFoundError(f"Tiingo has no listing {symbol!r}.")
     try:
-        meta = await _tiingo_meta(symbol, api_key, client)
-    except DataFetchError:
-        meta = {}
+        quote_type = await _tiingo_quote_type(symbol, api_key, client)
+    except DataFetchError as exc:
+        logger.info("Tiingo could not tell what kind of listing %s is: %s", symbol, exc)
+        quote_type = None
+    meta: dict[str, Any] = {}
+    if quote_type not in FUND_TYPES:
+        # A fund has no sector of its own, so its company meta would cost a request for
+        # nothing.
+        try:
+            meta = await _tiingo_meta(symbol, api_key, client)
+        except DataFetchError:
+            meta = {}
     exchange = str(listing.get("exchangeCode") or "")
     return TickerInfo(
         symbol=symbol,
@@ -1234,6 +1614,7 @@ async def _tiingo_info(symbol: str, api_key: str, client: httpx2.AsyncClient | N
         exchange=TIINGO_EXCHANGES.get(exchange.upper(), exchange) or None,
         sector=meta.get("sector") or None,
         industry=meta.get("industry") or None,
+        quote_type=quote_type,
         source="tiingo",
     )
 
@@ -1384,7 +1765,11 @@ async def _fill_from_tiingo(info: TickerInfo, client: httpx2.AsyncClient | None)
 
 async def _fill_info(info: TickerInfo, client: httpx2.AsyncClient | None) -> TickerInfo:
     """Fill the fields ``info``'s provider left empty from Finnhub, Tiingo, then Alpha
-    Vantage, if the user has keys for them."""
+    Vantage, if the user has keys for them. A named fund is left as it is: the fields it
+    lacks, such as a sector or a market cap, are a company's, which no provider has for
+    it."""
+    if info.quote_type in FUND_TYPES and info.name:
+        return info
     info = await _fill_from_finnhub(info, client)
     info = await _fill_from_tiingo(info, client)
     api_key = alpha_vantage_key()
@@ -1438,6 +1823,11 @@ async def _fmp_info(symbol: str, api_key: str, client: httpx2.AsyncClient | None
         industry=profile.get("industry") or None,
         market_cap=profile.get("marketCap") or profile.get("mktCap"),
         price=profile.get("price"),
+        quote_type=(
+            "ETF"
+            if profile.get("isEtf")
+            else "MUTUALFUND" if profile.get("isFund") else "EQUITY" if profile else None
+        ),
         source="fmp",
     )
 
@@ -1496,12 +1886,30 @@ async def fetch_ticker_info(symbol: str, client: httpx2.AsyncClient | None = Non
 
         return run
 
-    info = await first_success(
-        symbol,
-        "ticker info",
-        [(p, attempt(p, k)) for p, k in available_providers("info", symbol)],
-    )
-    return await _fill_info(info, client)
+    try:
+        info = await first_success(
+            symbol,
+            "ticker info",
+            [(p, attempt(p, k)) for p, k in available_providers("info", symbol)],
+        )
+    except ProviderPlanError as exc:
+        hint = await plan_hint("info", symbol)
+        if not hint:
+            raise
+        raise ProviderPlanError(f"{exc} {hint}") from exc
+    info = await _fill_info(info, client)
+    if info.price is None and info.quote_type != MONEY_MARKET_TYPE:
+        # A profile from a provider that gives no price, as Tiingo's for an ETF, takes
+        # the price from the cheapest quote the user's keys can get.
+        try:
+            quote = await fetch_quote(symbol, client)
+        except DataFetchError as exc:
+            logger.info("No quote for %s's price either: %s", symbol, exc)
+        else:
+            info = info.model_copy(
+                update={"price": quote.price, "filled_fields": [*info.filled_fields, "price"]}
+            )
+    return info
 
 
 def _yfinance_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
@@ -1664,7 +2072,7 @@ async def _alpha_vantage_history(
         size, resample_to = ALPHA_VANTAGE_INTRADAY[interval]
         payload = await alpha_vantage_get(
             "TIME_SERIES_INTRADAY",
-            {"symbol": symbol, "interval": size, "outputsize": "full"},
+            {"symbol": alpha_vantage_symbol(symbol), "interval": size, "outputsize": "full"},
             api_key,
         )
         zone = str(payload.get("Meta Data", {}).get("6. Time Zone") or DEFAULT_TIMEZONE)
@@ -1673,12 +2081,16 @@ async def _alpha_vantage_history(
         return frame if resample_to is None or frame.empty else _resample(frame, resample_to)
     try:
         payload = await alpha_vantage_get(
-            "TIME_SERIES_DAILY_ADJUSTED", {"symbol": symbol, "outputsize": "full"}, api_key
+            "TIME_SERIES_DAILY_ADJUSTED",
+            {"symbol": alpha_vantage_symbol(symbol), "outputsize": "full"},
+            api_key,
         )
         adjusted = True
     except ProviderPlanError:
         payload = await alpha_vantage_get(
-            "TIME_SERIES_DAILY", {"symbol": symbol, "outputsize": "compact"}, api_key
+            "TIME_SERIES_DAILY",
+            {"symbol": alpha_vantage_symbol(symbol), "outputsize": "compact"},
+            api_key,
         )
         adjusted = False
         notice = (
@@ -2336,6 +2748,7 @@ async def _fetch_stored_daily(
                 [(p, attempt(p, k)) for p, k in providers],
                 partial=short,
                 passed=passed,
+                no_better=no_longer_history(dict(providers)),
             )
         except DataFetchError as exc:
             frame, failure = None, exc
@@ -2409,7 +2822,7 @@ async def fetch_price_history(
         try:
             stored = await _fetch_stored_daily(symbol, period, interval, keys.user_id)
         except ProviderPlanError as exc:
-            hint = keys_to_add("history", symbol)
+            hint = await plan_hint("history", symbol)
             if not hint:
                 raise
             raise ProviderPlanError(f"{exc} {hint}") from exc
@@ -2460,15 +2873,17 @@ async def fetch_price_history(
 
     kind: DataKind = "intraday" if interval in INTRADAY_INTERVALS else "history"
     try:
+        providers = available_providers(kind, symbol)
         frame = await first_success(
             symbol,
             "price history",
-            [(p, attempt(p, k)) for p, k in available_providers(kind, symbol)],
+            [(p, attempt(p, k)) for p, k in providers],
             # A free plan's short or unadjusted history is used only if no key does better.
             partial=lambda found: found is not None and HISTORY_NOTICE in found.attrs,
+            no_better=None if kind == "intraday" else no_longer_history(dict(providers)),
         )
     except ProviderPlanError as exc:
-        hint = keys_to_add(kind, symbol)
+        hint = await plan_hint(kind, symbol)
         if not hint:
             raise
         raise ProviderPlanError(f"{exc} {hint}") from exc
@@ -2574,7 +2989,9 @@ async def _alpha_vantage_quote(
     symbol: str, api_key: str, client: httpx2.AsyncClient | None
 ) -> Quote:
     """Fetch the latest quote from Alpha Vantage's global quote."""
-    payload = await alpha_vantage_get("GLOBAL_QUOTE", {"symbol": symbol}, api_key, client)
+    payload = await alpha_vantage_get(
+        "GLOBAL_QUOTE", {"symbol": alpha_vantage_symbol(symbol)}, api_key, client
+    )
     quote: dict[str, Any] = payload.get("Global Quote") or {}
     if not quote:
         raise SymbolNotFoundError(f"Alpha Vantage has no quote for {symbol!r}.")

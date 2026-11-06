@@ -1,6 +1,6 @@
 """Schemas describing securities and their market data."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -43,6 +43,57 @@ class TickerInfo(BaseModel):
         default_factory=list,
         description="Fields ``source`` left empty that Finnhub or Alpha Vantage filled in.",
     )
+
+
+class FundWeight(BaseModel):
+    """One sector's share of a fund's holdings."""
+
+    name: str = Field(description="The sector, e.g. Information Technology.")
+    weight: float = Field(description="Share of the fund's assets, as a decimal.")
+
+
+class FundHolding(BaseModel):
+    """One of a fund's largest holdings."""
+
+    symbol: str | None = Field(default=None, description="The holding's ticker, when it has one.")
+    name: str
+    weight: float = Field(description="Share of the fund's assets, as a decimal.")
+
+
+class FundProfile(BaseModel):
+    """What an ETF or mutual fund holds and costs: the figures that take the place, for a
+    fund, of a company's market cap, sector and earnings.
+
+    Rates are decimals (0.0003 = 0.03%).
+    """
+
+    symbol: str
+    net_assets: float | None = Field(
+        default=None, ge=0, description="The fund's total assets, in US dollars."
+    )
+    expense_ratio: float | None = Field(
+        default=None, description="Share of assets the fund charges each year, after waivers."
+    )
+    dividend_yield: float | None = Field(
+        default=None, description="Distributions over the last year as a share of the price."
+    )
+    portfolio_turnover: float | None = Field(
+        default=None, description="Share of the holdings replaced in a year."
+    )
+    inception_date: date | None = Field(default=None, description="When the fund started.")
+    leveraged: bool | None = Field(
+        default=None, description="Whether it borrows or uses derivatives to multiply returns."
+    )
+    sectors: list[FundWeight] = Field(
+        default_factory=list, description="Its holdings' sectors, largest first."
+    )
+    holdings: list[FundHolding] = Field(
+        default_factory=list, description="Its largest holdings, largest first."
+    )
+    holdings_count: int | None = Field(
+        default=None, ge=0, description="How many holdings the provider listed."
+    )
+    source: str = Field(description="Data provider that produced this record.")
 
 
 class OHLCVBar(BaseModel):

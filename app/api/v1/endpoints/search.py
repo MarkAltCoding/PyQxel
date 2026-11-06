@@ -53,10 +53,11 @@ async def search(
 ) -> SearchResponse:
     """Find US listings by symbol prefix or part of the company name.
 
-    Searches the screened universe of US common stocks, which the screener refresh job
-    builds, first. With a Finnhub key, Finnhub's search of US listings fills the rest of
-    the ``limit``, finding ETFs, ADRs and stocks outside the universe (``source`` is
-    ``finnhub``, with their ``kind`` and no market cap). The SEC's list of listed
+    A listing whose ticker is exactly ``q`` comes first. Searches the screened universe of
+    US common stocks, which the screener refresh job builds, first. With a Finnhub key,
+    Finnhub's search of US listings fills the rest of the ``limit``, or adds the exact
+    ticker when the universe lacks it, finding ETFs, ADRs and stocks outside the universe
+    (``source`` is ``finnhub``, with their ``kind`` and no market cap). The SEC's list of listed
     companies, which needs no key, fills any room left (``source`` ``sec``), so typing
     the start of a ticker suggests it even when the universe is empty and there is no
     Finnhub key. Every listing works on the
@@ -69,7 +70,12 @@ async def search(
     except SQLAlchemyError as exc:
         logger.error("Search failed: %s", exc)
         items = None
-    if items is None or len(items) < limit:
+    wanted = q.strip().upper()
+    exact = any(item.symbol == wanted for item in items or [])
+    if items is None or len(items) < limit or not exact:
+        # An ETF or a listing abroad is not in the universe of US stocks, so Finnhub is
+        # asked when its exact ticker was not found there, as for SPY among names with
+        # "Spy" in them.
         known = {item.symbol for item in items or []}
         extra = [m for m in await _finnhub_matches(q, limit) if m.symbol not in known]
         if len(known) + len(extra) < limit:
@@ -80,5 +86,7 @@ async def search(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="The search database is unavailable.",
             )
-        items = [*(items or []), *extra][:limit]
+        items = [*(items or []), *extra]
+    # The listing whose ticker was typed comes first.
+    items = sorted(items, key=lambda item: item.symbol != wanted)[:limit]
     return SearchResponse(query=q, items=items)

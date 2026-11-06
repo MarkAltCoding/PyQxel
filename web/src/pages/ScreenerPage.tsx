@@ -74,10 +74,33 @@ const FIELDS: Record<
 
 const FIELD_NAMES = Object.keys(FIELDS) as ScreenField[]
 
+/** The metrics of a price, which apply to an ETF as to a stock; the rest are a company's,
+ * which an ETF does not have (as the API's ETF_FIELDS). */
+const ETF_FIELDS = new Set<ScreenField>([
+  'price',
+  'avg_dollar_volume',
+  'return_1m',
+  'return_6m',
+  'momentum_12_1',
+  'volatility',
+  'max_drawdown',
+  'beta_market',
+  'beta_size',
+  'beta_value',
+  'beta_momentum',
+  'factor_r_squared',
+])
+
+const ASSET_TYPES = [
+  { value: '', label: 'Stocks and ETFs' },
+  { value: 'stock', label: 'Stocks only' },
+  { value: 'etf', label: 'ETFs only' },
+] as const
+
 const UNIVERSES = [
-  { value: 'all', label: 'All stocks' },
-  { value: 'large_cap', label: 'Large cap (top 500)' },
-  { value: 'broad_market', label: 'Broad market (top 3,000)' },
+  { value: 'all', label: 'Everything' },
+  { value: 'large_cap', label: 'Large cap (top 500 stocks)' },
+  { value: 'broad_market', label: 'Broad market (top 3,000 stocks)' },
   { value: 'liquid', label: 'Liquid ($5M+ a day)' },
 ] as const
 
@@ -126,6 +149,8 @@ interface FilterRow {
 interface Screen {
   universe: NonNullable<ScreenRequest['universe']>
   sector: string
+  /** Stocks, ETFs, or both when empty. */
+  assetType: '' | 'stock' | 'etf'
   filters: FilterRow[]
   sort: ScreenField
   descending: boolean
@@ -134,6 +159,7 @@ interface Screen {
 const DEFAULT_SCREEN: Screen = {
   universe: 'large_cap',
   sector: '',
+  assetType: '',
   filters: [],
   sort: 'market_cap',
   descending: true,
@@ -173,6 +199,7 @@ export function ScreenerPage() {
   const request: ScreenRequest = {
     universe: state.universe,
     sectors: state.sector ? [state.sector] : [],
+    asset_types: state.assetType ? [state.assetType] : [],
     filters,
     sort: { field: state.sort, descending: state.descending },
     limit: PAGE_SIZE,
@@ -209,7 +236,7 @@ export function ScreenerPage() {
           <h1>Screener</h1>
           <div className="subtitle">
             {status.data && !empty
-              ? `${status.data.own ? 'Your own universe · ' : ''}${status.data.stocks.toLocaleString()} US stocks · prices as of ${shortDate(status.data.prices_as_of)} · refreshed ${dateTime(status.data.refreshed_at)}`
+              ? `${status.data.own ? 'Your own universe · ' : ''}${status.data.stocks.toLocaleString()} ${status.data.own ? 'US stocks and ETFs' : 'US stocks'} · prices as of ${shortDate(status.data.prices_as_of)} · refreshed ${dateTime(status.data.refreshed_at)}`
               : 'US-listed common stocks, refreshed after each trading day'}
             {status.data?.own && <InfoTip topic="nightlyRefresh" />}
           </div>
@@ -256,6 +283,19 @@ export function ScreenerPage() {
               {UNIVERSES.map((u) => (
                 <option key={u.value} value={u.value}>
                   {u.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Kind</span>
+            <select
+              value={state.assetType}
+              onChange={(event) => update({ assetType: event.target.value as Screen['assetType'] })}
+            >
+              {ASSET_TYPES.map((kind) => (
+                <option key={kind.value} value={kind.value}>
+                  {kind.label}
                 </option>
               ))}
             </select>
@@ -436,10 +476,25 @@ export function ScreenerPage() {
                   <td style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {stock.name}
                   </td>
-                  <td className="muted">{stock.sector ?? '—'}</td>
+                  <td className="muted">
+                    {stock.asset_type === 'etf' ? (
+                      <span className="badge">ETF</span>
+                    ) : (
+                      (stock.sector ?? '—')
+                    )}
+                  </td>
                   {columns.map((field) => (
                     <td key={field} className="num">
-                      {show(field, stock[field])}
+                      {stock.asset_type === 'etf' && !ETF_FIELDS.has(field) ? (
+                        <span
+                          className="muted"
+                          title="Does not apply to an ETF, which is not a company"
+                        >
+                          n/a
+                        </span>
+                      ) : (
+                        show(field, stock[field])
+                      )}
                     </td>
                   ))}
                 </tr>
@@ -447,6 +502,16 @@ export function ScreenerPage() {
             </tbody>
           </table>
         </div>
+        {results.data?.items.some((stock) => stock.asset_type === 'etf') && (
+          <p className="disclaimer heading-with-info" style={{ marginTop: 12 }}>
+            <span>
+              n/a: a company&apos;s figure, such as market cap, P/E, margins or growth, which an ETF
+              does not have, since it holds many companies. Screening on one of them leaves ETFs
+              out.
+            </span>
+            <InfoTip topic="notForFunds" />
+          </p>
+        )}
         {results.data && results.data.items.length === 0 && (
           <div className="empty">No stocks match these filters.</div>
         )}

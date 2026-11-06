@@ -334,3 +334,30 @@ async def fetch_exchange_rates(currencies: Iterable[str], quote: str = "USD") ->
         except DataFetchError as exc:
             logger.warning("%s", exc)
     return rates
+
+
+MINOR_UNITS: dict[str, tuple[str, float]] = {
+    "GBX": ("GBP", 100.0),
+    "GBp": ("GBP", 100.0),
+    "ZAC": ("ZAR", 100.0),
+    "ZAc": ("ZAR", 100.0),
+    "ILA": ("ILS", 100.0),
+    "ILa": ("ILS", 100.0),
+}
+"""Currencies some exchanges quote prices in that are a hundredth of another: London's
+pence (GBX), Johannesburg's cents (ZAC) and Tel Aviv's agorot (ILA). Case matters: GBp is
+pence, GBP pounds."""
+
+
+async def dollars_per_unit(currency: str | None) -> float | None:
+    """US dollars per unit of ``currency``, a price's currency, at the latest rate: 1 for
+    dollars or an unknown currency, and a hundredth of the pound's rate for pence.
+    ``None`` when no rate can be found."""
+    if currency is None or currency.upper() == "USD":
+        return 1.0
+    major, divisor = MINOR_UNITS.get(currency, (currency.upper(), 1.0))
+    try:
+        return await fetch_exchange_rate(major, "USD") / divisor
+    except DataFetchError as exc:
+        logger.warning("No %s rate to convert a price to dollars: %s", major, exc)
+        return None

@@ -21,9 +21,14 @@ Each run refreshes every user whose chosen time has come since their last refres
    drawdown and Carhart factor betas. The rest keep Finnhub's stand-ins (see
    :func:`app.stats.screening.user_screen_metrics`), and those whose price is unknown
    take a Finnhub quote.
-4. Takes sectors and industries from the companies' SEC industry codes, keeps stocks
-   above the price and dollar volume floors, and replaces the user's own universe with
-   them, shown only to that user.
+4. Adds the ETFs listed on US exchanges, from Finnhub's free symbol list: one request
+   for the list and one for each ETF's basic financials (its returns, volatility, beta and
+   volume; an ETF has no market cap or company figures). Those that could clear the dollar
+   volume floor even at their 52-week high share the price histories with the stocks, in
+   proportion to their number, most traded first, and the rest take a Finnhub quote.
+5. Takes sectors and industries from the companies' SEC industry codes, keeps stocks and
+   ETFs above the price and dollar volume floors, and replaces the user's own universe
+   with them, shown only to that user.
 
 Each refresh runs in its own task with only its user's keys and the same data access as
 that user's own requests (see :mod:`app.core.credentials`), so no user's data reaches
@@ -45,7 +50,15 @@ from app.data import usage
 from app.data.exchange_rates import fetch_exchange_rates
 from app.data.factors import fetch_factors
 from app.data.fetcher import DataFetchError
-from app.data.screener_metrics import fetch_histories, fetch_quote_prices, fetch_screen_metrics
+from app.data.fetcher import ProviderNotConfiguredError
+from app.data.screener_metrics import (
+    EtfListing,
+    fetch_etf_listings,
+    fetch_etf_metrics,
+    fetch_histories,
+    fetch_quote_prices,
+    fetch_screen_metrics,
+)
 from app.data.universe import Listing
 from app.db.nightly import (
     DueRefresh,
@@ -60,7 +73,7 @@ from app.db.users import get_user
 from app.jobs.screener import PRICE_HISTORY_DAYS, completed_sessions
 from app.models.fundamentals import Financials
 from app.models.screener import ProviderScreenMetrics, ScreenedStock, ScreenMetrics
-from app.stats.screening import market_cap_ranks, user_screen_metrics
+from app.stats.screening import etf_screen_metrics, market_cap_ranks, user_screen_metrics
 from app.stats.sectors import industry_name, sector_for_sic
 
 logger = logging.getLogger(__name__)
@@ -71,8 +84,9 @@ class UserRefreshResult:
     """What one user's refresh built."""
 
     stocks: int
+    """Stocks and ETFs in the universe."""
     priced: int
-    """Stocks with price-history columns."""
+    """Those with price-history columns."""
     prices_as_of: date | None
 
 
@@ -85,6 +99,38 @@ class _Stock:
     metrics: ProviderScreenMetrics
 
 
+@dataclass(frozen=True)
+class _Etf:
+    """A listed ETF with its provider metrics, ready to score."""
+
+    listing: EtfListing
+    metrics: ProviderScreenMetrics
+
+    @property
+    def dollar_volume_bound(self) -> float:
+        """The most its average dollar volume can be: its volume at its 52-week high."""
+        return (self.metrics.average_volume or 0.0) * (self.metrics.week_52_high or 0.0)
+
+
+def interleave(first: list[str], second: list[str]) -> list[str]:
+    """``first`` and ``second`` merged, each in its own order, so that any leading part of
+    the result holds them in proportion to their lengths: the stocks and ETFs that share a
+    limited number of price histories."""
+    total = len(first) + len(second)
+    merged: list[str] = []
+    taken_first = taken_second = 0
+    for position in range(total):
+        # Take from whichever list is furthest behind its share of the first ``position``.
+        due_first = (position + 1) * len(first) / total if total else 0
+        if taken_first < len(first) and (taken_second >= len(second) or taken_first < due_first):
+            merged.append(first[taken_first])
+            taken_first += 1
+        else:
+            merged.append(second[taken_second])
+            taken_second += 1
+    return merged
+
+
 def _score(
     stocks: list[_Stock],
     histories: dict[str, pd.DataFrame],
@@ -93,9 +139,10 @@ def _score(
     factors: pd.DataFrame | None,
     exchange_rates: dict[str, float],
     today: date,
+    etfs: list[_Etf] | None = None,
 ) -> list[ScreenedStock]:
-    """Every stock's metrics, keeping those above the price and dollar volume floors
-    (blocking)."""
+    """Every stock's and ETF's metrics, keeping those above the price and dollar volume
+    floors (blocking)."""
     settings = get_settings()
     scored: list[tuple[_Stock, ScreenMetrics]] = []
     for stock in stocks:
@@ -117,7 +164,7 @@ def _score(
             continue
         scored.append((stock, metrics))
     ranks = market_cap_ranks(
-        {stock.listing.symbol: metrics.market_cap for stock, metrics in scored}
+        {stock.listing.symbol: metrics.market_cap or 0.0 for stock, metrics in scored}
     )
     universe: list[ScreenedStock] = []
     for stock, metrics in scored:
@@ -138,7 +185,59 @@ def _score(
                 **metrics.model_dump(),
             )
         )
+    for etf in etfs or []:
+        found = etf_screen_metrics(etf.metrics, histories.get(etf.listing.symbol), factors)
+        if found is None or (
+            found.price < settings.screener_min_price
+            or found.avg_dollar_volume < settings.screener_min_dollar_volume
+        ):
+            continue
+        universe.append(
+            ScreenedStock(
+                symbol=etf.listing.symbol,
+                name=etf.listing.name,
+                exchange=etf.listing.exchange,
+                asset_type="etf",
+                market_cap_source="provider",
+                **found.model_dump(),
+            )
+        )
     return universe
+
+
+async def _etfs(skip: set[str]) -> list[_Etf]:
+    """The ETFs on US exchanges that could clear the dollar volume floor, most traded
+    first, with Finnhub's metrics, on the user's key. Empty, with a warning, when Finnhub's
+    symbol list fails, so the stocks are still refreshed.
+
+    Raises:
+        ProviderNotConfiguredError: If the user's Finnhub key is missing or rejected.
+    """
+    settings = get_settings()
+    try:
+        listings = [etf for etf in await fetch_etf_listings() if etf.symbol not in skip]
+    except ProviderNotConfiguredError:
+        raise
+    except DataFetchError as exc:
+        logger.warning("ETFs are left out: Finnhub's symbol list failed: %s", exc)
+        return []
+    by_symbol = {etf.symbol: etf for etf in listings}
+    provided = await fetch_etf_metrics(by_symbol)
+    etfs = [_Etf(by_symbol[symbol], metrics) for symbol, metrics in provided.items()]
+    etfs = [
+        etf
+        for etf in etfs
+        if etf.metrics.week_52_high is None
+        or etf.dollar_volume_bound >= settings.screener_min_dollar_volume
+    ]
+    etfs.sort(key=lambda etf: -etf.dollar_volume_bound)
+    logger.info(
+        "Finnhub had metrics for %d of %d ETFs; %d could clear the dollar volume floor.",
+        len(provided),
+        len(listings),
+        len(etfs),
+    )
+    return etfs
 
 
 async def build_user_universe(
@@ -174,9 +273,13 @@ async def build_user_universe(
         len(stocks),
     )
 
-    # The user chose how many stocks get price histories: one request each on their
-    # price-history keys, which free plans allow only so many of a day.
-    priced_first = [stock.listing.symbol for stock in stocks]
+    etfs = await _etfs(set(by_symbol))
+
+    # The user chose how many stocks and ETFs get price histories: one request each on
+    # their price-history keys, which free plans allow only so many of a day.
+    priced_first = interleave(
+        [stock.listing.symbol for stock in stocks], [etf.listing.symbol for etf in etfs]
+    )
     if price_history_stocks is not None:
         priced_first = priced_first[:price_history_stocks]
     histories = await fetch_histories(priced_first, today - timedelta(days=PRICE_HISTORY_DAYS))
@@ -189,7 +292,16 @@ async def build_user_universe(
         for stock in stocks
         if stock.listing.symbol not in histories and not stock.shares
     ]
+    unpriced += [etf.listing.symbol for etf in etfs if etf.listing.symbol not in histories]
     prices = await fetch_quote_prices(unpriced) if unpriced else {}
+    etfs = [
+        (
+            replace(etf, metrics=etf.metrics.model_copy(update={"price": price}))
+            if (price := prices.get(etf.listing.symbol)) is not None
+            else etf
+        )
+        for etf in etfs
+    ]
     stocks = [
         (
             replace(stock, metrics=stock.metrics.model_copy(update={"price": price}))
@@ -213,7 +325,7 @@ async def build_user_universe(
         {company.currency for company in financials.values()} - {"USD"}
     )
     universe = await asyncio.to_thread(
-        _score, stocks, histories, financials, companies, factors, exchange_rates, today
+        _score, stocks, histories, financials, companies, factors, exchange_rates, today, etfs
     )
     if not universe:
         raise RuntimeError("No stock passed the baseline filters; your universe was kept.")

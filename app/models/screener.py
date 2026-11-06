@@ -22,6 +22,18 @@ LARGE_CAP_COUNT: int = 500
 BROAD_MARKET_COUNT: int = 3_000
 LIQUID_DOLLAR_VOLUME: float = 5_000_000.0
 
+AssetType = Literal["stock", "etf"]
+"""What a screened security is: a company's common stock, or an exchange-traded fund
+(ETF), which holds many companies. A company's figures, such as its market cap,
+valuation, margins and growth, do not apply to an ETF, and are null for one."""
+
+ETF_FIELDS: frozenset[str] = frozenset(
+    {"price", "avg_dollar_volume", "return_1m", "return_6m", "momentum_12_1", "volatility",
+     "max_drawdown", "beta_market", "beta_size", "beta_value", "beta_momentum",
+     "factor_r_squared"}
+)  # fmt: skip
+"""The screening metrics that apply to an ETF: those of its price, not of a company."""
+
 MarketCapSource = Literal["provider", "sec_shares"]
 """``provider`` when the market data provider, Financial Modeling Prep (or yfinance in
 development), reported the market cap, ``sec_shares`` when it was computed as the latest
@@ -59,7 +71,9 @@ class ScreenMetrics(BaseModel):
     """A stock's precomputed screening metrics; null when they could not be computed."""
 
     price: float = Field(description="Latest adjusted close.")
-    market_cap: float
+    market_cap: float | None = Field(
+        default=None, description="Null for an ETF, which is not a company."
+    )
     avg_dollar_volume: float = Field(
         description="Average close times volume over the last three months."
     )
@@ -126,6 +140,9 @@ class ProviderScreenMetrics(BaseModel):
     price: float | None = Field(
         default=None, description="The latest price, from a quote, when one was fetched."
     )
+    week_52_high: float | None = Field(
+        default=None, description="Highest price over 52 weeks, bounding the current price."
+    )
 
 
 class ScreenedStock(ScreenMetrics):
@@ -134,15 +151,20 @@ class ScreenedStock(ScreenMetrics):
     symbol: str
     name: str
     exchange: str
+    asset_type: AssetType = Field(default="stock", description="A company's stock, or an ETF.")
     sector: str | None = Field(
         default=None, description="Sector, as Financial Modeling Prep classifies it."
     )
     industry: str | None = Field(
         default=None, description="Industry, as Financial Modeling Prep classifies it."
     )
-    cik: int
+    cik: int | None = Field(
+        default=None, description="The SEC registrant behind a stock; null for an ETF."
+    )
     market_cap_source: MarketCapSource
-    market_cap_rank: int = Field(ge=1, description="Rank by market cap in the universe.")
+    market_cap_rank: int | None = Field(
+        default=None, ge=1, description="Rank by market cap in the universe; null for an ETF."
+    )
     fundamentals_period_end: date | None = Field(
         default=None, description="End of the latest period the financial ratios use."
     )
@@ -193,6 +215,12 @@ class ScreenRequest(BaseModel):
     )
     industries: list[str] = Field(
         default_factory=list, max_length=200, description="Keep only these industries."
+    )
+    asset_types: list[AssetType] = Field(
+        default_factory=list,
+        max_length=2,
+        description="Keep only stocks, only ETFs, or both when empty. A screen on a "
+        "company's figures, such as P/E, keeps only stocks, since ETFs have none.",
     )
     filters: list[ScreenFilter] = Field(default_factory=list, max_length=len(get_args(ScreenField)))
     sort: ScreenSort = Field(default_factory=ScreenSort)

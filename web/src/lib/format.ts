@@ -28,8 +28,13 @@ export function number(value: number | null | undefined, digits = 2): string {
   })
 }
 
+/** Currencies some exchanges quote in that are a hundredth of another: London's pence. */
+const MINOR_UNITS: Record<string, string> = { GBX: 'p', GBp: 'p' }
+
 export function money(value: number | null | undefined, currency = 'USD', digits = 2): string {
   if (missing(value)) return DASH
+  const minor = MINOR_UNITS[currency]
+  if (minor) return `${number(value, digits)}${minor}`
   return value.toLocaleString('en-US', {
     style: 'currency',
     currency,

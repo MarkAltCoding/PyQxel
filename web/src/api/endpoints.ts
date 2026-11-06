@@ -52,6 +52,7 @@ import type {
   SimulationRequest,
   SimulationResponse,
   TickerInfo,
+  FundProfile,
   UniverseStatus,
   VolatilityEstimate,
 } from './types'
@@ -100,6 +101,7 @@ export const search = (q: string, signal?: AbortSignal) =>
   api<SearchResponse>(`${V1}/search`, { query: { q, limit: 8 }, signal })
 
 export const getTicker = (symbol: string) => api<TickerInfo>(path(symbol))
+export const getFund = (symbol: string) => api<FundProfile>(`${path(symbol)}/fund`)
 export const getHistory = (symbol: string, period: string, interval: string) =>
   api<PriceHistory>(`${path(symbol)}/history`, { query: { period, interval } })
 export const getVolatility = (symbol: string, period: string, model: 'garch' | 'ewma') =>

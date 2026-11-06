@@ -20,7 +20,7 @@ colors.
 
 | Page | Main pieces |
 | --- | --- |
-| `StockPage` | `PriceChart`, `FactorChart`, `VolatilityChart`, `MetricsCard`, `SignalsCard`, `NewsCard` (paged by `Pager`), `AlternativeCard`, `AnalysisPanel` (AI report) |
+| `StockPage` | `PriceChart`, `FactorChart`, `VolatilityChart`, `FundCard` (an ETF or fund's holdings and costs, in place of a company's figures), `MetricsCard`, `SignalsCard`, `NewsCard` (paged by `Pager`), `AlternativeCard`, `AnalysisPanel` (AI report) |
 | `MarketsPage` | market news (paged), event calendar (`lib/calendar.ts`) |
 | `PortfolioPage` | `HoldingsTable` (2 portfolios, up to 40 holdings; sortable, two gain/loss windows and a 52-week range per holding from `lib/holdings.ts`, and an account total), late-listing cutoff, `SimulationCard` (`FanChart`), `CopulaCard` (`CopulaHeatmap`), `PortfolioReviewCard` (one portfolio, or both together) |
 | `BacktestPage` | Single security (a stock, ETF or fund): built-in rules or custom code, with "Also trade" for several symbols. Across tickers: `CrossSectionalBacktest` (rank by a signal), or the same component with `across` (code that trades every ticker it names, `lib/tickers.ts`) |
@@ -34,7 +34,7 @@ without asking. Backtests that a plan cut short come back as 409 or `short_histo
 `ShortHistoryNotice` asks before running on the shorter history (`lib/shortHistory.ts`).
 
 Each card has an id, so a link can end in `#id` (`lib/scrollToHash.ts` scrolls to it,
-even through signing in): Stock `price`, `factors`, `volatility`, `news`, `signals`,
+even through signing in): Stock `price`, `factors`, `volatility`, `fund`, `news`, `signals`,
 `metrics`, `alternative-data`, `ai-report`; Portfolio `holdings`, `late-listings`,
 `simulation`, `comovement`, `ai-review`; Markets `calendar`, `market-news`; Backtest
 `backtest-form` (or `ranking-form`), `strategy-code`, `result`, `performance`,

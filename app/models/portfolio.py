@@ -245,8 +245,12 @@ class HoldingValue(BaseModel):
     name: str | None = None
     sector: str | None = None
     industry: str | None = None
-    price: float | None = Field(default=None, description="Latest price; null if unavailable.")
-    value: float | None = Field(default=None, description="``shares`` x ``price``.")
+    price: float | None = Field(
+        default=None,
+        description="Latest price in US dollars; a listing abroad's is converted at the "
+        "latest reference rate. Null if unavailable.",
+    )
+    value: float | None = Field(default=None, description="``shares`` x ``price``, in dollars.")
     weight: float | None = Field(
         default=None,
         description="Share of the priced holdings' total value, as a decimal; null when "
@@ -256,6 +260,14 @@ class HoldingValue(BaseModel):
         default=False,
         description="A money-market fund, held at a steady $1 a share: simulations hold it "
         "as cash, and it is left out of how the holdings move together.",
+    )
+    currency: str | None = Field(
+        default=None, description="The currency the listing trades in, e.g. EUR or GBX (pence)."
+    )
+    local_price: float | None = Field(
+        default=None,
+        description="The latest price in ``currency``, for a listing priced in another "
+        "currency than dollars; null for dollar listings.",
     )
 
 

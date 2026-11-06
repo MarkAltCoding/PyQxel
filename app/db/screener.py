@@ -228,7 +228,7 @@ async def previous_share_counts(session: AsyncSession) -> dict[str, float]:
             ScreenerStockRecord.symbol, ScreenerStockRecord.market_cap, ScreenerStockRecord.price
         ).where(ScreenerStockRecord.market_cap_source == "provider")
     )
-    return {symbol: cap / price for symbol, cap, price in rows if price > 0}
+    return {symbol: cap / price for symbol, cap, price in rows if cap and price > 0}
 
 
 async def start_run(session: AsyncSession) -> str:
@@ -343,6 +343,8 @@ async def screen(
         query = query.where(column("market_cap_rank") <= BROAD_MARKET_COUNT)
     elif request.universe == "liquid":
         query = query.where(column("avg_dollar_volume") >= LIQUID_DOLLAR_VOLUME)
+    if request.asset_types:
+        query = query.where(column("asset_type").in_(request.asset_types))
     if request.sectors:
         query = query.where(column("sector").in_(request.sectors))
     if request.industries:
@@ -440,7 +442,7 @@ async def market_caps(
                 ScreenerStockRecord.symbol, ScreenerStockRecord.name, ScreenerStockRecord.market_cap
             ).where(ScreenerStockRecord.symbol.in_(wanted[start : start + 500]))
         )
-        found.update({symbol: (name, cap) for symbol, name, cap in rows})
+        found.update({symbol: (name, cap) for symbol, name, cap in rows if cap is not None})
     return found
 
 
@@ -449,6 +451,7 @@ class PeerGroup:
     """A stock in the screened universe and the stocks it is compared with."""
 
     stock: ScreenedStock
+    market_cap_rank: int
     kind: PeerGroupKind
     name: str
     peers: list[ScreenedStock]
@@ -466,6 +469,9 @@ async def peer_group(session: AsyncSession, symbol: str) -> PeerGroup | None:
     if record is None:
         return None
     stock = ScreenedStock.model_validate(record, from_attributes=True)
+    if stock.market_cap_rank is None:
+        # An ETF is no company, so it has no peers among companies.
+        return None
     universe_size = await session.scalar(select(func.count()).select_from(ScreenerStockRecord))
     others = ScreenerStockRecord.symbol != symbol
 
@@ -491,6 +497,7 @@ async def peer_group(session: AsyncSession, symbol: str) -> PeerGroup | None:
     succeeded = await _latest_run(session, SUCCEEDED, with_universe=True)
     return PeerGroup(
         stock=stock,
+        market_cap_rank=stock.market_cap_rank,
         kind=kind,
         name=name,
         peers=[ScreenedStock.model_validate(peer, from_attributes=True) for peer in records],

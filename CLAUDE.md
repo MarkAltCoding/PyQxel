@@ -111,7 +111,11 @@ When generating code and scaffolding this codebase, strictly adhere to the follo
    - Implement graceful fallback mechanisms for rate limits or network issues with financial APIs.
    - Validate market data inputs to handle missing values or non-trading day gaps before passing data into quantitative models.
 
-5. **Explain Every Stat, Model and Graph**:
+5. **Get the Most Out of Every Key**:
+   - A user should get as much as possible out of whatever API keys they have added, paid or free. Every feature and every kind of data uses every key that can serve it, tried cheapest first (`PROVIDER_ORDER` in `app/data/fetcher.py`, explained in `docs/data-sources.md`), so a free plan's partial answer is used when nothing better is available and a paid plan's fuller one is used when the user has it.
+   - When adding a feature or a kind of data, check what each provider's free and paid plans give for it, wire in every one that can serve it, and record the findings in `docs/data-sources.md`. When no key the user has can serve something, say which key or plan would, and what free stand-in exists (as a listing abroad names its US listing).
+
+6. **Explain Every Stat, Model and Graph**:
    - Every stat, model, chart, metric row or table column added to the web app gets an information icon (`<InfoTip topic=... />`, the circled "i") with a beginner-friendly explanation: what it measures, a rule-of-thumb range of good and worrying values where one applies, and any caveat.
    - Write the explanation as an entry in `web/src/lib/glossary.ts`, and reference it by key. `Stat` and `ChartCard` require an `info` prop, so the build fails until one is given.
    - Keep the "i" beside a heading (in a `heading-with-info` wrapper), not inside it, so the heading's accessible name stays clean.

@@ -145,7 +145,8 @@ export function HoldingsTable({
         return gain && 'fraction' in gain ? gain.fraction : null
       }
       case 'range':
-        return rangePosition(rangeOf.get(row.symbol), holding?.price)
+        // The range is in the listing's own currency, so is the price it is set against.
+        return rangePosition(rangeOf.get(row.symbol), holding?.local_price ?? holding?.price)
     }
   }
   const sorted = sortHoldings(rows, sort, valueOf)
@@ -253,7 +254,17 @@ export function HoldingsTable({
                     onChange={(event) => onShares(row.symbol, event.target.value)}
                   />
                 </td>
-                <td className="num">{money(known?.price)}</td>
+                <td className="num">
+                  {money(known?.price)}
+                  {known?.local_price != null && known.currency && (
+                    <div
+                      className="stat-detail"
+                      title="The price where it trades, converted to dollars at the latest reference rate"
+                    >
+                      {money(known.local_price, known.currency)}
+                    </div>
+                  )}
+                </td>
                 <td className="num">{money(holding?.value)}</td>
                 <td className="num">
                   <WeightBar weight={holding?.weight} />
@@ -271,7 +282,8 @@ export function HoldingsTable({
                     <RangeBar
                       symbol={row.symbol}
                       range={rangeOf.get(row.symbol)}
-                      price={known?.price}
+                      price={known?.local_price ?? known?.price}
+                      currency={known?.local_price != null ? (known.currency ?? 'USD') : 'USD'}
                       loading={ranges.isLoading && symbols.includes(row.symbol)}
                     />
                   )}
@@ -386,11 +398,14 @@ function RangeBar({
   symbol,
   range,
   price,
+  currency,
   loading,
 }: {
   symbol: string
   range: HoldingRange | undefined
+  /** The latest price, in ``currency``: the listing's own, as the range is. */
   price: number | null | undefined
+  currency: string
   loading: boolean
 }) {
   if (loading) return <span className="muted">…</span>
@@ -406,13 +421,13 @@ function RangeBar({
     <span
       className="range-bar"
       role="img"
-      aria-label={`${symbol} 52-week low ${money(low)}, high ${money(high)}; the latest price, ${money(latest)}, is ${percent(position, 0)} of the way from low to high.`}
+      aria-label={`${symbol} 52-week low ${money(low, currency)}, high ${money(high, currency)}; the latest price, ${money(latest, currency)}, is ${percent(position, 0)} of the way from low to high.`}
     >
-      <span className="range-end">{money(low)}</span>
+      <span className="range-end">{money(low, currency)}</span>
       <span className="range-track" aria-hidden="true">
         <span className="range-dot" style={{ left: `${position * 100}%` }} />
       </span>
-      <span className="range-end">{money(high)}</span>
+      <span className="range-end">{money(high, currency)}</span>
     </span>
   )
 }

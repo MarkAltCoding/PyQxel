@@ -267,6 +267,51 @@ def user_screen_metrics(
     )
 
 
+def etf_screen_metrics(
+    provider: ProviderScreenMetrics,
+    prices: pd.DataFrame | None,
+    factors: pd.DataFrame | None,
+) -> ScreenMetrics | None:
+    """An ETF's metrics in a user's own universe: those of its price alone, since a fund
+    has no market cap, valuation, margins or growth of its own.
+
+    Price history, when the user's keys could fetch it, gives the price, dollar volume and
+    price-history columns, as for a stock. Without it, the provider's quote gives the
+    price and its figures stand in as they do for a stock (see
+    :func:`user_screen_metrics`).
+
+    Returns:
+        The metrics, with every company figure null, or ``None`` when the price or volume
+        is unknown.
+    """
+    trading = None if prices is None else liquidity(prices)
+    history: dict[str, float | None]
+    if trading is not None and prices is not None:
+        price, dollar_volume = trading.price, trading.avg_dollar_volume
+        closes = prices["Close"].dropna()
+        history = price_metrics(closes)
+        if factors is not None:
+            history |= factor_betas(closes, factors)
+    else:
+        if not provider.price or provider.average_volume is None:
+            return None
+        price = provider.price
+        dollar_volume = provider.average_volume * price
+        history = {
+            "momentum_12_1": provider.return_52w,
+            "volatility": provider.volatility_3m,
+            "beta_market": provider.beta,
+        }
+    if history.get("return_6m") is None:
+        history["return_6m"] = provider.return_6m
+    return ScreenMetrics(
+        price=price,
+        market_cap=None,
+        avg_dollar_volume=dollar_volume,
+        **{name: _finite(value) for name, value in history.items()},
+    )
+
+
 def market_cap_ranks(market_caps: dict[str, float]) -> dict[str, int]:
     """Rank symbols by market cap, largest first, from 1."""
     order = np.argsort([-value for value in market_caps.values()], kind="stable")

@@ -11,6 +11,7 @@ import { useChartTheme } from '../charts/theme'
 import { VolatilityChart, VolatilityTable } from '../charts/VolatilityChart'
 import { AlternativeCard } from '../components/AlternativeCard'
 import { AnalysisPanel } from '../components/AnalysisPanel'
+import { FundCard } from '../components/FundCard'
 import { MetricsCard } from '../components/MetricsCard'
 import { NewsCard } from '../components/NewsCard'
 import { SignalsCard } from '../components/SignalsCard'
@@ -41,16 +42,20 @@ const intervalFor = (period: Period) => (period === '1y' || period === '2y' ? '1
 
 interface VolatilityResult {
   estimate: VolatilityEstimate
-  /** Set when GARCH was unavailable (no R on the server) and EWMA was used instead. */
-  fellBack: boolean
+  /** Why EWMA was used in place of GARCH, if it was: no R on the server, or too short a
+   * history, as a free plan's single year of a listing abroad. */
+  fellBack: 'no_r' | 'short' | null
 }
 
 async function loadVolatility(symbol: string, period: Period): Promise<VolatilityResult> {
   try {
-    return { estimate: await getVolatility(symbol, period, 'garch'), fellBack: false }
+    return { estimate: await getVolatility(symbol, period, 'garch'), fellBack: null }
   } catch (error) {
-    if (error instanceof ApiError && error.status === 503) {
-      return { estimate: await getVolatility(symbol, period, 'ewma'), fellBack: true }
+    if (error instanceof ApiError && (error.status === 503 || error.status === 422)) {
+      return {
+        estimate: await getVolatility(symbol, period, 'ewma'),
+        fellBack: error.status === 503 ? 'no_r' : 'short',
+      }
     }
     throw error
   }
@@ -67,6 +72,8 @@ export function StockPage() {
       what={`${symbol}’s prices, profile, metrics and news`}
       fetches={[
         { kind: 'info', symbols },
+        // Asked only of a symbol known to be a fund.
+        { kind: 'fund', symbols },
         // The chart's window and volatility's five years share one stored history.
         { kind: 'history', symbols, period: '5y' },
         { kind: 'metrics', symbols },
@@ -109,6 +116,10 @@ function StockDetails({ symbol }: { symbol: string }) {
 
   const info = ticker.data
   const currency = info?.currency ?? 'USD'
+  // A fund holds companies rather than being one: its size and costs stand in for a
+  // company's market cap and earnings.
+  const fundType = info?.quote_type
+  const isFund = fundType === 'ETF' || fundType === 'MUTUALFUND'
   const bars = history.data?.bars ?? []
   const first = bars[0]?.close
   const last = bars.at(-1)?.close
@@ -137,8 +148,14 @@ function StockDetails({ symbol }: { symbol: string }) {
             )}
           </h1>
           <div className="subtitle">
-            {[info?.exchange, info?.sector, info?.industry].filter(Boolean).join(' · ') ||
-              (ticker.isLoading ? 'Loading…' : '')}
+            {[
+              info?.exchange,
+              fundType === 'ETF' ? 'ETF' : fundType === 'MUTUALFUND' ? 'Mutual fund' : null,
+              info?.sector,
+              info?.industry,
+            ]
+              .filter(Boolean)
+              .join(' · ') || (ticker.isLoading ? 'Loading…' : '')}
           </div>
         </div>
         <Segmented label="Period" value={period} options={PERIODS} onChange={setPeriod} />
@@ -160,7 +177,16 @@ function StockDetails({ symbol }: { symbol: string }) {
 
       <div className="stats">
         <Stat info="price" label="Price" value={money(info?.price, currency)} />
-        <Stat info="marketCap" label="Market cap" value={compact(info?.market_cap)} />
+        {isFund ? (
+          <Stat
+            info="notForFunds"
+            label="Market cap"
+            value="Not for funds"
+            detail="See net assets below"
+          />
+        ) : (
+          <Stat info="marketCap" label="Market cap" value={compact(info?.market_cap)} />
+        )}
         <Stat
           info="periodReturn"
           label={`Return, ${period.toUpperCase()}`}
@@ -247,13 +273,28 @@ function StockDetails({ symbol }: { symbol: string }) {
         />
       </div>
 
+      {isFund && <FundCard symbol={symbol} />}
+
       <NewsCard key={`news-${symbol}`} symbol={symbol} />
 
-      <SignalsCard symbol={symbol} currency={currency} />
+      {isFund ? (
+        <section id="signals" className="card">
+          <p className="disclaimer heading-with-info" style={{ margin: 0 }}>
+            <span>
+              Analyst ratings, earnings, insider trades, lobbying, government contracts and patents
+              describe a single company, so they do not apply to {symbol}, a fund. Its holdings each
+              have their own: open one from the list above.
+            </span>
+            <InfoTip topic="notForFunds" />
+          </p>
+        </section>
+      ) : (
+        <SignalsCard symbol={symbol} currency={currency} />
+      )}
 
-      <MetricsCard symbol={symbol} currency={currency} />
+      <MetricsCard symbol={symbol} currency={currency} fund={isFund} />
 
-      <AlternativeCard symbol={symbol} />
+      {!isFund && <AlternativeCard symbol={symbol} />}
 
       <AnalysisPanel key={symbol} symbol={symbol} />
     </div>
@@ -321,7 +362,7 @@ function VolatilityFooter({
   fellBack,
 }: {
   estimate: VolatilityEstimate
-  fellBack: boolean
+  fellBack: VolatilityResult['fellBack']
 }) {
   const fit = estimate.fit
   return (
@@ -351,8 +392,14 @@ function VolatilityFooter({
           />
         )}
       </div>
-      {fellBack && (
+      {fellBack === 'no_r' && (
         <Notice>GARCH needs R, which this server does not have, so EWMA is shown.</Notice>
+      )}
+      {fellBack === 'short' && (
+        <Notice>
+          GARCH needs about two years of daily prices, more than your keys could fetch, so EWMA,
+          which needs far fewer, is shown.
+        </Notice>
       )}
       {estimate.notice && <Notice tone="warning">{estimate.notice}</Notice>}
       {(fit.warnings ?? []).map((warning) => (

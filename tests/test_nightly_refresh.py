@@ -17,7 +17,13 @@ from app.core.credentials import PROVIDER_HEADERS, ProviderKeys, current_provide
 from app.core.security import decrypt_secret, generate_encryption_key
 from app.data import usage
 from app.data.fetcher import DataFetchError, ProviderNotConfiguredError
-from app.data.screener_metrics import parse_quote_price, parse_screen_metrics
+from app.data.screener_metrics import (
+    EtfListing,
+    parse_etf_listings,
+    parse_etf_metrics,
+    parse_quote_price,
+    parse_screen_metrics,
+)
 from app.data.universe import Listing
 from app.db import nightly as storage
 from app.db.screener import replace_listings, save_companies
@@ -249,6 +255,7 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
         "yfinance": [],
         "histories": [],
         "quotes": [],
+        "etf_metrics": [],
     }
 
     async def seed() -> None:
@@ -287,7 +294,28 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
 
     async def quotes(symbols: Iterable[str]) -> dict[str, float]:
         seen["quotes"].extend(symbols)
-        return {"DUAL": 40.0}
+        return {"DUAL": 40.0, "SPY": 680.0}
+
+    async def etf_listings() -> list[EtfListing]:
+        # BIG is a stock's ticker, so it is not taken for an ETF too.
+        return [
+            EtfListing("SPY", "SPDR S&P 500 ETF", "NYSE Arca"),
+            EtfListing("THIN", "Thinly Traded ETF", "Nasdaq"),
+            EtfListing("BIG", "Not an ETF", "Nasdaq"),
+        ]
+
+    async def etf_metrics(symbols: Iterable[str]) -> dict[str, ProviderScreenMetrics]:
+        seen["etf_metrics"].extend(symbols)
+        return {
+            "SPY": ProviderScreenMetrics(
+                average_volume=6e7, week_52_high=700.0, return_52w=0.13, beta=1.0
+            ),
+            # Too little trades in it to clear the floor even at its 52-week high.
+            "THIN": ProviderScreenMetrics(average_volume=100.0, week_52_high=20.0),
+        }
+
+    monkeypatch.setattr(job, "fetch_etf_listings", etf_listings)
+    monkeypatch.setattr(job, "fetch_etf_metrics", etf_metrics)
 
     monkeypatch.setattr(job, "fetch_quote_prices", quotes)
     monkeypatch.setattr(job, "fetch_screen_metrics", metrics)
@@ -323,17 +351,42 @@ def test_a_refresh_builds_the_users_own_universe_from_their_keys(
 
     # Only the user's own key, and nothing unlicensed.
     assert fakes["finnhub_keys"] == [FINNHUB] and fakes["yfinance"] == ["False"]
-    # Stocks below the market cap floor are not priced; the largest come first.
-    assert fakes["histories"] == ["BIG", "DUAL", "MID"]
-    # Only a stock with neither history nor SEC shares takes a quote.
-    assert fakes["quotes"] == ["DUAL"]
+    # Stocks below the market cap floor are not priced; the largest come first, and the
+    # ETFs that could clear the dollar volume floor share the histories.
+    assert fakes["etf_metrics"] == ["SPY", "THIN"]
+    assert fakes["histories"] == ["BIG", "DUAL", "MID", "SPY"]
+    # Only a stock with neither history nor SEC shares takes a quote, and an ETF without
+    # history.
+    assert fakes["quotes"] == ["DUAL", "SPY"]
     status = client.get("/api/v1/screener/status", headers=_headers(key)).json()
-    assert status["own"] and status["stocks"] == 3
+    assert status["own"] and status["stocks"] == 4
     assert status["sectors"] == ["Health Care", "Technology"]
     screened = client.post("/api/v1/screener", headers=_headers(key), json={}).json()
     assert screened["own"]
     stocks = {item["symbol"]: item for item in screened["items"]}
-    assert list(stocks) == ["BIG", "DUAL", "MID"]
+    # An ETF has no market cap, so it follows the stocks.
+    assert list(stocks) == ["BIG", "DUAL", "MID", "SPY"]
+    spy = stocks["SPY"]
+    assert (spy["asset_type"], spy["market_cap"], spy["cik"], spy["sector"]) == (
+        "etf",
+        None,
+        None,
+        None,
+    )
+    assert spy["price"] == 680.0 and spy["avg_dollar_volume"] == pytest.approx(6e7 * 680.0)
+    assert (spy["momentum_12_1"], spy["beta_market"], spy["pe_ratio"]) == (0.13, 1.0, None)
+    assert stocks["BIG"]["asset_type"] == "stock"
+    only_etfs = client.post(
+        "/api/v1/screener", headers=_headers(key), json={"asset_types": ["etf"]}
+    ).json()
+    assert [item["symbol"] for item in only_etfs["items"]] == ["SPY"]
+    # A screen on a company figure keeps only companies.
+    by_pe = client.post(
+        "/api/v1/screener",
+        headers=_headers(key),
+        json={"filters": [{"field": "pe_ratio", "max": 100}]},
+    ).json()
+    assert "SPY" not in [item["symbol"] for item in by_pe["items"]]
     assert (stocks["BIG"]["sector"], stocks["BIG"]["industry"]) == (
         "Technology",
         "Services-Prepackaged Software",
@@ -350,7 +403,7 @@ def test_a_refresh_builds_the_users_own_universe_from_their_keys(
     assert stocks["DUAL"]["price"] == 40.0
     refresh = client.get("/api/v1/me/nightly-refresh", headers=_headers(key)).json()
     assert refresh["latest_run"]["status"] == "succeeded"
-    assert refresh["last_success"]["stocks"] == 3 and refresh["last_success"]["priced"] == 1
+    assert refresh["last_success"]["stocks"] == 4 and refresh["last_success"]["priced"] == 1
     # The refresh does not run again the same day.
     assert asyncio.run(job.refresh_due_users()) == 0
 
@@ -528,3 +581,53 @@ def test_a_refresh_fetches_only_as_many_histories_as_chosen_and_records_its_use(
     refresh = client.get("/api/v1/me/nightly-refresh", headers=_headers(key)).json()
     assert refresh["last_success"]["usage"] == {"tiingo": 1}
     assert {item["provider"]: item["requests"] for item in refresh["key_use"]}["tiingo"] == 1
+
+
+def test_finnhub_symbol_list_gives_the_exchange_listed_etfs() -> None:
+    rows = [
+        {"symbol": "VOO", "description": "VANGUARD S&P 500 ETF", "type": "ETP", "mic": "ARCX"},
+        {"symbol": "QQQM", "description": "INVESCO NASDAQ 100 ETF", "type": "ETP", "mic": "XNAS"},
+        {"symbol": "AAPL", "description": "APPLE INC", "type": "Common Stock", "mic": "XNAS"},
+        {"symbol": "OTCETF", "description": "Over the counter", "type": "ETP", "mic": "OOTC"},
+        {"symbol": "BAD.WS", "description": "Not a plain ticker", "type": "ETP", "mic": "ARCX"},
+    ]
+
+    listings = parse_etf_listings(rows)
+
+    assert listings == [
+        EtfListing("QQQM", "INVESCO NASDAQ 100 ETF", "Nasdaq"),
+        EtfListing("VOO", "VANGUARD S&P 500 ETF", "NYSE Arca"),
+    ]
+
+
+def test_an_etfs_basic_financials_need_only_a_volume() -> None:
+    payload = {
+        "metric": {
+            "26WeekPriceReturnDaily": 6.4,
+            "52WeekPriceReturnDaily": 13.5,
+            "3MonthADReturnStd": 10.3,
+            "3MonthAverageTradingVolume": 6.8,
+            "52WeekHigh": 718.47,
+            "beta": 1.02,
+        }
+    }
+
+    metrics = parse_etf_metrics(payload)
+
+    assert metrics is not None and metrics.market_cap is None
+    assert metrics.average_volume == pytest.approx(6.8e6)
+    assert metrics.return_52w == pytest.approx(0.135) and metrics.week_52_high == 718.47
+    assert parse_etf_metrics({"metric": {"52WeekHigh": 10.0}}) is None
+
+
+def test_stocks_and_etfs_share_histories_in_proportion() -> None:
+    stocks = [f"S{i}" for i in range(6)]
+    etfs = ["E0", "E1", "E2"]
+
+    merged = job.interleave(stocks, etfs)
+
+    assert sorted(merged) == sorted(stocks + etfs)
+    assert merged[:3].count("E0") + merged[:3].count("S0") == 2
+    assert [name for name in merged if name.startswith("E")] == etfs
+    assert sum(name.startswith("E") for name in merged[:6]) == 2
+    assert job.interleave([], etfs) == etfs and job.interleave(stocks, []) == stocks

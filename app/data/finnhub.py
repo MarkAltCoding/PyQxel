@@ -27,6 +27,7 @@ import httpx2
 
 from app.core.cache import cache_get, cache_set
 from app.data.fetcher import (
+    EXCHANGE_NAMES,
     DataFetchError,
     FinnhubRateLimitError,
     ProviderNotConfiguredError,
@@ -35,6 +36,7 @@ from app.data.fetcher import (
     finnhub_get,
     finnhub_key,
     finnhub_symbol,
+    symbol_suffix,
 )
 from app.models.metrics import CompanyMetrics, KeyMetrics
 from app.models.screener import SearchMatch
@@ -475,8 +477,11 @@ async def search_symbols(
             continue
         matches.append(
             SearchMatch(
-                # Finnhub names share classes with a dot; the app, as Yahoo does, with a dash.
-                symbol=symbol.replace(".", "-"),
+                # Finnhub names share classes with a dot; the app, as Yahoo does, with a
+                # dash. A listing abroad keeps its exchange suffix, as SAP.DE.
+                symbol=(
+                    symbol if symbol_suffix(symbol) in EXCHANGE_NAMES else symbol.replace(".", "-")
+                ),
                 name=name.title() if name.isupper() else name,
                 kind=row.get("type") or None,
                 source="finnhub",

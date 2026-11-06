@@ -1007,10 +1007,11 @@ export interface paths {
      * Search stocks
      * @description Find US listings by symbol prefix or part of the company name.
      *
-     *     Searches the screened universe of US common stocks, which the screener refresh job
-     *     builds, first. With a Finnhub key, Finnhub's search of US listings fills the rest of
-     *     the ``limit``, finding ETFs, ADRs and stocks outside the universe (``source`` is
-     *     ``finnhub``, with their ``kind`` and no market cap). The SEC's list of listed
+     *     A listing whose ticker is exactly ``q`` comes first. Searches the screened universe of
+     *     US common stocks, which the screener refresh job builds, first. With a Finnhub key,
+     *     Finnhub's search of US listings fills the rest of the ``limit``, or adds the exact
+     *     ticker when the universe lacks it, finding ETFs, ADRs and stocks outside the universe
+     *     (``source`` is ``finnhub``, with their ``kind`` and no market cap). The SEC's list of listed
      *     companies, which needs no key, fills any room left (``source`` ``sec``), so typing
      *     the start of a ticker suggests it even when the universe is empty and there is no
      *     Finnhub key. Every listing works on the
@@ -1319,6 +1320,32 @@ export interface paths {
      *     and 502 when the price provider or the factor library fails.
      */
     get: operations['get_factor_exposures_api_v1_stocks__symbol__factors_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/stocks/{symbol}/fund': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * A fund's holdings and costs
+     * @description Return what the ETF or mutual fund ``symbol`` holds and costs: its net assets,
+     *     expense ratio, yield, turnover, sectors and largest holdings, from Alpha Vantage on
+     *     your key.
+     *
+     *     Returns 403 without an Alpha Vantage key, 404 when it has no fund profile for
+     *     ``symbol`` (as for a stock), and 502 when Alpha Vantage fails or its daily limit is
+     *     reached.
+     */
+    get: operations['get_fund_profile_api_v1_stocks__symbol__fund_get']
     put?: never
     post?: never
     delete?: never
@@ -3620,6 +3647,101 @@ export interface components {
       start: string
     }
     /**
+     * FundHolding
+     * @description One of a fund's largest holdings.
+     */
+    FundHolding: {
+      /** Name */
+      name: string
+      /**
+       * Symbol
+       * @description The holding's ticker, when it has one.
+       */
+      symbol?: string | null
+      /**
+       * Weight
+       * @description Share of the fund's assets, as a decimal.
+       */
+      weight: number
+    }
+    /**
+     * FundProfile
+     * @description What an ETF or mutual fund holds and costs: the figures that take the place, for a
+     *     fund, of a company's market cap, sector and earnings.
+     *
+     *     Rates are decimals (0.0003 = 0.03%).
+     */
+    FundProfile: {
+      /**
+       * Dividend Yield
+       * @description Distributions over the last year as a share of the price.
+       */
+      dividend_yield?: number | null
+      /**
+       * Expense Ratio
+       * @description Share of assets the fund charges each year, after waivers.
+       */
+      expense_ratio?: number | null
+      /**
+       * Holdings
+       * @description Its largest holdings, largest first.
+       */
+      holdings?: components['schemas']['FundHolding'][]
+      /**
+       * Holdings Count
+       * @description How many holdings the provider listed.
+       */
+      holdings_count?: number | null
+      /**
+       * Inception Date
+       * @description When the fund started.
+       */
+      inception_date?: string | null
+      /**
+       * Leveraged
+       * @description Whether it borrows or uses derivatives to multiply returns.
+       */
+      leveraged?: boolean | null
+      /**
+       * Net Assets
+       * @description The fund's total assets, in US dollars.
+       */
+      net_assets?: number | null
+      /**
+       * Portfolio Turnover
+       * @description Share of the holdings replaced in a year.
+       */
+      portfolio_turnover?: number | null
+      /**
+       * Sectors
+       * @description Its holdings' sectors, largest first.
+       */
+      sectors?: components['schemas']['FundWeight'][]
+      /**
+       * Source
+       * @description Data provider that produced this record.
+       */
+      source: string
+      /** Symbol */
+      symbol: string
+    }
+    /**
+     * FundWeight
+     * @description One sector's share of a fund's holdings.
+     */
+    FundWeight: {
+      /**
+       * Name
+       * @description The sector, e.g. Information Technology.
+       */
+      name: string
+      /**
+       * Weight
+       * @description Share of the fund's assets, as a decimal.
+       */
+      weight: number
+    }
+    /**
      * Fundamentals
      * @description Financial statement figures and the valuation built on them.
      */
@@ -4013,13 +4135,23 @@ export interface components {
        * @default false
        */
       cash?: boolean
+      /**
+       * Currency
+       * @description The currency the listing trades in, e.g. EUR or GBX (pence).
+       */
+      currency?: string | null
       /** Industry */
       industry?: string | null
+      /**
+       * Local Price
+       * @description The latest price in ``currency``, for a listing priced in another currency than dollars; null for dollar listings.
+       */
+      local_price?: number | null
       /** Name */
       name?: string | null
       /**
        * Price
-       * @description Latest price; null if unavailable.
+       * @description Latest price in US dollars; a listing abroad's is converted at the latest reference rate. Null if unavailable.
        */
       price?: number | null
       /** Sector */
@@ -4030,7 +4162,7 @@ export interface components {
       symbol: string
       /**
        * Value
-       * @description ``shares`` x ``price``.
+       * @description ``shares`` x ``price``, in dollars.
        */
       value?: number | null
       /**
@@ -5557,6 +5689,7 @@ export interface components {
         | 'history'
         | 'quote'
         | 'info'
+        | 'fund'
         | 'news'
         | 'metrics'
         | 'signals'
@@ -6326,6 +6459,13 @@ export interface components {
      */
     RankedStock: {
       /**
+       * Asset Type
+       * @description A company's stock, or an ETF.
+       * @default stock
+       * @enum {string}
+       */
+      asset_type?: 'stock' | 'etf'
+      /**
        * Avg Dollar Volume
        * @description Average close times volume over the last three months.
        */
@@ -6350,8 +6490,11 @@ export interface components {
        * @description Carhart HML beta.
        */
       beta_value?: number | null
-      /** Cik */
-      cik: number
+      /**
+       * Cik
+       * @description The SEC registrant behind a stock; null for an ETF.
+       */
+      cik?: number | null
       /**
        * Earnings Growth
        * @description TTM net income, year on year; null after a loss.
@@ -6380,13 +6523,16 @@ export interface components {
        * @description Industry, as Financial Modeling Prep classifies it.
        */
       industry?: string | null
-      /** Market Cap */
-      market_cap: number
+      /**
+       * Market Cap
+       * @description Null for an ETF, which is not a company.
+       */
+      market_cap?: number | null
       /**
        * Market Cap Rank
-       * @description Rank by market cap in the universe.
+       * @description Rank by market cap in the universe; null for an ETF.
        */
-      market_cap_rank: number
+      market_cap_rank?: number | null
       /**
        * Market Cap Source
        * @enum {string}
@@ -6730,6 +6876,11 @@ export interface components {
      * @description A screen: which universe, which filters, and how to order and page the results.
      */
     ScreenRequest: {
+      /**
+       * Asset Types
+       * @description Keep only stocks, only ETFs, or both when empty. A screen on a company's figures, such as P/E, keeps only stocks, since ETFs have none.
+       */
+      asset_types?: ('stock' | 'etf')[]
       /** Filters */
       filters?: components['schemas']['ScreenFilter'][]
       /**
@@ -9405,6 +9556,38 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['FactorRegression']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  get_fund_profile_api_v1_stocks__symbol__fund_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Ticker symbol, e.g. AAPL, BRK-B or ^GSPC. */
+        symbol: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['FundProfile']
         }
       }
       /** @description Validation Error */

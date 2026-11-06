@@ -29,6 +29,52 @@ const entries = {
     what: 'The total value of all the company’s shares: share price times shares outstanding.',
     note: 'Large caps are roughly above $10 billion, mid caps $2–10 billion, small caps below $2 billion. Smaller companies tend to swing more in price.',
   },
+  notForFunds: {
+    title: 'Does not apply to funds',
+    what: 'An ETF or mutual fund holds many companies instead of running a business, so a single company’s figures, such as its market cap, sector, earnings, margins or valuation ratios, have no value for it. A fund is judged instead by what it holds and what it costs: its net assets, expense ratio and holdings.',
+  },
+  netAssets: {
+    title: 'Net assets',
+    what: 'The total value of everything the fund holds, minus what it owes: the fund’s size, as market cap is a company’s.',
+    good: 'Above about $1 billion: large funds trade cheaply and are unlikely to close.',
+    bad: 'Below about $100 million: small funds are closed more often, which can hand you a taxable sale.',
+  },
+  expenseRatio: {
+    title: 'Expense ratio',
+    what: 'The share of your money the fund keeps each year to run itself, taken out of its returns. 0.03% is $3 a year on every $10,000.',
+    good: 'Below 0.20% for an index fund; broad market funds charge as little as 0.03%.',
+    bad: 'Above about 0.75%: fees compound, and over decades a 1% fee can take a fifth of your final balance.',
+  },
+  fundDividendYield: {
+    title: 'Distribution yield',
+    what: 'The dividends and interest the fund paid out over the last year, as a percentage of its price.',
+    note: 'A stock fund typically yields 1–2%, a bond fund more. A high yield is not extra return on its own: the price falls by what is paid out.',
+  },
+  portfolioTurnover: {
+    title: 'Turnover',
+    what: 'The share of its holdings the fund replaced over a year.',
+    good: 'Below about 20%, as for most index funds: less trading costs less and, outside a retirement account, triggers fewer taxable gains.',
+    bad: 'Above 100% means it replaces everything within a year, a mark of active trading.',
+  },
+  inceptionDate: {
+    title: 'Started',
+    what: 'When the fund began trading. Its price history, and so its returns and risk, go back no further.',
+  },
+  leveragedFund: {
+    title: 'Leveraged',
+    what: 'Whether the fund borrows or uses derivatives to multiply its index’s daily moves, say two or three times.',
+    bad: 'A leveraged fund resets every day, so over months it can lose money even when its index rises. It is built for short trades, not for holding.',
+  },
+  fundSectors: {
+    title: 'Sector weights',
+    what: 'How the fund’s money is split among the market’s sectors, such as technology or health care.',
+    note: 'A fund heavy in one sector rises and falls with it: the S&P 500 has recently held about a third in technology.',
+  },
+  fundHoldings: {
+    title: 'Largest holdings',
+    what: 'The fund’s biggest positions and the share of its money in each.',
+    note: 'If the top ten add up to much more than about 30%, a few companies drive its returns. Compare with your other holdings to see overlap: two funds holding the same names are less diversified than they look.',
+  },
   enterpriseValue: {
     title: 'Enterprise value',
     what: 'What it would cost to buy the whole business: market cap plus debt, minus cash.',
@@ -759,7 +805,7 @@ const entries = {
   nightlyRefresh: {
     title: 'Nightly screener refresh',
     what: 'Rebuilds your own copy of the stock screener every night, on your own market data keys, so its numbers come from data you are licensed to see. Until it first runs, the screener shows the shared universe if there is one.',
-    note: 'Finnhub’s free plan allows about 60 requests a minute and the refresh makes one per listed stock, so it takes an hour or two. While it runs it uses most of your Finnhub allowance, so news, ratings and quotes may be slow or briefly unavailable: pick an hour when you are not using PyQxel. Free price-history plans cover only some stocks a night: the largest come first. Sectors come from each company’s SEC industry code, which can differ from a data provider’s.',
+    note: 'Finnhub’s free plan allows about 60 requests a minute and the refresh makes one per listed stock and ETF, about 10,000 in all, so it takes three to four hours. While it runs it uses most of your Finnhub allowance, so news, ratings and quotes may be slow or briefly unavailable: pick an hour when you are not using PyQxel. Free price-history plans cover only some stocks and ETFs a night: the largest stocks and most-traded ETFs come first, sharing them in proportion. ETFs have no market cap or company figures, so a screen on those leaves them out. Sectors come from each company’s SEC industry code, which can differ from a data provider’s.',
   },
   nightlyLastRefresh: {
     title: 'Last refresh',

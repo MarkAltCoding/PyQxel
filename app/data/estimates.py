@@ -19,6 +19,7 @@ from app.data.fetcher import (
     STORE_INTERVALS,
     Provider,
     ProviderNotConfiguredError,
+    ProviderPlanError,
     available_providers,
 )
 
@@ -61,7 +62,7 @@ async def _first_open(kind: fetcher.DataKind, symbol: str) -> tuple[Provider, st
     """The first of the user's keys that would be asked for ``kind`` of ``symbol``."""
     try:
         providers = available_providers(kind, symbol)
-    except ProviderNotConfiguredError:
+    except ProviderNotConfiguredError, ProviderPlanError:
         return None
     for provider, api_key in providers:
         if provider == "yfinance" or api_key is None:
@@ -79,7 +80,7 @@ async def _history_cost(symbol: str, period: str, interval: str) -> tuple[Provid
     if not intraday and interval in STORE_INTERVALS and keys.user_id is not None:
         try:
             providers = [p for p, _ in available_providers("history", symbol) if p != "yfinance"]
-        except ProviderNotConfiguredError:
+        except ProviderNotConfiguredError, ProviderPlanError:
             return None, False
         stored = await fetcher._load_stored(keys.user_id, symbol, providers)
         ready = fetcher._daily_ready(symbol, datetime.now(UTC))
@@ -108,7 +109,12 @@ async def _info_cost(symbol: str) -> Counter[Provider]:
         cached = await cache_get(f"finnhub:profile:{symbol}") is not None
         cost["finnhub"] += 1 if cached else 2
     elif provider == "tiingo":
+        # Its listing and its company meta (or, once a week, what kind of listing it is),
+        # and a quote for the price Tiingo's profile lacks.
         cost["tiingo"] += 2
+        quote = await _first_open("quote", symbol)
+        if quote is not None:
+            cost[quote[0]] += 1
     else:
         cost[provider] += 1
     keys = current_provider_keys()
@@ -120,6 +126,25 @@ async def _info_cost(symbol: str) -> Counter[Provider]:
             if not await paused("tiingo", secret) and await fetcher._recall(withheld) is None:
                 cost["tiingo"] += 1
     return cost
+
+
+async def _fund_cost(symbol: str) -> bool:
+    """Whether a fund profile of ``symbol`` would spend an Alpha Vantage request: only for a
+    symbol already known to be a fund, as the page asks for one only then, and when the
+    answer is not cached."""
+    keys = current_provider_keys()
+    if keys.alpha_vantage is None or fetcher.symbol_kind(symbol) != "us":
+        return False
+    secret = keys.alpha_vantage.get_secret_value()
+    if await paused("alpha_vantage", secret):
+        return False
+    type_key = f"tiingo:type:{symbol}"
+    known = fetcher._tiingo_meta_memory.get(type_key)
+    quote_type = known[1].get("type") if known is not None else await cache_get(type_key)
+    if quote_type not in fetcher.FUND_TYPES:
+        return False
+    cached = f"alphavantage:ETF_PROFILE:symbol={symbol}"
+    return cached not in fetcher._alpha_vantage_memory and await cache_get(cached) is None
 
 
 async def estimate(
@@ -158,6 +183,10 @@ async def estimate(
                 if found is not None:
                     requests[found[0]] += 1
                     symbols.setdefault(found[0], set()).add(symbol)
+            elif kind == "fund":
+                if await _fund_cost(symbol):
+                    requests["alpha_vantage"] += 1
+                    symbols.setdefault("alpha_vantage", set()).add(symbol)
             elif kind == "info":
                 cost = await _info_cost(symbol)
                 requests.update(cost)

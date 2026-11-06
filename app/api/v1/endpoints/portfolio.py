@@ -29,11 +29,11 @@ from app.core.config import get_settings
 from app.api.v1.endpoints.backtest import attribute, equity_points, load_benchmark, load_factors
 from app.api.v1.endpoints.stocks import COVERAGE_TOLERANCE, PERIOD_OFFSETS, upstream_error
 from app.data.cash import MONEY_MARKET_PRICE, is_money_market
+from app.data.exchange_rates import dollars_per_unit
 from app.data.fetcher import (
     HISTORY_NOTICE,
     DataFetchError,
     fetch_price_history,
-    fetch_quote,
     fetch_ticker_info,
 )
 from app.data.panel import MAX_CONCURRENT_DOWNLOADS, fetch_close_panel
@@ -678,18 +678,10 @@ async def _value_holdings(
     A money-market fund without a price is valued at the $1 a share it holds.
     """
 
-    async def priced_info(symbol: str) -> TickerInfo:
-        # A profile from a provider that gives no price, as Tiingo's for an ETF, takes a
-        # quote for its price.
+    async def priced_info(symbol: str) -> tuple[TickerInfo, float | None]:
+        # The info and the dollars a unit of its price's currency is worth.
         info = await fetch_ticker_info(symbol)
-        if info.price is None and not is_money_market(symbol, info.quote_type):
-            try:
-                quote = await fetch_quote(symbol)
-            except DataFetchError as exc:
-                logger.info("No quote for %s either: %s", symbol, exc)
-            else:
-                info = info.model_copy(update={"price": quote.price})
-        return info
+        return info, await dollars_per_unit(info.currency)
 
     results = await asyncio.gather(
         *(priced_info(holding.symbol) for holding in holdings), return_exceptions=True
@@ -714,21 +706,29 @@ async def _value_holdings(
             continue
         if isinstance(result, BaseException):
             raise result
-        cash = is_money_market(holding.symbol, result.quote_type)
-        price = MONEY_MARKET_PRICE if cash and not result.price else result.price
+        info, rate = result
+        cash = is_money_market(holding.symbol, info.quote_type)
+        local = MONEY_MARKET_PRICE if cash and not info.price else info.price
+        price = None if local is None or rate is None else local * rate
         value = None if price is None else holding.shares * price
         if value is None:
-            failures.append(f"{holding.symbol} (no price)")
+            failures.append(
+                f"{holding.symbol} (no price)"
+                if local is None
+                else f"{holding.symbol} (no exchange rate for {info.currency})"
+            )
         valued.append(
             HoldingValue(
                 symbol=holding.symbol,
                 shares=holding.shares,
-                name=result.name,
-                sector=result.sector,
-                industry=result.industry,
+                name=info.name,
+                sector=info.sector,
+                industry=info.industry,
                 price=price,
                 value=value,
                 cash=cash,
+                currency=info.currency,
+                local_price=local if info.currency not in (None, "USD") else None,
             )
         )
     total = sum(position.value for position in valued if position.value is not None)
@@ -1424,9 +1424,19 @@ async def _plan(context: PortfolioContext, report: PortfolioReview) -> Rebalance
     cash_held = sum(h.value or 0.0 for h in context.holdings if h.symbol in funds)
     new = [s for s in targets if s not in held and s != CASH]
     found = await asyncio.gather(*(fetch_ticker_info(s) for s in new), return_exceptions=True)
+    rates = await asyncio.gather(
+        *(
+            dollars_per_unit(None if isinstance(info, BaseException) else info.currency)
+            for info in found
+        )
+    )
     prices = {
-        symbol: None if isinstance(info, BaseException) else info.price
-        for symbol, info in zip(new, found, strict=True)
+        symbol: (
+            None
+            if isinstance(info, BaseException) or info.price is None or rate is None
+            else info.price * rate
+        )
+        for symbol, info, rate in zip(new, found, rates, strict=True)
     }
     plan = plan_trades(held, targets, prices, context.profile.cash_to_invest + cash_held)
     notes = list(plan.notes)

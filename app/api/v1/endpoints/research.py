@@ -253,7 +253,7 @@ def _peer_context(
             group=result.kind,
             group_name=result.name,
             peers=len(result.peers),
-            market_cap_rank=result.stock.market_cap_rank,
+            market_cap_rank=result.market_cap_rank,
             universe_size=result.universe_size,
             prices_as_of=result.prices_as_of,
             fundamentals_period_end=result.stock.fundamentals_period_end,

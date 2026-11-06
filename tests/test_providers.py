@@ -213,7 +213,8 @@ def test_eodhd_names_symbols_by_exchange() -> None:
     assert eodhd_symbol("BRK-B") == "BRK-B.US"
     assert eodhd_symbol("^GSPC") == "GSPC.INDX"
     assert eodhd_symbol("SHEL.L") == "SHEL.LSE"
-    assert eodhd_symbol("7203.T") == "7203.TSE"
+    assert eodhd_symbol("SAP.DE") == "SAP.XETRA"
+    assert eodhd_symbol("SAP.XETRA") == "SAP.XETRA"
     assert eodhd_symbol("EURUSD=X") == "EURUSD.FOREX"
 
 
@@ -376,9 +377,12 @@ def test_settings_lists_providers_in_the_servers_order() -> None:
         "quotes": ("quote", "us"),
         "profiles": ("info", "us"),
     }
-    assert set(shown) == set(kinds)
+    from app.data.funds import FUND_PROVIDERS
+
+    assert set(shown) == set(kinds) | {"funds"}
     for feature, kind in kinds.items():
         assert tuple(shown[feature]) == PROVIDER_ORDER[kind], feature
+    assert tuple(shown["funds"]) == FUND_PROVIDERS
 
 
 @pytest.mark.asyncio

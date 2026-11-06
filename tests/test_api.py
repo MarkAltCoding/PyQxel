@@ -564,6 +564,7 @@ ANALYZABLE = TickerInfo(symbol="AAPL", market_cap=4e12, source="t")
 
 PEER_GROUP = PeerGroup(
     stock=_screened("AAPL", 1, pe_ratio=30.0),
+    market_cap_rank=1,
     kind="industry",
     name="Consumer Electronics",
     peers=[_screened(f"P{i}", i + 2, pe_ratio=10.0 + 4 * i) for i in range(10)],

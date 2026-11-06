@@ -104,7 +104,16 @@ const GROUPS: { title: string; rows: Row[] }[] = [
 ]
 
 /** A company's key metrics and peers, from Finnhub's basic financials on the account's key. */
-export function MetricsCard({ symbol, currency }: { symbol: string; currency: string }) {
+export function MetricsCard({
+  symbol,
+  currency,
+  fund = false,
+}: {
+  symbol: string
+  currency: string
+  /** An ETF or mutual fund, to which a company's valuation and profitability do not apply. */
+  fund?: boolean
+}) {
   const metrics = useQuery({
     queryKey: ['metrics', symbol],
     queryFn: () => getMetrics(symbol),
@@ -137,13 +146,21 @@ export function MetricsCard({ symbol, currency }: { symbol: string; currency: st
           <div className="spinner" style={{ margin: '0 auto' }} />
         </div>
       ) : (
-        <MetricsBody data={data} currency={currency} />
+        <MetricsBody data={data} currency={currency} fund={fund} />
       )}
     </section>
   )
 }
 
-function MetricsBody({ data, currency }: { data: CompanyMetrics; currency: string }) {
+function MetricsBody({
+  data,
+  currency,
+  fund,
+}: {
+  data: CompanyMetrics
+  currency: string
+  fund: boolean
+}) {
   const m = data.metrics
   return (
     <div className="stack" style={{ gap: 16 }}>
@@ -177,24 +194,34 @@ function MetricsBody({ data, currency }: { data: CompanyMetrics; currency: strin
           detail="Shares a day, 3 months"
         />
       </div>
-      <div className="metrics-grid">
-        {GROUPS.map((group) => (
-          <div key={group.title}>
-            <h3>{group.title}</h3>
-            <dl className="metric-list">
-              {group.rows.map((row) => (
-                <div key={row.label}>
-                  <dt>
-                    {row.label}
-                    <InfoTip topic={row.info} />
-                  </dt>
-                  <dd>{row.value(m, currency)}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        ))}
-      </div>
+      {fund ? (
+        <p className="disclaimer heading-with-info">
+          <span>
+            Valuation, profitability and balance sheet figures describe a single company, so they do
+            not apply to a fund: its holdings and costs above take their place.
+          </span>
+          <InfoTip topic="notForFunds" />
+        </p>
+      ) : (
+        <div className="metrics-grid">
+          {GROUPS.map((group) => (
+            <div key={group.title}>
+              <h3>{group.title}</h3>
+              <dl className="metric-list">
+                {group.rows.map((row) => (
+                  <div key={row.label}>
+                    <dt>
+                      {row.label}
+                      <InfoTip topic={row.info} />
+                    </dt>
+                    <dd>{row.value(m, currency)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ))}
+        </div>
+      )}
       {data.peers.length > 0 && (
         <div>
           <h3>Peers</h3>

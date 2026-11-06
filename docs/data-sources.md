@@ -5,7 +5,10 @@ and in what order to try them. It was written to replace yfinance and Nasdaq's p
 screener feed, which are unlicensed, with licensed sources.
 
 Checked on **November 2, 2026**: every free plan was tested with a real free key, and
-paid plans were read from the providers' pricing pages where those could be read.
+paid plans were read from the providers' pricing pages where those could be read. ETFs,
+funds and listings abroad were tested again on **November 5, 2026** (VOO, QQQM, SPY,
+SAP.DE, VOD.L, 7203.T and ASML), with the yfinance fallback off; FMP could not be, since
+the free key had used its day's requests.
 Prices and coverage change, so recheck before relying on a figure, especially the ones
 marked _unverified_.
 
@@ -30,13 +33,13 @@ So PyQxel follows these rules:
 | Kind of data | Where PyQxel uses it | Source today |
 | --- | --- | --- |
 | Daily prices, US stocks | Charts, volatility, factors, backtests, portfolio models | yfinance when no key covers the symbol |
-| Daily prices, ETFs | Same | yfinance (FMP's free plan refuses most ETFs) |
-| Daily prices, mutual and money-market funds | Portfolio (e.g. VFIAX, SPAXX) | yfinance |
+| Daily prices, ETFs | Same | **Done:** Tiingo on the user's key (FMP's free plan refuses most ETFs) |
+| Daily prices, mutual and money-market funds | Portfolio (e.g. VFIAX, SPAXX) | **Done:** Tiingo on the user's key |
 | Daily index levels (e.g. ^GSPC) | Stock page, comparisons | yfinance |
-| Daily prices, international listings | Any non-US symbol | yfinance |
+| Daily prices, international listings | Any non-US symbol | **Done where a free plan lists the exchange:** EODHD (a year), then Alpha Vantage (100 days); see [Listings abroad](#listings-abroad) |
 | Intraday bars (1–90 min) | Stock page chart, intraday backtests | yfinance |
 | Quotes | Holdings, stock page | Finnhub (free plan, US); yfinance otherwise |
-| Company info: name, sector, industry, market cap, type | Stock page, portfolio sectors, cash detection | FMP or Finnhub where covered; yfinance otherwise |
+| Company info: name, sector, industry, market cap, type | Stock page, portfolio sectors, cash detection | FMP or Finnhub where covered; Tiingo's search says whether a listing is a stock, ETF, mutual fund or money-market fund; yfinance otherwise |
 | Exchange rates | Converting foreign filers' financials to dollars | **Done:** the European Central Bank's reference rates since November 2, 2026; the user's own keys for currencies the ECB does not publish |
 | Screener: market caps, sectors, industries | The nightly screener refresh | Nasdaq's public feed for the shared universe. **Done for each user's own screener** since November 3, 2026: Finnhub on their own key for market caps, and sectors and industries from each company's SEC industry (SIC) code |
 | Screener: about 13 months of daily prices per stock | Momentum, volatility, drawdown, factor betas | yfinance for the shared universe. **Done for each user's own screener:** their own price-history key, for as many stocks as its plan allows a night |
@@ -53,14 +56,17 @@ The cells below record what happened when each free key requested that kind of d
 | Daily, mutual fund | Refused | None | Last 100 days | **Yes** | Last 1 year |
 | Daily, money-market fund | Refused | None | Not tested | **Yes** | Last 1 year |
 | Daily, index (S&P 500 level) | Refused (quote only) | None | Premium | None (use an ETF such as SPY) | **Last 1 year** |
-| Daily, international | Refused | None | Last 100 days, unadjusted (e.g. SHEL.LON) | Chinese A-shares only | **Any exchange, last 1 year** |
+| Daily, international | Refused | None | Last 100 days, unadjusted, on its own suffixes (SAP.DEX, VOD.LON); none for Tokyo | Chinese A-shares only | **Last 1 year on the exchanges it lists** (SAP.XETRA, VOD.LSE); it lists none in Tokyo, Hong Kong or India |
 | Intraday bars | None | None | Premium | **5-minute bars from IEX** (IEX volume only) | None |
-| Quote, US | Large-cap sample | **Yes, real time** | End of day only | Yes (Tiingo's last price) | Yes, 15–20 min delayed |
-| Quote, international | Refused | None | Not tested | None | Delayed |
-| Company info, US | Sector, industry and market cap for the sample (ETFs included) | **Industry and market cap, any US stock** | Premium | Name for any US stock; sector, industry and market cap only for the Dow 30 | None (paid add-on) |
+| Quote, US | Large-cap sample | **Yes, real time** (ETFs and ADRs too: VOO, ASML) | End of day only | Yes (Tiingo's last price) | Yes, 15–20 min delayed |
+| Quote, international | Refused | Refused (SAP.DE) | Yes on its suffixes (SAP.DEX) | None | Delayed (VOD.LSE) |
+| Company info, US | Sector, industry and market cap for the sample (ETFs included) | **Industry and market cap, any US stock**; for an ADR, the home listing's (ASML.AS, in euros); nothing for ETFs | Premium | Name for any US stock, ETF or fund; **whether it is a stock, ETF or mutual fund** (its search); sector, industry and market cap only for the Dow 30 | Name, exchange, currency and type from its search (1 call); fundamentals refused |
+| Company info, international | Refused | Refused (SAP.DE) | Name and currency from its search | None | **Name, exchange, currency and type** from its search |
+| ETF and fund holdings and costs | Not tested | Refused (`etf/profile`) | **Yes (`ETF_PROFILE`): net assets, expense ratio, yield, turnover, inception, leverage, sectors and every holding** | Refused (mutual fund add-on) | Refused (fundamentals) |
+| List of every US ETF | Not tested | **Yes (`stock/symbol`): 6,626 exchange-traded products, 5,700 of them on US exchanges, in one request** | None | Its public ticker file | None |
 | Exchange rates | Quote only | None | **Current rate**, plus 100 days of history | **Daily history, 5+ years** | Last 1 year |
 | Screener: bulk market caps or sectors | Refused | One call per stock (see below) | None | None | None |
-| Screener: per-stock metrics | None | **Yes: market cap, P/E, P/S, beta, 13/26/52-week returns, 3-month return volatility, average volume, 52-week high and low, margins, ROE** | None | None | None |
+| Screener: per-stock metrics | None | **Yes: market cap, P/E, P/S, beta, 13/26/52-week returns, 3-month return volatility, average volume, 52-week high and low, margins, ROE**; for an ETF, the returns, volatility, beta, volume and 52-week range | None | None | None |
 
 **Free-plan limits:**
 
@@ -87,6 +93,47 @@ Checked against the providers' documentation on November 5, 2026:
 | Tiingo | Nothing: no usage endpoint or headers. Its account page shows usage. |
 | FMP | Not known: its documentation refuses automated reading. PyQxel counts its own requests. |
 | Alpha Vantage | Nothing: no usage endpoint or headers. |
+
+## Listings abroad
+
+A symbol abroad carries its exchange's Yahoo-style suffix (SAP.DE, VOD.L, 7203.T), and
+each provider names it its own way: EODHD as SAP.XETRA and VOD.LSE, Alpha Vantage as
+SAP.DEX and VOD.LON. PyQxel asks a provider only for the exchanges it lists
+(`app/data/fetcher.py: provider_covers`), so no request, nor any of a free plan's few, is
+spent on one that cannot answer:
+
+| Exchanges | EODHD | Alpha Vantage |
+| --- | --- | --- |
+| London, XETRA, Toronto, TSX Venture, Shanghai, Shenzhen | Yes | Yes |
+| Lisbon | Yes | Yes |
+| India (BSE) | No | Yes |
+| Frankfurt, Paris, Amsterdam, Brussels, Swiss, Madrid, Nordic, Dublin, Vienna, Warsaw, Prague, Athens, Budapest, Cboe Canada, Mexico, São Paulo, Buenos Aires, Santiago, Korea, Taiwan, Jakarta, Thailand, Malaysia, Australia, Johannesburg | Yes | No |
+| Tokyo, Hong Kong, India (NSE), Milan, Singapore, New Zealand, Istanbul, Tel Aviv, Saudi Arabia | No | No |
+
+EODHD's list is from its exchange list, read with the free key; Alpha Vantage's from its
+documentation and search (a free key quoted SAP.DEX and nothing for 7203.TYO). Prices
+abroad are in the exchange's currency, London's in pence (GBX); a portfolio converts them
+to dollars at the latest ECB reference rate.
+
+A depositary receipt such as ASML trades in the US, in dollars, so the US providers cover
+it. Finnhub's profile of one describes the home listing (ASML.AS, in euros), so PyQxel
+keeps its name and industry, prices it in dollars, and converts its market cap.
+
+## ETFs and funds
+
+- **Prices:** Tiingo's free plan covers US ETFs, mutual funds and money-market funds,
+  30+ years, adjusted. Its company profile has no price, so the snapshot takes the price
+  from the cheapest quote (Finnhub's free real-time quote covers ETFs).
+- **Kind:** Tiingo's search tells a stock from an ETF or a mutual fund, and its fund names
+  mark money-market funds, which the portfolio counts as cash.
+- **What a fund holds and costs:** Alpha Vantage's free `ETF_PROFILE` gives net assets,
+  expense ratio, yield, turnover, inception, leverage, sector weights and holdings. A
+  company's figures (market cap, sector, earnings, analyst ratings, insider trades) do not
+  apply to a fund, and the app says so instead of showing blanks.
+- **Screener:** each user's nightly refresh adds the ETFs on US exchanges from Finnhub's
+  free symbol list, with Finnhub's free basic financials for each (one request per ETF,
+  about two more hours a night at 50 a minute). Those that could clear the dollar volume
+  floor even at their 52-week high are kept and share the price histories with the stocks.
 
 ## Keeping each user's price history
 
@@ -137,13 +184,16 @@ and use the first one that covers the request. "Free" means the provider's free 
 | Daily, US stocks and ETFs | Tiingo (free) → FMP (free sample, or Starter) → EODHD (free 1 year, or Historian) → Alpha Vantage (free, 100 days unadjusted) | **Fully covered by a free Tiingo key**, within 500 symbols a month |
 | Daily, mutual and money-market funds | Tiingo (free) → EODHD (free 1 year, or Historian) → Alpha Vantage (free, 100 days) | **Covered by Tiingo** |
 | Daily, indices | EODHD (free 1 year, or Historian) → FMP (Starter or above) | **One year only.** For longer history, use an ETF that tracks the index (SPY for the S&P 500) through Tiingo |
-| Daily, international | EODHD (free 1 year, or Historian $19.99) → Alpha Vantage (free, 100 days unadjusted) → FMP Premium or Ultimate | **One year, at 20 requests a day.** Full history needs EODHD Historian |
+| Daily, international | EODHD (free 1 year, or Historian $19.99) → Alpha Vantage (free, 100 days unadjusted) → FMP Premium or Ultimate → Finnhub (paid), each only for the exchanges it lists | **One year, at 20 requests a day,** on EODHD's exchanges. Full history needs EODHD Historian. Tokyo, Hong Kong, India (NSE), Milan and Singapore have no free source |
 | Intraday bars | Tiingo IEX (free) → EODHD Active trader ($29.99) → Alpha Vantage premium | **5-minute bars from Tiingo** (IEX's volume only). Other bar sizes and full volume need a paid key |
 | Quotes, US | Finnhub (free, real time) → Tiingo (free) → FMP (free sample) → EODHD (free, delayed) → Alpha Vantage (free, end of day) | **Covered** |
-| Quotes, international | EODHD (free, delayed; Historian for volume) | 20 requests a day |
+| Quotes, international | EODHD (free, delayed; Historian for volume) → FMP (paid) → Alpha Vantage (free, on its exchanges) → Finnhub (paid) | 20 requests a day, then 25 |
+| Kind of listing: stock, ETF, mutual or money-market fund | FMP profile flags (free sample) → Tiingo search (free, any US listing; reused for a week) → EODHD search (free) | **Covered** |
+| ETF and fund holdings and costs | Alpha Vantage `ETF_PROFILE` (free; reused for a day) | **Covered, at one of Alpha Vantage's 25 requests a day per fund** |
+| Screener: the US ETFs and their metrics | Each user's own Finnhub key (symbol list, then basic financials per ETF) | **Covered for that user** |
 | Company info, US: name, sector, industry | FMP profile (free sample) → Finnhub profile (free: industry, any US stock) → Tiingo meta (free: the Dow 30's sectors) → EODHD Fundamentals ($59.99) | **Name and industry covered**; a sector name for most stocks needs FMP's sample or a paid key |
 | Market cap, US | Finnhub (free) → FMP (free sample) | **Covered** |
-| Company info, international | EODHD Fundamentals ($59.99) → FMP Premium | No free source |
+| Company info, international | FMP (paid) → EODHD (Fundamentals $59.99 for sector and market cap; free search for name, currency and type) → Alpha Vantage (free search) → Finnhub (paid) | **Name, exchange and currency covered**; sector and market cap need a paid key |
 | Exchange rates | ECB reference rates (public) → Tiingo FX (free) → Alpha Vantage (free) | **Covered, with no key at all** |
 | Screener: listings, sectors, financials | SEC EDGAR (public), shared by every account | **Covered** |
 | Screener: market cap, P/E, returns, beta, volatility, volume | Each user's own Finnhub key (basic financials, 1 request per stock, about 70 minutes for 4,000 stocks) | **Covered for that user** |
@@ -155,6 +205,7 @@ and use the first one that covers the request. "Free" means the provider's free 
 | --- | --- |
 | Index history beyond a year | EODHD Historian ($19.99). An index ETF on Tiingo is a free stand-in. |
 | International prices beyond a year or 100 days, and international company info | EODHD Historian ($19.99) for prices; EODHD Fundamentals ($59.99) for company info |
+| Any price in Tokyo, Hong Kong, India (NSE), Milan, Singapore, New Zealand, Istanbul, Tel Aviv or Saudi Arabia | FMP Ultimate (about $139) or a Finnhub global plan; EODHD lists none of these exchanges on any plan. Free stand-in: the company's US listing, which Tiingo prices (Toyota's TM for 7203.T); PyQxel names it when it cannot price the listing abroad |
 | Intraday bars other than Tiingo's 5-minute IEX bars, and full-market intraday volume | EODHD Active trader ($29.99) |
 | Daily prices for the whole screened universe | EODHD Historian ($19.99) |
 | Daily market caps for stocks outside the Dow 30 | Finnhub's free per-stock metrics give today's market cap; history needs a paid key |
@@ -188,8 +239,12 @@ and use the first one that covers the request. "Free" means the provider's free 
 
 ## Sources
 
-- **Free-plan results:** tested with real free keys on November 2, 2026. The request
-  script is not kept in the repository.
+- **Free-plan results:** tested with real free keys on November 2, 2026, and for ETFs,
+  funds and listings abroad on November 5, 2026. The request scripts are not kept in the
+  repository.
+- **EODHD's exchanges:** its `exchanges-list` endpoint, read with the free key.
+- **Alpha Vantage:** [documentation](https://www.alphavantage.co/documentation/) for its
+  exchange suffixes and `ETF_PROFILE`.
 - **EODHD:** [pricing](https://eodhd.com/pricing),
   [commercial pricing](https://eodhd.com/commercial-pricing),
   [personal vs commercial use](https://eodhd.com/financial-apis/commercial-vs-personal-license-use),

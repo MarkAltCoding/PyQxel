@@ -103,6 +103,7 @@ export type SignInProvider = Schemas['SignInProvider']
 export type SimulationRequest = Schemas['SimulationRequest']
 export type SimulationResponse = Schemas['SimulationResponse']
 export type TickerInfo = Schemas['TickerInfo']
+export type FundProfile = Schemas['FundProfile']
 export type UniverseStatus = Schemas['UniverseStatus']
 export type VolatilityEstimate = Schemas['VolatilityEstimate']
 

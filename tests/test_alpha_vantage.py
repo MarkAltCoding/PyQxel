@@ -397,7 +397,8 @@ async def test_complete_info_costs_no_alpha_vantage_request(
 ) -> None:
     use_provider_keys(ProviderKeys(fmp=SecretStr("fmp-key"), alpha_vantage=SecretStr(KEY)))
     profile = [{"companyName": "Acme", "currency": "USD", "exchange": "NYSE",
-                "sector": "Technology", "industry": "Software", "marketCap": 4e9}]  # fmt: skip
+                "sector": "Technology", "industry": "Software", "marketCap": 4e9,
+                "price": 20.0}]  # fmt: skip
     requests = _serve(monkeypatch, lambda params: profile)
 
     info = await fetcher.fetch_ticker_info("ACME")

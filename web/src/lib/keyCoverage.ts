@@ -94,13 +94,13 @@ export const DATA_FEATURES: DataFeature[] = [
     steps: [
       {
         provider: 'eodhd',
-        free: 'the last year on every exchange, 20 requests a day',
+        free: 'the last year in Europe, Canada, Latin America, Korea, Taiwan, China, Australia and South Africa (not Tokyo, Hong Kong, India, Milan or Singapore), 20 requests a day',
         freeIsFull: false,
-        paid: 'Historian ($19.99 a month): 30+ years worldwide',
+        paid: 'Historian ($19.99 a month): 30+ years on the same exchanges',
       },
       {
         provider: 'alpha_vantage',
-        free: 'the latest 100 days, not adjusted',
+        free: 'the latest 100 days, not adjusted, for London, XETRA, Lisbon, Toronto, India (BSE), Shanghai and Shenzhen',
         freeIsFull: false,
         paid: 'Premium (from $49.99 a month): full adjusted history',
       },
@@ -181,7 +181,7 @@ export const DATA_FEATURES: DataFeature[] = [
       },
       {
         provider: 'tiingo',
-        free: 'names for any US stock; sectors for the Dow 30',
+        free: 'names for any US stock, ETF or fund, and which of the three it is; sectors for the Dow 30',
         freeIsFull: false,
       },
       {
@@ -195,6 +195,17 @@ export const DATA_FEATURES: DataFeature[] = [
         free: null,
         freeIsFull: false,
         paid: 'Fundamentals ($59.99 a month): worldwide',
+      },
+    ],
+  },
+  {
+    id: 'funds',
+    name: 'Fund holdings and costs: expense ratio, net assets, sectors and top holdings',
+    steps: [
+      {
+        provider: 'alpha_vantage',
+        free: 'ETFs and funds, one of its 25 requests a day each, kept for a day',
+        freeIsFull: true,
       },
     ],
   },

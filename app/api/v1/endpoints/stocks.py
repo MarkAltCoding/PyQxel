@@ -7,6 +7,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Path, Query, status
 
 from app.data.cash import is_money_market, money_market_message
+from app.data.funds import fetch_fund_profile
 from app.data.fetcher import (
     HISTORY_NOTICE,
     HISTORY_SHORTFALL,
@@ -24,6 +25,7 @@ from app.data.fetcher import (
 )
 from app.models.stock import (
     SYMBOL_PATTERN,
+    FundProfile,
     HistoryCoverage,
     HistoryInterval,
     HistoryPeriod,
@@ -214,6 +216,22 @@ async def get_ticker_info(symbol: Symbol) -> TickerInfo:
     """Return descriptive and pricing information for ``symbol``."""
     try:
         return await fetch_ticker_info(symbol)
+    except DataFetchError as exc:
+        raise upstream_error(exc) from exc
+
+
+@router.get("/{symbol}/fund", response_model=FundProfile, summary="A fund's holdings and costs")
+async def get_fund_profile(symbol: Symbol) -> FundProfile:
+    """Return what the ETF or mutual fund ``symbol`` holds and costs: its net assets,
+    expense ratio, yield, turnover, sectors and largest holdings, from Alpha Vantage on
+    your key.
+
+    Returns 403 without an Alpha Vantage key, 404 when it has no fund profile for
+    ``symbol`` (as for a stock), and 502 when Alpha Vantage fails or its daily limit is
+    reached.
+    """
+    try:
+        return await fetch_fund_profile(symbol)
     except DataFetchError as exc:
         raise upstream_error(exc) from exc
 
