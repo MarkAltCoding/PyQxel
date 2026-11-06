@@ -130,7 +130,7 @@ export interface paths {
      *     address has none. The answer is the same either way.
      *
      *     Returns 404 when this server cannot send email, 422 for something that is not an
-     *     email address, 429 beyond five links an hour from one client, three to one address,
+     *     email address, 429 beyond 20 links an hour from one client, three to one address,
      *     or the server's daily number, and 503 when accounts are unavailable.
      */
     post: operations['send_password_link_api_v1_auth_password_link_post']
@@ -182,7 +182,7 @@ export interface paths {
      *
      *     Returns 401 when the email and password do not match an account (the same for an
      *     unknown address), 404 when this server does not offer password sign-in, 429 beyond
-     *     ten attempts a minute from one client, ten in 15 minutes at one account or the
+     *     30 attempts a minute from one client, ten in 15 minutes at one account or the
      *     server's limit, and 503 when accounts are unavailable.
      */
     post: operations['sign_in_with_password_api_v1_auth_password_sign_in_post']

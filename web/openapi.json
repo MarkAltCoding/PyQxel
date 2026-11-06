@@ -13228,7 +13228,7 @@
     },
     "/api/v1/auth/password/link": {
       "post": {
-        "description": "Email ``email`` a link to choose a password, which makes the account if the\naddress has none. The answer is the same either way.\n\nReturns 404 when this server cannot send email, 422 for something that is not an\nemail address, 429 beyond five links an hour from one client, three to one address,\nor the server's daily number, and 503 when accounts are unavailable.",
+        "description": "Email ``email`` a link to choose a password, which makes the account if the\naddress has none. The answer is the same either way.\n\nReturns 404 when this server cannot send email, 422 for something that is not an\nemail address, 429 beyond 20 links an hour from one client, three to one address,\nor the server's daily number, and 503 when accounts are unavailable.",
         "operationId": "send_password_link_api_v1_auth_password_link_post",
         "requestBody": {
           "content": {
@@ -13312,7 +13312,7 @@
     },
     "/api/v1/auth/password/sign-in": {
       "post": {
-        "description": "Sign in with an email and password and get an API key, which expires after\n``SIGN_IN_KEY_DAYS`` and is revoked by signing out.\n\nReturns 401 when the email and password do not match an account (the same for an\nunknown address), 404 when this server does not offer password sign-in, 429 beyond\nten attempts a minute from one client, ten in 15 minutes at one account or the\nserver's limit, and 503 when accounts are unavailable.",
+        "description": "Sign in with an email and password and get an API key, which expires after\n``SIGN_IN_KEY_DAYS`` and is revoked by signing out.\n\nReturns 401 when the email and password do not match an account (the same for an\nunknown address), 404 when this server does not offer password sign-in, 429 beyond\n30 attempts a minute from one client, ten in 15 minutes at one account or the\nserver's limit, and 503 when accounts are unavailable.",
         "operationId": "sign_in_with_password_api_v1_auth_password_sign_in_post",
         "requestBody": {
           "content": {

@@ -55,16 +55,19 @@ EMAIL_PATTERN = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 the link, not by its form."""
 
 HOUR = 60 * 60.0
-ATTEMPTS_PER_ADDRESS: int = 10
-"""Password sign-ins one client address may try a minute."""
+ATTEMPTS_PER_ADDRESS: int = 30
+"""Password sign-ins one client address may try a minute. Generous, since many people can
+share one address (a campus, an office, or a phone carrier's network); the limit per
+account is what stops guessing one person's password."""
 ATTEMPTS_PER_ACCOUNT: int = 10
 """Password sign-ins one email address may be tried with in ``ACCOUNT_WINDOW_SECONDS``,
 from any number of client addresses."""
 ACCOUNT_WINDOW_SECONDS: float = 15 * 60.0
 ATTEMPTS_PER_SERVER: int = 300
 """Password sign-ins the whole server takes a minute."""
-LINKS_PER_ADDRESS: int = 5
-"""Links one client address may ask for an hour."""
+LINKS_PER_ADDRESS: int = 20
+"""Links one client address may ask for an hour, enough for a class or an office signing up
+together from one shared address."""
 LINKS_PER_EMAIL: int = 3
 """Links one email address may be sent an hour, so nobody can flood someone's inbox."""
 LINKS_PER_DAY: int = 90
@@ -252,7 +255,7 @@ async def send_password_link(
     address has none. The answer is the same either way.
 
     Returns 404 when this server cannot send email, 422 for something that is not an
-    email address, 429 beyond five links an hour from one client, three to one address,
+    email address, 429 beyond 20 links an hour from one client, three to one address,
     or the server's daily number, and 503 when accounts are unavailable.
     """
     sender, site = _sender()
@@ -355,7 +358,7 @@ async def sign_in_with_password(
 
     Returns 401 when the email and password do not match an account (the same for an
     unknown address), 404 when this server does not offer password sign-in, 429 beyond
-    ten attempts a minute from one client, ten in 15 minutes at one account or the
+    30 attempts a minute from one client, ten in 15 minutes at one account or the
     server's limit, and 503 when accounts are unavailable.
     """
     _sender()
