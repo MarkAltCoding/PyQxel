@@ -6,6 +6,7 @@ port 25), or, in development, to the server's log. Without either, signing in wi
 email and password is not offered.
 """
 
+import asyncio
 import logging
 import sys
 from dataclasses import dataclass
@@ -20,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 RESEND_URL = "https://api.resend.com/emails"
 HTTP_TIMEOUT_SECONDS = 10.0
+SEND_ATTEMPTS = 3
+"""Tries at sending one email: the first, and two retries after a network error, a reached
+rate limit (429), or a fault on Resend's side (5xx). Other refusals are not retried."""
+RETRY_WAIT_SECONDS = 2.0
+"""Wait before the first retry, doubled for the next, unless Resend's ``Retry-After`` says."""
 DEVELOPMENT_URL = "http://localhost:5173"
 """Where emailed links point in development, without ``PUBLIC_URL``: the Vite server."""
 
@@ -36,6 +42,9 @@ class Email:
     subject: str
     text: str
     html: str
+    idempotency_key: str | None = None
+    """Names this one email, so a retry of its send cannot deliver it twice. Resend keeps
+    keys for a day."""
 
 
 class EmailSender(Protocol):
@@ -58,26 +67,47 @@ class ResendSender:
     sender: str
 
     async def send(self, email: Email) -> None:
-        """Post ``email`` to Resend; raise :class:`EmailError` if it is refused."""
-        try:
-            async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
-                response = await client.post(
-                    RESEND_URL,
-                    headers={"Authorization": f"Bearer {self.api_key.get_secret_value()}"},
-                    json={
-                        "from": self.sender,
-                        "to": [email.to],
-                        "subject": email.subject,
-                        "text": email.text,
-                        "html": email.html,
-                    },
-                )
-        except httpx2.HTTPError as exc:
-            raise EmailError(f"Resend could not be reached: {exc}") from exc
-        if response.status_code >= 400:
+        """Post ``email`` to Resend, retrying network errors, rate limits, and Resend's own
+        faults a couple of times; raise :class:`EmailError` if it is not accepted."""
+        headers = {"Authorization": f"Bearer {self.api_key.get_secret_value()}"}
+        if email.idempotency_key:
+            headers["Idempotency-Key"] = email.idempotency_key
+        body = {
+            "from": self.sender,
+            "to": [email.to],
+            "subject": email.subject,
+            "text": email.text,
+            "html": email.html,
+        }
+        wait = RETRY_WAIT_SECONDS
+        for attempt in range(1, SEND_ATTEMPTS + 1):
+            last = attempt == SEND_ATTEMPTS
+            try:
+                async with httpx2.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
+                    response = await client.post(RESEND_URL, headers=headers, json=body)
+            except httpx2.HTTPError as exc:
+                if last:
+                    raise EmailError(f"Resend could not be reached: {exc}") from exc
+                await asyncio.sleep(wait)
+                wait *= 2
+                continue
+            if response.status_code < 400:
+                return
+            if (response.status_code == 429 or response.status_code >= 500) and not last:
+                await asyncio.sleep(_retry_after(response) or wait)
+                wait *= 2
+                continue
             # The body names the problem (an unverified domain, a reached limit), never
             # the message, so it is safe to log.
             raise EmailError(f"Resend refused the email ({response.status_code}): {response.text}")
+
+
+def _retry_after(response: httpx2.Response) -> float | None:
+    """The seconds Resend's ``Retry-After`` header asks for, if it gives a number."""
+    try:
+        return max(0.0, float(response.headers.get("retry-after", "")))
+    except ValueError:
+        return None
 
 
 @dataclass(frozen=True)

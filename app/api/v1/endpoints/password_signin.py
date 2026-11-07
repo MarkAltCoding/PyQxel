@@ -15,6 +15,7 @@ Attempts are limited per client address, per email address, and for the whole se
 so guessing one account's password from many addresses is as slow as from one.
 """
 
+import hashlib
 import html
 import logging
 import re
@@ -218,7 +219,9 @@ def link_email(to: str, url: str, link: EmailLink) -> Email:
         f"<p>Or open this address: {safe_url}</p>"
         f'<p style="color:#52514e">{html.escape(ignore)}</p><p>PyQxel</p>'
     )
-    return Email(to=to, subject=subject, text=text, html=body)
+    # Named by the link, without the token itself, so retrying the send cannot mail it twice.
+    key = hashlib.sha256(url.encode()).hexdigest()
+    return Email(to=to, subject=subject, text=text, html=body, idempotency_key=f"link-{key}")
 
 
 async def _send(sender: EmailSender, email: Email) -> None:

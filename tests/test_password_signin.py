@@ -470,3 +470,79 @@ def test_a_refused_password_is_never_sent_back(client: TestClient, mail: FakeSen
     response = _sign_in(client, "echo@example.com", secret)
     assert response.status_code == 422
     assert "my secret password" not in response.text
+
+
+def _resend(monkeypatch: pytest.MonkeyPatch, answers: list[Any]) -> list[Any]:
+    """Answer Resend's API with ``answers`` in turn (a status, or an exception to raise),
+    without waiting between retries; return the requests it got."""
+    import httpx2
+
+    requests: list[Any] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        answer = answers[len(requests) - 1]
+        if isinstance(answer, Exception):
+            raise answer
+        return httpx2.Response(answer, json={"id": "email-1"}, headers={"retry-after": "0"})
+
+    transport = httpx2.MockTransport(handler)
+    real_client = httpx2.AsyncClient
+    monkeypatch.setattr(
+        "app.core.email.httpx2.AsyncClient", lambda **kwargs: real_client(transport=transport)
+    )
+
+    async def no_wait(seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("app.core.email.asyncio.sleep", no_wait)
+    return requests
+
+
+def _message() -> Email:
+    link = EmailLink(token="t", has_account=False, has_password=False)
+    return password_signin.link_email("a@b.example", f"{SITE}/signin/password#token=abc", link)
+
+
+def test_resend_gets_an_idempotency_key_and_never_the_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.email import ResendSender
+
+    requests = _resend(monkeypatch, [200])
+    asyncio.run(ResendSender(SecretStr("re_x"), "PyQxel <a@b.example>").send(_message()))
+
+    key = requests[0].headers["Idempotency-Key"]
+    assert key.startswith("link-") and "abc" not in key
+    assert requests[0].headers["Authorization"] == "Bearer re_x"
+
+
+def test_resend_is_retried_on_limits_and_faults_with_the_same_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.email import ResendSender
+
+    requests = _resend(monkeypatch, [429, 503, 200])
+    asyncio.run(ResendSender(SecretStr("re_x"), "PyQxel <a@b.example>").send(_message()))
+
+    assert len(requests) == 3
+    assert len({request.headers["Idempotency-Key"] for request in requests}) == 1
+
+
+def test_resend_refusals_are_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A refusal such as an unverified domain (403) will not change on a retry."""
+    from app.core.email import EmailError, ResendSender
+
+    requests = _resend(monkeypatch, [403])
+    with pytest.raises(EmailError, match="403"):
+        asyncio.run(ResendSender(SecretStr("re_x"), "PyQxel <a@b.example>").send(_message()))
+    assert len(requests) == 1
+
+
+def test_resend_retries_give_up_after_three_tries(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.email import EmailError, ResendSender
+
+    requests = _resend(monkeypatch, [500, 500, 500, 500])
+    with pytest.raises(EmailError, match="500"):
+        asyncio.run(ResendSender(SecretStr("re_x"), "PyQxel <a@b.example>").send(_message()))
+    assert len(requests) == 3
