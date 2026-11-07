@@ -1,15 +1,22 @@
 """Sending the emails that sign people in: a link to choose a password, which also proves
 the address is theirs.
 
-Emails go through Resend's HTTP API, which Cloud Run can reach (it blocks outgoing mail on
-port 25), or, in development, to the server's log. Without either, signing in with an
-email and password is not offered.
+Emails go through a mail server with STARTTLS on port 587, which Cloud Run can reach (it
+blocks only port 25): in use, Gmail's, signed in to PyQxel's own Gmail account with an
+app password, which is free and sends up to about 500 emails a day. Resend's HTTP API is
+built in too but not in use, since it needs a domain of PyQxel's own, which costs money.
+In development, emails go to the server's output instead. With none of these set up,
+signing in with an email and password is not offered.
 """
 
 import asyncio
 import logging
+import smtplib
+import ssl
 import sys
 from dataclasses import dataclass
+from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 from typing import Protocol
 
 import httpx2
@@ -60,8 +67,70 @@ class EmailSender(Protocol):
 
 
 @dataclass(frozen=True)
+class SmtpSender:
+    """Sends through a mail server with STARTTLS, such as Gmail's with an app password.
+
+    Network faults and temporary refusals (codes 4xx) are retried twice with growing
+    waits; a refused sign-in or a permanent refusal (5xx) is not, since trying again
+    would not change it.
+    """
+
+    host: str
+    port: int
+    username: str
+    password: SecretStr
+    sender: str
+
+    async def send(self, email: Email) -> None:
+        """Deliver ``email``; raise :class:`EmailError` if the server does not accept it."""
+        message = _message(email, self.sender)
+        wait = RETRY_WAIT_SECONDS
+        for attempt in range(1, SEND_ATTEMPTS + 1):
+            last = attempt == SEND_ATTEMPTS
+            try:
+                await asyncio.to_thread(self._deliver, message)
+                return
+            except smtplib.SMTPAuthenticationError as exc:
+                raise EmailError(
+                    f"{self.host} refused PyQxel's sign-in ({exc.smtp_code}): check "
+                    "SMTP_USERNAME and SMTP_PASSWORD (for Gmail, an app password)."
+                ) from exc
+            except smtplib.SMTPResponseException as exc:
+                if not 400 <= exc.smtp_code < 500 or last:
+                    raise EmailError(f"{self.host} refused the email ({exc.smtp_code}).") from exc
+            except (smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError, OSError) as exc:
+                if last:
+                    raise EmailError(f"{self.host} could not be reached: {exc}") from exc
+            except smtplib.SMTPException as exc:
+                raise EmailError(f"{self.host} refused the email: {exc}") from exc
+            await asyncio.sleep(wait)
+            wait *= 2
+
+    def _deliver(self, message: EmailMessage) -> None:
+        """Connect, switch to TLS (checking the server's certificate), sign in, and send."""
+        with smtplib.SMTP(self.host, self.port, timeout=HTTP_TIMEOUT_SECONDS) as server:
+            server.starttls(context=ssl.create_default_context())
+            server.login(self.username, self.password.get_secret_value())
+            server.send_message(message)
+
+
+def _message(email: Email, sender: str) -> EmailMessage:
+    """``email`` as a message with plain text and HTML versions of the same content."""
+    message = EmailMessage()
+    message["From"] = sender
+    message["To"] = email.to
+    message["Subject"] = email.subject
+    message["Date"] = formatdate(localtime=False)
+    message["Message-ID"] = make_msgid(domain="pyqxel")
+    message.set_content(email.text)
+    message.add_alternative(email.html, subtype="html")
+    return message
+
+
+@dataclass(frozen=True)
 class ResendSender:
-    """Sends through Resend, from an address on a domain verified there."""
+    """Sends through Resend, from an address on a domain verified there. Built but not in
+    use: Resend needs a domain of PyQxel's own."""
 
     api_key: SecretStr
     sender: str
@@ -128,6 +197,20 @@ def email_sender(settings: Settings) -> EmailSender | None:
     """How this server sends sign-in emails, or ``None`` when it cannot."""
     if settings.email_to_console:
         return ConsoleSender()
+    if (
+        settings.smtp_host
+        and settings.smtp_username
+        and settings.smtp_password
+        and settings.email_from
+        and settings.public_url
+    ):
+        return SmtpSender(
+            settings.smtp_host,
+            settings.smtp_port,
+            settings.smtp_username,
+            settings.smtp_password,
+            settings.email_from,
+        )
     if settings.resend_api_key and settings.email_from and settings.public_url:
         return ResendSender(settings.resend_api_key, settings.email_from)
     return None

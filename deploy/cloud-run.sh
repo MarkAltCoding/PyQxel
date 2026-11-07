@@ -34,8 +34,13 @@
 #                             pyqxel-github-client-secret secret; kept when unset
 #   GOOGLE_CLIENT_ID          the Google OAuth client people sign in with, beside the
 #                             pyqxel-google-client-secret secret; kept when unset
-#   EMAIL_FROM                who sign-in emails come from, on a domain verified with
-#                             Resend, beside the pyqxel-resend-api-key secret; kept when unset
+#   SMTP_HOST, SMTP_USERNAME  the mail server and account that send sign-in emails, such
+#                             as smtp.gmail.com and pyqxel.app@gmail.com, beside the
+#                             pyqxel-smtp-password secret (a Gmail app password); kept
+#                             when unset
+#   EMAIL_FROM                who sign-in emails come from: the Gmail account, or an
+#                             address on a domain verified with Resend (built, not in
+#                             use; the pyqxel-resend-api-key secret); kept when unset
 #   PUBLIC_URL                the website's address, which emailed sign-in links point
 #                             to; kept when unset
 
@@ -56,6 +61,8 @@ GITHUB_CLIENT_ID="${GITHUB_CLIENT_ID:-}"
 GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 EMAIL_FROM="${EMAIL_FROM:-}"
+SMTP_HOST="${SMTP_HOST:-}"
+SMTP_USERNAME="${SMTP_USERNAME:-}"
 PUBLIC_URL="${PUBLIC_URL:-}"
 
 REPOSITORY="$SERVICE"
@@ -68,8 +75,10 @@ IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$(git rev-parse -
 # Secret Manager name -> environment variable. The first is required; the first two go to
 # the screener job too, and the sign-in clients' secrets to the service only.
 SECRET_NAMES=(pyqxel-database-url pyqxel-redis-url
-    pyqxel-github-client-secret pyqxel-google-client-secret pyqxel-resend-api-key)
-SECRET_VARIABLES=(DATABASE_URL REDIS_URL GITHUB_CLIENT_SECRET GOOGLE_CLIENT_SECRET RESEND_API_KEY)
+    pyqxel-github-client-secret pyqxel-google-client-secret pyqxel-smtp-password
+    pyqxel-resend-api-key)
+SECRET_VARIABLES=(DATABASE_URL REDIS_URL GITHUB_CLIENT_SECRET GOOGLE_CLIENT_SECRET SMTP_PASSWORD
+    RESEND_API_KEY)
 # The screener's licensed FMP key, given to the screener job only, never to the service.
 SCREENER_SECRET=pyqxel-screener-fmp-key
 # The key that encrypts the provider keys of users who opt in to the nightly refresh,
@@ -89,7 +98,7 @@ env = json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0].get("env
 print(next((e.get("value", "") for e in env if e["name"] == sys.argv[1]), ""))
 ' "$1" 2>/dev/null || true
 }
-for name in YFINANCE_FALLBACK GITHUB_CLIENT_ID GOOGLE_CLIENT_ID ADMIN_EMAIL EMAIL_FROM PUBLIC_URL; do
+for name in YFINANCE_FALLBACK GITHUB_CLIENT_ID GOOGLE_CLIENT_ID ADMIN_EMAIL EMAIL_FROM PUBLIC_URL SMTP_HOST SMTP_USERNAME; do
     if [[ -z "${!name}" ]]; then
         value="$(running_env "$name")"
         if [[ -n "$value" ]]; then
@@ -117,8 +126,10 @@ for i in "${!SECRET_NAMES[@]}"; do
         exit 1
     elif [[ $i -eq 1 ]]; then
         echo "No $name secret: running without Redis, so each instance keeps its own caches and rate limits."
+    elif [[ $name == *smtp* ]]; then
+        echo "No $name secret: no sign-in emails are sent through Gmail, so signing in with an email and password is off; see README.md."
     elif [[ $name == *resend* ]]; then
-        echo "No $name secret: signing in with an email and password is off; see README.md."
+        : # Resend is built but not in use; Gmail sends the emails.
     else
         provider="GitHub"
         if [[ $name == *google* ]]; then provider="Google"; fi
@@ -217,7 +228,7 @@ env_vars="^|^YFINANCE_FALLBACK=$YFINANCE_FALLBACK|DATABASE_PGBOUNCER=true|SEC_US
 if [[ -n "$CORS_ORIGINS" ]]; then
     env_vars+="|CORS_ORIGINS=$CORS_ORIGINS"
 fi
-for name in GITHUB_CLIENT_ID GOOGLE_CLIENT_ID ADMIN_EMAIL EMAIL_FROM PUBLIC_URL; do
+for name in GITHUB_CLIENT_ID GOOGLE_CLIENT_ID ADMIN_EMAIL EMAIL_FROM PUBLIC_URL SMTP_HOST SMTP_USERNAME; do
     if [[ -n "${!name}" ]]; then env_vars+="|$name=${!name}"; fi
 done
 

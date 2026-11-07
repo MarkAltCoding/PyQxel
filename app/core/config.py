@@ -101,16 +101,35 @@ class Settings(BaseSettings):
         "request's Host header is the sender's to write and would let them point a link "
         "carrying someone's sign-in token at their own site.",
     )
+    smtp_host: str | None = Field(
+        default=None,
+        description="Mail server that sends sign-in emails, such as smtp.gmail.com, reached "
+        "with STARTTLS on ``smtp_port``. Signing in with an email and password is offered "
+        "when it, ``smtp_username``, ``smtp_password``, ``email_from``, and ``public_url`` "
+        "are set (or Resend's key instead), or when ``email_to_console`` is on.",
+    )
+    smtp_port: int = Field(default=587, ge=1, le=65535, description="The mail server's port.")
+    smtp_username: str | None = Field(
+        default=None,
+        description="The account that signs in to the mail server, such as "
+        "pyqxel.app@gmail.com.",
+    )
+    smtp_password: SecretStr | None = Field(
+        default=None,
+        description="Its password; for Gmail, an app password made for PyQxel, never the "
+        "account's own password.",
+    )
     resend_api_key: SecretStr | None = Field(
         default=None,
-        description="Key of the Resend account that sends sign-in emails. Signing in with an "
-        "email and password is offered when it, ``email_from`` and ``public_url`` are set, "
-        "or when ``email_to_console`` is on.",
+        description="Key of a Resend account to send sign-in emails through instead of a "
+        "mail server. Built but not in use: Resend needs a domain of your own, which costs "
+        "money. Used when it, ``email_from``, and ``public_url`` are set.",
     )
     email_from: str | None = Field(
         default=None,
-        description="Who sign-in emails come from, such as 'PyQxel <signin@pyqxel.example>', "
-        "on a domain verified with Resend.",
+        description="Who sign-in emails come from, such as 'PyQxel <pyqxel.app@gmail.com>'; "
+        "with Gmail, the account in ``smtp_username``, since Gmail sends only as it; with "
+        "Resend, an address on a domain verified there.",
     )
     email_to_console: bool = Field(
         default=False,

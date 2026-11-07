@@ -46,8 +46,8 @@ export function PrivacyPage() {
             proven before it is used: PyQxel emails you a link, and only when you open it and choose
             a password is your account made, or the password added to the account already using that
             address. PyQxel keeps a hash of the link’s code until it is used, replaced, or an hour
-            has passed. The emails are sent through Resend, which sees your address and the email;
-            PyQxel sends no other email and no newsletters.
+            has passed. The emails come from PyQxel’s Gmail account, pyqxel.app@gmail.com, so Google
+            handles them; PyQxel sends no other email and no newsletters.
           </p>
           <p>
             Signing in gives your browser a PyQxel API key that works for 30 days, and PyQxel stores
@@ -120,7 +120,7 @@ export function PrivacyPage() {
           <ul>
             <li>
               PyQxel runs on Google Cloud, keeps its database at Neon and its cache at Upstash, and
-              sends sign-in emails through Resend.
+              sends sign-in emails through Gmail.
             </li>
             <li>
               The symbols you look up are sent to market data providers with your own keys: Tiingo,

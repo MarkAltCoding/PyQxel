@@ -72,7 +72,8 @@ together from one shared address."""
 LINKS_PER_EMAIL: int = 3
 """Links one email address may be sent an hour, so nobody can flood someone's inbox."""
 LINKS_PER_DAY: int = 90
-"""Links the whole server sends a day, under the 100 a day of Resend's free plan."""
+"""Links the whole server sends a day, well under the roughly 500 a day Gmail allows an
+account (and the 100 a day of Resend's free plan, were it used)."""
 
 
 class PasswordSignInInfo(BaseModel):

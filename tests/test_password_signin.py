@@ -7,6 +7,7 @@ included, is the app's own.
 """
 
 import asyncio
+import smtplib
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -546,3 +547,125 @@ def test_resend_retries_give_up_after_three_tries(monkeypatch: pytest.MonkeyPatc
     with pytest.raises(EmailError, match="500"):
         asyncio.run(ResendSender(SecretStr("re_x"), "PyQxel <a@b.example>").send(_message()))
     assert len(requests) == 3
+
+
+class FakeMailServer:
+    """Stands in for smtplib.SMTP: records each connection, and answers each delivery
+    with the next of ``outcomes`` (None to accept, or an exception to raise)."""
+
+    outcomes: list[Exception | None] = []
+    sessions: list[dict[str, Any]] = []
+
+    def __init__(self, host: str, port: int, timeout: float) -> None:
+        self.session: dict[str, Any] = {"host": host, "port": port, "steps": []}
+        FakeMailServer.sessions.append(self.session)
+
+    def __enter__(self) -> "FakeMailServer":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def starttls(self, context: Any) -> None:
+        self.session["steps"].append("starttls")
+
+    def login(self, user: str, password: str) -> None:
+        self.session["steps"].append(("login", user, password))
+        outcome = FakeMailServer.outcomes[len(FakeMailServer.sessions) - 1]
+        if isinstance(outcome, smtplib.SMTPAuthenticationError):
+            raise outcome
+
+    def send_message(self, message: Any) -> None:
+        outcome = FakeMailServer.outcomes[len(FakeMailServer.sessions) - 1]
+        if outcome is not None:
+            raise outcome
+        self.session["message"] = message
+
+
+def _gmail(monkeypatch: pytest.MonkeyPatch, outcomes: list[Exception | None]) -> Any:
+    from app.core.email import SmtpSender
+
+    FakeMailServer.outcomes = outcomes
+    FakeMailServer.sessions = []
+    monkeypatch.setattr("app.core.email.smtplib.SMTP", FakeMailServer)
+
+    async def no_wait(seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("app.core.email.asyncio.sleep", no_wait)
+    return SmtpSender(
+        "smtp.gmail.com",
+        587,
+        "pyqxel.app@gmail.com",
+        SecretStr("app-pass"),
+        "PyQxel <pyqxel.app@gmail.com>",
+    )
+
+
+def test_gmail_sends_over_tls_as_the_account_with_text_and_html(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sender = _gmail(monkeypatch, [None])
+
+    asyncio.run(sender.send(_message()))
+
+    session = FakeMailServer.sessions[0]
+    assert (session["host"], session["port"]) == ("smtp.gmail.com", 587)
+    assert session["steps"] == ["starttls", ("login", "pyqxel.app@gmail.com", "app-pass")]
+    message = session["message"]
+    assert message["From"] == "PyQxel <pyqxel.app@gmail.com>"
+    assert message["To"] == "a@b.example"
+    assert message.get_content_type() == "multipart/alternative"
+    parts = [part.get_content_type() for part in message.iter_parts()]
+    assert parts == ["text/plain", "text/html"]
+    assert f"{SITE}/signin/password#token=abc" in message.get_body(("plain",)).get_content()
+
+
+def test_gmail_retries_temporary_refusals_and_dropped_connections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sender = _gmail(
+        monkeypatch,
+        [
+            smtplib.SMTPResponseException(421, b"Try again later"),
+            smtplib.SMTPServerDisconnected(),
+            None,
+        ],
+    )
+    asyncio.run(sender.send(_message()))
+    assert len(FakeMailServer.sessions) == 3
+    assert "message" in FakeMailServer.sessions[2]
+
+
+def test_gmail_does_not_retry_a_refused_sign_in_or_a_permanent_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.email import EmailError
+
+    sender = _gmail(monkeypatch, [smtplib.SMTPAuthenticationError(535, b"Bad credentials")])
+    with pytest.raises(EmailError, match="app password") as refused:
+        asyncio.run(sender.send(_message()))
+    assert "app-pass" not in str(refused.value)
+    assert len(FakeMailServer.sessions) == 1
+
+    sender = _gmail(monkeypatch, [smtplib.SMTPResponseException(550, b"No such user")])
+    with pytest.raises(EmailError, match="550"):
+        asyncio.run(sender.send(_message()))
+    assert len(FakeMailServer.sessions) == 1
+
+
+def test_gmail_is_used_when_set_up_and_resend_is_not_needed() -> None:
+    from app.core.email import ResendSender, SmtpSender, email_sender
+
+    gmail = Settings(
+        smtp_host="smtp.gmail.com",
+        smtp_username="pyqxel.app@gmail.com",
+        smtp_password=SecretStr("app-pass"),
+        email_from="PyQxel <pyqxel.app@gmail.com>",
+        public_url=SITE,
+    )
+    assert isinstance(email_sender(gmail), SmtpSender)
+    assert email_sender(gmail.model_copy(update={"public_url": None})) is None
+    assert email_sender(gmail.model_copy(update={"smtp_password": None})) is None
+    resend = Settings(resend_api_key=SecretStr("re_x"), email_from="a@b.example", public_url=SITE)
+    assert isinstance(email_sender(resend), ResendSender)

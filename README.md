@@ -288,14 +288,19 @@ The native app signs in with the same clients, through the system browser: when 
 
 People can also make an account, and sign in on the website and in the native app (with no browser), with an email address and a password of at least 12 characters, hashed with Argon2id. Making an account and **Forgot password?** work the same way: PyQxel emails a link, good for an hour and only once, and the page it opens is where the password is chosen. Nothing is attached to an address before then, so typing someone else's address reaches neither their account nor one made in their name for them to join later, and asking for a link or a wrong password gets the same answer whether or not the address has an account. Choosing a new password signs out every device the old one signed in. Attempts are limited per IP address (30 sign-ins a minute, 20 links an hour, generous since many people can share one address), per email address (10 sign-ins in 15 minutes, 3 links an hour), and for the whole server (90 links a day).
 
-It needs a way to send email. PyQxel uses [Resend](https://resend.com), whose free plan sends 3,000 emails a month (100 a day) over an HTTPS API, which Cloud Run can reach; it needs a domain of your own verified with Resend, to send from. Store the key as a secret and deploy with the sending address and the website's address, which every emailed link points to (it is set, not read from requests, so a forged `Host` header cannot redirect a link):
+It needs a way to send email, and PyQxel sends from a Gmail account of its own, through Gmail's mail server, which Cloud Run can reach (on port 587, with TLS). It is free, and Gmail allows about 500 emails a day, well above the 90 a day PyQxel sends at most. To set it up:
 
-```bash
-printf %s 're_...' | gcloud secrets create pyqxel-resend-api-key --data-file=-
-EMAIL_FROM='PyQxel <signin@your-domain>' PUBLIC_URL=https://<service-url> deploy/cloud-run.sh
-```
+1. On the Gmail account (PyQxel uses `pyqxel.app@gmail.com`), turn on **2-Step Verification** in its Google Account's **Security** settings; Google allows app passwords only then.
+2. At [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords), make an app password named `PyQxel`. Google shows it once, as 16 letters; it lets PyQxel send as the account and nothing else, and can be revoked there at any time without changing the account's own password.
+3. Store it as a secret (paste it when asked, then press Ctrl-D), and deploy with the account and the website's address, which every emailed link points to (it is set, not read from requests, so a forged `Host` header cannot redirect a link):
+   ```bash
+   gcloud secrets create pyqxel-smtp-password --data-file=-
+   SMTP_HOST=smtp.gmail.com SMTP_USERNAME=pyqxel.app@gmail.com \
+   EMAIL_FROM='PyQxel <pyqxel.app@gmail.com>' PUBLIC_URL=https://<service-url> deploy/cloud-run.sh
+   ```
+   Later deploys keep these. Without them, the sign-in page leaves email out.
 
-Without the three, the sign-in page leaves email out. To try it locally without sending anything, set `EMAIL_TO_CONSOLE=true` in `.env`: emails, links included, go to the server's log, with links to `http://localhost:5173`.
+[Resend](https://resend.com) is built in as well but not in use: it sends from a domain of your own (a few dollars a year), verified there, and its key goes in the `pyqxel-resend-api-key` secret. With both set up, Gmail is used. To try it locally without sending anything, set `EMAIL_TO_CONSOLE=true` in `.env`: emails, links included, go to the server's log, with links to `http://localhost:5173`.
 
 **Sign in with Apple** is built but off. It needs a paid Apple Developer account: a *Services ID* with Sign in with Apple on and the return URL `https://<service-url>/api/v1/auth/apple/callback`, and a Sign in with Apple key (a `.p8` file). Set `APPLE_SIGN_IN_ENABLED=true`, `APPLE_CLIENT_ID` (the Services ID), `APPLE_TEAM_ID`, `APPLE_KEY_ID` and `APPLE_PRIVATE_KEY` (the `.p8` file's text) to turn it on.
 
