@@ -62,8 +62,9 @@ portfolio, using market data and AI on your own provider keys.
 
 **Description:**
 
-> PyQxel is an investment research workbench for investors who want to understand what they
-> own and test ideas before they act on them.
+> PyQxel: AI-powered quantitative and fundamental equity research. It is an investment
+> research workbench for investors who want to understand what they own and test ideas
+> before they act on them.
 >
 > RESEARCH A STOCK
 > Price history, valuation and quality metrics, factor exposures, volatility forecasts,

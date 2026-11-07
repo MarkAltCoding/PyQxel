@@ -1,4 +1,4 @@
-# AI Equity Research & Quantitative Investing Engine
+# PyQxel: AI-Powered Quantitative and Fundamental Equity Research
 
 An AI-native research and quantitative analysis platform that helps investors choose the right securities. It combines equity analysis, statistical modeling, factor research, and automated thesis generation so an investor can see what drives a security's returns, how much risk it carries, and how it would behave alongside the rest of a portfolio before buying it. Built with a high-performance Python engine, specialized R statistical subroutines, and an API-first architecture designed for seamless deployment across macOS (MacBook) and iOS (iPhone).
 
