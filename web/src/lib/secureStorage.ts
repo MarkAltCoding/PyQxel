@@ -1,7 +1,7 @@
 // Secure storage for the native app's secrets: the PyQxel API key it is signed in with
 // (`pyqxel.apiKey`) and the provider keys (`pyqxel.providerKeys`). In the app they are kept
 // by the native side (`src-tauri/src/secrets.rs`): the Keychain on iOS, a file only the
-// person's account can read in the app's sandboxed container on macOS. In a browser they
+// person's account can read in the app's data folder on macOS. In a browser they
 // stay in local storage, as before.
 //
 // They are read once before the app first renders (`loadSecureStorage`), so the rest of
@@ -25,10 +25,12 @@
 //   reports are rendered as text, and custom strategy code runs in a Web Worker that is
 //   cut off from the network and from the page. The native side keeps two names only.
 // - Other apps on the device: on iOS, the Keychain item belongs to this app alone and
-//   opens only after the phone's first unlock since it started; on macOS, the App Sandbox
-//   keeps other sandboxed apps out of the container, and macOS asks before an unsandboxed
-//   app reads another app's container. Neither guards against malware already running as
-//   the person on a Mac, which could read the file, as it could the browser's storage.
+//   opens only after the phone's first unlock since it started; on macOS, the file is
+//   readable by the person's account alone, so other people's accounts cannot read it, but
+//   apps the person runs can, as they can a browser's storage. The Mac app downloaded from
+//   GitHub is not sandboxed, so it can update itself; a Mac App Store build is, and there
+//   the App Sandbox keeps other apps out of its container. Nothing guards against malware
+//   already running as the person on a Mac.
 //   The keys never travel in a link: the sign-in link carries a one-time code that is
 //   useless without a secret the app kept (see `auth/nativeSignIn.ts`).
 // - A lost or stolen device: on iOS, the Keychain item is encrypted with the device's

@@ -12,6 +12,12 @@ pub fn run() {
     ])
     .setup(|app| {
       secrets::forget_earlier_installations(app.handle());
+      // Desktop builds update themselves from signed GitHub releases (README.md, "Updates").
+      #[cfg(desktop)]
+      {
+        app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+        app.handle().plugin(tauri_plugin_process::init())?;
+      }
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()

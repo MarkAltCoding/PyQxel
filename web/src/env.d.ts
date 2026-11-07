@@ -9,4 +9,7 @@ interface ImportMetaEnv {
   /** Where the app's copy of the Clang toolchain is served from; defaults to `clang/` under
    * the base URL. */
   readonly VITE_CLANG_URL?: string
+  /** `off` in a build for the Mac App Store, which updates apps itself, so the app does
+   * not look for releases on GitHub (`lib/appUpdates.ts`). */
+  readonly VITE_APP_UPDATES?: string
 }

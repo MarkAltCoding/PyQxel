@@ -12,7 +12,7 @@ from App Store Connect when the app is submitted should be updated here too.
 | --- | --- |
 | "Not investment advice" notice | `web/src/components/AdviceNotice.tsx`: shown once before any page, and must be acknowledged. The footer of every page and the sign-in page repeat it, and AI reports carry their own disclaimer. |
 | Privacy manifest | `web/src-tauri/PrivacyInfo.xcprivacy`, bundled into the iOS app (`gen/apple/project.yml`) and the Mac app (`tauri.conf.json`, `bundle.macOS.files`). No tracking. It declares the data kept with an account and the one API category with a required reason the app calls: file timestamps (`C617.1`), from Rust's standard library. |
-| Mac App Sandbox | `web/src-tauri/Entitlements.plist`: the sandbox, outgoing network connections, and the Downloads folder (for the prompt file Claude users download). Applied when the app is signed. |
+| Mac App Sandbox | `web/src-tauri/Entitlements.plist`: the sandbox, outgoing network connections, and the Downloads folder (for the prompt file Claude users download). Applied only to the App Store build, by `web/src-tauri/tauri.appstore.conf.json`: the Mac app on GitHub is not sandboxed, so it can update itself in place, which a sandboxed app cannot. |
 | Export compliance | `ITSAppUsesNonExemptEncryption = false` in the iOS Info.plist (`gen/apple/project.yml`) and the Mac one (`web/src-tauri/Info.plist`, merged by `tauri build`). The app's only encryption is HTTPS through the operating system, which is exempt, so App Store Connect asks no export questions. |
 | Category | Finance: `bundle.category` in `tauri.conf.json` and `LSApplicationCategoryType` on iOS. |
 | Account deletion (guideline 5.1.1(v)) | Settings, Delete account. |
@@ -40,7 +40,8 @@ from App Store Connect when the app is submitted should be updated here too.
    - iOS: `npx tauri ios build --export-method app-store-connect` (in `web/`), with the
      team's distribution signing, then upload the `.ipa` with Transporter or
      `xcrun altool`.
-   - Mac: `APPLE_SIGNING_IDENTITY="Apple Distribution: …" npx tauri build --bundles app`,
+   - Mac: `VITE_APP_UPDATES=off APPLE_SIGNING_IDENTITY="Apple Distribution: …" npx tauri build --bundles app --config src-tauri/tauri.appstore.conf.json`
+     (the sandbox on, and no GitHub update checks, since the App Store updates the app),
      with the Mac App Store provisioning profile added to `bundle.macOS.files` as
      `embedded.provisionprofile`. Then wrap the app with
      `productbuild --sign "3rd Party Mac Developer Installer: …" --component PyQxel.app /Applications PyQxel.pkg`,

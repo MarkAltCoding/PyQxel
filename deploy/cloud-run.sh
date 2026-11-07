@@ -18,6 +18,10 @@
 #   CORS_ORIGINS='["https://app.example"]'   browser origins allowed to call the API
 #   SCREENER_SCHEDULE="30 18 * * 1-5"        cron, New York time; "" skips scheduling
 #   SCREENER_FMP_REQUESTS_PER_MINUTE=300     the screener's FMP plan's rate limit
+#   KEEP_WARM_SCHEDULE="*/10 * * * *"        cron for a request to /health that keeps an
+#                             instance warm, so the site rarely takes ~20 s to wake; ""
+#                             skips it. Cloud Scheduler's free tier covers three jobs, and
+#                             this is the third
 #   NIGHTLY_SCHEDULE="7 * * * *"             cron, UTC, for users' own refreshes; ""
 #                             skips scheduling. The job is "$SERVICE-nightly", deployed
 #                             only once the pyqxel-credentials-key secret exists
@@ -46,6 +50,7 @@ CORS_ORIGINS="${CORS_ORIGINS:-}"
 SCREENER_SCHEDULE="${SCREENER_SCHEDULE-30 18 * * 1-5}"
 SCREENER_FMP_REQUESTS_PER_MINUTE="${SCREENER_FMP_REQUESTS_PER_MINUTE:-300}"
 NIGHTLY_SCHEDULE="${NIGHTLY_SCHEDULE-7 * * * *}"
+KEEP_WARM_SCHEDULE="${KEEP_WARM_SCHEDULE-*/10 * * * *}"
 YFINANCE_FALLBACK="${YFINANCE_FALLBACK:-}"
 GITHUB_CLIENT_ID="${GITHUB_CLIENT_ID:-}"
 GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
@@ -179,12 +184,14 @@ if ! gc artifacts repositories describe "$REPOSITORY" --location "$REGION" >/dev
     gc artifacts repositories create "$REPOSITORY" --location "$REGION" \
         --repository-format docker --description "PyQxel images"
 fi
-# Keep only the newest image: the free tier stores 0.5 GB and the image is about 0.33 GB.
+# Keep the two newest images, so the previous version can be rolled back to (README.md,
+# "Rolling back"). The image is about 0.4 GB, so two are about 0.3 GB over the free tier's
+# 0.5 GB: about $0.03 a month.
 policy="$(mktemp)"
 trap 'rm -f "$policy"' EXIT
 cat >"$policy" <<'JSON'
 [
-  {"name": "keep-newest", "action": {"type": "Keep"}, "mostRecentVersions": {"keepCount": 1}},
+  {"name": "keep-newest", "action": {"type": "Keep"}, "mostRecentVersions": {"keepCount": 2}},
   {"name": "delete-older", "action": {"type": "Delete"}, "condition": {"tagState": "any"}}
 ]
 JSON
@@ -193,6 +200,17 @@ gc artifacts repositories set-cleanup-policies "$REPOSITORY" --location "$REGION
 
 step "Building $IMAGE"
 gc builds submit --config deploy/cloudbuild.yaml --substitutions "_IMAGE=$IMAGE" .
+
+step "Cloud Build's uploads"
+# Each build uploads the source to this bucket, which would otherwise keep every upload
+# for good; the code is in git, so a week is plenty. Set through the Storage JSON API, since
+# "gcloud storage" fails under some Python versions.
+curl -sf -X PATCH -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+    -H "Content-Type: application/json" \
+    -d '{"lifecycle": {"rule": [{"action": {"type": "Delete"}, "condition": {"age": 7}}]}}' \
+    "https://storage.googleapis.com/storage/v1/b/${PROJECT_ID}_cloudbuild?fields=lifecycle" >/dev/null \
+    && echo "Uploads older than 7 days are deleted." \
+    || echo "Could not set the ${PROJECT_ID}_cloudbuild bucket's cleanup rule; it is harmless to skip." >&2
 
 # "^|^" makes | the separator, since CORS_ORIGINS is a JSON list with commas.
 env_vars="^|^YFINANCE_FALLBACK=$YFINANCE_FALLBACK|DATABASE_PGBOUNCER=true|SEC_USER_AGENT=$SEC_USER_AGENT"
@@ -281,6 +299,26 @@ if [[ -n "$nightly_secret_flags" ]]; then
 fi
 
 url="$(gc run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')"
+
+KEEP_WARM_JOB="$SERVICE-keep-warm"
+if [[ -n "$KEEP_WARM_SCHEDULE" ]]; then
+    step "Keeping an instance warm: $KEEP_WARM_SCHEDULE"
+    # An idle instance is kept for about 15 minutes, and a request to /health costs a few
+    # milliseconds of CPU, well inside Cloud Run's free tier. /health does not touch the
+    # database, so Neon's compute still sleeps when nobody uses PyQxel.
+    action=create
+    if gc scheduler jobs describe "$KEEP_WARM_JOB" --location "$REGION" >/dev/null 2>&1; then
+        action=update
+    fi
+    gc scheduler jobs "$action" http "$KEEP_WARM_JOB" \
+        --location "$REGION" \
+        --schedule "$KEEP_WARM_SCHEDULE" --time-zone UTC \
+        --uri "$url/health" --http-method GET \
+        --attempt-deadline 60s >/dev/null
+elif gc scheduler jobs describe "$KEEP_WARM_JOB" --location "$REGION" >/dev/null 2>&1; then
+    gc scheduler jobs delete "$KEEP_WARM_JOB" --location "$REGION" >/dev/null
+fi
+
 step "Deployed: $url"
 curl -s "$url/health/ready"
 echo

@@ -10,6 +10,13 @@ name: Release
 #
 # The app is signed ad hoc, not with an Apple Developer ID, so macOS asks people to
 # confirm before its first launch; the README's Install section explains how.
+#
+# A tagged release also carries the app as a signed update (PyQxel_universal.app.tar.gz)
+# and latest.json, which installed apps read to offer "Update and restart"
+# (web/src/lib/appUpdates.ts). The update is signed with the key in the
+# TAURI_SIGNING_PRIVATE_KEY secret (and its password in TAURI_SIGNING_PRIVATE_KEY_PASSWORD);
+# apps accept only updates signed by it, checked against the public key in
+# web/src-tauri/tauri.conf.json. Without the secret, the release has the .dmg alone.
 
 on:
   push:
@@ -32,6 +39,10 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Every tag and commit, so the update's notes can list what changed since the
+          # last release.
+          fetch-depth: 0
 
       - name: The tag matches the app's version
         if: startsWith(github.ref, 'refs/tags/')
@@ -63,11 +74,21 @@ jobs:
 
       - run: npm ci
 
-      # Offline, as in CI: Pyodide's wheels are committed in web/vendor.
+      # Offline, as in CI: Pyodide's wheels are committed in web/vendor. With the signing
+      # key, the release configuration also makes the signed update archive.
       - name: Build
-        run: npx tauri build --target universal-apple-darwin --bundles dmg
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            npx tauri build --target universal-apple-darwin --bundles app,dmg \
+              --config src-tauri/tauri.release.conf.json
+          else
+            echo "::warning::No TAURI_SIGNING_PRIVATE_KEY secret, so no update is built; installed apps will not be offered this version."
+            npx tauri build --target universal-apple-darwin --bundles dmg
+          fi
         env:
           PYODIDE_OFFLINE: "1"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Find the .dmg
         id: dmg
@@ -80,6 +101,16 @@ jobs:
           codesign --verify --deep --strict "$mount/PyQxel.app"
           lipo -archs "$mount/PyQxel.app/Contents/MacOS/pyqxel"
           hdiutil detach "$mount"
+
+      - name: Find the update
+        id: update
+        run: |
+          archive=src-tauri/target/universal-apple-darwin/release/bundle/macos/PyQxel.app.tar.gz
+          if [ -f "$archive" ]; then
+            cp "$archive" PyQxel_universal.app.tar.gz
+            echo "archive=web/PyQxel_universal.app.tar.gz" >> "$GITHUB_OUTPUT"
+            echo "signature=$(cat "$archive.sig")" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Keep the build
         uses: actions/upload-artifact@v7
@@ -100,3 +131,32 @@ jobs:
             gh release create "$GITHUB_REF_NAME" "${{ steps.dmg.outputs.path }}" \
               --title "PyQxel ${GITHUB_REF_NAME#v}" --generate-notes
           fi
+
+      # latest.json names the version, its notes, and where its signed update is, for both
+      # Mac architectures (the app is universal). Apps read it from the latest release.
+      - name: Attach the update
+        if: startsWith(github.ref, 'refs/tags/') && steps.update.outputs.archive != ''
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNATURE: ${{ steps.update.outputs.signature }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" "${{ steps.update.outputs.archive }}" --clobber
+          # The app shows these: what changed since the last release, by commit subject
+          # (without the "Release x.y.z" commits the release script makes).
+          previous="$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)"
+          git log --no-merges --format='%s' ${previous:+"$previous.."}"$GITHUB_REF_NAME" \
+            | grep -v '^Release [0-9]' | head -20 > notes.txt
+          python3 - <<'PY'
+          import datetime, json, os
+          tag = os.environ["GITHUB_REF_NAME"]
+          url = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/PyQxel_universal.app.tar.gz"
+          target = {"signature": os.environ["SIGNATURE"], "url": url}
+          json.dump({
+              "version": tag.removeprefix("v"),
+              "notes": open("notes.txt").read().strip()[:2000],
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": {"darwin-aarch64": target, "darwin-x86_64": target},
+          }, open("latest.json", "w"), indent=2)
+          PY
+          gh release upload "$GITHUB_REF_NAME" latest.json --clobber

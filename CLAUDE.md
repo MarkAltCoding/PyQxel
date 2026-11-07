@@ -58,6 +58,14 @@ side you are changing before searching the code.
   storage. Building sets `DEVELOPMENT_TEAM` in `project.pbxproj`; do not commit that. A
   debug build's web view is inspectable (`ios_webkit_debug_proxy`). On a phone it runs at
   `tauri://localhost`, an origin the server already allows.
+- **Releases and updates:** `scripts/release.sh 0.2.0` sets the version, commits, tags,
+  and pushes; the Release workflow builds the `.dmg`, the signed update, and `latest.json`,
+  which installed Mac apps read to offer "Update and restart" (`lib/appUpdates.ts`,
+  `UpdateBanner`). The Mac app on GitHub is not sandboxed, so it can replace itself; the
+  App Store build adds the sandbox with `--config src-tauri/tauri.appstore.conf.json` and
+  `VITE_APP_UPDATES=off`. The updater's signing key is in `~/.tauri/` and the repo's
+  Actions secrets. iPhones cannot update themselves outside the App Store:
+  `scripts/install-iphone.sh` builds and installs on a connected phone.
 - **App Store:** not submitted; `docs/app-store.md` lists what is in place (advice notice,
   privacy manifest `web/src-tauri/PrivacyInfo.xcprivacy`, Mac sandbox
   `web/src-tauri/Entitlements.plist`, export compliance), the listing and review notes, and

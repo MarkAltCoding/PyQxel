@@ -49,6 +49,10 @@
       "desktop": {
         "schemes": ["pyqxel"]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYxQUVCQUQzMTMyOERCNzMKUldSejJ5Z1QwN3F1WVRSWmR2VncrYWpZZmh1eGdPdWN1VHovRngycGJRWlhxVmkvMklKZ2l1Y1QK",
+      "endpoints": ["https://github.com/MarkAltCoding/PyQxel/releases/latest/download/latest.json"]
     }
   },
   "bundle": {
@@ -69,7 +73,6 @@
     "shortDescription": "Investment research: prices, backtests, portfolio risk, and AI reports",
     "macOS": {
       "signingIdentity": "-",
-      "entitlements": "./Entitlements.plist",
       "files": {
         "Resources/PrivacyInfo.xcprivacy": "./PrivacyInfo.xcprivacy"
       }

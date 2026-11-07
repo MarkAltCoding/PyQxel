@@ -44,7 +44,9 @@ PyQxel runs in a web browser at the hosted site, and as an app for Mac and iPhon
 4. Acknowledge that PyQxel is not investment advice, then sign in with your email and password, or with GitHub or Google. An email and password sign in within the app. GitHub and Google open your browser to sign in, and when you finish it offers to open PyQxel again: allow it.
 5. In **Settings**, add your market data keys. Free plans from Tiingo, Finnhub, and Alpha Vantage are enough to start; the page says what each one adds.
 
-To update, download the newer `.dmg` and replace the app in Applications. To uninstall, drag PyQxel from Applications to the Trash; its saved sign-in and keys on your Mac are in `~/Library/Containers/com.markaltcoding.pyqxel`, which you can delete too. Your account and saved work stay on the server until you use **Delete account** in Settings.
+**Updates install themselves.** When a new version is out, PyQxel says so in its corner, on opening or within a few hours, with **Update and restart**: it downloads the new version, checks that it is signed by PyQxel, puts it in place of the old one, and reopens, keeping your sign-in and keys. **Later** hides that version until a newer one comes. (Version 0.1.0, the first, cannot update itself: download the newer `.dmg` once and replace the app in Applications, then sign in again.)
+
+To uninstall, drag PyQxel from Applications to the Trash. Its saved sign-in and keys on your Mac are in `~/Library/Application Support/com.markaltcoding.pyqxel`, and its pages' storage in `~/Library/WebKit/com.markaltcoding.pyqxel`, which you can delete too (version 0.1.0 kept them in `~/Library/Containers/com.markaltcoding.pyqxel`). Your account and saved work stay on the server until you use **Delete account** in Settings.
 
 ### iPhone, or the Mac app from source
 
@@ -83,17 +85,25 @@ cd PyQxel && git pull && cd web && npm install
 ```
 
 * **The Mac app**: quit PyQxel, run the same `npx tauri build --bundles dmg` and install the new `.dmg` over the old app. Your sign-in and keys are kept.
-* **Your iPhone**: run the same `npx tauri ios run --release` command with the phone connected (and install it with `xcrun devicectl` if it ends with the `exportOptionsPlist` error). This also restarts the 7 days a free Apple ID's install lasts.
+* **Your iPhone**: with the phone connected and unlocked, one command builds and installs the new version, and opens it:
+  ```bash
+  APPLE_DEVELOPMENT_TEAM=YOURTEAMID scripts/install-iphone.sh
+  ```
+  It finds the phone itself (set `IPHONE` to its identifier from `xcrun devicectl list devices` when more than one is connected), and it also restarts the 7 days a free Apple ID's install lasts. An iPhone app cannot update itself: outside the App Store, or Apple's TestFlight for testers, installing from a Mac is the only way. Once PyQxel is on the App Store, iPhones update it like any other app.
 
 ### Publishing a release (maintainers)
 
-Raise `version` in `web/src-tauri/tauri.conf.json`, commit, then tag that version and push the tag:
+From a clean `main`, with everything you want released pushed:
 
 ```bash
-git tag v0.2.0 && git push origin v0.2.0
+scripts/release.sh 0.2.0
 ```
 
-The [Release workflow](.github/workflows/release.yml) builds the universal `.dmg` on a Mac runner and attaches it to a GitHub Release for the tag, creating the release with notes from the commits since the last one. A tag that does not match the version fails the build. To try a build without publishing, run the workflow by hand from the Actions tab; its `.dmg` is kept with the run.
+It sets the version everywhere it is written (`web/src-tauri/tauri.conf.json`, the Rust package, and `app/version.py`), commits, tags `v0.2.0`, and pushes. The tag starts the [Release workflow](.github/workflows/release.yml), which builds the universal `.dmg` on a Mac runner and attaches it to a GitHub Release, along with the signed update (`PyQxel_universal.app.tar.gz`) and `latest.json`, which name the version and list the commits since the last release. Installed Mac apps read `latest.json` from the latest release and offer the update. Developing between releases needs none of this: commits to `main` reach the website at the next deploy and the apps only when you release.
+
+Updates are signed with a key of PyQxel's own (not Apple's): apps accept only updates signed by it, checked against the public key in `tauri.conf.json`. The private key and its password live in the repository's Actions secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and in `~/.tauri/` on the machine that made them; keep a copy in a password manager, since an app can only be updated by the key it was built with. Without the secrets, the release has the `.dmg` alone and apps are not offered it. To make a new key: `npx tauri signer generate -w ~/.tauri/pyqxel-updater.key` (in `web/`), then put its `.pub` contents in `plugins.updater.pubkey` (apps built before then need the next version installed by hand).
+
+To try a build without publishing, run the workflow by hand from the Actions tab; its `.dmg` is kept with the run.
 
 ---
 
@@ -213,7 +223,7 @@ Neither needs an API key, and neither reveals error details.
 
 ### Google Cloud Run
 
-`deploy/cloud-run.sh` deploys the image with R to [Cloud Run](https://cloud.google.com/run), which scales to zero and bills only while requests run, so a personal deployment fits in the free tiers: Cloud Run's monthly allowance covers about 50 hours of request time, [Neon](https://neon.com)'s free Postgres holds the database, and [Upstash](https://upstash.com)'s free Redis is optional. The first request after a quiet spell waits 20 to 30 seconds while an instance starts. Secrets live in Google Secret Manager, never in the repository or the image.
+`deploy/cloud-run.sh` deploys the image with R to [Cloud Run](https://cloud.google.com/run), which scales to zero and bills only while requests run, so a personal deployment fits in the free tiers: Cloud Run's monthly allowance covers about 50 hours of request time, [Neon](https://neon.com)'s free Postgres holds the database, and [Upstash](https://upstash.com)'s free Redis is optional. An idle instance is let go after about 15 minutes, and starting another takes about 20 seconds, so a free Cloud Scheduler job requests `/health` every 10 minutes to keep one warm (below). Secrets live in Google Secret Manager, never in the repository or the image.
 
 One-time setup:
 1. Create a [Google Cloud project](https://console.cloud.google.com/projectcreate) and link a billing account (required even within the free tier), then [set a budget alert](https://console.cloud.google.com/billing/budgets) of a dollar or two. Install the [gcloud CLI](https://cloud.google.com/sdk/docs/install) and run `gcloud auth login`.
@@ -238,6 +248,15 @@ The script enables the APIs it needs, builds the image on Cloud Build, and deplo
 * the `pyqxel` service: 1 CPU and 2 GiB, at most 2 instances (`MAX_INSTANCES`), with the yfinance fallback off so market data comes only from each account's FMP plan. While you are its only user, deploy with `YFINANCE_FALLBACK=true` to fill the gaps in FMP's free plan and refresh the screener without a paid key. Once others use it, deploy with `YFINANCE_FALLBACK=false`; the screener then needs the `pyqxel-screener-fmp-key` secret to refresh. A new revision takes traffic only once `/health/ready` passes, so it never serves from an unreachable or unmigrated database; migrations run at startup, one instance at a time.
 * the `pyqxel-screener` job, which Cloud Scheduler runs at 6:30 pm New York time on weekdays (`SCREENER_SCHEDULE`; run it now with `gcloud run jobs execute pyqxel-screener --region us-central1`). Only the job reads `pyqxel-screener-fmp-key`, at `SCREENER_FMP_REQUESTS_PER_MINUTE` (default 300); without it, the job runs only the SEC first stage, which users' own refreshes start from, and builds no shared universe.
 * the `pyqxel-nightly` job, which Cloud Scheduler runs every hour (`NIGHTLY_SCHEDULE`, UTC) to refresh the own screeners of users who opted in, each at the time they chose. It is deployed only once the `pyqxel-credentials-key` secret exists, and only it and the service read that secret.
+* the `pyqxel-keep-warm` Cloud Scheduler job, which requests `/health` every 10 minutes (`KEEP_WARM_SCHEDULE`; `""` removes it) so visitors rarely wait for an instance to start. Cloud Scheduler's free tier covers three jobs, this being the third, and the requests cost a few milliseconds of CPU each. `/health` does not touch the database, so Neon still sleeps when nobody is using PyQxel. Cloud Run may still replace an instance now and then, so an occasional slow first request remains.
+* housekeeping: Artifact Registry keeps the two newest images, for rolling back (about $0.03 a month over the 0.5 GB free tier), and Cloud Build's copies of the uploaded source are deleted after 7 days.
+
+**Rolling back.** Each deploy is a new revision; to send traffic back to the one before (its image is still kept), list them and pick it:
+```bash
+gcloud run revisions list --service pyqxel --region us-central1
+gcloud run services update-traffic pyqxel --region us-central1 --to-revisions REVISION_NAME=100
+```
+The next `deploy/cloud-run.sh` sends all traffic to the new revision again. A rollback does not undo a database migration, so a revision older than the latest migration may fail its readiness check.
 
 Set `CORS_ORIGINS='["https://your-client.example"]'` for browser clients, and `REGION` to deploy elsewhere than `us-central1`. Don't store `ANTHROPIC_API_KEY` or `FINANCIAL_DATA_API_KEY` on the server; accounts send their own.
 

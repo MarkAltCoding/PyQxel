@@ -9,8 +9,10 @@
 //!   Keychain items outlive the app, so the first launch after installing it deletes
 //!   any an earlier installation left, and deleting the app signs it out.
 //! - **Everywhere else (macOS for now):** a file in the app's own data folder, readable
-//!   by the person's account alone and written whole or not at all. On the Mac the folder
-//!   is in the App Sandbox's container, which macOS keeps other apps out of. The macOS
+//!   by the person's account alone and written whole or not at all. The Mac app from
+//!   GitHub is not sandboxed, so it can replace itself with an update; a Mac App Store
+//!   build is (`tauri.appstore.conf.json`), and its folder is in the sandbox's container,
+//!   which macOS keeps other apps out of. The macOS
 //!   Keychain would ask for the account's password after each update, since its access
 //!   is tied to the app's signature, which changes with every ad hoc signed build.
 //!

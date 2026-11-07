@@ -85,6 +85,9 @@ Web Worker that goes off the network once loaded (`runners/lockdown.ts`).
   375px: a wide table becomes cards there (`HoldingsTable` with `useMediaQuery(PHONE_QUERY)`,
   `.holdings-cards`), and every placeholder must fit its field (keep them short and put
   guidance in the label or a note).
+- **Updates:** `UpdateBanner` (mounted in `App.tsx`) offers a newer signed release in the
+  desktop app and installs it (`lib/appUpdates.ts`); it shows nothing in a browser, on a
+  phone, or until a newer release is published.
 - **Browser storage** only through `lib/storage.ts` (`readStored`/`writeStored`, which
   never throw), under `pyqxel.*` keys. In the native app, `pyqxel.apiKey` and
   `pyqxel.providerKeys` go to secure storage instead (`lib/secureStorage.ts`, loaded before
