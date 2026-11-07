@@ -62,6 +62,11 @@ export function NewsCard({ symbol }: { symbol: string }) {
             Add a Finnhub key in <Link to="/settings">Settings</Link> to see company news here and
             give it to AI reports. The free plan is enough.
           </>
+        ) : symbol.startsWith('^') ? (
+          <>
+            {symbol} is an index, which has no company news of its own. Market-wide news is on the{' '}
+            <Link to="/markets#market-news">Markets</Link> page.
+          </>
         ) : (
           `No news about ${symbol} in the last two weeks.`
         )

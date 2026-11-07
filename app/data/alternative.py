@@ -21,6 +21,7 @@ from app.data.fetcher import (
     FinnhubRateLimitError,
     ProviderNotConfiguredError,
     ProviderPlanError,
+    finnhub_abroad_hint,
     finnhub_key,
     finnhub_symbol,
 )
@@ -192,6 +193,11 @@ def parse_submissions(submissions: Any, cik: int, since: date) -> list[SecFiling
     return sorted(filings, key=lambda filing: filing.filed, reverse=True)
 
 
+class NotSecRegistrantError(DataFetchError):
+    """Raised when no SEC registrant uses the symbol, as for an index or a listing abroad,
+    which then has no SEC filings to show rather than ones that failed to arrive."""
+
+
 async def fetch_sec_filings(
     symbol: str, today: date, client: httpx2.AsyncClient | None = None
 ) -> list[SecFiling]:
@@ -200,7 +206,13 @@ async def fetch_sec_filings(
     Raises:
         DataFetchError: If EDGAR cannot be reached or has no such company.
     """
-    from app.data.sec_edgar import SUBMISSIONS_URL, cik_for, edgar_client, edgar_get
+    from app.data.sec_edgar import (
+        SUBMISSIONS_URL,
+        CompanyNotFoundError,
+        cik_for,
+        edgar_client,
+        edgar_get,
+    )
 
     try:
         async with edgar_client() as edgar:
@@ -208,12 +220,17 @@ async def fetch_sec_filings(
             submissions = (await edgar_get(edgar, SUBMISSIONS_URL.format(cik=cik))).json()
     except DataFetchError:
         raise
+    except CompanyNotFoundError as exc:
+        raise NotSecRegistrantError(f"{symbol} is not registered with the SEC.") from exc
     except Exception as exc:  # EDGAR's lookups raise their own error types.
         raise DataFetchError(f"EDGAR's filings of {symbol} could not be fetched: {exc}") from exc
     return parse_submissions(submissions, cik, today - timedelta(days=FILING_DAYS))
 
 
 def _reason(name: str, error: BaseException) -> str:
+    if isinstance(error, NotSecRegistrantError):
+        # Such as "SEC filings, since ^GSPC is not registered with the SEC".
+        return f"SEC filings, since {str(error).rstrip('.')}"
     if name == "SEC filings":
         return "SEC filings could not be fetched from EDGAR"
     if isinstance(error, ProviderPlanError):
@@ -265,4 +282,9 @@ async def fetch_alternative(
             raise result
         else:
             parts[key] = result
+    # Finnhub refused all three for a listing abroad: one reason, with the US listing.
+    if all(isinstance(result, ProviderPlanError) for result in results[:3]) and (
+        hint := await finnhub_abroad_hint(symbol, "lobbying, government contracts, and patents")
+    ):
+        missing = [hint.rstrip(".")] + missing[3:]
     return AlternativeRecords(symbol=symbol, missing=missing, **parts)

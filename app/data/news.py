@@ -23,6 +23,7 @@ import httpx2
 
 from app.core.cache import cache_get, cache_set
 from app.data.fetcher import (
+    finnhub_abroad_hint,
     DataFetchError,
     FinnhubRateLimitError,
     ProviderNotConfiguredError,
@@ -162,7 +163,10 @@ async def _request(
     except ProviderNotConfiguredError as exc:
         raise NewsNotConfiguredError(str(exc)) from exc
     except ProviderPlanError as exc:
-        raise NewsPlanError(f"Your Finnhub plan does not cover news about {symbol}.") from exc
+        hint = await finnhub_abroad_hint(symbol, "company news")
+        raise NewsPlanError(
+            hint or f"Your Finnhub plan does not cover news about {symbol}."
+        ) from exc
     except FinnhubRateLimitError as exc:
         raise NewsRateLimitError(str(exc), exc.retry_after) from exc
     except DataFetchError as exc:

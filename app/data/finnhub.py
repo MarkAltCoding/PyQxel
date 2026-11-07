@@ -27,6 +27,7 @@ import httpx2
 
 from app.core.cache import cache_get, cache_set
 from app.data.fetcher import (
+    finnhub_abroad_hint,
     EXCHANGE_NAMES,
     DataFetchError,
     FinnhubRateLimitError,
@@ -393,7 +394,13 @@ async def fetch_signals(
     )
     missing = [reason for reason in (a, b, c, d, e) if reason]
     notice = None
-    if missing:
+    refused = all(isinstance(result, ProviderPlanError) for result in results)
+    if refused and (
+        hint := await finnhub_abroad_hint(symbol, "analyst ratings, earnings, and insider trades")
+    ):
+        # Every part refused for a listing abroad: one reason, not five.
+        notice = hint
+    elif missing:
         notice = f"Left out: {'; '.join(missing)}."
     return MarketSignals(
         symbol=symbol,
@@ -441,6 +448,9 @@ async def fetch_company_metrics(
         return_exceptions=True,
     )
     payload, peers = results
+    if isinstance(payload, ProviderPlanError):
+        hint = await finnhub_abroad_hint(symbol, "key metrics")
+        raise ProviderPlanError(hint) if hint else payload
     if isinstance(payload, BaseException):
         raise payload
     metrics = _metrics(payload)

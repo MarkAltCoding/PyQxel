@@ -8,6 +8,8 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 import httpx2
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
@@ -464,3 +466,36 @@ def test_a_funds_weight_counts_under_what_it_holds() -> None:
         {"Technology": 0.15, "Energy": 0.075, "Unclassified": 0.075, "Bonds": 0.2}
     )
     assert sum(split.values()) == pytest.approx(0.5)
+
+
+def test_finnhub_refusals_abroad_say_why_and_name_the_us_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finnhub's free plan covers US listings only: a refusal for a listing abroad says
+    so, names the paid plans, and points to the company's US listing."""
+    from app.data import fetcher
+
+    async def sap(symbol: str) -> list[str]:
+        return ["SAP"]
+
+    monkeypatch.setattr(fetcher, "us_listings", sap)
+    hint = asyncio.run(fetcher.finnhub_abroad_hint("SAP.DE", "company news"))
+    assert hint is not None
+    assert "company news for US listings only" in hint
+    assert "paid plans add listings abroad" in hint
+    assert "trades in the US as SAP: look that up for its company news" in hint
+    assert asyncio.run(fetcher.finnhub_abroad_hint("AAPL", "company news")) is None
+
+
+def test_symbols_the_sec_does_not_know_are_explained_not_called_failures() -> None:
+    from app.data.alternative import NotSecRegistrantError, _reason
+
+    reason = _reason("SEC filings", NotSecRegistrantError("^GSPC is not registered with the SEC."))
+    assert reason == "SEC filings, since ^GSPC is not registered with the SEC"
+    assert "could not be fetched" in _reason("SEC filings", fetcher_error())
+
+
+def fetcher_error() -> Exception:
+    from app.data.fetcher import DataFetchError
+
+    return DataFetchError("EDGAR timed out")

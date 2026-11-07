@@ -415,17 +415,15 @@ def available_providers(
     if not providers and any(
         getattr(keys, provider, None) is not None for provider in every if provider not in order
     ):
-        names = [PROVIDER_NAMES[provider] for provider in order]
-        listed = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else names[0]
+        names = listed([PROVIDER_NAMES[provider] for provider in order], "or")
         raise ProviderPlanError(
             f"None of your keys' providers lists {symbol} on {exchange_name(symbol)}: "
-            f"only a paid {listed} plan covers it."
+            f"only a paid {names} plan covers it."
         )
     if not providers:
-        names = [PROVIDER_NAMES[provider] for provider in order]
-        listed = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else names[0]
+        names = listed([PROVIDER_NAMES[provider] for provider in order], "or")
         raise ProviderNotConfiguredError(
-            f"{KIND_NAMES[kind]} come from your own market data keys: add a {listed} key "
+            f"{KIND_NAMES[kind]} come from your own market data keys: add a {names} key "
             "in Settings."
         )
     return providers
@@ -443,8 +441,7 @@ def keys_to_add(kind: DataKind, symbol: str = "") -> str:
     ]
     if not names:
         return ""
-    listed = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else names[0]
-    return f"A {listed} key may cover it: add one in Settings."
+    return f"A {listed(names, 'or')} key may cover it: add one in Settings."
 
 
 US_LISTING_TTL_SECONDS: float = 7 * 24 * 60 * 60
@@ -521,6 +518,30 @@ async def us_listings(symbol: str) -> list[str]:
     _us_listing_memory[cache_key] = (time.monotonic(), tickers)
     await cache_set(cache_key, json.dumps(tickers), US_LISTING_TTL_SECONDS)
     return tickers
+
+
+async def finnhub_abroad_hint(symbol: str, what: str) -> str | None:
+    """Why Finnhub refuses ``what`` (such as "news") for a listing abroad, and the
+    company's US listing it covers, if any; ``None`` for a listing in the US, whose
+    refusal has some other cause.
+
+    Finnhub's free plan covers US listings only, so for a listing abroad this says so,
+    names the paid plan that adds them, and points to a US listing found by
+    :func:`us_listings`.
+    """
+    if symbol_suffix(symbol) is None:
+        return None
+    text = (
+        f"Finnhub's free plan covers {what} for US listings only; its paid plans add "
+        "listings abroad."
+    )
+    listings = await us_listings(symbol)
+    if listings:
+        text += (
+            f" The same company also trades in the US as {listed(listings, 'or')}: look "
+            f"that up for its {what}."
+        )
+    return text
 
 
 async def plan_hint(kind: DataKind, symbol: str) -> str:

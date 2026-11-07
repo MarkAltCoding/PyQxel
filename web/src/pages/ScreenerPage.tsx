@@ -258,19 +258,29 @@ export function ScreenerPage() {
           <Link to="/settings#nightly-refresh">Check it in Settings</Link>.
         </Notice>
       )}
-      {empty && (
-        <Notice>
-          The stock screener is not available yet. Once it is, it lists US stocks you can filter and
-          rank by their valuation, growth, momentum, and risk.
-          {nightly.data?.available && !nightly.data.enabled && (
-            <>
-              {' '}
-              To build your own from your keys each night, turn on the{' '}
-              <Link to="/settings#nightly-refresh">nightly screener refresh</Link>.
-            </>
-          )}
-        </Notice>
-      )}
+      {empty &&
+        (nightly.data?.available && !nightly.data.enabled ? (
+          <Notice>
+            Build your own screener of every US stock and ETF, to filter and rank by valuation,
+            growth, momentum, and risk: turn on the{' '}
+            <Link to="/settings#nightly-refresh">nightly screener refresh</Link> in Settings. It
+            runs on your Finnhub key, whose free plan is enough, and the screener fills in after its
+            first night.
+          </Notice>
+        ) : nightly.data?.enabled ? (
+          <Notice>
+            Your nightly screener refresh is on
+            {nightly.data.next_run_at
+              ? `, and first runs ${dateTime(nightly.data.next_run_at)}`
+              : ''}
+            . The screener fills in once it has finished, an hour or two after it starts.
+          </Notice>
+        ) : (
+          <Notice>
+            The stock screener is not available on this server yet. Once it is, it lists US stocks
+            you can filter and rank by their valuation, growth, momentum, and risk.
+          </Notice>
+        ))}
 
       <section id="screen" className="card stack" style={{ gap: 14 }}>
         <div className="filter-row">

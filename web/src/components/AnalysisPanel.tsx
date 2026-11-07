@@ -23,6 +23,8 @@ import { dateTime, percent, signedPercent, tone } from '../lib/format'
 import { useReportView } from '../lib/reportView'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
 import { ExternalClaude } from './ExternalClaude'
+import { NoAnthropicKey } from './NoAnthropicKey'
+import { providerKeys } from '../lib/providerKeys'
 import { ErrorNotice } from './Notice'
 import {
   FinePrint,
@@ -166,13 +168,19 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
               Cancel
             </button>
           ) : (
-            <button type="button" className="button primary" onClick={() => write(!!report)}>
+            <button
+              type="button"
+              className="button primary"
+              disabled={!providerKeys().anthropic}
+              onClick={() => write(!!report)}
+            >
               {report ? 'Write a new report' : 'Write report'}
             </button>
           )}
         </div>
       </div>
 
+      {!providerKeys().anthropic && !writing && <NoAnthropicKey what="a report" />}
       {streamError !== null && <ErrorNotice error={streamError} />}
       {list.error !== null && <ErrorNotice error={list.error} />}
 

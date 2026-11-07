@@ -136,8 +136,15 @@ export function MetricsCard({
         <div className="empty">
           Add a Finnhub key in <Link to="/settings">Settings</Link> to see key metrics and peers.
         </div>
-      ) : status === 402 || status === 404 ? (
-        <div className="empty">Finnhub has no metrics for {symbol} on your plan.</div>
+      ) : status === 402 ? (
+        // The server says why: for a listing abroad, which plan adds it and its US listing.
+        <div className="empty">{(metrics.error as Error).message}</div>
+      ) : status === 404 ? (
+        <div className="empty">
+          {symbol.startsWith('^')
+            ? `${symbol} is an index, which has no company metrics; its ETFs, such as SPY for the S&P 500, have some.`
+            : `Finnhub has no metrics for ${symbol}.`}
+        </div>
       ) : metrics.error ? (
         <Notice tone="error">{(metrics.error as Error).message}</Notice>
       ) : !data ? (

@@ -22,6 +22,8 @@ import { readStored, writeStored } from '../lib/storage'
 import { useReportView } from '../lib/reportView'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
 import { ExternalClaude } from './ExternalClaude'
+import { NoAnthropicKey } from './NoAnthropicKey'
+import { providerKeys } from '../lib/providerKeys'
 import { ErrorNotice, Notice } from './Notice'
 import { PresetOrCustom } from './PresetOrCustom'
 import {
@@ -245,7 +247,7 @@ export function PortfolioReviewCard({
             <button
               type="button"
               className="button primary"
-              disabled={blocked}
+              disabled={blocked || !providerKeys().anthropic}
               onClick={() => void write()}
             >
               {review
@@ -289,6 +291,7 @@ export function PortfolioReviewCard({
         </div>
       </details>
 
+      {!providerKeys().anthropic && !writing && <NoAnthropicKey what="a review" />}
       {error !== null && <ErrorNotice error={error} />}
       {latest.error !== null && <ErrorNotice error={latest.error} />}
 

@@ -119,6 +119,9 @@ function StockDetails({ symbol }: { symbol: string }) {
   })
 
   const info = ticker.data
+  /** Whether the kind of security is known (or could not be looked up), so the cards that
+   * do not apply to funds are left out before they spend any requests on them. */
+  const kindKnown = !ticker.isLoading
   const currency = info?.currency ?? 'USD'
   // A fund holds companies rather than being one: its size and costs stand in for a
   // company's market cap and earnings.
@@ -282,9 +285,11 @@ function StockDetails({ symbol }: { symbol: string }) {
 
       {/* Finnhub's free plan has no news or metrics for mutual funds, which trade only with
       the fund itself. */}
-      {fundType !== 'MUTUALFUND' && <NewsCard key={`news-${symbol}`} symbol={symbol} />}
+      {kindKnown && fundType !== 'MUTUALFUND' && (
+        <NewsCard key={`news-${symbol}`} symbol={symbol} />
+      )}
 
-      {isFund ? (
+      {!kindKnown ? null : isFund ? (
         <section id="signals" className="card">
           <p className="disclaimer heading-with-info" style={{ margin: 0 }}>
             <span>
@@ -299,11 +304,11 @@ function StockDetails({ symbol }: { symbol: string }) {
         <SignalsCard symbol={symbol} currency={currency} />
       )}
 
-      {fundType !== 'MUTUALFUND' && (
+      {kindKnown && fundType !== 'MUTUALFUND' && (
         <MetricsCard symbol={symbol} currency={currency} fund={isFund} />
       )}
 
-      {!isFund && <AlternativeCard symbol={symbol} />}
+      {kindKnown && !isFund && <AlternativeCard symbol={symbol} />}
 
       <AnalysisPanel key={symbol} symbol={symbol} />
     </div>

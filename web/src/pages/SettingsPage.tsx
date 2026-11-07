@@ -426,13 +426,15 @@ function KeyForm({
         </Notice>
       )}
       <div className="filter-row">
-        <label className="field" style={{ flex: 1, maxWidth: 420 }}>
+        {/* At least 200px, so on a phone the buttons move below a field wide enough to
+            show its whole placeholder. */}
+        <label className="field" style={{ flex: '1 1 200px', maxWidth: 420 }}>
           <span className="visually-hidden">{provider.name} API key</span>
           <input
             type="password"
             autoComplete="off"
             spellCheck={false}
-            placeholder={current.configured ? 'Replace with a new key' : 'Paste your key'}
+            placeholder={current.configured ? 'Paste a new key' : 'Paste your key'}
             value={value}
             onChange={(event) => setValue(event.target.value)}
           />

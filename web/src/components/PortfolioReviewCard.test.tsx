@@ -1,7 +1,9 @@
+import { MemoryRouter } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { clearProviderKeys, setProviderKey } from '../lib/providerKeys'
 import { PortfolioReviewCard } from './PortfolioReviewCard'
 
 const review = (headline: string) => ({
@@ -62,14 +64,38 @@ function renderCard(props: { hasHoldings: boolean; stale: boolean; canCombine?: 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <PortfolioReviewCard portfolio={2} {...props} />
+      <MemoryRouter>
+        <PortfolioReviewCard portfolio={2} {...props} />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }
 
-afterEach(() => vi.restoreAllMocks())
+// Claude writes on the account's own Anthropic key, which these tests have.
+beforeEach(() => setProviderKey('anthropic', 'sk-ant-test'))
+afterEach(() => {
+  vi.restoreAllMocks()
+  clearProviderKeys()
+})
 
 describe('PortfolioReviewCard', () => {
+  it('without an Anthropic key, says so and points to Claude outside the app', async () => {
+    clearProviderKeys()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ detail: 'No portfolio review yet.' }), { status: 404 }),
+    )
+    renderCard({ hasHoldings: true, stale: false })
+
+    expect(await screen.findByText(/needs an Anthropic key/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute(
+      'href',
+      '/settings#provider-keys',
+    )
+    expect(screen.getByRole('button', { name: 'Review my portfolio' })).toBeDisabled()
+    expect(screen.getByText('Use Claude outside the app, without API costs')).toBeInTheDocument()
+  })
+
   it('shows the stored review, then streams a new one', async () => {
     const posted: unknown[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {

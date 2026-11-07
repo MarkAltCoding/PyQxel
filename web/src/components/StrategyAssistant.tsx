@@ -10,6 +10,8 @@ import type {
   LastRun,
 } from '../api/types'
 import { ExternalClaude } from './ExternalClaude'
+import { NoAnthropicKey } from './NoAnthropicKey'
+import { providerKeys } from '../lib/providerKeys'
 import { ErrorNotice } from './Notice'
 
 /** Earlier turns sent with each question; the server takes at most 20. */
@@ -229,6 +231,7 @@ export function StrategyAssistant({
           ))}
         </div>
       )}
+      {!providerKeys().anthropic && <NoAnthropicKey what="answers" />}
       <form onSubmit={submit} className="filter-row" style={{ alignItems: 'flex-end' }}>
         <label className="field" style={{ flex: 1 }}>
           <span className="visually-hidden">Question for Claude</span>
@@ -248,7 +251,11 @@ export function StrategyAssistant({
             }}
           />
         </label>
-        <button type="submit" className="button primary" disabled={asking || !message.trim()}>
+        <button
+          type="submit"
+          className="button primary"
+          disabled={asking || !message.trim() || !providerKeys().anthropic}
+        >
           Ask
         </button>
       </form>

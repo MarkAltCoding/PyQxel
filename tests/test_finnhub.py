@@ -362,7 +362,7 @@ async def test_price_history_names_the_keys_that_would_cover_it(
         raise ProviderPlanError("Your Finnhub plan does not cover this request.")
 
     monkeypatch.setattr(fetcher, "_finnhub_history", refused)
-    with pytest.raises(ProviderPlanError, match="Tiingo, Financial Modeling Prep, EODHD or Alpha"):
+    with pytest.raises(ProviderPlanError, match="Tiingo, Financial Modeling Prep, EODHD, or Alpha"):
         await fetch_price_history("AAPL", period="1y", interval="1d")
 
 

@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { clearProviderKeys, setProviderKey } from '../lib/providerKeys'
 import { StrategyAssistant } from './StrategyAssistant'
 
 const CODE = 'def strategy(bars):\n    return bars["Close"].rolling(5).mean()\n'
@@ -11,7 +12,12 @@ const sse = (...events: [string, unknown][]) =>
     events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join(''),
   )
 
-afterEach(() => vi.restoreAllMocks())
+// Claude writes on the account's own Anthropic key, which these tests have.
+beforeEach(() => setProviderKey('anthropic', 'sk-ant-test'))
+afterEach(() => {
+  vi.restoreAllMocks()
+  clearProviderKeys()
+})
 
 describe('StrategyAssistant', () => {
   it('sends the code and the last run with the question, and applies the revision', async () => {
