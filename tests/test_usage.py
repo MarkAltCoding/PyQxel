@@ -339,7 +339,9 @@ async def test_a_spent_key_serves_the_stored_long_copy_not_a_short_one(
 
     _serve(monkeypatch, handler)
     await fetch_price_history("MU", "10y")
-    await _age_stored(2)
+    # Four days, so the copy predates the latest close on any day: two days back from a
+    # Monday is Saturday, after Friday's close, and so still current.
+    await _age_stored(4)
     spent[0] = True
 
     frame = await fetch_price_history("MU", "10y")
