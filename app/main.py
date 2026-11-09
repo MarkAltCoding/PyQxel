@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import health
+from app.api import health, internal
 from app.api.auth import authenticate
 from app.api.v1.api import api_router
 from app.api.v1.endpoints import account, password_signin, signin
@@ -138,6 +138,8 @@ def create_app() -> FastAPI:
 
     # Every API route needs a PyQxel API key; the health checks and the docs stay open.
     application.include_router(health.router)
+    # Called by Cloud Scheduler, which proves who it is with an identity token instead.
+    application.include_router(internal.router)
     # Signing in comes before an account has an API key. Passwords come first, so that
     # "/auth/password/..." is not read as a provider named "password".
     application.include_router(

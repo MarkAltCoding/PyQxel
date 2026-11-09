@@ -131,3 +131,12 @@ class NightlyRefreshStatus(BaseModel):
         description="About how many requests one refresh sends on each stored key, to weigh "
         "against its plan's limits.",
     )
+
+
+class NightlyTriggerResponse(BaseModel):
+    """What Cloud Scheduler's hourly call found: whether a refresh was due, and so the
+    refresh job was started."""
+
+    started: bool = Field(
+        description="Whether a user's refresh was due, so the nightly refresh job was started."
+    )

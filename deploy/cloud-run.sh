@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Deploy PyQxel to Google Cloud Run: the API as a service that scales to zero, the
 # screener refresh as a job Cloud Scheduler runs after each US trading day, and users'
-# own nightly screener refreshes as a job it runs every hour.
+# own nightly screener refreshes as a job the service starts when one is due, which
+# Cloud Scheduler has it check every hour.
 #
 # Run from the repository root after the one-time setup under "Google Cloud Run" in
 # README.md, which creates the project and stores the secrets:
@@ -22,9 +23,10 @@
 #                             instance warm, so the site rarely takes ~20 s to wake; ""
 #                             skips it. Cloud Scheduler's free tier covers three jobs, and
 #                             this is the third
-#   NIGHTLY_SCHEDULE="7 * * * *"             cron, UTC, for users' own refreshes; ""
-#                             skips scheduling. The job is "$SERVICE-nightly", deployed
-#                             only once the pyqxel-credentials-key secret exists
+#   NIGHTLY_SCHEDULE="7 * * * *"             cron, UTC, for checking whether any user's own
+#                             refresh is due; "" skips scheduling. The service checks and
+#                             starts the "$SERVICE-nightly" job only when one is. The job is
+#                             deployed only once the pyqxel-credentials-key secret exists
 #   YFINANCE_FALLBACK         true fills gaps in FMP's free plan with unlicensed yfinance
 #                             and Nasdaq data, for a deployment only you use; when unset,
 #                             the running service's value is kept (false when deploying
@@ -231,6 +233,13 @@ fi
 for name in GITHUB_CLIENT_ID GOOGLE_CLIENT_ID ADMIN_EMAIL EMAIL_FROM PUBLIC_URL SMTP_HOST SMTP_USERNAME; do
     if [[ -n "${!name}" ]]; then env_vars+="|$name=${!name}"; fi
 done
+# The service starts the nightly job when a refresh is due, on Cloud Scheduler's hourly
+# call, which it accepts only from the scheduler's account.
+service_env_vars="$env_vars"
+if [[ -n "$nightly_secret_flags" ]]; then
+    service_env_vars+="|NIGHTLY_JOB=projects/$PROJECT_ID/locations/$REGION/jobs/$NIGHTLY_JOB"
+    service_env_vars+="|NIGHTLY_TRIGGER_CALLER=$SCHEDULER_ACCOUNT"
+fi
 
 step "Deploying the $SERVICE service"
 # Scales to zero when idle; billed only while handling requests. The startup probe keeps a
@@ -245,7 +254,7 @@ gc run deploy "$SERVICE" \
     --concurrency 40 --timeout 3600 \
     --min-instances 0 --max-instances "$MAX_INSTANCES" \
     --cpu-boost \
-    --set-env-vars "$env_vars" \
+    --set-env-vars "$service_env_vars" \
     --set-secrets "$secret_flags" \
     --startup-probe "httpGet.path=/health/ready,periodSeconds=5,timeoutSeconds=4,failureThreshold=24" \
     --liveness-probe "httpGet.path=/health,periodSeconds=30,timeoutSeconds=5,failureThreshold=3"
@@ -278,38 +287,52 @@ if [[ -n "$SCREENER_SCHEDULE" ]]; then
         --oauth-service-account-email "$SCHEDULER_ACCOUNT"
 fi
 
+url="$(gc run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')"
+
 if [[ -n "$nightly_secret_flags" ]]; then
     step "Deploying the $NIGHTLY_JOB job"
-    # Each user's refresh takes an hour or two, paced by their own Finnhub plan; a run left
+    # Each user's refresh takes hours, paced by their own Finnhub plan; a run left
     # unfinished after eight hours is taken to have stopped, so the timeout matches it.
+    # It mostly waits on Finnhub, using about 3% of a CPU and 350 MiB for one user, so it
+    # gets half a CPU and 1 GiB, with three users' refreshes at once to fit in it.
     gc run jobs deploy "$NIGHTLY_JOB" \
         --region "$REGION" \
         --image "$IMAGE" \
         --service-account "$RUN_ACCOUNT" \
-        --cpu 1 --memory 2Gi \
+        --cpu 0.5 --memory 1Gi \
         --task-timeout 28800 --max-retries 0 \
         --command python --args=-m,app.jobs.nightly \
-        --set-env-vars "$env_vars" \
+        --set-env-vars "$env_vars|NIGHTLY_REFRESH_CONCURRENCY=3" \
         --set-secrets "$nightly_secret_flags"
+    # The service starts it, when a refresh is due.
+    gc run jobs add-iam-policy-binding "$NIGHTLY_JOB" --region "$REGION" \
+        --member "serviceAccount:$RUN_ACCOUNT" --role roles/run.invoker >/dev/null
 
     if [[ -n "$NIGHTLY_SCHEDULE" ]]; then
-        step "Scheduling users' own refreshes: $NIGHTLY_SCHEDULE (UTC)"
-        gc run jobs add-iam-policy-binding "$NIGHTLY_JOB" --region "$REGION" \
-            --member "serviceAccount:$SCHEDULER_ACCOUNT" --role roles/run.invoker >/dev/null
+        step "Checking for due refreshes: $NIGHTLY_SCHEDULE (UTC)"
+        # Scheduler calls the service, which is kept warm, and the service starts the job
+        # only when someone's refresh is due, so the job does not start every hour to find
+        # nothing to do. The call carries an identity token for the scheduler's account.
+        trigger="$url/internal/nightly-refresh"
         action=create
-        if gc scheduler jobs describe "$NIGHTLY_JOB" --location "$REGION" >/dev/null 2>&1; then
+        if target="$(gc scheduler jobs describe "$NIGHTLY_JOB" --location "$REGION" \
+            --format 'value(httpTarget.uri)' 2>/dev/null)"; then
             action=update
+            if [[ "$target" != "$trigger" ]]; then
+                # It used to start the job directly, with another kind of token: replace it.
+                gc scheduler jobs delete "$NIGHTLY_JOB" --location "$REGION" >/dev/null
+                action=create
+            fi
         fi
         gc scheduler jobs "$action" http "$NIGHTLY_JOB" \
             --location "$REGION" \
             --schedule "$NIGHTLY_SCHEDULE" --time-zone UTC \
-            --uri "https://run.googleapis.com/v2/projects/$PROJECT_ID/locations/$REGION/jobs/$NIGHTLY_JOB:run" \
-            --http-method POST \
-            --oauth-service-account-email "$SCHEDULER_ACCOUNT"
+            --uri "$trigger" --http-method POST \
+            --oidc-service-account-email "$SCHEDULER_ACCOUNT" \
+            --oidc-token-audience pyqxel-nightly-trigger \
+            --attempt-deadline 60s >/dev/null
     fi
 fi
-
-url="$(gc run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')"
 
 KEEP_WARM_JOB="$SERVICE-keep-warm"
 if [[ -n "$KEEP_WARM_SCHEDULE" ]]; then

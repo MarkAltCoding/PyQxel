@@ -1,8 +1,12 @@
 """Refresh the own screeners of the users who opted in to a nightly refresh.
 
-Run it every hour, with::
+Run it with::
 
     python -m app.jobs.nightly
+
+In production the service starts it only when some user's refresh is due, on Cloud
+Scheduler's hourly call (:mod:`app.api.internal`); running it when no one is due does
+nothing.
 
 Each run refreshes every user whose chosen time has come since their last refresh (see
 :func:`app.db.nightly.due_refreshes`), several at once, each on their own keys alone:

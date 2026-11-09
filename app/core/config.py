@@ -235,6 +235,18 @@ class Settings(BaseSettings):
         description="Users whose nightly screener refreshes run at once. Each runs on its "
         "own keys and within its own providers' rate limits.",
     )
+    nightly_job: str | None = Field(
+        default=None,
+        description="The Cloud Run job that runs nightly refreshes, as "
+        "projects/PROJECT/locations/REGION/jobs/JOB. Cloud Scheduler calls the service "
+        "every hour, which starts this job only when a refresh is due. Unset, as in "
+        "development, that hourly call answers 404.",
+    )
+    nightly_trigger_caller: str | None = Field(
+        default=None,
+        description="The service account Cloud Scheduler signs its hourly call with; a call "
+        "signed by any other account is refused.",
+    )
     analysis_cache_ttl_seconds: float = Field(
         default=86_400.0,
         ge=0,

@@ -318,6 +318,28 @@ async def refresh_status(
     )
 
 
+def _is_due(
+    record: NightlyRefreshRecord, last: UserScreenerRunRecord | None, now: datetime
+) -> bool:
+    """Whether ``record``'s refresh is due at ``now``, given its user's last run: its time
+    has come since that run started, and that run is not still running, or has run longer
+    than :data:`STALE_AFTER` and so is taken to have stopped."""
+    if last is not None and last.status == RUNNING and now - as_utc(last.started_at) < STALE_AFTER:
+        return False
+    started = None if last is None else as_utc(last.started_at)
+    return next_run_at(record.refresh_time, record.time_zone, now, started) <= now
+
+
+async def any_due(session: AsyncSession, now: datetime) -> bool:
+    """Whether any user's refresh is due at ``now``, changing nothing: the hourly check
+    that starts the refresh job only when it has work to do."""
+    for record in list(await session.scalars(select(NightlyRefreshRecord))):
+        runs = await _runs(session, record.user_id)
+        if _is_due(record, runs[0] if runs else None, now):
+            return True
+    return False
+
+
 async def due_refreshes(session: AsyncSession, now: datetime) -> list[DueRefresh]:
     """The users whose refresh is due at ``now``, with their decrypted keys.
 
@@ -336,8 +358,7 @@ async def due_refreshes(session: AsyncSession, now: datetime) -> list[DueRefresh
             last.finished_at = now
             last.error = "The refresh stopped without finishing."
             await session.commit()
-        started = None if last is None else as_utc(last.started_at)
-        if next_run_at(record.refresh_time, record.time_zone, now, started) > now:
+        if not _is_due(record, last, now):
             continue
         try:
             keys = _keys(record)
