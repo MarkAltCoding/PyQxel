@@ -294,14 +294,13 @@ if [[ -n "$nightly_secret_flags" ]]; then
     # Each user's refresh takes hours, paced by their own Finnhub plan; a run left
     # unfinished after eight hours is taken to have stopped, so the timeout matches it.
     # It mostly waits on Finnhub, using about 3% of a CPU and 350 MiB for one user, so it
-    # gets half a CPU and 1 GiB, with three users' refreshes at once to fit in it. Less
-    # than a whole CPU needs the first-generation environment.
+    # gets 1 GiB, with three users' refreshes at once to fit in it. A job cannot have less
+    # than a whole CPU.
     gc run jobs deploy "$NIGHTLY_JOB" \
         --region "$REGION" \
         --image "$IMAGE" \
         --service-account "$RUN_ACCOUNT" \
-        --execution-environment gen1 \
-        --cpu 0.5 --memory 1Gi \
+        --cpu 1 --memory 1Gi \
         --task-timeout 28800 --max-retries 0 \
         --command python --args=-m,app.jobs.nightly \
         --set-env-vars "$env_vars|NIGHTLY_REFRESH_CONCURRENCY=3" \
