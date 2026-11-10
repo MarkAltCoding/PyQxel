@@ -474,6 +474,8 @@ class NightlyRefreshRecord(Base):
     etfs_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     """When the refresh last checked every US ETF; on other nights it checks only the ETFs
     already in the user's universe."""
+    universe: Mapped[str] = mapped_column(String(16), server_default="all")
+    """What each refresh rebuilds (:data:`app.models.nightly.NightlyUniverse`)."""
 
 
 class UserScreenerRunRecord(Base):

@@ -20,6 +20,11 @@ STORED_PROVIDERS: tuple[NightlyProvider, ...] = (
 
 RunStatus = Literal["running", "succeeded", "failed"]
 
+NightlyUniverse = Literal["all", "stocks", "nasdaq", "sp500", "nasdaq100"]
+"""What a refresh rebuilds: every US stock and ETF, the stocks alone, the stocks listed on
+Nasdaq, or the companies in the S&P 500 or the Nasdaq-100. The smaller, the fewer Finnhub
+requests, so the sooner it finishes."""
+
 DEFAULT_PRICE_HISTORY_STOCKS: int = 40
 """Price histories a refresh fetches unless the user chooses: enough for the largest
 stocks, and under a free Tiingo key's 50 requests an hour."""
@@ -56,6 +61,12 @@ class NightlyRefreshSettings(BaseModel):
         description="Most stocks to fetch price histories for each night, largest first, "
         "one request each on the price-history keys; null for as many as their plans "
         "allow, which can use up a free plan's day.",
+    )
+    universe: NightlyUniverse = Field(
+        default="all",
+        description="What each refresh rebuilds: every US stock and ETF (all), US stocks "
+        "only (stocks), stocks listed on Nasdaq (nasdaq), or the companies in the S&P 500 "
+        "(sp500) or the Nasdaq-100 (nasdaq100). Only all includes ETFs.",
     )
 
     @field_validator("time_zone")
@@ -125,6 +136,9 @@ class NightlyRefreshStatus(BaseModel):
         default=DEFAULT_PRICE_HISTORY_STOCKS,
         description="Most stocks given price histories each night; null for as many as the "
         "keys' plans allow.",
+    )
+    universe: NightlyUniverse = Field(
+        default="all", description="What each refresh rebuilds; all while it is off."
     )
     key_use: list[NightlyKeyUse] = Field(
         default_factory=list,

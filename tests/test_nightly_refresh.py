@@ -3,7 +3,7 @@ stores, when it runs, and the universe it builds from the user's keys alone."""
 
 import asyncio
 import json
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
@@ -29,6 +29,7 @@ from app.data.screener_metrics import (
     parse_quote_price,
     parse_screen_metrics,
 )
+from app.data.index_members import IndexMembers, name_keys
 from app.data.universe import Listing
 from app.db import nightly as storage
 from app.db.screener import replace_listings, save_companies
@@ -37,7 +38,7 @@ from app.db.tables import NightlyRefreshRecord
 from app.db.users import User, create_api_key
 from app.jobs import nightly as job
 from app.main import app
-from app.models.nightly import NightlyRefreshSettings
+from app.models.nightly import NightlyRefreshSettings, NightlyUniverse
 from app.models.screener import ProviderScreenMetrics
 from app.stats.screening import user_screen_metrics
 from app.stats.sectors import industry_name, sector_for_sic
@@ -337,13 +338,13 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
     return seen
 
 
-def _opt_in(user: User) -> None:
+def _opt_in(user: User, universe: NightlyUniverse = "all") -> None:
     async def enable() -> None:
         async with get_sessionmaker()() as session:
             await storage.enable(
                 session,
                 user.id,
-                NightlyRefreshSettings(refresh_time="00:00", time_zone="UTC"),
+                NightlyRefreshSettings(refresh_time="00:00", time_zone="UTC", universe=universe),
                 ProviderKeys(finnhub=SecretStr(FINNHUB)),
             )
 
@@ -553,7 +554,8 @@ def test_opting_in_stores_only_the_keys_chosen_and_says_what_a_refresh_uses(
     plain = json.loads(decrypt_secret(record.credentials).get_secret_value())
     assert set(plain) == {"finnhub", "tiingo"}, "the EODHD key is not stored"
     use = {item["provider"]: item["requests"] for item in body["key_use"]}
-    assert use == {"finnhub": 5_000, "tiingo": 30}, "listings assumed, and 30 price histories"
+    # Listings and ETFs assumed, since no refresh has run, and 30 price histories.
+    assert use == {"finnhub": 5_000 + 4_600, "tiingo": 30}
 
 
 @pytest.mark.usefixtures("encryption")
@@ -683,3 +685,134 @@ def test_a_refresh_that_scans_every_etf_records_when(
             return None if record is None else record.etfs_scanned_at
 
     assert asyncio.run(scanned()) is not None
+
+
+# Smaller universes.
+
+
+@pytest.mark.usefixtures("encryption")
+def test_a_smaller_universe_is_stored_and_estimated(user: User, key: str) -> None:
+    response = client.put(
+        "/api/v1/me/nightly-refresh",
+        headers=_headers(key, finnhub=FINNHUB),
+        json={"universe": "sp500"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["universe"] == "sp500"
+    finnhub = next(item for item in body["key_use"] if item["provider"] == "finnhub")
+    assert finnhub["requests"] == 545, "the index's listings, not every stock's"
+    preview = client.get(
+        "/api/v1/me/nightly-refresh",
+        headers=_headers(key, finnhub=FINNHUB),
+        params={"use_key": ["finnhub"], "universe": "nasdaq100"},
+    ).json()
+    assert [item["requests"] for item in preview["key_use"]] == [115]
+    refused = client.put(
+        "/api/v1/me/nightly-refresh",
+        headers=_headers(key, finnhub=FINNHUB),
+        json={"universe": "everything"},
+    )
+    assert refused.status_code == 422
+
+
+@pytest.mark.usefixtures("encryption")
+def test_a_refresh_of_nasdaq_stocks_asks_only_about_them_and_no_etfs(
+    user: User, fakes: dict[str, list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[str] = []
+    # The fixture's fake, patched onto the job.
+    metrics: Callable[[Iterable[str]], Awaitable[dict[str, ProviderScreenMetrics]]] = getattr(
+        job, "fetch_screen_metrics"
+    )
+
+    async def counted(symbols: Iterable[str]) -> dict[str, ProviderScreenMetrics]:
+        symbols = list(symbols)
+        asked.extend(symbols)
+        return await metrics(symbols)
+
+    monkeypatch.setattr(job, "fetch_screen_metrics", counted)
+    _opt_in(user, "nasdaq")
+
+    assert asyncio.run(job.refresh_due_users()) == 1
+
+    assert asked == ["BIG"], "only the stock listed on Nasdaq"
+    assert fakes["etf_lists"] == [] and fakes["etf_metrics"] == []
+    record = _stored(user)
+    assert record is not None and record.etfs_scanned_at is None
+
+
+@pytest.mark.usefixtures("encryption")
+def test_a_refresh_of_an_index_keeps_its_companies_main_share_classes(
+    user: User, fakes: dict[str, list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[str] = []
+
+    async def members(index: str, listings: Iterable[Listing]) -> IndexMembers:
+        assert index == "sp500"
+        # Big Corp's two listings, of which the index holds one class, and Mid Corp.
+        chosen = [listing for listing in listings if listing.cik in (1, 2)]
+        return IndexMembers(listings=chosen, classes={1: 1, 2: 1})
+
+    async def metrics(symbols: Iterable[str]) -> dict[str, ProviderScreenMetrics]:
+        symbols = list(symbols)
+        asked.extend(symbols)
+        found = {symbol: _metrics(5e9) for symbol in symbols}
+        # BIGN is Big Corp's note: a market cap, but hardly traded.
+        found["BIGN"] = _metrics(5e9).model_copy(update={"average_volume": 10.0})
+        return {symbol: found[symbol] for symbol in symbols}
+
+    async def seed() -> None:
+        async with get_sessionmaker()() as session:
+            await replace_listings(
+                session,
+                [*LISTINGS, Listing(symbol="BIGN", cik=1, name="Big Corp", exchange="Nasdaq")],
+                {"BIG": 1e8, "MID": 1e7},
+            )
+
+    asyncio.run(seed())
+    monkeypatch.setattr(job, "index_members", members)
+    monkeypatch.setattr(job, "fetch_screen_metrics", metrics)
+    _opt_in(user, "sp500")
+
+    assert asyncio.run(job.refresh_due_users()) == 1
+
+    assert sorted(asked) == ["BIG", "BIGN", "MID"]
+    assert fakes["etf_metrics"] == []
+    key = _key_for(user)
+    screened = client.post("/api/v1/screener", headers=_headers(key), json={}).json()
+    assert sorted(item["symbol"] for item in screened["items"]) == ["BIG", "MID"]
+
+
+@pytest.mark.usefixtures("encryption")
+def test_a_refresh_of_an_index_the_sec_cannot_give_fails_and_keeps_the_universe(
+    user: User, fakes: dict[str, list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def unreachable(index: str, listings: Iterable[Listing]) -> IndexMembers:
+        raise DataFetchError("The SEC's fund filings could not be reached.")
+
+    monkeypatch.setattr(job, "index_members", unreachable)
+    _opt_in(user, "nasdaq100")
+
+    asyncio.run(job.refresh_due_users())
+
+    key = _key_for(user)
+    refresh = client.get("/api/v1/me/nightly-refresh", headers=_headers(key)).json()
+    assert refresh["latest_run"]["status"] == "failed"
+    assert "index's companies could not be read" in refresh["latest_run"]["error"]
+
+
+def test_index_funds_and_the_sec_write_a_company_alike() -> None:
+    pairs = [
+        ("Applied Materials, Inc.", "APPLIED MATERIALS INC /DE"),
+        ("Exxon Mobil Corp.", "ExxonMobil Holdings Corp"),
+        ("McDonald's Corp.", "MCDONALDS CORP"),
+        ("TJX Cos., Inc. (The)", "TJX COMPANIES INC /DE/"),
+        ("Charles Schwab Corp. (The)", "SCHWAB CHARLES CORP"),
+        ("NXP Semiconductors NV", "NXP Semiconductors N.V."),
+        ("CRH plc", "CRH PUBLIC LTD CO"),
+    ]
+    for filed, listed in pairs:
+        assert set(name_keys(filed)) & set(name_keys(listed)), (filed, listed)
+    assert not set(name_keys("Apple Inc.")) & set(name_keys("Applied Materials Inc"))

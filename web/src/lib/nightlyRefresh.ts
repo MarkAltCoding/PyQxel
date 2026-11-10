@@ -1,7 +1,7 @@
 // The nightly refresh of the user's own screener: its query key, the time zones a refresh
 // time can be in, and keeping the server's stored keys in step with the browser's.
 import { enableNightlyRefresh } from '../api/endpoints'
-import type { NightlyRefreshStatus } from '../api/types'
+import type { NightlyRefreshSettings, NightlyRefreshStatus } from '../api/types'
 
 export const NIGHTLY_QUERY_KEY = ['nightly-refresh'] as const
 
@@ -63,8 +63,9 @@ export async function resyncNightlyKeys(
   return enableNightlyRefresh({
     refresh_time: status.refresh_time,
     time_zone: status.time_zone,
-    // The same keys and cap the user chose, so a changed key does not widen them.
+    // The same keys, cap, and universe the user chose, so a changed key does not widen them.
     use_keys: status.providers ?? null,
+    universe: status.universe ?? 'all',
     price_history_stocks:
       status.price_history_stocks === null
         ? ALL_STOCKS
@@ -89,3 +90,15 @@ export const PRICE_HISTORY_CHOICES = [
 
 /** Price-history keys, in the order a refresh tries them. */
 export const PRICE_KEYS = ['tiingo', 'fmp', 'eodhd', 'alpha_vantage'] as const
+
+export type NightlyUniverse = NonNullable<NightlyRefreshSettings['universe']>
+
+/** What a refresh can rebuild, largest first, with about how long each takes at Finnhub's
+ * free pace. The labels are short enough for a phone's menu. */
+export const UNIVERSE_CHOICES: { value: NightlyUniverse; label: string; takes: string }[] = [
+  { value: 'all', label: 'Every US stock and ETF', takes: 'about four hours' },
+  { value: 'stocks', label: 'US stocks only, no ETFs', takes: 'about two hours' },
+  { value: 'nasdaq', label: 'Stocks listed on Nasdaq', takes: 'about an hour' },
+  { value: 'sp500', label: 'S&P 500 companies', takes: 'about 10 minutes' },
+  { value: 'nasdaq100', label: 'Nasdaq-100 companies', takes: 'about 2 minutes' },
+]

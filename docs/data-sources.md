@@ -228,6 +228,18 @@ reads them with no key and may show them to every account (`app/data/fund_filing
   week. Tested November 6, 2026: VFIAX (as of June 30), FXAIX (August 31), and VBTLX
   (June 30, 98.8% bonds).
 
+The same filings give the **S&P 500's and the Nasdaq-100's companies**, whose official
+lists their owners license: IVV holds the S&P 500 and QQQM the Nasdaq-100 (SPY and QQQ are
+unit investment trusts, which file none). A user's nightly refresh of one of those indexes
+keeps only its companies (`app/data/index_members.py`). Names are matched without EDGAR's
+state suffixes (`APPLIED MATERIALS INC /DE`), punctuation, and legal endings, run together
+or in either order. Tested November 9, 2026: 492 of IVV's 503 companies (June 30) and 101
+of QQQM's 102 (August 31) matched; those left out had changed their names since filing
+(GE Aerospace, still General Electric at the SEC). The filing does not say which of a
+company's listings it holds, so the refresh keeps as many of its listings as the fund holds
+share classes, the most traded first (GOOG and GOOGL, not the GOOGM notes). A company that
+joined or left the index shows up a quarter or two late.
+
 From the holdings, PyQxel weights the companies' own figures into the fund's
 (`app/stats/fund_stats.py`): P/E and price to sales as harmonic means, margins, return on
 equity, growth, and market cap as weighted means, and sectors from the companies' SEC

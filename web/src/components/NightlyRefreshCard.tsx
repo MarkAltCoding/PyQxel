@@ -25,7 +25,9 @@ import {
   PRICE_HISTORY_CHOICES,
   PRICE_KEYS,
   timeZoneLabel,
+  UNIVERSE_CHOICES,
   US_TIME_ZONES,
+  type NightlyUniverse,
 } from '../lib/nightlyRefresh'
 import { requestLimit } from '../lib/usage'
 import { InfoTip } from './InfoTip'
@@ -50,12 +52,14 @@ export function NightlyRefreshCard({
   const [zone, setZone] = useState<string | null>(null)
   const [keys, setKeys] = useState<PriceKey[] | null>(null)
   const [stocks, setStocks] = useState<number | null>(null)
+  const [universe, setUniverse] = useState<NightlyUniverse | null>(null)
   const onChanged = (data: NightlyRefreshStatus) => {
     queryClient.setQueryData(NIGHTLY_QUERY_KEY, data)
     setTime(null)
     setZone(null)
     setKeys(null)
     setStocks(null)
+    setUniverse(null)
   }
   const enable = useMutation({
     mutationFn: enableNightlyRefresh,
@@ -89,20 +93,24 @@ export function NightlyRefreshCard({
       ? ALL_STOCKS
       : (data.price_history_stocks ?? DEFAULT_STOCKS)
   const shownStocks = stocks ?? savedStocks
+  const savedUniverse = data?.universe ?? 'all'
+  const shownUniverse = universe ?? savedUniverse
   const changed =
     (time !== null && time !== data?.refresh_time) ||
     (zone !== null && zone !== data?.time_zone) ||
     (keys !== null && keys.join() !== savedKeys.join()) ||
-    (stocks !== null && stocks !== savedStocks)
+    (stocks !== null && stocks !== savedStocks) ||
+    (universe !== null && universe !== savedUniverse)
   const choice = {
     refresh_time: shownTime,
     time_zone: shownZone,
     use_keys: ['finnhub' as const, ...shownKeys],
     price_history_stocks: shownStocks,
+    universe: shownUniverse,
   }
   const preview = useQuery({
-    queryKey: ['nightly-preview', choice.use_keys.join(), shownStocks],
-    queryFn: () => previewNightlyRefresh(choice.use_keys, shownStocks),
+    queryKey: ['nightly-preview', choice.use_keys.join(), shownStocks, shownUniverse],
+    queryFn: () => previewNightlyRefresh(choice.use_keys, shownStocks, shownUniverse),
     enabled: hasFinnhub && Boolean(data?.available),
     placeholderData: keepPreviousData,
   })
@@ -122,11 +130,10 @@ export function NightlyRefreshCard({
           of stocks and their financials, Finnhub’s list of ETFs and its free metrics on your
           Finnhub key, and price-history columns (momentum, volatility, drawdown, factor betas) from
           the price-history keys you choose below, for as many stocks and ETFs as you choose. A
-          refresh takes about two hours at Finnhub’s free pace; once a week it checks every US ETF
-          for new and newly traded ones, which takes about four. It runs while your browser is
-          closed, so turning it on stores your market data keys on PyQxel’s server, encrypted. Your
-          Anthropic key is never stored. Turning it off, or deleting your account, deletes them at
-          once.
+          refresh of every stock and ETF takes about four hours at Finnhub’s free pace; a smaller
+          universe, such as the S&P 500, takes minutes. It runs while your browser is closed, so
+          turning it on stores your market data keys on PyQxel’s server, encrypted. Your Anthropic
+          key is never stored. Turning it off, or deleting your account, deletes them at once.
         </p>
       </div>
 
@@ -192,6 +199,28 @@ export function NightlyRefreshCard({
             </optgroup>
           </select>
         </label>
+        <div className="field" style={{ width: 330, maxWidth: '100%' }}>
+          <span className="heading-with-info">
+            <label htmlFor="nightly-universe">What to refresh</label>
+            <InfoTip topic="nightlyUniverse" />
+          </span>
+          <select
+            id="nightly-universe"
+            value={shownUniverse}
+            disabled={!data?.available || busy || !hasFinnhub}
+            onChange={(event) => setUniverse(event.target.value as NightlyUniverse)}
+          >
+            {UNIVERSE_CHOICES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <span className="muted">
+            Takes {UNIVERSE_CHOICES.find((option) => option.value === shownUniverse)?.takes} a night
+            at Finnhub’s free pace.
+          </span>
+        </div>
         {data?.enabled && changed && hasFinnhub && (
           <button
             type="button"
@@ -207,7 +236,8 @@ export function NightlyRefreshCard({
       {data?.enabled && !hasFinnhub && (
         <Notice>
           It is on, with the keys stored on the server. You can turn it off here at any time. To
-          change its keys, time, or number of stocks, add your Finnhub key above first.
+          change its keys, time, number of stocks, or what it refreshes, add your Finnhub key above
+          first.
         </Notice>
       )}
 
@@ -272,7 +302,8 @@ function RefreshStatus({ status }: { status: NightlyRefreshStatus }) {
       )}
       {latest?.status === 'running' && (
         <Notice>
-          Refreshing now, since {dateTime(latest.started_at)}. It takes an hour or two.
+          Refreshing now, since {dateTime(latest.started_at)}. It takes from a few minutes to a few
+          hours, depending on what it refreshes.
         </Notice>
       )}
       {latest?.status === 'failed' && (

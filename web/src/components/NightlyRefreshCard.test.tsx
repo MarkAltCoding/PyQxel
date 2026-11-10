@@ -73,6 +73,7 @@ describe('NightlyRefreshCard', () => {
       time_zone: 'America/New_York',
       use_keys: ['finnhub'],
       price_history_stocks: 40,
+      universe: 'all',
     })
     expect(screen.getByText(/Stored, encrypted: Finnhub, Tiingo/)).toBeInTheDocument()
     expect(screen.getByText(/Finnhub rejected your API key/)).toBeInTheDocument()
@@ -123,7 +124,28 @@ describe('NightlyRefreshCard', () => {
         time_zone: 'America/Los_Angeles',
         use_keys: ['finnhub'],
         price_history_stocks: 40,
+        universe: 'all',
       })
+    })
+  })
+
+  it('saves a smaller universe, and previews what it would use', async () => {
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response(JSON.stringify(ON)))
+    renderCard()
+    const universe = await screen.findByRole('combobox', { name: 'What to refresh' })
+    await waitFor(() => expect(universe).toHaveValue('all'))
+
+    await userEvent.selectOptions(universe, 'sp500')
+
+    await waitFor(() =>
+      expect(fetch.mock.calls.some(([url]) => String(url).includes('universe=sp500'))).toBe(true),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => {
+      const put = fetch.mock.calls.find(([, init]) => init?.method === 'PUT')
+      expect(JSON.parse(String(put![1]!.body))).toMatchObject({ universe: 'sp500' })
     })
   })
 

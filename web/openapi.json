@@ -7775,6 +7775,19 @@
             "title": "Time Zone",
             "type": "string"
           },
+          "universe": {
+            "default": "all",
+            "description": "What each refresh rebuilds: every US stock and ETF (all), US stocks only (stocks), stocks listed on Nasdaq (nasdaq), or the companies in the S&P 500 (sp500) or the Nasdaq-100 (nasdaq100). Only all includes ETFs.",
+            "enum": [
+              "all",
+              "stocks",
+              "nasdaq",
+              "sp500",
+              "nasdaq100"
+            ],
+            "title": "Universe",
+            "type": "string"
+          },
           "use_keys": {
             "anyOf": [
               {
@@ -7921,6 +7934,19 @@
             ],
             "description": "IANA time zone of refresh_time.",
             "title": "Time Zone"
+          },
+          "universe": {
+            "default": "all",
+            "description": "What each refresh rebuilds; all while it is off.",
+            "enum": [
+              "all",
+              "stocks",
+              "nasdaq",
+              "sp500",
+              "nasdaq100"
+            ],
+            "title": "Universe",
+            "type": "string"
           }
         },
         "required": [
@@ -14184,7 +14210,7 @@
         ]
       },
       "get": {
-        "description": "Return whether your nightly screener refresh is on, when it runs, which of your\nkeys it stores, how its latest runs went, and about how many requests one refresh\nsends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of\nkeys and of ``price_history_stocks`` before it is saved.\n\nReturns 503 when the database is unavailable.",
+        "description": "Return whether your nightly screener refresh is on, when it runs, which of your\nkeys it stores, how its latest runs went, and about how many requests one refresh\nsends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of\nkeys, of ``price_history_stocks``, and of ``universe`` before it is saved.\n\nReturns 503 when the database is unavailable.",
         "operationId": "read_nightly_refresh_api_v1_me_nightly_refresh_get",
         "parameters": [
           {
@@ -14228,6 +14254,25 @@
               "description": "A price-history cap being considered, likewise.",
               "title": "Price History Stocks"
             }
+          },
+          {
+            "description": "What a refresh would rebuild, likewise.",
+            "in": "query",
+            "name": "universe",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "description": "What a refresh would rebuild, likewise.",
+              "enum": [
+                "all",
+                "stocks",
+                "nasdaq",
+                "sp500",
+                "nasdaq100"
+              ],
+              "title": "Universe",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -14258,7 +14303,7 @@
         ]
       },
       "put": {
-        "description": "Opt in to a nightly refresh of your own screener, or change when it runs.\n\nEach night at ``refresh_time`` in ``time_zone``, your own universe is rebuilt from the\nSEC's shared list of stocks and financials, Finnhub's free metrics on your Finnhub key,\nand price-history columns from whichever price-history key you have (Tiingo, FMP,\nEODHD, or Alpha Vantage). It runs with no browser open, so the market data keys this\nrequest carries are stored, encrypted, replacing any stored before; your Anthropic key\nis never stored. Send this again after changing a key.\n\nReturns 422 without a Finnhub key, or for an unknown time zone; 503 when this server\ncannot store keys or the database is unavailable.",
+        "description": "Opt in to a nightly refresh of your own screener, or change when it runs.\n\nEach night at ``refresh_time`` in ``time_zone``, your own universe (every US stock and\nETF, or the smaller one ``universe`` chooses) is rebuilt from the SEC's shared list of\nstocks and financials, Finnhub's free metrics on your Finnhub key,\nand price-history columns from whichever price-history key you have (Tiingo, FMP,\nEODHD, or Alpha Vantage). It runs with no browser open, so the market data keys this\nrequest carries are stored, encrypted, replacing any stored before; your Anthropic key\nis never stored. Send this again after changing a key.\n\nReturns 422 without a Finnhub key, or for an unknown time zone; 503 when this server\ncannot store keys or the database is unavailable.",
         "operationId": "store_nightly_refresh_api_v1_me_nightly_refresh_put",
         "requestBody": {
           "content": {

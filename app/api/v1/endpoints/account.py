@@ -66,7 +66,12 @@ from app.models.account import (
     NewApiKey,
     ProviderCredential,
 )
-from app.models.nightly import NightlyProvider, NightlyRefreshSettings, NightlyRefreshStatus
+from app.models.nightly import (
+    NightlyProvider,
+    NightlyRefreshSettings,
+    NightlyRefreshStatus,
+    NightlyUniverse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -217,15 +222,19 @@ async def read_nightly_refresh(
         int | None,
         Query(ge=0, le=10_000, description="A price-history cap being considered, likewise."),
     ] = None,
+    universe: Annotated[
+        NightlyUniverse,
+        Query(description="What a refresh would rebuild, likewise."),
+    ] = "all",
 ) -> NightlyRefreshStatus:
     """Return whether your nightly screener refresh is on, when it runs, which of your
     keys it stores, how its latest runs went, and about how many requests one refresh
     sends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of
-    keys and of ``price_history_stocks`` before it is saved.
+    keys, of ``price_history_stocks``, and of ``universe`` before it is saved.
 
     Returns 503 when the database is unavailable.
     """
-    preview = (list(use_key), price_history_stocks) if use_key else None
+    preview = (list(use_key), price_history_stocks, universe) if use_key else None
     try:
         return await refresh_status(session, user.id, encryption_available(), preview=preview)
     except SQLAlchemyError as exc:
@@ -242,8 +251,9 @@ async def store_nightly_refresh(
 ) -> NightlyRefreshStatus:
     """Opt in to a nightly refresh of your own screener, or change when it runs.
 
-    Each night at ``refresh_time`` in ``time_zone``, your own universe is rebuilt from the
-    SEC's shared list of stocks and financials, Finnhub's free metrics on your Finnhub key,
+    Each night at ``refresh_time`` in ``time_zone``, your own universe (every US stock and
+    ETF, or the smaller one ``universe`` chooses) is rebuilt from the SEC's shared list of
+    stocks and financials, Finnhub's free metrics on your Finnhub key,
     and price-history columns from whichever price-history key you have (Tiingo, FMP,
     EODHD, or Alpha Vantage). It runs with no browser open, so the market data keys this
     request carries are stored, encrypted, replacing any stored before; your Anthropic key

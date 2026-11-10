@@ -868,7 +868,13 @@ const entries = {
   nightlyRefresh: {
     title: 'Nightly screener refresh',
     what: 'Rebuilds your own copy of the stock screener every night, on your own market data keys, so its numbers come from data you are licensed to see. Until it first runs, the screener shows the shared universe if there is one.',
-    note: 'Finnhub’s free plan allows about 60 requests a minute and the refresh makes one per listed stock and ETF: about two hours most nights, and about four once a week, when it checks every US ETF for new and newly traded ones, which join within the week. While it runs it uses most of your Finnhub allowance, so news, ratings and quotes may be slow or briefly unavailable: pick an hour when you are not using PyQxel. Free price-history plans cover only some stocks and ETFs a night: the largest stocks and most-traded ETFs come first, sharing them in proportion. ETFs have no market cap or company figures, so a screen on those leaves them out. Sectors come from each company’s SEC industry code, which can differ from a data provider’s.',
+    note: 'Finnhub’s free plan allows about 60 requests a minute and the refresh makes one per listed stock and ETF: about four hours for every stock and ETF, and minutes for a smaller universe such as the S&P 500 (see What to refresh). Once a week a refresh of everything checks every US ETF for new and newly traded ones, which join within the week. While it runs it uses most of your Finnhub allowance, so news, ratings and quotes may be slow or briefly unavailable: pick an hour when you are not using PyQxel. Free price-history plans cover only some stocks and ETFs a night: the largest stocks and most-traded ETFs come first, sharing them in proportion. ETFs have no market cap or company figures, so a screen on those leaves them out. Sectors come from each company’s SEC industry code, which can differ from a data provider’s.',
+  },
+  nightlyUniverse: {
+    title: 'What to refresh',
+    what: 'Which stocks your own screener is rebuilt from each night. Every US stock and ETF is the most complete; US stocks only leaves out ETFs; Nasdaq keeps the stocks listed on the Nasdaq exchange; S&P 500 keeps the 500 large US companies in that index, and Nasdaq-100 the 100 largest non-financial companies listed on Nasdaq.',
+    good: 'The smallest universe that holds the stocks you look for: it finishes sooner and uses far less of your Finnhub allowance, so pages stay quick while it runs.',
+    note: 'Only every US stock and ETF includes ETFs. The indexes’ companies come from the holdings that index funds (IVV for the S&P 500, QQQM for the Nasdaq-100) report to the SEC each quarter, which are published about two months after the quarter ends, so a company that just joined or left an index shows up a few months late. A few companies whose names changed since they filed with the SEC may be missing.',
   },
   nightlyLastRefresh: {
     title: 'Last refresh',
@@ -879,7 +885,7 @@ const entries = {
   nightlyStocks: {
     title: 'Stocks in your screener',
     what: 'How many US-listed stocks passed the screener’s floors (market cap, share price, and trading volume) in your last refresh.',
-    note: 'Usually a few thousand. Fewer can mean Finnhub left some stocks out, for example when its limit was reached.',
+    note: 'Usually a few thousand for every US stock, about 500 for the S&P 500, and about 100 for the Nasdaq-100. Fewer can mean Finnhub left some stocks out, for example when its limit was reached.',
   },
   nightlyPriced: {
     title: 'With price history',

@@ -12,7 +12,10 @@ Each run refreshes every user whose chosen time has come since their last refres
 :func:`app.db.nightly.due_refreshes`), several at once, each on their own keys alone:
 
 1. Starts from the shared SEC first stage that :mod:`app.jobs.screener` stores: every
-   listed common stock, its shares outstanding, and its company's financials.
+   listed common stock, its shares outstanding, and its company's financials. A user who
+   chose a smaller universe keeps only the stocks listed on Nasdaq, or the companies in
+   the S&P 500 or the Nasdaq-100 (:mod:`app.data.index_members`), and gets no ETFs, so
+   the refresh sends far fewer requests and finishes sooner.
 2. Reads each stock's market cap, valuation, margins, growth, 26- and 52-week returns,
    three-month volatility, beta, and volume from Finnhub's free basic financials on the
    user's Finnhub key, one request per stock, paced under the free plan's limit: about an
@@ -78,9 +81,11 @@ from app.db.nightly import (
 )
 from app.db.screener import load_companies, load_fundamentals, load_listings
 from app.db.session import close_database, get_sessionmaker, init_db
+from app.data.index_members import Index, IndexMembers, index_members
 from app.db.users import get_user
 from app.jobs.screener import PRICE_HISTORY_DAYS, completed_sessions
 from app.models.fundamentals import Financials
+from app.models.nightly import NightlyUniverse
 from app.models.screener import ProviderScreenMetrics, ScreenedStock, ScreenMetrics
 from app.stats.screening import etf_screen_metrics, market_cap_ranks, user_screen_metrics
 from app.stats.sectors import industry_name, sector_for_sic
@@ -264,16 +269,59 @@ async def _etfs(skip: set[str], kept: list[EtfListing] | None = None) -> list[_E
     return etfs
 
 
+def main_classes(stocks: list[_Stock], classes: dict[int, int]) -> list[_Stock]:
+    """Of each index company's listings in ``stocks``, the ``classes[cik]`` most traded:
+    its share classes in the index (both of Alphabet's), not its notes and preferreds."""
+    by_company: dict[int, list[_Stock]] = {}
+    for stock in stocks:
+        by_company.setdefault(stock.listing.cik, []).append(stock)
+    kept: set[str] = set()
+    for cik, listed in by_company.items():
+        listed.sort(key=lambda stock: -(stock.metrics.average_volume or 0.0))
+        kept |= {stock.listing.symbol for stock in listed[: classes.get(cik, 1)]}
+    return [stock for stock in stocks if stock.listing.symbol in kept]
+
+
+async def _chosen_listings(
+    universe: NightlyUniverse, listings: list[tuple[Listing, float | None]]
+) -> tuple[list[tuple[Listing, float | None]], IndexMembers | None]:
+    """The ``listings`` (with their SEC shares outstanding) that ``universe`` rebuilds, and
+    for an index, its members.
+
+    Raises:
+        RuntimeError: If an index's companies could not be read from its fund's filing.
+    """
+    if universe in ("all", "stocks"):
+        return listings, None
+    if universe == "nasdaq":
+        return [
+            (listing, count) for listing, count in listings if listing.exchange == "Nasdaq"
+        ], None
+    index: Index = "sp500" if universe == "sp500" else "nasdaq100"
+    try:
+        members = await index_members(index, (listing for listing, _ in listings))
+    except DataFetchError as exc:
+        raise RuntimeError(
+            f"The index's companies could not be read from the SEC ({exc}); your universe "
+            "was kept."
+        ) from exc
+    chosen = {listing.symbol for listing in members.listings}
+    return [(listing, count) for listing, count in listings if listing.symbol in chosen], members
+
+
 async def build_user_universe(
     user_id: str,
     now: datetime,
     price_history_stocks: int | None = None,
     etfs_scanned_at: datetime | None = None,
+    universe: NightlyUniverse = "all",
 ) -> UserRefreshResult:
-    """Build and store ``user_id``'s own universe on the current provider keys.
+    """Build and store ``user_id``'s own universe of ``universe`` on the current provider
+    keys. Only a universe of everything includes ETFs.
 
     Raises:
-        RuntimeError: If the SEC first stage has not stored any listings yet.
+        RuntimeError: If the SEC first stage has not stored any listings yet, or an index's
+            companies could not be read.
         ProviderNotConfiguredError: If the user's Finnhub key is missing or rejected.
     """
     settings = get_settings()
@@ -282,6 +330,8 @@ async def build_user_universe(
         listings = await load_listings(session)
     if not listings:
         raise RuntimeError("The shared SEC stage has not run yet; try again tomorrow.")
+    every_symbol = {listing.symbol for listing, _ in listings}
+    listings, members = await _chosen_listings(universe, listings)
     shares = {listing.symbol: count for listing, count in listings}
     by_symbol = {listing.symbol: listing for listing, _ in listings}
 
@@ -291,6 +341,8 @@ async def build_user_universe(
         for symbol, metrics in provided.items()
         if (metrics.market_cap or 0.0) >= settings.screener_min_market_cap
     ]
+    if members is not None:
+        stocks = main_classes(stocks, members.classes)
     stocks.sort(key=lambda stock: -(stock.metrics.market_cap or 0.0))
     logger.info(
         "User %s: Finnhub had metrics for %d of %d stocks; %d pass the market cap floor.",
@@ -301,13 +353,15 @@ async def build_user_universe(
     )
 
     known_etfs: list[EtfListing] | None = None
-    if not scans_every_etf(etfs_scanned_at, now):
-        async with get_sessionmaker()() as session:
-            known_etfs = [EtfListing(*row) for row in await user_etfs(session, user_id)]
-        if not known_etfs:
-            # None were kept last time, as when that refresh failed: check them all.
-            known_etfs = None
-    etfs = await _etfs(set(by_symbol), known_etfs)
+    etfs: list[_Etf] = []
+    if universe == "all":
+        if not scans_every_etf(etfs_scanned_at, now):
+            async with get_sessionmaker()() as session:
+                known_etfs = [EtfListing(*row) for row in await user_etfs(session, user_id)]
+            if not known_etfs:
+                # None were kept last time, as when that refresh failed: check them all.
+                known_etfs = None
+        etfs = await _etfs(every_symbol, known_etfs)
 
     # The user chose how many stocks and ETFs get price histories: one request each on
     # their price-history keys, which free plans allow only so many of a day.
@@ -358,21 +412,21 @@ async def build_user_universe(
     exchange_rates = await fetch_exchange_rates(
         {company.currency for company in financials.values()} - {"USD"}
     )
-    universe = await asyncio.to_thread(
+    screened = await asyncio.to_thread(
         _score, stocks, histories, financials, companies, factors, exchange_rates, today, etfs
     )
-    if not universe:
+    if not screened:
         raise RuntimeError("No stock passed the baseline filters; your universe was kept.")
     async with get_sessionmaker()() as session:
-        count = await replace_user_universe(session, user_id, universe)
-    kept = {stock.symbol for stock in universe}
+        count = await replace_user_universe(session, user_id, screened)
+    kept = {stock.symbol for stock in screened}
     priced = [symbol for symbol in histories if symbol in kept]
     last_closes = [pd.Timestamp(histories[symbol].index[-1]).date() for symbol in priced]
     return UserRefreshResult(
         stocks=count,
         priced=len(priced),
         prices_as_of=max(last_closes, default=None),
-        scanned_etfs=known_etfs is None,
+        scanned_etfs=universe == "all" and known_etfs is None,
     )
 
 
@@ -402,7 +456,7 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None) -> None:
     with usage.track() as sent:
         try:
             result = await build_user_universe(
-                due.user_id, now, due.price_history_stocks, due.etfs_scanned_at
+                due.user_id, now, due.price_history_stocks, due.etfs_scanned_at, due.universe
             )
         except Exception as exc:
             logger.warning("User %s's nightly refresh failed: %s", due.user_id, exc)
