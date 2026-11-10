@@ -74,8 +74,11 @@ RUN_ACCOUNT="$SERVICE-run@$PROJECT_ID.iam.gserviceaccount.com"
 SCHEDULER_ACCOUNT="$SERVICE-scheduler@$PROJECT_ID.iam.gserviceaccount.com"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$(git rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M%S)"
 
-# Secret Manager name -> environment variable. The first is required; the first two go to
-# the screener job too, and the sign-in clients' secrets to the service only.
+# Secret Manager name -> environment variable. The first is required, and the only one the
+# jobs get too. The jobs run as one process each, so their caches and rate counts work in
+# memory, and Redis's commands are kept for the service: through Redis, each of the
+# nightly refresh's thousands of Finnhub requests cost about eight, more than the free
+# plan's monthly allowance in under two weeks.
 SECRET_NAMES=(pyqxel-database-url pyqxel-redis-url
     pyqxel-github-client-secret pyqxel-google-client-secret pyqxel-smtp-password
     pyqxel-resend-api-key)
@@ -122,7 +125,7 @@ for i in "${!SECRET_NAMES[@]}"; do
     name="${SECRET_NAMES[$i]}"
     if gc secrets describe "$name" >/dev/null 2>&1; then
         secrets+=("${SECRET_VARIABLES[$i]}=$name:latest")
-        if [[ $i -lt 2 ]]; then job_secrets+=("${SECRET_VARIABLES[$i]}=$name:latest"); fi
+        if [[ $i -lt 1 ]]; then job_secrets+=("${SECRET_VARIABLES[$i]}=$name:latest"); fi
     elif [[ $i -lt 1 ]]; then
         echo "Missing secret $name; create it as README.md describes." >&2
         exit 1
