@@ -29,6 +29,10 @@ export type AdminSettingsUpdate = Partial<
 >
 export type Account = Schemas['Account'] & { admin?: AdminSettings }
 export type NightlyRefreshSettings = Schemas['NightlyRefreshSettings']
+export type BillingStatus = Schemas['BillingStatus']
+export type BillingEntry = Schemas['BillingEntry']
+export type BillingInterval = Schemas['SubscriptionRequest']['interval']
+export type CheckoutLink = Schemas['CheckoutLink']
 export type NightlyRefreshStatus = Schemas['NightlyRefreshStatus']
 export type NightlyRun = Schemas['NightlyRun']
 export type NightlyKeyUse = Schemas['NightlyKeyUse']

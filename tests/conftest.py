@@ -176,6 +176,20 @@ def no_sec_ticker_search(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_billing(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """No test bills through Stripe, or reaches it, unless it turns billing on itself:
+    ``.env`` may hold a real Stripe key."""
+    from app.billing import stripe_api
+
+    monkeypatch.setattr(get_settings(), "stripe_secret_key", None)
+    monkeypatch.setattr(get_settings(), "stripe_webhook_secret", None)
+    monkeypatch.setattr(get_settings(), "nightly_billed", False)
+    stripe_api.client.cache_clear()
+    stripe_api._cached().clear()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def isolated_storage() -> Iterator[None]:
     """Give each test a fresh in-memory database and no cache."""
     # A module-scoped app may have opened the default engine already.

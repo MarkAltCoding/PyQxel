@@ -43,14 +43,20 @@ Each run refreshes every user whose chosen time has come since their last refres
 Each refresh runs in its own task with only its user's keys and the same data access as
 that user's own requests (see :mod:`app.core.credentials`), so no user's data reaches
 another.
+
+On a server that bills (``STRIPE_SECRET_KEY`` set), a refresh runs only for a user with
+credit left or a usage subscription, and each costs its user its share of the job's time
+at Cloud Run's rates (:func:`run_cost_micros`), paid as :mod:`app.db.billing` explains.
 """
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import sees_unlicensed_data, uses_restricted_sources, uses_yfinance
 from app.core.config import get_settings
@@ -72,6 +78,7 @@ from app.data.screener_metrics import (
     fetch_screen_metrics,
 )
 from app.data.universe import Listing
+from app.db.billing import MICROS_PER_DOLLAR, charge_usage
 from app.db.nightly import (
     DueRefresh,
     UniverseChoice,
@@ -89,7 +96,7 @@ from app.db.screener import (
     load_listings,
 )
 from app.db.session import close_database, get_sessionmaker, init_db
-from app.db.users import get_user
+from app.db.users import User, get_user
 from app.jobs.screener import PRICE_HISTORY_DAYS, completed_sessions
 from app.models.fundamentals import Financials
 from app.models.screener import ProviderScreenMetrics, ScreenedStock, ScreenMetrics
@@ -568,13 +575,28 @@ async def build_user_universe(
     )
 
 
-async def refresh_user(due: DueRefresh, now: datetime | None = None) -> None:
-    """Run one user's refresh on their own keys, recording how it went.
+def run_cost_micros(seconds: float, sharing: int) -> int:
+    """What ``seconds`` of a refresh cost on Cloud Run, in millionths of a dollar, when
+    ``sharing`` refreshes ran at once on the job's CPU and memory, each paying its share."""
+    settings = get_settings()
+    per_second = (
+        settings.nightly_job_cpus * settings.job_cpu_second_usd
+        + settings.nightly_job_memory_gib * settings.job_gib_second_usd
+    )
+    return round(seconds * per_second / max(sharing, 1) * MICROS_PER_DOLLAR)
+
+
+async def refresh_user(due: DueRefresh, now: datetime | None = None, sharing: int = 1) -> None:
+    """Run one user's refresh on their own keys, recording how it went and what it cost.
 
     A failure is recorded for the user to see in Settings, never raised, so one user's
-    rejected key does not stop anyone else's refresh.
+    rejected key does not stop anyone else's refresh. Its cost is the refresh's share of
+    the job's time, with ``sharing`` refreshes running at once; it is charged to the user
+    (:func:`app.db.billing.charge_usage`) whether the refresh succeeded or failed, since
+    the job ran either way, except to the owner's account, which pays the cloud bill.
     """
     now = now or datetime.now(timezone.utc)
+    started = time.monotonic()
     async with get_sessionmaker()() as session:
         user = await get_user(session, due.user_id)
         run_id = await start_run(session, due.user_id, now)
@@ -598,12 +620,19 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None) -> None:
             )
         except Exception as exc:
             logger.warning("User %s's nightly refresh failed: %s", due.user_id, exc)
+            cost = run_cost_micros(time.monotonic() - started, sharing)
             async with get_sessionmaker()() as session:
                 await finish_run(
-                    session, run_id, error=str(exc) or type(exc).__name__, usage=dict(sent)
+                    session,
+                    run_id,
+                    error=str(exc) or type(exc).__name__,
+                    usage=dict(sent),
+                    cost_micros=cost,
                 )
+                await _charge(session, user, run_id, cost)
             await usage.flush()
             return
+    cost = run_cost_micros(time.monotonic() - started, sharing)
     async with get_sessionmaker()() as session:
         if result.scanned_etfs:
             await mark_etfs_scanned(session, due.user_id, now)
@@ -615,11 +644,20 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None) -> None:
             prices_as_of=result.prices_as_of,
             usage=dict(sent),
             notes=result.notes,
+            cost_micros=cost,
         )
+        await _charge(session, user, run_id, cost)
     await usage.flush()
     logger.info(
         "User %s: %d stocks, %d with price history.", due.user_id, result.stocks, result.priced
     )
+
+
+async def _charge(session: AsyncSession, user: User | None, run_id: str, cost: int) -> None:
+    """Charge ``user`` ``cost`` for a refresh, unless they are the owner."""
+    if user is None or user.is_admin:
+        return
+    await charge_usage(session, user.id, cost, run_id)
 
 
 async def refresh_due_users(now: datetime | None = None) -> int:
@@ -629,11 +667,14 @@ async def refresh_due_users(now: datetime | None = None) -> int:
     await init_db()
     async with get_sessionmaker()() as session:
         due = await due_refreshes(session, now)
-    slots = asyncio.Semaphore(get_settings().nightly_refresh_concurrency)
+    concurrency = get_settings().nightly_refresh_concurrency
+    slots = asyncio.Semaphore(concurrency)
+    # How many refreshes share the job's CPU and memory at a time, and so its cost.
+    sharing = min(concurrency, len(due))
 
     async def run(refresh: DueRefresh) -> None:
         async with slots:
-            await refresh_user(refresh)
+            await refresh_user(refresh, sharing=sharing)
 
     # Each refresh is its own task, so the keys it sets are visible to it alone.
     await asyncio.gather(*(asyncio.create_task(run(refresh)) for refresh in due))

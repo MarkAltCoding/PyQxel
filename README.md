@@ -239,6 +239,14 @@ One-time setup:
      gcloud secrets create pyqxel-credentials-key --data-file=-  # for nightly refreshes, if missing
    ```
    Read a secret back with `gcloud secrets versions access latest --secret pyqxel-database-url`. Provider keys need no secret: the server never stores them.
+4. Optionally, bill users for their nightly refreshes ([below](#paying-for-the-nightly-refresh)). In the [Stripe Dashboard](https://dashboard.stripe.com), create a restricted key (Developers → API keys) that can write Customers, Checkout Sessions, Customer portal, Billing meter events, Refunds, and Subscriptions and read Products, Prices, Meters, Invoices, and Webhook endpoints (or use the secret key while testing), then make the catalog and the webhook endpoint, and store both secrets:
+   ```bash
+   STRIPE_SECRET_KEY=rk_... PUBLIC_URL=https://YOUR_SERVICE_URL venv/bin/python -m app.jobs.billing setup \
+     --webhook-url https://YOUR_SERVICE_URL/webhooks/stripe   # prints the webhook's signing secret once
+   gcloud secrets create pyqxel-stripe-secret-key --data-file=-      # the rk_ or sk_ key
+   gcloud secrets create pyqxel-stripe-webhook-secret --data-file=-  # the whsec_ secret
+   ```
+   Run `setup` once in test mode and again with live keys when you start charging; it makes only what is missing. Billing is on only once both secrets exist.
 
 Deploy, and redeploy after each change:
 ```bash
@@ -315,7 +323,19 @@ Every `/api/v1` request is made by an account, identified by its PyQxel API key 
 * **Limits**: each account can cap its new AI analyses with `PUT /api/v1/me/limits` (`{"ai_requests_per_hour": 10, "ai_requests_per_day": 50}`, `null` for no cap); reused reports are free and do not count, and `GET /api/v1/me` shows recent usage. Every account may also make `RATE_LIMIT_PER_MINUTE` requests a minute (120 by default) across the API, counted in Redis when it is configured.
 * **API keys**: create more with `POST /api/v1/me/api-keys` (`{"name": "laptop"}`; the key is shown once), list them with `GET /api/v1/me/api-keys`, and revoke one with `DELETE /api/v1/me/api-keys/{id}`. If an account loses every key, `python -m app.jobs.users add-key you@example.com` issues a new one.
 * **Deleting an account**: owners delete their own, with everything it holds, under Delete account in Settings or with `DELETE /api/v1/me`. For a deletion request from someone who can no longer sign in, run `python -m app.jobs.users delete them@example.com`, which asks before deleting (`--yes` skips the question).
+* **Paying for the nightly refresh**: see [below](#paying-for-the-nightly-refresh). Everything else costs the server almost nothing, so it is free.
 * **Browser security**: the app's pages are served with a Content-Security-Policy that runs only the app's own scripts and allows requests only to its own origin, since the browser keeps the API key in local storage. The native app runs under the same policy (`web/src-tauri/tauri.conf.json`), allowing requests only to its server, and keeps the API key and provider keys out of web storage: in the Keychain on iPhone (this device only, readable after its first unlock) and in a file only the account can read on a Mac, written to disk before the app goes on, so closing or killing the app never loses them. It renews its 30-day sign-in key while in use, as the website does. The threat model is at the top of `web/src/lib/secureStorage.ts`.
+
+### Paying for the nightly refresh
+
+Using PyQxel costs its server almost nothing: requests take milliseconds, and each account's keys pay the data providers. The one thing that costs real money is the [nightly refresh](#each-users-own-screener), which keeps a Cloud Run job running for minutes (the S&P 500) to hours (every US stock and ETF). With Stripe set up (`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`; see [Google Cloud Run](#google-cloud-run)), users pay for their refreshes at cost, with nothing added:
+
+* **What a refresh costs**: its share of the job's time at Cloud Run's rates for the job's CPU and memory (`JOB_CPU_SECOND_USD`, `JOB_GIB_SECOND_USD`, `NIGHTLY_JOB_CPUS`, `NIGHTLY_JOB_MEMORY_GIB`), split among the refreshes running at once. One vCPU and 1 GiB cost $0.072 an hour, so the S&P 500 costs about a cent a night and every US stock and ETF about 29 cents. A failed refresh is billed too, since the job ran.
+* **Prepaid credit**: any amount from $5 to $500 on a Stripe Checkout page, added when Stripe's webhook reports the payment. Each refresh uses it up.
+* **Usage subscription**: Stripe bills what the refreshes cost each week, month, or year, after any credit; PyQxel reports each refresh's cost to a Stripe meter every hour (`python -m app.jobs.billing report` does it by hand). Settings shows what each choice would lose to Stripe's fee of 30 cents plus 2.9% a charge at the user's pace. Stripe charges nothing under 50 cents, carrying a smaller bill to the next.
+* **With neither**, the refresh pauses until the user adds one; the rest of PyQxel is unaffected. Changing a card, invoices, and canceling are on Stripe's customer portal. Refunds and disputes of a top-up take its money back out of the credit, a top-up a card network flags as likely fraud is refunded at once, and deleting an account ends its subscription and refunds the credit left. Checkout runs without Stripe's Managed Payments, which would add its fee to every payment.
+
+`GET /api/v1/me/billing` reports the credit, subscription, recent cost, and history; `POST /api/v1/me/billing/top-up`, `/subscription`, and `/portal` return a Stripe page to send the browser to. Payments are made on the website: an App Store build of the app shows billing without a way to pay.
 
 ## Quantitative Models
 

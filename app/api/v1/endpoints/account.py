@@ -32,10 +32,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.routing import Match
 
+import stripe
 from app.api.auth import CurrentUser, authenticate, uses_restricted_sources, uses_yfinance
+from app.billing import stripe_api
 from app.core.config import get_settings
 from app.core.credentials import ProviderKeys, current_provider_keys
 from app.core.security import CredentialsUnavailableError, encryption_available, key_hint
+from app.db import billing
 from app.db.app_settings import (
     STYLE_FACTORS,
     RESTRICTED_SOURCE_USES,
@@ -332,14 +335,36 @@ async def delete_account(user: CurrentUser, session: Session) -> Response:
     Your PyQxel API keys, sign-in links to GitHub and Google, holdings, stored backtests,
     analyses, and simulations, and your nightly screener refresh with the keys it stored
     and the universe it built are deleted, and every API key stops
-    working. Signing in again afterwards starts a new, empty account.
+    working. Signing in again afterwards starts a new, empty account. A usage subscription
+    ends, billing the refreshes so far, and credit left is refunded to the cards that
+    paid for it.
     """
     try:
+        await _close_billing(session, user.id)
         await delete_user(session, user.id)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
     logger.info("Deleted account %s at its owner's request.", user.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def _close_billing(session: AsyncSession, user_id: str) -> None:
+    """End the user's subscription and refund their credit left, before the account
+    that records them is deleted. Stripe's failures are logged, not raised: the account
+    is deleted either way, and a subscription with no usage reported bills nothing."""
+    if not stripe_api.billing_enabled():
+        return
+    account = await billing.get_account(session, user_id)
+    if account is None:
+        return
+    try:
+        await stripe_api.cancel_subscription(account)
+        refunded = await stripe_api.refund_unused_credit(session, account)
+    except stripe.StripeError as exc:
+        logger.warning("Billing for account %s was not closed: %s", user_id, exc)
+        return
+    if refunded:
+        logger.info("Refunded $%.2f of unused credit to account %s.", refunded / 100, user_id)
 
 
 def _as_if_missing(request: Request) -> HTTPException:

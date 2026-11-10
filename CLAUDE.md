@@ -19,9 +19,10 @@ side you are changing before searching the code.
 | `app/data/` | Fetching from providers (async, with fallbacks) |
 | `app/stats/` | Pure computation on pandas: models, backtests, risk; R in `stats/r_scripts/` |
 | `app/ai/` | Claude: prompts (`prompts.py`), streaming, the coding assistant |
+| `app/billing/` | Stripe: prepaid credit and usage subscriptions that pay for nightly refreshes at cost |
 | `app/models/` | Pydantic request/response schemas, the API contract |
 | `app/db/` | SQLAlchemy async tables (`tables.py`), storage helpers, Alembic `migrations/` |
-| `app/jobs/` | CLIs: `users` (accounts, keys), `screener` (the shared screener's nightly refresh), `nightly` (each user's own screener, started by the service when one is due), `openapi` |
+| `app/jobs/` | CLIs: `users` (accounts, keys), `screener` (the shared screener's nightly refresh), `nightly` (each user's own screener, started by the service when one is due), `billing` (Stripe's catalog and webhook, usage reports), `openapi` |
 | `tests/` | pytest, offline: every provider is monkeypatched |
 | `web/src/pages/` | One component per route: Stock, Markets, Portfolio, Backtest, Screener, Settings |
 | `web/src/runners/` | In-browser Python/C++ strategy runners (Web Workers) |

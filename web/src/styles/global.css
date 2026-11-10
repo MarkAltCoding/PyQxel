@@ -1391,6 +1391,25 @@ table.data .muted {
   line-height: 1.6;
 }
 
+.billing-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.billing-history li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.billing-history li:last-child {
+  border-bottom: none;
+}
+
 .link-button {
   padding: 0;
   border: 0;

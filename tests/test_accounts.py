@@ -30,6 +30,8 @@ from app.db.session import get_sessionmaker
 from app.db.tables import (
     AppSignInRecord,
     AssistantRequestRecord,
+    BillingAccountRecord,
+    BillingEntryRecord,
     Base,
     HoldingRecord,
     IdentityRecord,
@@ -591,6 +593,26 @@ def _give_data(user: User) -> None:
                     avg_dollar_volume=1e10,
                 )
             )
+            session.add(
+                BillingAccountRecord(
+                    user_id=user.id,
+                    stripe_customer_id=f"cus_{user.id}",
+                    credit_micros=1_000_000,
+                    subscription_cancels=False,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            session.add(
+                BillingEntryRecord(
+                    id=f"entry-{user.id}",
+                    user_id=user.id,
+                    kind="top_up",
+                    credit_micros=1_000_000,
+                    subscription_micros=0,
+                    created_at=now,
+                )
+            )
             await session.commit()
 
     asyncio.run(add())
@@ -651,6 +673,8 @@ def test_deleting_an_account_removes_everything_it_holds(
         "user_screener_runs": 1,
         "user_screener_stocks": 1,
         "stored_price_history": 1,
+        "billing_accounts": 1,
+        "billing_entries": 1,
         "users": 1,
     }
 

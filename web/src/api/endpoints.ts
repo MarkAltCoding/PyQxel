@@ -8,6 +8,9 @@ import type {
   LinkSent,
   PasswordSignedIn,
   PasswordSignInInfo,
+  BillingInterval,
+  BillingStatus,
+  CheckoutLink,
   NightlyRefreshSettings,
   NightlyRefreshStatus,
   PlannedFetch,
@@ -98,6 +101,20 @@ export const updateLimits = (body: AiLimits) =>
 export const updateAdminSettings = (body: AdminSettingsUpdate) =>
   api<Account>(`${V1}/me/admin`, { method: 'PUT', body })
 export const deleteAccount = () => api<void>(`${V1}/me`, { method: 'DELETE' })
+export const getBilling = () => api<BillingStatus>(`${V1}/me/billing`)
+
+export const buyCredit = (amountCents: number) =>
+  api<CheckoutLink>(`${V1}/me/billing/top-up`, {
+    method: 'POST',
+    body: { amount_cents: amountCents },
+  })
+
+export const startSubscription = (interval: BillingInterval) =>
+  api<CheckoutLink>(`${V1}/me/billing/subscription`, { method: 'POST', body: { interval } })
+
+export const openBillingPortal = () =>
+  api<CheckoutLink>(`${V1}/me/billing/portal`, { method: 'POST' })
+
 export const getNightlyRefresh = () => api<NightlyRefreshStatus>(`${V1}/me/nightly-refresh`)
 /** The status, with `key_use` saying what a refresh on `keys`, giving `stocks` stocks price
  * histories, would send on each key. */

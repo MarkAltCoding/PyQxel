@@ -89,6 +89,10 @@ SCREENER_SECRET=pyqxel-screener-fmp-key
 # The key that encrypts the provider keys of users who opt in to the nightly refresh,
 # given to the service, which stores them, and the nightly job, which uses them.
 CREDENTIALS_SECRET=pyqxel-credentials-key
+# Stripe's key and its webhook's signing secret, which bill users for their nightly
+# refreshes at cost; given to the service only. Billing is on only when both exist.
+STRIPE_SECRET=pyqxel-stripe-secret-key
+STRIPE_WEBHOOK=pyqxel-stripe-webhook-secret
 
 gc() { gcloud --project "$PROJECT_ID" --quiet "$@"; }
 step() { printf '\n==> %s\n' "$*"; }
@@ -173,6 +177,21 @@ else
     echo "No $CREDENTIALS_SECRET secret: no one can turn on the nightly screener refresh; see README.md."
 fi
 
+billing_secrets=()
+nightly_billed=""
+if gc secrets describe "$STRIPE_SECRET" >/dev/null 2>&1 \
+    && gc secrets describe "$STRIPE_WEBHOOK" >/dev/null 2>&1; then
+    billing_secrets+=("STRIPE_SECRET_KEY=$STRIPE_SECRET:latest")
+    billing_secrets+=("STRIPE_WEBHOOK_SECRET=$STRIPE_WEBHOOK:latest")
+    secret_flags+=",${billing_secrets[0]},${billing_secrets[1]}"
+    # The job has no Stripe key, so it is told that refreshes must be paid for.
+    nightly_billed="|NIGHTLY_BILLED=true"
+elif gc secrets describe "$STRIPE_SECRET" >/dev/null 2>&1; then
+    echo "The $STRIPE_SECRET secret exists but $STRIPE_WEBHOOK does not, so billing stays off: payments could not be recorded." >&2
+else
+    echo "No $STRIPE_SECRET secret: billing is off, so nightly refreshes are free; see README.md."
+fi
+
 step "Service accounts"
 for account in "$RUN_ACCOUNT" "$SCHEDULER_ACCOUNT"; do
     if ! gc iam service-accounts describe "$account" >/dev/null 2>&1; then
@@ -180,7 +199,7 @@ for account in "$RUN_ACCOUNT" "$SCHEDULER_ACCOUNT"; do
     fi
 done
 for flag in "${secrets[@]}" ${screener_secrets[@]+"${screener_secrets[@]}"} \
-    ${nightly_secrets[@]+"${nightly_secrets[@]}"}; do
+    ${nightly_secrets[@]+"${nightly_secrets[@]}"} ${billing_secrets[@]+"${billing_secrets[@]}"}; do
     name="${flag#*=}"
     gc secrets add-iam-policy-binding "${name%:latest}" \
         --member "serviceAccount:$RUN_ACCOUNT" --role roles/secretmanager.secretAccessor \
@@ -306,7 +325,7 @@ if [[ -n "$nightly_secret_flags" ]]; then
         --cpu 1 --memory 1Gi \
         --task-timeout 28800 --max-retries 0 \
         --command python --args=-m,app.jobs.nightly \
-        --set-env-vars "$env_vars|NIGHTLY_REFRESH_CONCURRENCY=3" \
+        --set-env-vars "$env_vars|NIGHTLY_REFRESH_CONCURRENCY=3$nightly_billed" \
         --set-secrets "$nightly_secret_flags"
     # The service starts it, when a refresh is due.
     gc run jobs add-iam-policy-binding "$NIGHTLY_JOB" --region "$REGION" \

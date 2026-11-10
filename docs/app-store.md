@@ -120,11 +120,12 @@ tracking, and every type below is linked to the user and used only for App Funct
 | Contact Info: Email Address | The verified email that identifies the account. |
 | Identifiers: User ID | The account ID, and the GitHub, Google, or Apple ID it signs in with. |
 | Financial Info: Other Financial Info | Portfolio holdings. |
+| Purchases: Purchase History | Credit bought and the usage subscription for the nightly refresh, paid on the website through Stripe, and each refresh's cost. |
 | User Content: Other User Content | Saved backtests with strategy code, simulations, AI reports, and portfolio reviews. |
 | Other Data | Provider API keys, stored encrypted only for users who turn on the nightly screener refresh. |
 
-Not collected: name, location, contacts, browsing history, usage data, diagnostics,
-purchases. Requests reach Google Cloud's access logs, which keep IP addresses for 30 days
+Not collected: name, location, contacts, browsing history, usage data, diagnostics.
+Card details go to Stripe on the website, never to PyQxel or the app. Requests reach Google Cloud's access logs, which keep IP addresses for 30 days
 for security. Apple counts that as not collected because it is not linked to the user
 or kept beyond security purposes, but recheck the definition when submitting.
 
@@ -159,6 +160,7 @@ Paste into *App Review Information → Notes*, with the demo account's values fi
 > AI: Reports and the coding assistant call Anthropic's API with the user's own key.
 >
 > PURCHASES: The app sells nothing. Data providers bill their own plans, outside the app.
+> The optional nightly screener refresh is paid for on the PyQxel website, not in the app.
 >
 > ACCOUNT DELETION: Settings, Delete account.
 
@@ -171,7 +173,12 @@ Paste into *App Review Information → Notes*, with the demo account's values fi
   nightly screener finishes, would strengthen the case.
 - **Guideline 3.1.1 (payments).** Settings names providers' paid plans and what they add. It
   links to no purchase and sells nothing, which is allowed, but if App Review objects, hide
-  plan prices in the native app.
+  plan prices in the native app. The nightly refresh is paid for on the website through
+  Stripe: an App Store build (`VITE_APP_UPDATES=off`) shows the credit and history but no
+  way to pay and no link to the website's billing (`lib/billing.ts: paymentPlace`), while
+  the Mac app from GitHub and phones installed by `scripts/install-iphone.sh` link to it.
+  In the US storefront a link to an outside purchase is now allowed; recheck before
+  submitting whether to show it there.
 - **Guideline 4.8 (sign-in).** Sign in with Apple must be on before submitting, as above.
 - **Free-plan quotas.** A reviewer on free keys can use up a provider's daily quota, after
   which pages show less data. Use fresh keys for the review and do not share them with

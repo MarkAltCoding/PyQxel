@@ -247,6 +247,40 @@ class Settings(BaseSettings):
         description="The service account Cloud Scheduler signs its hourly call with; a call "
         "signed by any other account is refused.",
     )
+    stripe_secret_key: SecretStr | None = Field(
+        default=None,
+        description="The Stripe key PyQxel bills users with (a restricted key, rk_, or a "
+        "secret one, sk_). Set, users pay for their nightly refreshes from prepaid credit or a "
+        "usage subscription; unset, as in development, refreshes are free and billing is off.",
+    )
+    nightly_billed: bool = Field(
+        default=False,
+        description="Whether nightly refreshes must be paid for, on the nightly job, which "
+        "has no Stripe key: deploy/cloud-run.sh sets it when the service bills, so the job "
+        "runs only refreshes someone is paying for.",
+    )
+    stripe_webhook_secret: SecretStr | None = Field(
+        default=None,
+        description="The signing secret (whsec_) of the Stripe webhook endpoint that tells "
+        "PyQxel about payments; events whose signature does not match it are refused.",
+    )
+    job_cpu_second_usd: float = Field(
+        default=0.000018,
+        ge=0,
+        description="What Cloud Run charges for one vCPU-second of a job, in dollars "
+        "(us-central1), from which each user's nightly refresh is billed at cost.",
+    )
+    job_gib_second_usd: float = Field(
+        default=0.000002,
+        ge=0,
+        description="What Cloud Run charges for one GiB-second of a job's memory, in dollars.",
+    )
+    nightly_job_cpus: float = Field(
+        default=1.0, gt=0, description="The vCPUs the nightly job runs with (deploy/cloud-run.sh)."
+    )
+    nightly_job_memory_gib: float = Field(
+        default=1.0, gt=0, description="The memory the nightly job runs with, in GiB."
+    )
     analysis_cache_ttl_seconds: float = Field(
         default=86_400.0,
         ge=0,

@@ -29,6 +29,7 @@ import {
   type DataProvider,
 } from '../lib/keyCoverage'
 import { InfoTip } from '../components/InfoTip'
+import { BillingCard } from '../components/BillingCard'
 import { NightlyRefreshCard } from '../components/NightlyRefreshCard'
 import { NIGHTLY_QUERY_KEY, resyncNightlyKeys } from '../lib/nightlyRefresh'
 import { setProviderKey, type ProviderName } from '../lib/providerKeys'
@@ -272,6 +273,7 @@ export function SettingsPage() {
           </section>
           <UsageSettings usage={usage.data} />
           <NightlyRefreshCard account={account.data} usage={usage.data} />
+          <BillingCard />
           <LimitsForm account={account.data} onSaved={onSaved} />
           {account.data.admin && <AdminSettingsForm admin={account.data.admin} onSaved={onSaved} />}
           <DeleteAccount email={account.data.email} />

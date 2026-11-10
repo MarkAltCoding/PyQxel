@@ -501,6 +501,9 @@ class UserScreenerRunRecord(Base):
     """Requests the run sent to each provider, by provider name."""
     notes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     """What the run could not do as asked, and what it did instead."""
+    cost_micros: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    """What the run cost to compute on Cloud Run, in millionths of a dollar: its share of the
+    job's time at the job's rates (:func:`app.jobs.nightly.run_cost_micros`)."""
 
 
 class ProviderUsageRecord(Base):
@@ -566,3 +569,64 @@ class AppSettingRecord(Base):
     name: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[Any] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class BillingAccountRecord(Base):
+    """A user's billing with Stripe: their prepaid credit and usage subscription.
+
+    PyQxel charges each user what their nightly refreshes cost it, at cost. Usage is paid
+    from ``credit_micros`` first, and what credit does not cover goes to the subscription,
+    which Stripe bills weekly, monthly, or yearly. Amounts are in millionths of a dollar,
+    since one night's refresh can cost a fraction of a cent.
+    """
+
+    __tablename__ = "billing_accounts"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    stripe_customer_id: Mapped[str] = mapped_column(String(255), unique=True)
+    credit_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    """Prepaid credit left; below zero when usage ran past it with no subscription to
+    take the rest, which the next top-up repays."""
+    subscription_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    subscription_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    """Stripe's status for the subscription: ``active``, ``past_due``, ``canceled``, ..."""
+    subscription_interval: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    """``week``, ``month``, or ``year``: how often Stripe bills the usage."""
+    subscription_renews_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    subscription_cancels: Mapped[bool] = mapped_column(Boolean, default=False)
+    """Whether the subscription ends when the current period does."""
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class BillingEntryRecord(Base):
+    """One change to a user's billing: credit bought, refunded, or disputed, or one nightly
+    refresh's cost, split between credit and the subscription.
+
+    ``stripe_ref`` names the Stripe object or event an entry came from (a Checkout Session,
+    a refund, a dispute), unique so that an event Stripe sends twice is applied once.
+    """
+
+    __tablename__ = "billing_entries"
+    __table_args__ = (Index("ix_billing_entries_user_created_at", "user_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(16))
+    """``top_up``, ``usage``, ``refund``, or ``dispute``."""
+    credit_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    """The change to the user's credit: positive for a top-up, negative for usage paid from
+    it, a refund, or a dispute."""
+    subscription_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    """Usage that credit did not cover, billed through the subscription."""
+    reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    """When ``subscription_micros`` was reported to Stripe's meter; null until then."""
+    stripe_ref: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    payment_intent: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    """The payment a top-up was paid with, so its refund or dispute can find it."""
+    run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

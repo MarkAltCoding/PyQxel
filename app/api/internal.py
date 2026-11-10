@@ -3,16 +3,21 @@ the caller proves it is the expected service account.
 
 ``POST /internal/nightly-refresh`` is called by Cloud Scheduler every hour. It starts the
 nightly refresh job only when some user's refresh is due, so the job does not start every
-hour to find nothing to do (see :mod:`app.core.cloud_run`).
+hour to find nothing to do (see :mod:`app.core.cloud_run`). On a server that bills, it
+first reports to Stripe the refreshes' cost that subscriptions bill
+(:func:`app.billing.stripe_api.report_usage`), so the job itself never needs Stripe's key.
 """
 
 import logging
 from datetime import datetime, timezone
 from typing import Annotated
 
+import stripe
 from fastapi import APIRouter, Header, HTTPException, status
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.billing import stripe_api
 from app.core.cloud_run import JobStartError, run_job, verify_caller
 from app.core.config import get_settings
 from app.db.nightly import any_due
@@ -48,6 +53,8 @@ async def start_nightly_refresh(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not a recognized caller.")
     try:
         async with get_sessionmaker()() as session:
+            if stripe_api.billing_enabled():
+                await _report_usage(session)
             due = await any_due(session, datetime.now(timezone.utc))
     except SQLAlchemyError as exc:
         logger.warning("The nightly check could not read the database: %s", exc)
@@ -63,3 +70,14 @@ async def start_nightly_refresh(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "The job was not started.") from exc
     logger.info("A nightly refresh is due, so the job was started.")
     return NightlyTriggerResponse(started=True)
+
+
+async def _report_usage(session: AsyncSession) -> None:
+    """Report subscriptions' usage to Stripe; a failure is logged and tried next hour."""
+    try:
+        reported = await stripe_api.report_usage(session)
+    except stripe.StripeError as exc:
+        logger.warning("Usage was not reported to Stripe: %s", exc)
+        return
+    if reported:
+        logger.info("Reported %d refreshes' usage to Stripe.", reported)

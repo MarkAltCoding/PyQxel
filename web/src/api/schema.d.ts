@@ -575,7 +575,9 @@ export interface paths {
      *     Your PyQxel API keys, sign-in links to GitHub and Google, holdings, stored backtests,
      *     analyses, and simulations, and your nightly screener refresh with the keys it stored
      *     and the universe it built are deleted, and every API key stops
-     *     working. Signing in again afterwards starts a new, empty account.
+     *     working. Signing in again afterwards starts a new, empty account. A usage subscription
+     *     ends, billing the refreshes so far, and credit left is refunded to the cards that
+     *     paid for it.
      */
     delete: operations['delete_account_api_v1_me_delete']
     options?: never
@@ -624,6 +626,102 @@ export interface paths {
      *     Returns 404 for keys that are not yours.
      */
     delete: operations['remove_api_key_api_v1_me_api_keys__key_id__delete']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/me/billing': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Your billing
+     * @description Your prepaid credit, usage subscription, what your nightly refreshes cost in the
+     *     last 30 days, and your latest billing history.
+     *
+     *     Returns 503 when the database is unavailable.
+     */
+    get: operations['read_billing_api_v1_me_billing_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/me/billing/portal': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Manage your billing
+     * @description A Stripe page where you change your card, see your invoices and receipts, or cancel
+     *     your subscription.
+     *
+     *     Returns 404 when this server does not bill or you have never paid, 502 when Stripe
+     *     cannot be reached, and 503 when the database is unavailable.
+     */
+    post: operations['manage_billing_api_v1_me_billing_portal_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/me/billing/subscription': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Start a usage subscription
+     * @description A Stripe Checkout page that starts a subscription billing your refreshes' cost each
+     *     week, month, or year, after any credit you have is used.
+     *
+     *     Returns 404 when this server does not bill, 409 when you already have a subscription
+     *     (change or cancel it in the billing portal), 502 when Stripe cannot be reached, and
+     *     503 when the database is unavailable.
+     */
+    post: operations['subscribe_api_v1_me_billing_subscription_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/me/billing/top-up': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Buy credit
+     * @description A Stripe Checkout page that buys ``amount_cents`` of credit, from $5 to $500. The
+     *     credit is added when Stripe reports the payment, usually within seconds.
+     *
+     *     Returns 404 when this server does not bill, 422 for an amount out of range, 502 when
+     *     Stripe cannot be reached, and 503 when the database is unavailable.
+     */
+    post: operations['buy_credit_api_v1_me_billing_top_up_post']
+    delete?: never
     options?: never
     head?: never
     patch?: never
@@ -2757,6 +2855,102 @@ export interface components {
       year_ago?: number | null
     }
     /**
+     * BillingEntry
+     * @description One change to the user's billing.
+     */
+    BillingEntry: {
+      /**
+       * Created At
+       * Format: date-time
+       * @description When it happened.
+       */
+      created_at: string
+      /**
+       * Credit Usd
+       * @description The change to the credit, in dollars.
+       */
+      credit_usd: number
+      /**
+       * Kind
+       * @description top_up: credit bought; usage: one nightly refresh's cost; refund or dispute: a top-up's money returned, taken back out of the credit.
+       * @enum {string}
+       */
+      kind: 'top_up' | 'usage' | 'refund' | 'dispute'
+      /**
+       * Subscription Usd
+       * @description A refresh's cost that the subscription bills, in dollars, since credit did not cover it.
+       */
+      subscription_usd: number
+    }
+    /**
+     * BillingStatus
+     * @description What the user pays for their nightly refresh, and how.
+     */
+    BillingStatus: {
+      /**
+       * Can Refresh
+       * @description Whether the nightly refresh may run: the account is exempt, or has credit left or a subscription Stripe is billing.
+       */
+      can_refresh: boolean
+      /**
+       * Card Fee Cents
+       * @description Stripe's fixed fee on each card payment, in cents.
+       */
+      card_fee_cents: number
+      /**
+       * Card Fee Rate
+       * @description Stripe's share of each card payment (0.029 = 2.9%).
+       */
+      card_fee_rate: number
+      /**
+       * Credit Usd
+       * @description Prepaid credit left, in dollars; below zero when refreshes ran past it with no subscription, which the next top-up repays.
+       */
+      credit_usd: number
+      /**
+       * Enabled
+       * @description Whether this server bills for the nightly refresh; without billing it is free.
+       */
+      enabled: boolean
+      /**
+       * Entries
+       * @description The latest changes, newest first.
+       */
+      entries: components['schemas']['BillingEntry'][]
+      /**
+       * Exempt
+       * @description Whether this account's refreshes are never billed.
+       */
+      exempt: boolean
+      /**
+       * Last 30 Days Runs
+       * @description Refreshes in the last 30 days.
+       */
+      last_30_days_runs: number
+      /**
+       * Last 30 Days Usd
+       * @description What refreshes cost in the last 30 days.
+       */
+      last_30_days_usd: number
+      /**
+       * Max Top Up Cents
+       * @description The largest top-up, in cents.
+       */
+      max_top_up_cents: number
+      /**
+       * Min Charge Cents
+       * @description The least Stripe charges a card, in cents; a smaller bill carries over.
+       */
+      min_charge_cents: number
+      /**
+       * Min Top Up Cents
+       * @description The smallest top-up, in cents.
+       */
+      min_top_up_cents: number
+      /** @description The usage subscription, if any. */
+      subscription: components['schemas']['Subscription'] | null
+    }
+    /**
      * BollingerBands
      * @description Trade the close against bands ``num_std`` rolling standard deviations around its
      *     ``window``-bar average.
@@ -2807,6 +3001,17 @@ export interface components {
        * @enum {string}
        */
       type: 'buy_and_hold'
+    }
+    /**
+     * CheckoutLink
+     * @description Where to send the browser to pay or manage billing on Stripe's own pages.
+     */
+    CheckoutLink: {
+      /**
+       * Url
+       * @description A Stripe page; it returns to Settings when done.
+       */
+      url: string
     }
     /**
      * Coefficient
@@ -7902,6 +8107,45 @@ export interface components {
       log_likelihood: number
     }
     /**
+     * Subscription
+     * @description The user's usage subscription.
+     */
+    Subscription: {
+      /**
+       * Cancels
+       * @description Whether it ends at the end of the current period.
+       */
+      cancels: boolean
+      /**
+       * Interval
+       * @description How often Stripe bills the usage.
+       * @enum {string}
+       */
+      interval: 'week' | 'month' | 'year'
+      /**
+       * Renews At
+       * @description When the current period ends and is billed.
+       */
+      renews_at: string | null
+      /**
+       * Status
+       * @description Stripe's status: active, past_due (a payment failed and is being retried), unpaid, canceled, ...
+       */
+      status: string
+    }
+    /**
+     * SubscriptionRequest
+     * @description A usage subscription to start.
+     */
+    SubscriptionRequest: {
+      /**
+       * Interval
+       * @description How often Stripe bills the usage.
+       * @enum {string}
+       */
+      interval: 'week' | 'month' | 'year'
+    }
+    /**
      * TailCheck
      * @description Whether the simulation reproduces how often a pair has its worst days together.
      */
@@ -8037,6 +8281,17 @@ export interface components {
        * @enum {string}
        */
       type: 'time_series_momentum'
+    }
+    /**
+     * TopUpRequest
+     * @description Credit to buy.
+     */
+    TopUpRequest: {
+      /**
+       * Amount Cents
+       * @description How much credit, in cents.
+       */
+      amount_cents: number
     }
     /**
      * UniverseStatus
@@ -9154,6 +9409,127 @@ export interface operations {
           [name: string]: unknown
         }
         content?: never
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_billing_api_v1_me_billing_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['BillingStatus']
+        }
+      }
+    }
+  }
+  manage_billing_api_v1_me_billing_portal_post: {
+    parameters: {
+      query?: never
+      header?: {
+        origin?: string | null
+      }
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CheckoutLink']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  subscribe_api_v1_me_billing_subscription_post: {
+    parameters: {
+      query?: never
+      header?: {
+        origin?: string | null
+      }
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SubscriptionRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CheckoutLink']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  buy_credit_api_v1_me_billing_top_up_post: {
+    parameters: {
+      query?: never
+      header?: {
+        origin?: string | null
+      }
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['TopUpRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CheckoutLink']
+        }
       }
       /** @description Validation Error */
       422: {

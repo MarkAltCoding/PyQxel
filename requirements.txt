@@ -30,6 +30,9 @@ statsmodels>=0.15.0
 # --- R Integration (Statistical Modeling) ---
 rpy2>=3.6.8
 
+# --- Billing ---
+stripe>=16.1.0  # charges users at cost for their nightly refreshes
+
 # --- AI Research Engine ---
 anthropic>=2.3.0
 beautifulsoup4>=4.15.0

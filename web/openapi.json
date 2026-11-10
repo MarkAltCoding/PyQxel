@@ -1976,6 +1976,142 @@
         "title": "BalanceItem",
         "type": "object"
       },
+      "BillingEntry": {
+        "description": "One change to the user's billing.",
+        "properties": {
+          "created_at": {
+            "description": "When it happened.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "credit_usd": {
+            "description": "The change to the credit, in dollars.",
+            "title": "Credit Usd",
+            "type": "number"
+          },
+          "kind": {
+            "description": "top_up: credit bought; usage: one nightly refresh's cost; refund or dispute: a top-up's money returned, taken back out of the credit.",
+            "enum": [
+              "top_up",
+              "usage",
+              "refund",
+              "dispute"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "subscription_usd": {
+            "description": "A refresh's cost that the subscription bills, in dollars, since credit did not cover it.",
+            "title": "Subscription Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "credit_usd",
+          "subscription_usd",
+          "created_at"
+        ],
+        "title": "BillingEntry",
+        "type": "object"
+      },
+      "BillingStatus": {
+        "description": "What the user pays for their nightly refresh, and how.",
+        "properties": {
+          "can_refresh": {
+            "description": "Whether the nightly refresh may run: the account is exempt, or has credit left or a subscription Stripe is billing.",
+            "title": "Can Refresh",
+            "type": "boolean"
+          },
+          "card_fee_cents": {
+            "description": "Stripe's fixed fee on each card payment, in cents.",
+            "title": "Card Fee Cents",
+            "type": "integer"
+          },
+          "card_fee_rate": {
+            "description": "Stripe's share of each card payment (0.029 = 2.9%).",
+            "title": "Card Fee Rate",
+            "type": "number"
+          },
+          "credit_usd": {
+            "description": "Prepaid credit left, in dollars; below zero when refreshes ran past it with no subscription, which the next top-up repays.",
+            "title": "Credit Usd",
+            "type": "number"
+          },
+          "enabled": {
+            "description": "Whether this server bills for the nightly refresh; without billing it is free.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "entries": {
+            "description": "The latest changes, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/BillingEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "exempt": {
+            "description": "Whether this account's refreshes are never billed.",
+            "title": "Exempt",
+            "type": "boolean"
+          },
+          "last_30_days_runs": {
+            "description": "Refreshes in the last 30 days.",
+            "title": "Last 30 Days Runs",
+            "type": "integer"
+          },
+          "last_30_days_usd": {
+            "description": "What refreshes cost in the last 30 days.",
+            "title": "Last 30 Days Usd",
+            "type": "number"
+          },
+          "max_top_up_cents": {
+            "description": "The largest top-up, in cents.",
+            "title": "Max Top Up Cents",
+            "type": "integer"
+          },
+          "min_charge_cents": {
+            "description": "The least Stripe charges a card, in cents; a smaller bill carries over.",
+            "title": "Min Charge Cents",
+            "type": "integer"
+          },
+          "min_top_up_cents": {
+            "description": "The smallest top-up, in cents.",
+            "title": "Min Top Up Cents",
+            "type": "integer"
+          },
+          "subscription": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Subscription"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The usage subscription, if any."
+          }
+        },
+        "required": [
+          "enabled",
+          "exempt",
+          "credit_usd",
+          "subscription",
+          "can_refresh",
+          "last_30_days_usd",
+          "last_30_days_runs",
+          "entries",
+          "min_top_up_cents",
+          "max_top_up_cents",
+          "card_fee_cents",
+          "card_fee_rate",
+          "min_charge_cents"
+        ],
+        "title": "BillingStatus",
+        "type": "object"
+      },
       "BollingerBands": {
         "description": "Trade the close against bands ``num_std`` rolling standard deviations around its\n``window``-bar average.\n\n``reversion`` buys a close at or below the lower band and sells at the middle band;\n``breakout`` buys a close at or above the upper band and sells when it falls back to\nthe middle band. With ``allow_short`` each mirrors on the other band.",
         "properties": {
@@ -2032,6 +2168,21 @@
           }
         },
         "title": "BuyAndHold",
+        "type": "object"
+      },
+      "CheckoutLink": {
+        "description": "Where to send the browser to pay or manage billing on Stripe's own pages.",
+        "properties": {
+          "url": {
+            "description": "A Stripe page; it returns to Settings when done.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "CheckoutLink",
         "type": "object"
       },
       "Coefficient": {
@@ -12108,6 +12259,72 @@
         "title": "StudentTCopula",
         "type": "object"
       },
+      "Subscription": {
+        "description": "The user's usage subscription.",
+        "properties": {
+          "cancels": {
+            "description": "Whether it ends at the end of the current period.",
+            "title": "Cancels",
+            "type": "boolean"
+          },
+          "interval": {
+            "description": "How often Stripe bills the usage.",
+            "enum": [
+              "week",
+              "month",
+              "year"
+            ],
+            "title": "Interval",
+            "type": "string"
+          },
+          "renews_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the current period ends and is billed.",
+            "title": "Renews At"
+          },
+          "status": {
+            "description": "Stripe's status: active, past_due (a payment failed and is being retried), unpaid, canceled, ...",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "interval",
+          "status",
+          "renews_at",
+          "cancels"
+        ],
+        "title": "Subscription",
+        "type": "object"
+      },
+      "SubscriptionRequest": {
+        "description": "A usage subscription to start.",
+        "properties": {
+          "interval": {
+            "description": "How often Stripe bills the usage.",
+            "enum": [
+              "week",
+              "month",
+              "year"
+            ],
+            "title": "Interval",
+            "type": "string"
+          }
+        },
+        "required": [
+          "interval"
+        ],
+        "title": "SubscriptionRequest",
+        "type": "object"
+      },
       "TailCheck": {
         "description": "Whether the simulation reproduces how often a pair has its worst days together.",
         "properties": {
@@ -12371,6 +12588,23 @@
           }
         },
         "title": "TimeSeriesMomentum",
+        "type": "object"
+      },
+      "TopUpRequest": {
+        "description": "Credit to buy.",
+        "properties": {
+          "amount_cents": {
+            "description": "How much credit, in cents.",
+            "maximum": 50000.0,
+            "minimum": 500.0,
+            "title": "Amount Cents",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "amount_cents"
+        ],
+        "title": "TopUpRequest",
         "type": "object"
       },
       "UniverseStatus": {
@@ -14049,7 +14283,7 @@
     },
     "/api/v1/me": {
       "delete": {
-        "description": "Delete your account and everything it holds, at once and for good.\n\nYour PyQxel API keys, sign-in links to GitHub and Google, holdings, stored backtests,\nanalyses, and simulations, and your nightly screener refresh with the keys it stored\nand the universe it built are deleted, and every API key stops\nworking. Signing in again afterwards starts a new, empty account.",
+        "description": "Delete your account and everything it holds, at once and for good.\n\nYour PyQxel API keys, sign-in links to GitHub and Google, holdings, stored backtests,\nanalyses, and simulations, and your nightly screener refresh with the keys it stored\nand the universe it built are deleted, and every API key stops\nworking. Signing in again afterwards starts a new, empty account. A usage subscription\nends, billing the refreshes so far, and credit left is refunded to the cards that\npaid for it.",
         "operationId": "delete_account_api_v1_me_delete",
         "responses": {
           "204": {
@@ -14182,6 +14416,198 @@
         "summary": "Revoke an API key",
         "tags": [
           "account"
+        ]
+      }
+    },
+    "/api/v1/me/billing": {
+      "get": {
+        "description": "Your prepaid credit, usage subscription, what your nightly refreshes cost in the\nlast 30 days, and your latest billing history.\n\nReturns 503 when the database is unavailable.",
+        "operationId": "read_billing_api_v1_me_billing_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Your billing",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/me/billing/portal": {
+      "post": {
+        "description": "A Stripe page where you change your card, see your invoices and receipts, or cancel\nyour subscription.\n\nReturns 404 when this server does not bill or you have never paid, 502 when Stripe\ncannot be reached, and 503 when the database is unavailable.",
+        "operationId": "manage_billing_api_v1_me_billing_portal_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "origin",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Origin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutLink"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Manage your billing",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/me/billing/subscription": {
+      "post": {
+        "description": "A Stripe Checkout page that starts a subscription billing your refreshes' cost each\nweek, month, or year, after any credit you have is used.\n\nReturns 404 when this server does not bill, 409 when you already have a subscription\n(change or cancel it in the billing portal), 502 when Stripe cannot be reached, and\n503 when the database is unavailable.",
+        "operationId": "subscribe_api_v1_me_billing_subscription_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "origin",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Origin"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutLink"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start a usage subscription",
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/api/v1/me/billing/top-up": {
+      "post": {
+        "description": "A Stripe Checkout page that buys ``amount_cents`` of credit, from $5 to $500. The\ncredit is added when Stripe reports the payment, usually within seconds.\n\nReturns 404 when this server does not bill, 422 for an amount out of range, 502 when\nStripe cannot be reached, and 503 when the database is unavailable.",
+        "operationId": "buy_credit_api_v1_me_billing_top_up_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "origin",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Origin"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TopUpRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutLink"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Buy credit",
+        "tags": [
+          "billing"
         ]
       }
     },

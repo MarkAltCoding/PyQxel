@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.credentials import ProviderKeys
 from app.core.security import CredentialsUnavailableError, decrypt_secret, encrypt_secret
+from app.db.billing import refresh_paid_for
 from app.db.tables import (
     NightlyRefreshRecord,
     ScreenerListingRecord,
@@ -432,7 +433,9 @@ async def any_due(session: AsyncSession, now: datetime) -> bool:
     that starts the refresh job only when it has work to do."""
     for record in list(await session.scalars(select(NightlyRefreshRecord))):
         runs = await _runs(session, record.user_id)
-        if _is_due(record, runs[0] if runs else None, now):
+        if _is_due(record, runs[0] if runs else None, now) and await refresh_paid_for(
+            session, record.user_id
+        ):
             return True
     return False
 
@@ -442,7 +445,8 @@ async def due_refreshes(session: AsyncSession, now: datetime) -> list[DueRefresh
 
     A user whose last run is still running is skipped, unless it started more than
     :data:`STALE_AFTER` ago, when it is recorded as failed and the user is due again.
-    A user whose keys cannot be decrypted gets a failed run saying so.
+    A user whose keys cannot be decrypted gets a failed run saying so. A user no one is
+    paying for (:func:`app.db.billing.refresh_paid_for`) is left out until they pay.
     """
     due: list[DueRefresh] = []
     for record in list(await session.scalars(select(NightlyRefreshRecord))):
@@ -456,6 +460,10 @@ async def due_refreshes(session: AsyncSession, now: datetime) -> list[DueRefresh
             last.error = "The refresh stopped without finishing."
             await session.commit()
         if not _is_due(record, last, now):
+            continue
+        if not await refresh_paid_for(session, record.user_id):
+            # Waits, with no run recorded, until the user adds credit or a subscription;
+            # Settings says so.
             continue
         try:
             keys = _keys(record)
@@ -531,9 +539,11 @@ async def finish_run(
     prices_as_of: date | None = None,
     usage: dict[str, int] | None = None,
     notes: list[str] | None = None,
+    cost_micros: int | None = None,
 ) -> None:
     """Record a user's refresh as failed with ``error``, or succeeded with its results,
-    the requests it sent on each key, and what it could not do as asked (``notes``)."""
+    the requests it sent on each key, what it could not do as asked (``notes``), and what
+    it cost to compute (``cost_micros``)."""
     run = await session.get(UserScreenerRunRecord, run_id)
     if run is None:
         return
@@ -545,6 +555,7 @@ async def finish_run(
     run.prices_as_of = prices_as_of
     run.usage = usage or None
     run.notes = notes or None
+    run.cost_micros = cost_micros
     await session.commit()
 
 

@@ -22,6 +22,8 @@ from app.db.tables import (
     ApiKeyRecord,
     AssistantRequestRecord,
     BacktestRecord,
+    BillingAccountRecord,
+    BillingEntryRecord,
     EmailLinkRecord,
     HoldingRecord,
     IdentityRecord,
@@ -414,8 +416,8 @@ async def delete_user(session: AsyncSession, user_id: str) -> bool:
     Its API keys, sign-ins waiting for the native app, sign-in identities, portfolios and
     their holdings, stored backtests, analyses, portfolio reviews, and simulations, its
     count of assistant answers, and its nightly screener refresh, with the encrypted keys
-    it stored, its runs, and its own screened universe, and the price history kept for it go
-    with it. Rows are deleted
+    it stored, its runs, and its own screened universe, the price history kept for it, and
+    its billing records go with it. Rows are deleted
     explicitly rather than left to the foreign keys' cascades, which SQLite does not
     enforce by default.
     """
@@ -437,6 +439,8 @@ async def delete_user(session: AsyncSession, user_id: str) -> bool:
         UserScreenerRunRecord,
         UserScreenerStockRecord,
         StoredHistoryRecord,
+        BillingEntryRecord,
+        BillingAccountRecord,
     ):
         await session.execute(delete(table).where(table.user_id == user_id))
     await session.execute(delete(EmailLinkRecord).where(EmailLinkRecord.email == record.email))

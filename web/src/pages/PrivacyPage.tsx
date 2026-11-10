@@ -111,6 +111,13 @@ export function PrivacyPage() {
             with your account, seen only by you, until you delete it.
           </p>
           <p>
+            If you pay for the nightly refresh, you pay on Stripe’s pages, and your card or bank
+            details go to Stripe, never to PyQxel. PyQxel keeps your Stripe customer ID, your credit
+            left, your subscription’s state (how often it bills, and when it renews or ends), and a
+            history of your top-ups, refunds, and each refresh’s cost, with your account, seen only
+            by you.
+          </p>
+          <p>
             Custom strategy code runs in your own browser. When you backtest it, its code and the
             positions it produced are sent to PyQxel to score and save.
           </p>
@@ -121,6 +128,10 @@ export function PrivacyPage() {
             <li>
               PyQxel runs on Google Cloud, keeps its database at Neon and its cache at Upstash, and
               sends sign-in emails through Gmail.
+            </li>
+            <li>
+              Payments for the nightly refresh go through Stripe, which receives your email address,
+              your payment details, and what you pay, under Stripe’s privacy policy.
             </li>
             <li>
               The symbols you look up are sent to market data providers with your own keys: Tiingo,
@@ -155,8 +166,10 @@ export function PrivacyPage() {
           <p>
             To delete your account and everything it holds, including any keys the nightly screener
             refresh stored, use Delete account in Settings. It takes effect at once and cannot be
-            undone. To delete only the stored keys, turn the nightly refresh off. If you can no
-            longer sign in, contact me through{' '}
+            undone. It also ends any subscription, billing the refreshes up to then, and refunds the
+            credit you have left to the card that paid for it; Stripe keeps its own records of
+            payments, as the law requires. To delete only the stored keys, turn the nightly refresh
+            off. If you can no longer sign in, contact me through{' '}
             <a href={CONTACT} target="_blank" rel="noopener noreferrer">
               GitHub
             </a>{' '}

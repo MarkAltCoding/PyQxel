@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   disableNightlyRefresh,
   enableNightlyRefresh,
+  getBilling,
   getNightlyRefresh,
   previewNightlyRefresh,
 } from '../api/endpoints'
@@ -13,6 +14,7 @@ import type {
   ProviderUsage,
   UsageResponse,
 } from '../api/types'
+import { BILLING_QUERY_KEY } from '../lib/billing'
 import { dateTime, percent, shortDate } from '../lib/format'
 import { DATA_PROVIDER_NAMES, hasKey } from '../lib/keyCoverage'
 import {
@@ -51,6 +53,7 @@ export function NightlyRefreshCard({
 }) {
   const queryClient = useQueryClient()
   const status = useQuery({ queryKey: NIGHTLY_QUERY_KEY, queryFn: getNightlyRefresh })
+  const billing = useQuery({ queryKey: BILLING_QUERY_KEY, queryFn: getBilling })
   const [time, setTime] = useState<string | null>(null)
   const [zone, setZone] = useState<string | null>(null)
   const [keys, setKeys] = useState<PriceKey[] | null>(null)
@@ -155,6 +158,12 @@ export function NightlyRefreshCard({
         </p>
       </div>
 
+      {data?.enabled && billing.data?.enabled && !billing.data.can_refresh && (
+        <Notice tone="warning">
+          Your refresh is paused: it runs on PyQxel’s server, which costs money, so it needs credit
+          or a subscription. <a href="#billing">Add one under Billing</a>.
+        </Notice>
+      )}
       {data && !data.available && (
         <Notice tone="warning">
           This server cannot store keys yet, so the nightly refresh is not available. Its owner
