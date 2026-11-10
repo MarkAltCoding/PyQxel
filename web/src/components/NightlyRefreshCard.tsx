@@ -18,20 +18,24 @@ import { BILLING_QUERY_KEY } from '../lib/billing'
 import { dateTime, percent, shortDate } from '../lib/format'
 import { DATA_PROVIDER_NAMES, hasKey } from '../lib/keyCoverage'
 import {
-  ALL_STOCKS,
-  DEFAULT_STOCKS,
+  ALL_THE_PLAN_ALLOWS,
   DEFAULT_TIME_ZONE,
+  heldBy,
   inTimeZone,
+  limitFromServer,
+  limitParams,
+  limitToServer,
   NIGHTLY_QUERY_KEY,
   otherTimeZones,
-  PRICE_HISTORY_CHOICES,
   PRICE_KEYS,
+  PRICE_LIMIT_CHOICES,
   timeZoneLabel,
   EVERYTHING,
   MAX_CUSTOM_SYMBOLS,
   UNIVERSE_CHOICES,
   US_TIME_ZONES,
   type NightlyUniverse,
+  type PriceKey,
 } from '../lib/nightlyRefresh'
 import { requestLimit } from '../lib/usage'
 import { InfoTip } from './InfoTip'
@@ -39,8 +43,6 @@ import { ErrorNotice, Notice } from './Notice'
 import { PresetOrCustom } from './PresetOrCustom'
 import { SearchBox } from './SearchBox'
 import { Stat } from './Stat'
-
-type PriceKey = (typeof PRICE_KEYS)[number]
 
 /** Opting in to, and the status of, the nightly refresh of the user's own screener. */
 export function NightlyRefreshCard({
@@ -57,7 +59,7 @@ export function NightlyRefreshCard({
   const [time, setTime] = useState<string | null>(null)
   const [zone, setZone] = useState<string | null>(null)
   const [keys, setKeys] = useState<PriceKey[] | null>(null)
-  const [stocks, setStocks] = useState<number | null>(null)
+  const [limits, setLimits] = useState<Partial<Record<PriceKey, number>>>({})
   const [universes, setUniverses] = useState<NightlyUniverse[] | null>(null)
   const [custom, setCustom] = useState<string[] | null>(null)
   const onChanged = (data: NightlyRefreshStatus) => {
@@ -65,7 +67,7 @@ export function NightlyRefreshCard({
     setTime(null)
     setZone(null)
     setKeys(null)
-    setStocks(null)
+    setLimits({})
     setUniverses(null)
     setCustom(null)
   }
@@ -94,13 +96,14 @@ export function NightlyRefreshCard({
     ? available.filter((key) => (data.providers ?? []).includes(key))
     : available.filter((key) => key === 'tiingo')
   const shownKeys = keys ?? savedKeys
-  // A refresh stored before the cap existed has none (null): it priced all it could.
-  const savedStocks = !data?.enabled
-    ? DEFAULT_STOCKS
-    : data.price_history_stocks === null
-      ? ALL_STOCKS
-      : (data.price_history_stocks ?? DEFAULT_STOCKS)
-  const shownStocks = stocks ?? savedStocks
+  // Each price-history key has its own nightly limit: the one stored, or its free plan's
+  // allowance until the user chooses.
+  const savedLimit = (key: PriceKey) =>
+    limitFromServer(data?.enabled ? data.price_history_limits?.[key] : undefined, key)
+  const shownLimit = (key: PriceKey) => limits[key] ?? savedLimit(key)
+  const serverLimits = Object.fromEntries(
+    shownKeys.map((key) => [key, limitToServer(shownLimit(key))]),
+  ) as Partial<Record<PriceKey, number | null>>
   const savedUniverses = data?.universes ?? EVERYTHING
   const shownUniverses = universes ?? savedUniverses
   const savedCustom = data?.custom_symbols ?? []
@@ -111,14 +114,14 @@ export function NightlyRefreshCard({
     (time !== null && time !== data?.refresh_time) ||
     (zone !== null && zone !== data?.time_zone) ||
     (keys !== null && keys.join() !== savedKeys.join()) ||
-    (stocks !== null && stocks !== savedStocks) ||
+    shownKeys.some((key) => shownLimit(key) !== savedLimit(key)) ||
     (universes !== null && universes.join() !== savedUniverses.join()) ||
     (custom !== null && custom.join() !== savedCustom.join())
   const choice = {
     refresh_time: shownTime,
     time_zone: shownZone,
     use_keys: ['finnhub' as const, ...shownKeys],
-    price_history_stocks: shownStocks,
+    price_history_limits: serverLimits,
     universes: shownUniverses,
     custom_symbols: shownCustom,
   }
@@ -126,11 +129,17 @@ export function NightlyRefreshCard({
     queryKey: [
       'nightly-preview',
       choice.use_keys.join(),
-      shownStocks,
+      limitParams(serverLimits).join(),
       shownUniverses.join(),
       shownCustom.join(),
     ],
-    queryFn: () => previewNightlyRefresh(choice.use_keys, shownStocks, shownUniverses, shownCustom),
+    queryFn: () =>
+      previewNightlyRefresh(
+        choice.use_keys,
+        limitParams(serverLimits),
+        shownUniverses,
+        shownCustom,
+      ),
     enabled: hasFinnhub && Boolean(data?.available),
     placeholderData: keepPreviousData,
   })
@@ -254,29 +263,38 @@ export function NightlyRefreshCard({
               <InfoTip topic="nightlyUniverse" />
             </legend>
             <div className="filter-row" style={{ alignItems: 'center' }}>
-              {UNIVERSE_CHOICES.map((option) => (
-                <label
-                  key={option.value}
-                  className="filter-row"
-                  style={{ alignItems: 'center', gap: 6 }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={shownUniverses.includes(option.value)}
-                    disabled={busy}
-                    onChange={(event) =>
-                      setUniverses(
-                        UNIVERSE_CHOICES.map((choice) => choice.value).filter((value) =>
-                          value === option.value
-                            ? event.target.checked
-                            : shownUniverses.includes(value),
-                        ),
-                      )
-                    }
-                  />
-                  <span>{option.label}</span>
-                </label>
-              ))}
+              {UNIVERSE_CHOICES.map((option) => {
+                // A set another ticked set holds entirely is ticked with it, and stays so
+                // until that one is unticked.
+                const holder = heldBy(option.value, shownUniverses)
+                const holderName = UNIVERSE_CHOICES.find((other) => other.value === holder)?.label
+                return (
+                  <label
+                    key={option.value}
+                    className="filter-row"
+                    style={{ alignItems: 'center', gap: 6 }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={holder !== null || shownUniverses.includes(option.value)}
+                      disabled={busy || holder !== null}
+                      onChange={(event) =>
+                        setUniverses(
+                          UNIVERSE_CHOICES.map((choice) => choice.value).filter((value) =>
+                            value === option.value
+                              ? event.target.checked
+                              : shownUniverses.includes(value),
+                          ),
+                        )
+                      }
+                    />
+                    <span>
+                      {option.label}
+                      {holderName && <span className="muted"> (in {holderName})</span>}
+                    </span>
+                  </label>
+                )
+              })}
             </div>
             <div className="stack" style={{ gap: 6 }}>
               <div className="heading-with-info">
@@ -342,15 +360,28 @@ export function NightlyRefreshCard({
               </label>
             ))}
           </div>
-          <PresetOrCustom
-            label="Stocks given price histories each night"
-            presets={PRICE_HISTORY_CHOICES}
-            value={shownStocks}
-            onChange={setStocks}
-            min={0}
-            max={ALL_STOCKS}
-            unit="stocks, largest first"
-          />
+          {shownKeys.length > 0 && (
+            <div className="stack" style={{ gap: 8 }}>
+              <div className="heading-with-info">
+                <span>Price histories each key fetches a night</span>
+                <InfoTip topic="nightlyPriceLimits" />
+              </div>
+              {shownKeys.map((key) => (
+                <div key={key} className="stack" style={{ gap: 4 }}>
+                  <span className="muted">{DATA_PROVIDER_NAMES[key]}</span>
+                  <PresetOrCustom
+                    label={`Stocks and ETFs ${DATA_PROVIDER_NAMES[key]} fetches price histories for`}
+                    presets={PRICE_LIMIT_CHOICES[key]}
+                    value={shownLimit(key)}
+                    onChange={(value) => setLimits((now) => ({ ...now, [key]: value }))}
+                    min={0}
+                    max={ALL_THE_PLAN_ALLOWS - 1}
+                    unit="stocks and ETFs, largest first"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
           <KeyUseTable
             uses={preview.data?.key_use ?? []}
             reports={usage?.providers ?? []}

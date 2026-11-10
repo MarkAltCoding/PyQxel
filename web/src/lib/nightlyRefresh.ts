@@ -63,35 +63,74 @@ export async function resyncNightlyKeys(
   return enableNightlyRefresh({
     refresh_time: status.refresh_time,
     time_zone: status.time_zone,
-    // The same keys, cap, sets, and tickers the user chose, so a changed key does not widen
-    // them.
+    // The same keys, limits, sets, and tickers the user chose, so a changed key does not
+    // widen them.
     use_keys: status.providers ?? null,
     universes: status.universes ?? EVERYTHING,
     custom_symbols: status.custom_symbols ?? [],
-    price_history_stocks:
-      status.price_history_stocks === null
-        ? ALL_STOCKS
-        : (status.price_history_stocks ?? DEFAULT_STOCKS),
+    price_history_limits: status.price_history_limits ?? {},
   })
 }
 
-/** "As many as the keys' plans allow": more stocks than are listed. */
-export const ALL_STOCKS = 10_000
+/** "As many as the key's plan allows", as the price-history controls hold it: more stocks
+ * than are listed. Sent to the server as null. */
+export const ALL_THE_PLAN_ALLOWS = 10_000
 
-/** Stocks given price histories until the user chooses, as the server's default: under a
- * free Tiingo key's 50 requests an hour. */
-export const DEFAULT_STOCKS = 40
+/** Price histories each key fetches a night until the user chooses, as the server's
+ * default: what its free plan answers, Tiingo's in an hour and the others' in a day. */
+export const FREE_PLAN_HISTORIES: Record<PriceKey, number> = {
+  tiingo: 50,
+  fmp: 250,
+  eodhd: 20,
+  alpha_vantage: 25,
+}
 
-/** Choices of how many stocks get price histories each night. */
-export const PRICE_HISTORY_CHOICES = [
-  { value: 0, label: 'None' },
-  { value: 40, label: '40' },
-  { value: 200, label: '200' },
-  { value: ALL_STOCKS, label: 'All the plans allow' },
-] as const
+/** The usual choices for each key's nightly price histories, from what its plans allow:
+ * the free plan's allowance, what a paid plan comfortably covers, and all its plan allows.
+ * Custom takes any other number. */
+export const PRICE_LIMIT_CHOICES: Record<PriceKey, { value: number; label: string }[]> = {
+  tiingo: [
+    { value: 50, label: '50 (free plan)' },
+    { value: 1_000, label: '1,000 (paid plan)' },
+    { value: ALL_THE_PLAN_ALLOWS, label: 'All the plan allows' },
+  ],
+  fmp: [
+    { value: 250, label: '250 (free plan)' },
+    { value: 3_000, label: '3,000 (paid plan)' },
+    { value: ALL_THE_PLAN_ALLOWS, label: 'All the plan allows' },
+  ],
+  eodhd: [
+    { value: 20, label: '20 (free plan)' },
+    { value: 1_000, label: '1,000 (paid plan)' },
+    { value: ALL_THE_PLAN_ALLOWS, label: 'All the plan allows' },
+  ],
+  alpha_vantage: [
+    { value: 25, label: '25 (free plan)' },
+    { value: 500, label: '500 (premium plan)' },
+    { value: ALL_THE_PLAN_ALLOWS, label: 'All the plan allows' },
+  ],
+}
+
+/** A key's limit as the server stores it: null for all its plan allows. */
+export function limitToServer(value: number): number | null {
+  return value >= ALL_THE_PLAN_ALLOWS ? null : value
+}
+
+/** A key's limit as the controls hold it: the sentinel for all its plan allows. */
+export function limitFromServer(value: number | null | undefined, key: PriceKey): number {
+  if (value === undefined) return FREE_PLAN_HISTORIES[key]
+  return value === null ? ALL_THE_PLAN_ALLOWS : value
+}
+
+/** The preview route's form of the limits: KEY:COUNT, or KEY:all. */
+export function limitParams(limits: Partial<Record<PriceKey, number | null>>): string[] {
+  return Object.entries(limits).map(([key, value]) => `${key}:${value === null ? 'all' : value}`)
+}
 
 /** Price-history keys, in the order a refresh tries them. */
 export const PRICE_KEYS = ['tiingo', 'fmp', 'eodhd', 'alpha_vantage'] as const
+
+export type PriceKey = (typeof PRICE_KEYS)[number]
 
 export type NightlyUniverse = NonNullable<NightlyRefreshSettings['universes']>[number]
 
@@ -110,3 +149,16 @@ export const UNIVERSE_CHOICES: { value: NightlyUniverse; label: string }[] = [
 
 /** Most tickers a user may add, as the server allows. */
 export const MAX_CUSTOM_SYMBOLS = 100
+
+/** The sets each set holds entirely: every US stock holds those listed on Nasdaq, the S&P
+ * 500's and Nasdaq-100's companies, and foreign companies' US listings; Nasdaq holds the
+ * Nasdaq-100. Ticking a set ticks these too. */
+export const SET_HOLDS: Partial<Record<NightlyUniverse, NightlyUniverse[]>> = {
+  us_stocks: ['nasdaq', 'sp500', 'nasdaq100', 'international'],
+  nasdaq: ['nasdaq100'],
+}
+
+/** The set among `chosen` that holds `value` entirely, if one does. */
+export function heldBy(value: NightlyUniverse, chosen: NightlyUniverse[]): NightlyUniverse | null {
+  return chosen.find((set) => SET_HOLDS[set]?.includes(value)) ?? null
+}

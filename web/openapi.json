@@ -7932,20 +7932,30 @@
             "title": "Custom Symbols",
             "type": "array"
           },
-          "price_history_stocks": {
-            "anyOf": [
-              {
-                "maximum": 10000.0,
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": 40,
-            "description": "Most stocks to fetch price histories for each night, largest first, one request each on the price-history keys; null for as many as their plans allow, which can use up a free plan's day.",
-            "title": "Price History Stocks"
+          "price_history_limits": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "maximum": 10000.0,
+                  "minimum": 0.0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Most price histories each price-history key fetches a night, one request per stock or ETF, largest first, the cheapest key first and each key taking the next ones. Null for as many as that key's plan allows, which can use up a free plan's day; a key left out fetches what its free plan allows (Tiingo 50, FMP 250, EODHD 20, Alpha Vantage 25).",
+            "propertyNames": {
+              "enum": [
+                "tiingo",
+                "fmp",
+                "eodhd",
+                "alpha_vantage"
+              ]
+            },
+            "title": "Price History Limits",
+            "type": "object"
           },
           "refresh_time": {
             "default": "19:00",
@@ -8081,18 +8091,30 @@
             "description": "When the next refresh is due to start.",
             "title": "Next Run At"
           },
-          "price_history_stocks": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": 40,
-            "description": "Most stocks given price histories each night; null for as many as the keys' plans allow.",
-            "title": "Price History Stocks"
+          "price_history_limits": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "maximum": 10000.0,
+                  "minimum": 0.0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Most price histories each stored price-history key fetches a night; null for as many as its plan allows.",
+            "propertyNames": {
+              "enum": [
+                "tiingo",
+                "fmp",
+                "eodhd",
+                "alpha_vantage"
+              ]
+            },
+            "title": "Price History Limits",
+            "type": "object"
           },
           "providers": {
             "description": "Providers whose keys are stored, encrypted.",
@@ -14694,7 +14716,7 @@
         ]
       },
       "get": {
-        "description": "Return whether your nightly screener refresh is on, when it runs, which of your\nkeys it stores, how its latest runs went, and about how many requests one refresh\nsends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of\nkeys, of ``price_history_stocks``, and of the sets (``universe``) and tickers\n(``custom_symbol``) it rebuilds, before they are saved.\n\nReturns 503 when the database is unavailable.",
+        "description": "Return whether your nightly screener refresh is on, when it runs, which of your\nkeys it stores, how its latest runs went, and about how many requests one refresh\nsends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of\nkeys, of each price-history key's limit (``price_limit``), and of the sets\n(``universe``) and tickers (``custom_symbol``) it rebuilds, before they are saved.\n\nReturns 422 for a malformed ``price_limit``, and 503 when the database is unavailable.",
         "operationId": "read_nightly_refresh_api_v1_me_nightly_refresh_get",
         "parameters": [
           {
@@ -14720,23 +14742,19 @@
             }
           },
           {
-            "description": "A price-history cap being considered, likewise.",
+            "description": "Price-history limits being considered, likewise, as KEY:COUNT, or KEY:all for as many as that key's plan allows (tiingo:50, eodhd:all); a key left out takes its free plan's allowance.",
             "in": "query",
-            "name": "price_history_stocks",
+            "name": "price_limit",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "maximum": 10000,
-                  "minimum": 0,
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "A price-history cap being considered, likewise.",
-              "title": "Price History Stocks"
+              "default": [],
+              "description": "Price-history limits being considered, likewise, as KEY:COUNT, or KEY:all for as many as that key's plan allows (tiingo:50, eodhd:all); a key left out takes its free plan's allowance.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 4,
+              "title": "Price Limit",
+              "type": "array"
             }
           },
           {

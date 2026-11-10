@@ -936,6 +936,12 @@ const entries = {
     title: 'History',
     what: 'Your latest payments and charges: credit you added, each refresh’s cost (taken from credit, or billed through your subscription when credit ran out), Stripe fees not in a payment’s price (a card from abroad, or a disputed payment’s $15 fee), and any refund or dispute. Receipts and invoices are on Stripe’s billing page.',
   },
+  nightlyPriceLimits: {
+    title: 'Price histories each key fetches a night',
+    what: 'How many stocks and ETFs each price-history key fetches daily prices for, one request each, largest first. The cheapest key goes first and each next key takes the stocks the ones before it did not, so 50 on Tiingo and 20 on EODHD give 70 stocks price-history columns: one-month return, 12-1 momentum, volatility, drawdown, and factor betas. The rest keep Finnhub’s stand-ins.',
+    good: 'Each key’s free plan’s allowance (the first choice), unless you pay for a plan: then a larger number, or all the plan allows.',
+    note: '“All the plan allows” keeps going until the key’s plan refuses for the night, which uses up a free plan’s allowance for the rest of the day, so pages that need that key may show less until it resets.',
+  },
   nightlyKeyUse: {
     title: 'What one refresh uses',
     what: 'About how many requests one nightly refresh sends on each key, and what share of that plan’s daily or monthly allowance that is. Finnhub gets one request per listed stock for its metrics; each price-history key gets one request per stock given price-history columns.',

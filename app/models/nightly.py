@@ -35,9 +35,26 @@ MAX_CUSTOM_SYMBOLS: int = 100
 CUSTOM_SYMBOL_PATTERN: str = r"^[A-Z0-9][A-Z0-9.\-]{0,15}$"
 """A ticker as PyQxel writes it: BRK-B, or 7203.T for a listing abroad."""
 
-DEFAULT_PRICE_HISTORY_STOCKS: int = 40
-"""Price histories a refresh fetches unless the user chooses: enough for the largest
-stocks, and under a free Tiingo key's 50 requests an hour."""
+PriceKey = Literal["tiingo", "fmp", "eodhd", "alpha_vantage"]
+"""Providers whose keys fetch price histories, which each have their own nightly limit."""
+
+PRICE_KEY_ORDER: tuple[PriceKey, ...] = ("tiingo", "fmp", "eodhd", "alpha_vantage")
+"""Price-history keys in the order a refresh uses them, cheapest first."""
+
+FREE_PLAN_HISTORIES: dict[PriceKey, int] = {
+    "tiingo": 50,
+    "fmp": 250,
+    "eodhd": 20,
+    "alpha_vantage": 25,
+}
+"""Price histories each key fetches a night unless the user chooses: what its free plan
+answers before it stops, Tiingo's in an hour and the others' in a day."""
+
+MAX_PRICE_HISTORIES: int = 10_000
+"""Most price histories a user may ask of one key a night, more than are listed."""
+
+PriceLimit = Annotated[int, Field(ge=0, le=MAX_PRICE_HISTORIES)] | None
+"""Price histories one key may fetch a night; ``None`` for as many as its plan allows."""
 
 
 class NightlyRefreshSettings(BaseModel):
@@ -64,13 +81,13 @@ class NightlyRefreshSettings(BaseModel):
         description="The keys the refresh may use and so stores, of those the request "
         "carries; Finnhub's is needed. Null for every one the request carries.",
     )
-    price_history_stocks: int | None = Field(
-        default=DEFAULT_PRICE_HISTORY_STOCKS,
-        ge=0,
-        le=10_000,
-        description="Most stocks to fetch price histories for each night, largest first, "
-        "one request each on the price-history keys; null for as many as their plans "
-        "allow, which can use up a free plan's day.",
+    price_history_limits: dict[PriceKey, PriceLimit] = Field(
+        default_factory=dict,
+        description="Most price histories each price-history key fetches a night, one "
+        "request per stock or ETF, largest first, the cheapest key first and each key "
+        "taking the next ones. Null for as many as that key's plan allows, which can use "
+        "up a free plan's day; a key left out fetches what its free plan allows (Tiingo "
+        "50, FMP 250, EODHD 20, Alpha Vantage 25).",
     )
     universes: list[NightlyUniverse] = Field(
         default_factory=lambda: list(EVERYTHING),
@@ -175,10 +192,10 @@ class NightlyRefreshStatus(BaseModel):
     last_success: NightlyRun | None = Field(
         default=None, description="The latest refresh that succeeded, whose universe is shown."
     )
-    price_history_stocks: int | None = Field(
-        default=DEFAULT_PRICE_HISTORY_STOCKS,
-        description="Most stocks given price histories each night; null for as many as the "
-        "keys' plans allow.",
+    price_history_limits: dict[PriceKey, PriceLimit] = Field(
+        default_factory=dict,
+        description="Most price histories each stored price-history key fetches a night; "
+        "null for as many as its plan allows.",
     )
     universes: list[NightlyUniverse] = Field(
         default_factory=lambda: list(EVERYTHING),

@@ -15,8 +15,8 @@ their own licensed keys and the SEC's public data.
 import asyncio
 import logging
 import math
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any, TypeVar
 
@@ -27,12 +27,14 @@ from app.data.fetcher import (
     HTTP_TIMEOUT_SECONDS,
     DataFetchError,
     FinnhubRateLimitError,
+    ProviderLimitError,
     ProviderNotConfiguredError,
     fetch_price_history,
     finnhub_key,
     finnhub_symbol,
     finnhub_get,
 )
+from app.core.credentials import current_provider_keys, use_provider_keys
 from app.data.universe import RequestPacer
 from app.models.screener import ProviderScreenMetrics
 
@@ -269,34 +271,82 @@ async def fetch_quote_prices(symbols: Iterable[str]) -> dict[str, float]:
     return await _paced_finnhub(symbols, "quote", {}, parse_quote_price)
 
 
-async def fetch_histories(symbols: Iterable[str], start: date) -> dict[str, pd.DataFrame]:
+async def fetch_histories(
+    symbols: Iterable[str], start: date, limits: Mapping[Any, int | None] | None = None
+) -> dict[str, pd.DataFrame]:
     """Daily ``Close`` and ``Volume`` since ``start`` for as many of ``symbols`` as the
     user's price-history keys allow tonight, in the order given.
 
-    Without any price-history key, nothing is fetched. After
-    :data:`HISTORY_GIVE_UP_AFTER` failures in a row, the keys are taken to have reached
-    their limits and the rest are left out.
+    With ``limits``, each price-history key named fetches on its own, cheapest first, up
+    to its limit (``None`` for as many as its plan answers), taking the symbols the keys
+    before it did not get; one request is counted per symbol tried. Without, the keys
+    answer together, cheapest first, for every symbol. Without any price-history key,
+    nothing is fetched.
     """
     histories: dict[str, pd.DataFrame] = {}
+    wanted = list(symbols)
+    if limits is None:
+        await _fetch_into(histories, wanted, start, None)
+        return histories
+    keys = current_provider_keys()
+    try:
+        for provider, limit in limits.items():
+            if getattr(keys, provider, None) is None:
+                continue
+            # This key alone: no other key, and no fallback, answers in its turn.
+            use_provider_keys(
+                replace(
+                    keys,
+                    yfinance=False,
+                    tiingo=keys.tiingo if provider == "tiingo" else None,
+                    fmp=keys.fmp if provider == "fmp" else None,
+                    eodhd=keys.eodhd if provider == "eodhd" else None,
+                    alpha_vantage=keys.alpha_vantage if provider == "alpha_vantage" else None,
+                )
+            )
+            left = [symbol for symbol in wanted if symbol not in histories]
+            await _fetch_into(histories, left, start, limit, provider)
+    finally:
+        use_provider_keys(keys)
+    return histories
+
+
+async def _fetch_into(
+    histories: dict[str, pd.DataFrame],
+    symbols: list[str],
+    start: date,
+    limit: int | None,
+    provider: str | None = None,
+) -> None:
+    """Add to ``histories`` the histories of ``symbols`` the current keys answer, trying at
+    most ``limit`` of them, and stopping once a key's limit for the night is reached or
+    :data:`HISTORY_GIVE_UP_AFTER` fail in a row."""
     failures = 0
     cutoff = pd.Timestamp(start)
-    for symbol in symbols:
+    who = provider or "the price-history keys"
+    for tried, symbol in enumerate(symbols):
+        if limit is not None and tried >= limit:
+            logger.info("%s reached its limit of %d price histories.", who, limit)
+            return
         try:
             frame = await fetch_price_history(symbol, "2y", "1d")
         except ProviderNotConfiguredError:
-            logger.info("No price-history key, so price-history columns are left empty.")
-            return histories
+            logger.info("No key for %s, so it fetches no price histories.", who)
+            return
+        except ProviderLimitError:
+            logger.info("%s's plan reached its limit for now after %d price histories.", who, tried)
+            return
         except DataFetchError as exc:
             failures += 1
             logger.debug("No price history for %s: %s", symbol, exc)
             if failures >= HISTORY_GIVE_UP_AFTER:
                 logger.info(
-                    "Price histories failed %d times in a row, so the keys' limits are taken "
-                    "to be reached; %d stocks have price-history columns.",
+                    "Price histories on %s failed %d times in a row, so its plan's limit is "
+                    "taken to be reached.",
+                    who,
                     failures,
-                    len(histories),
                 )
-                return histories
+                return
             continue
         failures = 0
         index = pd.DatetimeIndex(frame.index)
@@ -306,4 +356,3 @@ async def fetch_histories(symbols: Iterable[str], start: date) -> dict[str, pd.D
         window = window[window.index >= cutoff]
         if not window.empty:
             histories[symbol] = window
-    return histories

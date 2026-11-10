@@ -466,9 +466,10 @@ class NightlyRefreshRecord(Base):
     providers: Mapped[list[str]] = mapped_column(JSON)
     """Which providers' keys ``credentials`` holds, so they can be listed unencrypted. The
     user chooses them: the refresh uses no other key."""
-    price_history_stocks: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    """Most stocks the refresh fetches price histories for, largest first; null for as
-    many as the keys' plans allow, as before the user could choose."""
+    price_history_limits: Mapped[dict[str, int | None] | None] = mapped_column(JSON, nullable=True)
+    """Most price histories each price-history key fetches a night, by provider; null in a
+    value for as many as that key's plan allows, and a key left out takes its free plan's
+    allowance (:data:`app.models.nightly.FREE_PLAN_HISTORIES`)."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     keys_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     etfs_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -501,6 +502,9 @@ class UserScreenerRunRecord(Base):
     """Requests the run sent to each provider, by provider name."""
     notes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     """What the run could not do as asked, and what it did instead."""
+    choice: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    """What the run rebuilt and with which limits (``universes``, ``custom_symbols``, and
+    ``price_history_limits``), so its request counts estimate only the same choice."""
     cost_micros: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     """What the run cost to compute on Cloud Run, in millionths of a dollar: its share of the
     job's time at the job's rates (:func:`app.jobs.nightly.run_cost_micros`)."""

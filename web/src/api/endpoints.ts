@@ -116,18 +116,18 @@ export const openBillingPortal = () =>
   api<CheckoutLink>(`${V1}/me/billing/portal`, { method: 'POST' })
 
 export const getNightlyRefresh = () => api<NightlyRefreshStatus>(`${V1}/me/nightly-refresh`)
-/** The status, with `key_use` saying what a refresh on `keys`, giving `stocks` stocks price
- * histories, would send on each key. */
+/** The status, with `key_use` saying what a refresh on `keys`, with each price-history key
+ * fetching up to its limit in `limits` (KEY:COUNT or KEY:all), would send on each key. */
 export const previewNightlyRefresh = (
   keys: string[],
-  stocks: number,
+  limits: string[],
   universes: string[],
   customSymbols: string[],
 ) =>
   api<NightlyRefreshStatus>(`${V1}/me/nightly-refresh`, {
     query: {
       use_key: keys,
-      price_history_stocks: stocks,
+      price_limit: limits,
       universe: universes,
       custom_symbol: customSymbols,
     },

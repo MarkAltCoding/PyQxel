@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Account, NightlyRefreshStatus } from '../api/types'
@@ -72,7 +72,7 @@ describe('NightlyRefreshCard', () => {
       refresh_time: '19:00',
       time_zone: 'America/New_York',
       use_keys: ['finnhub'],
-      price_history_stocks: 40,
+      price_history_limits: {},
       universes: ['us_stocks', 'us_etfs'],
       custom_symbols: [],
     })
@@ -124,7 +124,7 @@ describe('NightlyRefreshCard', () => {
         refresh_time: '19:00',
         time_zone: 'America/Los_Angeles',
         use_keys: ['finnhub'],
-        price_history_stocks: 40,
+        price_history_limits: {},
         universes: ['us_stocks', 'us_etfs'],
         custom_symbols: [],
       })
@@ -204,7 +204,9 @@ describe('NightlyRefreshCard', () => {
       const query = new URL(String(url), 'http://localhost').searchParams
       if (init?.method === 'PUT') return new Response(JSON.stringify(ON))
       if (query.has('use_key')) {
-        const stocks = Number(query.get('price_history_stocks'))
+        const limits = Object.fromEntries(
+          query.getAll('price_limit').map((item) => item.split(':') as [string, string]),
+        )
         return new Response(
           JSON.stringify({
             ...OFF,
@@ -213,7 +215,11 @@ describe('NightlyRefreshCard', () => {
               ...query
                 .getAll('use_key')
                 .filter((key) => key !== 'finnhub')
-                .map((provider) => ({ provider, requests: stocks, detail: '' })),
+                .map((provider) => ({
+                  provider,
+                  requests: limits[provider] === 'all' ? 3000 : Number(limits[provider]),
+                  detail: '',
+                })),
             ],
           }),
         )
@@ -238,23 +244,54 @@ describe('NightlyRefreshCard', () => {
     } as Parameters<typeof NightlyRefreshCard>[0]['usage']
     renderCard(true, { account: withTiingo, usage })
 
-    // Tiingo alone is used for prices until the user chooses, for 40 stocks.
+    // Tiingo alone is used for prices until the user chooses, for its free plan's 50.
     expect(await screen.findByText(/about 5,500 requests/)).toBeInTheDocument()
     expect(
-      await screen.findByText(/4% of its 1,000 a day, 80% of its 50 an hour/),
+      await screen.findByText(/5% of its 1,000 a day, 100% of its 50 an hour/),
     ).toBeInTheDocument()
     expect(screen.getByText(/No daily limit/)).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'EODHD' })).not.toBeChecked()
+
+    // EODHD gets its own limit, starting at its free plan's 20, apart from Tiingo's.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'EODHD' }))
+    const eodhd = await screen.findByRole('group', {
+      name: /stocks and etfs eodhd fetches price histories for/i,
+    })
+    expect(within(eodhd).getByRole('button', { name: '20 (free plan)' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await userEvent.click(within(eodhd).getByRole('button', { name: 'All the plan allows' }))
+    expect(await screen.findByText(/about 3,000 requests/)).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('checkbox', { name: /refresh my own screener/i }))
 
     await waitFor(() => {
       const put = fetch.mock.calls.find(([, init]) => init?.method === 'PUT')
       expect(JSON.parse(String(put![1]!.body))).toMatchObject({
-        use_keys: ['finnhub', 'tiingo'],
-        price_history_stocks: 40,
+        use_keys: ['finnhub', 'tiingo', 'eodhd'],
+        price_history_limits: { tiingo: 50, eodhd: null },
       })
     })
+  })
+
+  it('ticks and locks the sets a ticked set holds', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify(OFF)))
+    renderCard()
+
+    const nasdaq100 = await screen.findByRole('checkbox', { name: /^Nasdaq-100/ })
+    // Every US stock is ticked until the user chooses, and holds the Nasdaq-100.
+    expect(nasdaq100).toBeChecked()
+    expect(nasdaq100).toBeDisabled()
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /^Every US stock/ }))
+    expect(nasdaq100).not.toBeChecked()
+    expect(nasdaq100).toBeEnabled()
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /^Stocks listed on Nasdaq/ }))
+    expect(nasdaq100).toBeChecked()
+    expect(nasdaq100).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: /^S&P 500/ })).not.toBeChecked()
   })
 })
 

@@ -8,9 +8,9 @@ does (:func:`app.db.users.delete_user`).
 """
 
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import cast, get_args
+from typing import Any, cast, get_args
 from datetime import date, datetime, time, timedelta, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -30,7 +30,10 @@ from app.db.tables import (
     as_utc,
 )
 from app.models.nightly import (
+    FREE_PLAN_HISTORIES,
+    PRICE_KEY_ORDER,
     STORED_PROVIDERS,
+    PriceKey,
     NightlyProvider,
     NightlyRefreshSettings,
     NightlyKeyUse,
@@ -64,6 +67,10 @@ class UniverseChoice:
     universes: tuple[NightlyUniverse, ...] = tuple(EVERYTHING)
     custom_symbols: tuple[str, ...] = ()
 
+    def as_dict(self) -> dict[str, list[str]]:
+        """The choice as stored with a run."""
+        return {"universes": list(self.universes), "custom_symbols": list(self.custom_symbols)}
+
     @classmethod
     def of(cls, record: NightlyRefreshRecord) -> "UniverseChoice":
         """The choice stored with ``record``, leaving out any set this version does not know."""
@@ -82,12 +89,29 @@ class DueRefresh:
 
     user_id: str
     keys: ProviderKeys
-    price_history_stocks: int | None = None
-    """Most stocks to fetch price histories for; ``None`` for as many as the plans allow."""
+    price_history_limits: dict[PriceKey, int | None] = field(default_factory=dict)
+    """Most price histories each price-history key fetches; ``None`` for as many as its
+    plan allows."""
     etfs_scanned_at: datetime | None = None
     """When the refresh last checked every US ETF; ``None`` if never."""
     choice: UniverseChoice = field(default_factory=UniverseChoice)
     """What the refresh rebuilds."""
+
+
+PriceLimits = dict[PriceKey, int | None]
+"""Most price histories each price-history key fetches a night; ``None`` for its plan's most."""
+
+
+def price_limits(providers: Iterable[str], chosen: Mapping[Any, int | None] | None) -> PriceLimits:
+    """The limit of each price-history key among ``providers``: the one ``chosen``, or its
+    free plan's allowance where none was."""
+    chosen = chosen or {}
+    providers = set(providers)
+    return {
+        key: (chosen[key] if key in chosen else FREE_PLAN_HISTORIES[key])
+        for key in PRICE_KEY_ORDER
+        if key in providers
+    }
 
 
 def stored_providers(keys: ProviderKeys) -> list[NightlyProvider]:
@@ -129,7 +153,10 @@ async def enable(
     record.time_zone = settings.time_zone
     record.credentials = credentials
     record.providers = list(providers)
-    record.price_history_stocks = settings.price_history_stocks
+    record.price_history_limits = {
+        str(key): limit
+        for key, limit in price_limits(providers, settings.price_history_limits).items()
+    }
     record.universes = list(settings.universes)
     record.custom_symbols = list(settings.custom_symbols)
     record.keys_updated_at = now
@@ -231,16 +258,6 @@ def _run(record: UserScreenerRunRecord) -> NightlyRun:
     )
 
 
-PRICE_KEY_ORDER: tuple[NightlyProvider, ...] = ("tiingo", "fmp", "eodhd", "alpha_vantage")
-"""Price-history keys in the order the refresh tries them, cheapest first."""
-PRICE_KEY_CAPACITY: dict[NightlyProvider, int] = {
-    "tiingo": 50,
-    "fmp": 250,
-    "eodhd": 20,
-    "alpha_vantage": 25,
-}
-"""Price histories a free plan answers before it stops for the night: Tiingo's hour, and
-the others' day."""
 ASSUMED_LISTINGS: int = 5_000
 """Listed stocks assumed before the shared SEC stage has stored its list."""
 ASSUMED_PRICED_STOCKS: int = 2_000
@@ -302,27 +319,31 @@ def _priced_stocks(choice: UniverseChoice) -> int:
     return sum(INDEX_STOCKS.get(name, 0) for name in chosen) + len(choice.custom_symbols)
 
 
+def run_choice(choice: UniverseChoice, limits: PriceLimits) -> dict[str, Any]:
+    """What a run rebuilt and with which limits, as stored with it (``choice``)."""
+    return {**choice.as_dict(), "price_history_limits": dict(limits)}
+
+
 async def key_use(
     session: AsyncSession,
     providers: list[NightlyProvider],
-    price_history_stocks: int | None,
+    limits: PriceLimits,
     success: UserScreenerRunRecord | None,
     choice: UniverseChoice | None = None,
-    measured: UniverseChoice | None = None,
 ) -> list[NightlyKeyUse]:
     """About how many requests one refresh of ``choice`` sends on each stored key.
 
     Finnhub gets one request per security for its metrics, once however many of the sets
     chosen hold it. Price histories go to the price-history keys, one request per stock,
-    largest first, up to ``price_history_stocks``, each key taking as many as a free plan
-    answers before the next is tried. The latest successful refresh's own counts are
-    used where it has them, if it rebuilt ``measured`` and that is ``choice``.
+    largest first, the cheapest key first, each taking up to its own limit in ``limits``
+    (all that are left for a key whose plan sets the limit). The latest successful
+    refresh's own counts are used only if it ran this very choice, with these limits.
     """
     choice = choice or UniverseChoice()
-    same = success is not None and measured == choice
+    limits = price_limits(providers, dict(limits))
+    same = success is not None and success.choice == run_choice(choice, limits)
     stocks = success.stocks if same and success is not None and success.stocks else None
-    stocks = stocks or _priced_stocks(choice)
-    wanted = stocks if price_history_stocks is None else min(price_history_stocks, stocks)
+    left = stocks or _priced_stocks(choice)
     counts = success.usage if same and success is not None and success.usage else {}
     found: list[NightlyKeyUse] = []
     if "finnhub" in providers:
@@ -334,24 +355,24 @@ async def key_use(
                 "minute, plus a quote for each with no other price.",
             )
         )
-    left = wanted
-    for provider in PRICE_KEY_ORDER:
-        if provider not in providers:
-            continue
-        take = counts.get(provider, min(left, PRICE_KEY_CAPACITY[provider]))
+    for provider, limit in limits.items():
+        take = counts.get(provider, left if limit is None else min(left, limit))
         found.append(
             NightlyKeyUse(
                 provider=provider,
                 requests=take,
-                detail="One request per stock given price-history columns, largest first.",
+                detail=(
+                    "One request per stock given price-history columns, largest first, "
+                    + ("until its plan stops it." if limit is None else f"up to {limit:,}.")
+                ),
             )
         )
         left = max(0, left - take)
     return found
 
 
-Preview = tuple[list[NightlyProvider], int | None, UniverseChoice]
-"""Keys, a price-history cap, and sets and tickers the user is considering."""
+Preview = tuple[list[NightlyProvider], PriceLimits, UniverseChoice]
+"""Keys, their price-history limits, and sets and tickers the user is considering."""
 
 
 async def refresh_status(
@@ -370,7 +391,6 @@ async def refresh_status(
     record = await session.get(NightlyRefreshRecord, user_id)
     latest = await _runs(session, user_id)
     success = await latest_success(session, user_id)
-    # The last refresh's counts are taken to be of the choice stored now.
     stored = None if record is None else UniverseChoice.of(record)
     status = NightlyRefreshStatus(
         available=available,
@@ -379,9 +399,7 @@ async def refresh_status(
         last_success=None if success is None else _run(success),
     )
     if preview is not None:
-        status.key_use = await key_use(
-            session, preview[0], preview[1], success, preview[2], stored or UniverseChoice()
-        )
+        status.key_use = await key_use(session, preview[0], preview[1], success, preview[2])
     if record is None or stored is None:
         return status
     started = as_utc(latest[0].started_at) if latest else None
@@ -390,7 +408,9 @@ async def refresh_status(
             "refresh_time": record.refresh_time,
             "time_zone": record.time_zone,
             "providers": [p for p in record.providers if p in STORED_PROVIDERS],
-            "price_history_stocks": record.price_history_stocks,
+            "price_history_limits": price_limits(
+                list(record.providers), record.price_history_limits
+            ),
             "universes": list(stored.universes),
             "custom_symbols": list(stored.custom_symbols),
             "key_use": (
@@ -399,9 +419,8 @@ async def refresh_status(
                 else await key_use(
                     session,
                     [p for p in record.providers if p in STORED_PROVIDERS],
-                    record.price_history_stocks,
+                    price_limits(list(record.providers), record.price_history_limits),
                     success,
-                    stored,
                     stored,
                 )
             ),
@@ -481,7 +500,9 @@ async def due_refreshes(session: AsyncSession, now: datetime) -> list[DueRefresh
             DueRefresh(
                 user_id=record.user_id,
                 keys=keys,
-                price_history_stocks=record.price_history_stocks,
+                price_history_limits=price_limits(
+                    list(record.providers), record.price_history_limits
+                ),
                 etfs_scanned_at=(
                     None if record.etfs_scanned_at is None else as_utc(record.etfs_scanned_at)
                 ),
@@ -514,8 +535,14 @@ async def user_etfs(session: AsyncSession, user_id: str) -> list[tuple[str, str,
     return [(symbol, name, exchange) for symbol, name, exchange in rows]
 
 
-async def start_run(session: AsyncSession, user_id: str, now: datetime | None = None) -> str:
-    """Record ``user_id``'s refresh as started; return its ID."""
+async def start_run(
+    session: AsyncSession,
+    user_id: str,
+    now: datetime | None = None,
+    choice: dict[str, Any] | None = None,
+) -> str:
+    """Record ``user_id``'s refresh as started, with what it rebuilds (``choice``, from
+    :func:`run_choice`); return its ID."""
     run_id = str(uuid4())
     session.add(
         UserScreenerRunRecord(
@@ -523,6 +550,7 @@ async def start_run(session: AsyncSession, user_id: str, now: datetime | None = 
             user_id=user_id,
             started_at=now or datetime.now(timezone.utc),
             status=RUNNING,
+            choice=choice,
         )
     )
     await session.commit()

@@ -3,7 +3,7 @@ stores, when it runs, and the universe it builds from the user's keys alone."""
 
 import asyncio
 import json
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
 from datetime import date, datetime, timedelta, timezone
 
@@ -22,7 +22,8 @@ from app.core.credentials import (
 )
 from app.core.security import decrypt_secret, generate_encryption_key
 from app.data import usage
-from app.data.fetcher import DataFetchError, ProviderNotConfiguredError
+from app.data import screener_metrics
+from app.data.fetcher import DataFetchError, ProviderLimitError, ProviderNotConfiguredError
 from app.data.screener_metrics import (
     EtfListing,
     parse_etf_listings,
@@ -288,8 +289,15 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
         caps = {"BIG": 5e9, "DUAL": 2e9, "MID": 1e9, "TINY": 1e6}
         return {symbol: _metrics(caps[symbol]) for symbol in symbols if symbol in caps}
 
-    async def histories(symbols: Iterable[str], start: date) -> dict[str, pd.DataFrame]:
+    async def histories(
+        symbols: Iterable[str], start: date, limits: Mapping[str, int | None] | None = None
+    ) -> dict[str, pd.DataFrame]:
         ordered = list(symbols)
+        # Each key fetches no more than its limit; this fake stands for them together.
+        if limits:
+            most = sum(limit for limit in limits.values() if limit is not None)
+            if None not in limits.values():
+                ordered = ordered[:most]
         seen["histories"].extend(ordered)
         # The key's plan covers only the largest stock tonight.
         return {ordered[0]: _history()}
@@ -550,13 +558,13 @@ def test_opting_in_stores_only_the_keys_chosen_and_says_what_a_refresh_uses(
     response = client.put(
         "/api/v1/me/nightly-refresh",
         headers=_headers(key, finnhub=FINNHUB, tiingo=TIINGO, eodhd="eodhd-user-key"),
-        json={"use_keys": ["finnhub", "tiingo"], "price_history_stocks": 30},
+        json={"use_keys": ["finnhub", "tiingo"], "price_history_limits": {"tiingo": 30}},
     )
 
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["providers"] == ["finnhub", "tiingo"]
-    assert body["price_history_stocks"] == 30
+    assert body["price_history_limits"] == {"tiingo": 30}
     record = _stored(user)
     assert record is not None
     plain = json.loads(decrypt_secret(record.credentials).get_secret_value())
@@ -576,7 +584,7 @@ def test_a_refresh_fetches_only_as_many_histories_as_chosen_and_records_its_use(
                 session,
                 user.id,
                 NightlyRefreshSettings(
-                    refresh_time="00:00", time_zone="UTC", price_history_stocks=1
+                    refresh_time="00:00", time_zone="UTC", price_history_limits={"tiingo": 1}
                 ),
                 ProviderKeys(finnhub=SecretStr(FINNHUB), tiingo=SecretStr(TIINGO)),
             )
@@ -584,12 +592,15 @@ def test_a_refresh_fetches_only_as_many_histories_as_chosen_and_records_its_use(
     asyncio.run(enable())
     histories = getattr(job, "fetch_histories")
 
-    async def counted(symbols: Iterable[str], start: date) -> dict[str, pd.DataFrame]:
-        ordered = list(symbols)
+    async def counted(
+        symbols: Iterable[str], start: date, limits: Mapping[str, int | None] | None = None
+    ) -> dict[str, pd.DataFrame]:
+        assert limits == {"tiingo": 1}
+        ordered = list(symbols)[:1]
         for symbol in ordered:
             usage.record("tiingo", TIINGO, symbols=[symbol])
         assert not current_provider_keys().store_history, "bulk work is not stored"
-        found: dict[str, pd.DataFrame] = await histories(ordered, start)
+        found: dict[str, pd.DataFrame] = await histories(ordered, start, limits)
         return found
 
     monkeypatch.setattr(job, "fetch_histories", counted)
@@ -920,3 +931,79 @@ def test_index_funds_and_the_sec_write_a_company_alike() -> None:
     for filed, listed in pairs:
         assert set(name_keys(filed)) & set(name_keys(listed)), (filed, listed)
     assert not set(name_keys("Apple Inc.")) & set(name_keys("Applied Materials Inc"))
+
+
+def test_each_price_history_key_fetches_up_to_its_own_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asked: list[tuple[str, str]] = []
+
+    async def fake_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
+        keys = current_provider_keys()
+        live = [name for name in ("tiingo", "fmp", "eodhd", "alpha_vantage") if getattr(keys, name)]
+        assert len(live) == 1 and not keys.yfinance, "one key at a time, with no fallback"
+        asked.append((live[0], symbol))
+        if live[0] == "eodhd" and symbol == "E":
+            raise ProviderLimitError("EODHD's plan is used up for today.")
+        return _history()
+
+    monkeypatch.setattr(screener_metrics, "fetch_price_history", fake_history)
+    use_provider_keys(
+        ProviderKeys(tiingo=SecretStr("t"), eodhd=SecretStr("e"), fmp=SecretStr("f"), yfinance=True)
+    )
+
+    found = asyncio.run(
+        screener_metrics.fetch_histories(
+            ["A", "B", "C", "D", "E", "F"],
+            date(2026, 1, 1),
+            {"tiingo": 2, "fmp": 0, "eodhd": None},
+        )
+    )
+
+    # Tiingo takes the first two, FMP none, and EODHD the rest until its plan stops it.
+    assert asked == [
+        ("tiingo", "A"),
+        ("tiingo", "B"),
+        ("eodhd", "C"),
+        ("eodhd", "D"),
+        ("eodhd", "E"),
+    ]
+    assert sorted(found) == ["A", "B", "C", "D"]
+    assert current_provider_keys().yfinance, "the user's keys are back afterwards"
+
+
+@pytest.mark.usefixtures("encryption")
+def test_a_refreshs_counts_estimate_only_a_refresh_of_the_same_choice(user: User, key: str) -> None:
+    client.put(
+        "/api/v1/me/nightly-refresh",
+        headers=_headers(key, finnhub=FINNHUB),
+        json={"universes": ["sp500"]},
+    )
+
+    async def ran(choice: dict[str, object]) -> None:
+        async with get_sessionmaker()() as session:
+            run_id = await storage.start_run(session, user.id, choice=choice)
+            await storage.finish_run(session, run_id, stocks=10, priced=0, usage={"finnhub": 7})
+
+    # A refresh that rebuilt everything, before the choice changed to the S&P 500.
+    asyncio.run(
+        ran(
+            {
+                "universes": ["us_stocks", "us_etfs"],
+                "custom_symbols": [],
+                "price_history_limits": {},
+            }
+        )
+    )
+
+    def finnhub(universes: list[str]) -> int:
+        body = client.get(
+            "/api/v1/me/nightly-refresh",
+            headers=_headers(key, finnhub=FINNHUB),
+            params={"use_key": ["finnhub"], "universe": universes},
+        ).json()
+        return int(body["key_use"][0]["requests"])
+
+    assert finnhub(["sp500"]) == 545, "not the everything-refresh's count"
+    assert finnhub(["us_stocks", "us_etfs"]) == 7, "that refresh's own count, for its choice"
+    assert finnhub(["us_stocks", "us_etfs", "nasdaq", "sp500"]) > finnhub(["us_stocks"])

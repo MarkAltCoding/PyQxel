@@ -20,12 +20,12 @@ Each run refreshes every user whose chosen time has come since their last refres
    three-month volatility, beta, and volume from Finnhub's free basic financials on the
    user's Finnhub key, one request per stock, paced under the free plan's limit: about an
    hour and a half for every listed stock.
-3. Keeps stocks above the market cap floor, and fetches daily prices for as many of them
-   as the user chose, largest first, on the price-history keys they let it use (Tiingo,
-   FMP, EODHD, or Alpha Vantage, cheapest first), stopping sooner if those keys' plans stop
-   answering for the night. The requests sent on each key are recorded with the run. Those
-   stocks get the price-history columns: one-month return, 12-1 momentum, volatility,
-   drawdown, and Carhart factor betas. The rest keep Finnhub's stand-ins (see
+3. Keeps stocks above the market cap floor, and fetches daily prices for them, largest
+   first, on the price-history keys they let it use (Tiingo, FMP, EODHD, or Alpha
+   Vantage, cheapest first), each key up to the number the user chose for it, or until
+   its plan stops answering for the night. The requests sent on each key are recorded
+   with the run. Those stocks get the price-history columns: one-month return, 12-1
+   momentum, volatility, drawdown, and Carhart factor betas. The rest keep Finnhub's stand-ins (see
    :func:`app.stats.screening.user_screen_metrics`), and those whose price is unknown
    take a Finnhub quote.
 4. Adds the ETFs listed on US exchanges. Once every :data:`ETF_SCAN_DAYS` days it checks
@@ -81,11 +81,13 @@ from app.data.universe import Listing
 from app.db.billing import MICROS_PER_DOLLAR, charge_usage
 from app.db.nightly import (
     DueRefresh,
+    PriceLimits,
     UniverseChoice,
     due_refreshes,
     finish_run,
     mark_etfs_scanned,
     replace_user_universe,
+    run_choice,
     start_run,
     user_etfs,
 )
@@ -435,7 +437,7 @@ async def _added_etfs(symbols: list[str], notes: list[str]) -> list[_Etf]:
 async def build_user_universe(
     user_id: str,
     now: datetime,
-    price_history_stocks: int | None = None,
+    price_history_limits: PriceLimits | None = None,
     etfs_scanned_at: datetime | None = None,
     choice: UniverseChoice | None = None,
 ) -> UserRefreshResult:
@@ -494,8 +496,8 @@ async def build_user_universe(
         etfs += await _added_etfs(chosen.added_etfs, notes)
     added = chosen.added | set(chosen.added_etfs)
 
-    # The user chose how many stocks and ETFs get price histories: one request each on
-    # their price-history keys, which free plans allow only so many of a day. Those they
+    # The user chose how many stocks and ETFs each price-history key fetches histories
+    # for: one request each, which free plans allow only so many of a day. Those they
     # added by ticker come first.
     ranked = interleave(
         [stock.listing.symbol for stock in stocks], [etf.listing.symbol for etf in etfs]
@@ -503,9 +505,9 @@ async def build_user_universe(
     priced_first = [symbol for symbol in ranked if symbol in added] + [
         symbol for symbol in ranked if symbol not in added
     ]
-    if price_history_stocks is not None:
-        priced_first = priced_first[:price_history_stocks]
-    histories = await fetch_histories(priced_first, today - timedelta(days=PRICE_HISTORY_DAYS))
+    histories = await fetch_histories(
+        priced_first, today - timedelta(days=PRICE_HISTORY_DAYS), price_history_limits
+    )
     histories = completed_sessions(histories, now)
 
     # A stock with neither price history nor SEC shares outstanding takes a quote for its
@@ -599,7 +601,9 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None, sharing: in
     started = time.monotonic()
     async with get_sessionmaker()() as session:
         user = await get_user(session, due.user_id)
-        run_id = await start_run(session, due.user_id, now)
+        run_id = await start_run(
+            session, due.user_id, now, run_choice(due.choice, due.price_history_limits)
+        )
     # The user's stored keys, with the same data access their own requests have.
     # The user's stored keys, with the same data access their own requests have. Its
     # thousands of price histories are not kept in the user's stored prices.
@@ -616,7 +620,7 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None, sharing: in
     with usage.track() as sent:
         try:
             result = await build_user_universe(
-                due.user_id, now, due.price_history_stocks, due.etfs_scanned_at, due.choice
+                due.user_id, now, due.price_history_limits, due.etfs_scanned_at, due.choice
             )
         except Exception as exc:
             logger.warning("User %s's nightly refresh failed: %s", due.user_id, exc)

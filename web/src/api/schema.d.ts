@@ -763,10 +763,10 @@ export interface paths {
      * @description Return whether your nightly screener refresh is on, when it runs, which of your
      *     keys it stores, how its latest runs went, and about how many requests one refresh
      *     sends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of
-     *     keys, of ``price_history_stocks``, and of the sets (``universe``) and tickers
-     *     (``custom_symbol``) it rebuilds, before they are saved.
+     *     keys, of each price-history key's limit (``price_limit``), and of the sets
+     *     (``universe``) and tickers (``custom_symbol``) it rebuilds, before they are saved.
      *
-     *     Returns 503 when the database is unavailable.
+     *     Returns 422 for a malformed ``price_limit``, and 503 when the database is unavailable.
      */
     get: operations['read_nightly_refresh_api_v1_me_nightly_refresh_get']
     /**
@@ -5851,11 +5851,12 @@ export interface components {
        */
       custom_symbols?: string[]
       /**
-       * Price History Stocks
-       * @description Most stocks to fetch price histories for each night, largest first, one request each on the price-history keys; null for as many as their plans allow, which can use up a free plan's day.
-       * @default 40
+       * Price History Limits
+       * @description Most price histories each price-history key fetches a night, one request per stock or ETF, largest first, the cheapest key first and each key taking the next ones. Null for as many as that key's plan allows, which can use up a free plan's day; a key left out fetches what its free plan allows (Tiingo 50, FMP 250, EODHD 20, Alpha Vantage 25).
        */
-      price_history_stocks?: number | null
+      price_history_limits?: {
+        [key: string]: number | null
+      }
       /**
        * Refresh Time
        * @description Local time of day the refresh starts, as HH:MM in 24-hour time. It starts within the hour after it and takes an hour or two.
@@ -5919,11 +5920,12 @@ export interface components {
        */
       next_run_at?: string | null
       /**
-       * Price History Stocks
-       * @description Most stocks given price histories each night; null for as many as the keys' plans allow.
-       * @default 40
+       * Price History Limits
+       * @description Most price histories each stored price-history key fetches a night; null for as many as its plan allows.
        */
-      price_history_stocks?: number | null
+      price_history_limits?: {
+        [key: string]: number | null
+      }
       /**
        * Providers
        * @description Providers whose keys are stored, encrypted.
@@ -9596,8 +9598,8 @@ export interface operations {
       query?: {
         /** @description Keys being considered, to preview what a refresh would use. */
         use_key?: ('finnhub' | 'tiingo' | 'fmp' | 'eodhd' | 'alpha_vantage')[]
-        /** @description A price-history cap being considered, likewise. */
-        price_history_stocks?: number | null
+        /** @description Price-history limits being considered, likewise, as KEY:COUNT, or KEY:all for as many as that key's plan allows (tiingo:50, eodhd:all); a key left out takes its free plan's allowance. */
+        price_limit?: string[]
         /** @description The sets a refresh would rebuild, likewise; every US stock and ETF when none is given. */
         universe?: ('us_stocks' | 'us_etfs' | 'nasdaq' | 'sp500' | 'nasdaq100' | 'international')[]
         /** @description Tickers it would add, likewise. */

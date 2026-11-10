@@ -49,6 +49,7 @@ from app.db.app_settings import (
 )
 from app.db.nightly import (
     MissingFinnhubKeyError,
+    PriceLimits,
     UniverseChoice,
     disable,
     enable,
@@ -78,6 +79,8 @@ from app.models.account import (
 from app.models.nightly import (
     EVERYTHING,
     MAX_CUSTOM_SYMBOLS,
+    MAX_PRICE_HISTORIES,
+    PRICE_KEY_ORDER,
     NightlyProvider,
     NightlyRefreshSettings,
     NightlyRefreshStatus,
@@ -229,10 +232,15 @@ async def read_nightly_refresh(
         list[NightlyProvider],
         Query(description="Keys being considered, to preview what a refresh would use."),
     ] = [],  # noqa: B006
-    price_history_stocks: Annotated[
-        int | None,
-        Query(ge=0, le=10_000, description="A price-history cap being considered, likewise."),
-    ] = None,
+    price_limit: Annotated[
+        list[str],
+        Query(
+            max_length=4,
+            description="Price-history limits being considered, likewise, as KEY:COUNT, or "
+            "KEY:all for as many as that key's plan allows (tiingo:50, eodhd:all); a key "
+            "left out takes its free plan's allowance.",
+        ),
+    ] = [],  # noqa: B006
     universe: Annotated[
         list[NightlyUniverse],
         Query(
@@ -248,10 +256,10 @@ async def read_nightly_refresh(
     """Return whether your nightly screener refresh is on, when it runs, which of your
     keys it stores, how its latest runs went, and about how many requests one refresh
     sends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of
-    keys, of ``price_history_stocks``, and of the sets (``universe``) and tickers
-    (``custom_symbol``) it rebuilds, before they are saved.
+    keys, of each price-history key's limit (``price_limit``), and of the sets
+    (``universe``) and tickers (``custom_symbol``) it rebuilds, before they are saved.
 
-    Returns 503 when the database is unavailable.
+    Returns 422 for a malformed ``price_limit``, and 503 when the database is unavailable.
     """
     choice = UniverseChoice(
         universes=(
@@ -259,11 +267,36 @@ async def read_nightly_refresh(
         ),
         custom_symbols=tuple(dict.fromkeys(symbol.strip().upper() for symbol in custom_symbol)),
     )
-    preview = (list(use_key), price_history_stocks, choice) if use_key else None
+    preview = (list(use_key), _price_limits(price_limit), choice) if use_key else None
     try:
         return await refresh_status(session, user.id, encryption_available(), preview=preview)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
+
+
+def _price_limits(given: list[str]) -> PriceLimits:
+    """The price-history limits a preview asks about, as KEY:COUNT or KEY:all.
+
+    Raises:
+        HTTPException: 422 for one that is not of a price-history key, or not a count
+            from 0 to 10,000.
+    """
+    limits: PriceLimits = {}
+    for item in given:
+        key, _, count = item.partition(":")
+        if key not in PRICE_KEY_ORDER:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, f"No price-history key {key!r}."
+            )
+        if count == "all":
+            limits[key] = None
+        elif count.isdigit() and int(count) <= MAX_PRICE_HISTORIES:
+            limits[key] = int(count)
+        else:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, f"{item!r} is not KEY:COUNT or KEY:all."
+            )
+    return limits
 
 
 @router.put(
