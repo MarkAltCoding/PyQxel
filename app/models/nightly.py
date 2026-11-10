@@ -1,10 +1,10 @@
 """Schemas for the nightly refresh of a user's own screener."""
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
 NightlyProvider = Literal["finnhub", "tiingo", "fmp", "eodhd", "alpha_vantage"]
 """Providers whose keys the nightly refresh stores and uses. Anthropic's is never stored."""
@@ -20,10 +20,20 @@ STORED_PROVIDERS: tuple[NightlyProvider, ...] = (
 
 RunStatus = Literal["running", "succeeded", "failed"]
 
-NightlyUniverse = Literal["all", "stocks", "nasdaq", "sp500", "nasdaq100"]
-"""What a refresh rebuilds: every US stock and ETF, the stocks alone, the stocks listed on
-Nasdaq, or the companies in the S&P 500 or the Nasdaq-100. The smaller, the fewer Finnhub
-requests, so the sooner it finishes."""
+NightlyUniverse = Literal["us_stocks", "us_etfs", "nasdaq", "sp500", "nasdaq100", "international"]
+"""Sets of securities a refresh can rebuild, combined as the user chooses: every stock on a
+US exchange, every ETF on one, the stocks listed on Nasdaq, the companies in the S&P 500
+or the Nasdaq-100, and foreign companies' stocks listed in the US. The fewer securities,
+the fewer Finnhub requests, so the sooner it finishes."""
+
+EVERYTHING: list[NightlyUniverse] = ["us_stocks", "us_etfs"]
+"""Every US stock and ETF: what a refresh rebuilds unless the user chooses."""
+
+MAX_CUSTOM_SYMBOLS: int = 100
+"""Most securities a user may add to their refresh by ticker."""
+
+CUSTOM_SYMBOL_PATTERN: str = r"^[A-Z0-9][A-Z0-9.\-]{0,15}$"
+"""A ticker as PyQxel writes it: BRK-B, or 7203.T for a listing abroad."""
 
 DEFAULT_PRICE_HISTORY_STOCKS: int = 40
 """Price histories a refresh fetches unless the user chooses: enough for the largest
@@ -62,12 +72,40 @@ class NightlyRefreshSettings(BaseModel):
         "one request each on the price-history keys; null for as many as their plans "
         "allow, which can use up a free plan's day.",
     )
-    universe: NightlyUniverse = Field(
-        default="all",
-        description="What each refresh rebuilds: every US stock and ETF (all), US stocks "
-        "only (stocks), stocks listed on Nasdaq (nasdaq), or the companies in the S&P 500 "
-        "(sp500) or the Nasdaq-100 (nasdaq100). Only all includes ETFs.",
+    universes: list[NightlyUniverse] = Field(
+        default_factory=lambda: list(EVERYTHING),
+        max_length=6,
+        description="The sets each refresh rebuilds, combined: us_stocks (every stock on a "
+        "US exchange), us_etfs (every ETF on one), nasdaq (stocks listed on Nasdaq), sp500 "
+        "and nasdaq100 (those indexes' companies), and international (foreign companies' "
+        "stocks listed in the US). A security in several is fetched once.",
     )
+    custom_symbols: list[Annotated[str, StringConstraints(pattern=CUSTOM_SYMBOL_PATTERN)]] = Field(
+        default_factory=list,
+        max_length=MAX_CUSTOM_SYMBOLS,
+        description="Tickers of stocks and ETFs to refresh as well, such as one not in "
+        "the sets chosen. A listing abroad, such as 7203.T, is refreshed through its "
+        "company's US listing, since free plans have no figures for it.",
+    )
+
+    @field_validator("universes")
+    @classmethod
+    def _distinct_universes(cls, value: list[NightlyUniverse]) -> list[NightlyUniverse]:
+        return list(dict.fromkeys(value))
+
+    @field_validator("custom_symbols", mode="before")
+    @classmethod
+    def _upper_symbols(cls, value: object) -> object:
+        if isinstance(value, list):
+            cleaned = [item.strip().upper() if isinstance(item, str) else item for item in value]
+            return list(dict.fromkeys(cleaned))
+        return value
+
+    @model_validator(mode="after")
+    def _something_chosen(self) -> "NightlyRefreshSettings":
+        if not self.universes and not self.custom_symbols:
+            raise ValueError("Choose at least one set of securities or add a ticker.")
+        return self
 
     @field_validator("time_zone")
     @classmethod
@@ -96,6 +134,11 @@ class NightlyRun(BaseModel):
     error: str | None = Field(default=None, description="Why the refresh failed, if it did.")
     usage: dict[str, int] | None = Field(
         default=None, description="Requests the refresh sent on each key, by provider."
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="What the refresh could not do as asked, such as a ticker added that "
+        "no key had figures for, and what it did instead.",
     )
 
 
@@ -137,8 +180,12 @@ class NightlyRefreshStatus(BaseModel):
         description="Most stocks given price histories each night; null for as many as the "
         "keys' plans allow.",
     )
-    universe: NightlyUniverse = Field(
-        default="all", description="What each refresh rebuilds; all while it is off."
+    universes: list[NightlyUniverse] = Field(
+        default_factory=lambda: list(EVERYTHING),
+        description="The sets each refresh rebuilds; every US stock and ETF while it is off.",
+    )
+    custom_symbols: list[str] = Field(
+        default_factory=list, description="Tickers each refresh adds to those sets."
     )
     key_use: list[NightlyKeyUse] = Field(
         default_factory=list,

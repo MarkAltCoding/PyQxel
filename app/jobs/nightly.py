@@ -47,7 +47,7 @@ another.
 
 import asyncio
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
@@ -56,11 +56,13 @@ from app.api.auth import sees_unlicensed_data, uses_restricted_sources, uses_yfi
 from app.core.config import get_settings
 from app.core.credentials import use_provider_keys
 from app.core.redact import install_log_redaction
+from app.core.text import listed as listed_text
 from app.data import usage
 from app.data.exchange_rates import fetch_exchange_rates
 from app.data.factors import fetch_factors
-from app.data.fetcher import DataFetchError
+from app.data.fetcher import DataFetchError, symbol_kind, us_listings
 from app.data.fetcher import ProviderNotConfiguredError
+from app.data.index_members import INDEX_NAMES, index_members
 from app.data.screener_metrics import (
     EtfListing,
     fetch_etf_listings,
@@ -72,6 +74,7 @@ from app.data.screener_metrics import (
 from app.data.universe import Listing
 from app.db.nightly import (
     DueRefresh,
+    UniverseChoice,
     due_refreshes,
     finish_run,
     mark_etfs_scanned,
@@ -79,13 +82,16 @@ from app.db.nightly import (
     start_run,
     user_etfs,
 )
-from app.db.screener import load_companies, load_fundamentals, load_listings
+from app.db.screener import (
+    foreign_companies,
+    load_companies,
+    load_fundamentals,
+    load_listings,
+)
 from app.db.session import close_database, get_sessionmaker, init_db
-from app.data.index_members import Index, IndexMembers, index_members
 from app.db.users import get_user
 from app.jobs.screener import PRICE_HISTORY_DAYS, completed_sessions
 from app.models.fundamentals import Financials
-from app.models.nightly import NightlyUniverse
 from app.models.screener import ProviderScreenMetrics, ScreenedStock, ScreenMetrics
 from app.stats.screening import etf_screen_metrics, market_cap_ranks, user_screen_metrics
 from app.stats.sectors import industry_name, sector_for_sic
@@ -108,6 +114,8 @@ class UserRefreshResult:
     prices_as_of: date | None
     scanned_etfs: bool = False
     """Whether it checked every US ETF, rather than those already in the universe."""
+    notes: list[str] = field(default_factory=list)
+    """What it could not do as asked, and what it did instead."""
 
 
 @dataclass(frozen=True)
@@ -160,9 +168,11 @@ def _score(
     exchange_rates: dict[str, float],
     today: date,
     etfs: list[_Etf] | None = None,
+    added: set[str] | None = None,
 ) -> list[ScreenedStock]:
     """Every stock's and ETF's metrics, keeping those above the price and dollar volume
-    floors (blocking)."""
+    floors, and those the user ``added`` by ticker whatever the floors (blocking)."""
+    added = added or set()
     settings = get_settings()
     scored: list[tuple[_Stock, ScreenMetrics]] = []
     for stock in stocks:
@@ -177,7 +187,7 @@ def _score(
         )
         if metrics is None:
             continue
-        if (
+        if stock.listing.symbol not in added and (
             metrics.price < settings.screener_min_price
             or metrics.avg_dollar_volume < settings.screener_min_dollar_volume
         ):
@@ -208,8 +218,11 @@ def _score(
     for etf in etfs or []:
         found = etf_screen_metrics(etf.metrics, histories.get(etf.listing.symbol), factors)
         if found is None or (
-            found.price < settings.screener_min_price
-            or found.avg_dollar_volume < settings.screener_min_dollar_volume
+            etf.listing.symbol not in added
+            and (
+                found.price < settings.screener_min_price
+                or found.avg_dollar_volume < settings.screener_min_dollar_volume
+            )
         ):
             continue
         universe.append(
@@ -269,44 +282,147 @@ async def _etfs(skip: set[str], kept: list[EtfListing] | None = None) -> list[_E
     return etfs
 
 
-def main_classes(stocks: list[_Stock], classes: dict[int, int]) -> list[_Stock]:
-    """Of each index company's listings in ``stocks``, the ``classes[cik]`` most traded:
-    its share classes in the index (both of Alphabet's), not its notes and preferreds."""
+def main_classes(stocks: list[_Stock], classes: dict[int, int], only: set[str]) -> list[_Stock]:
+    """``stocks``, keeping of each company whose listings are in ``only`` (those chosen
+    through an index alone) the ``classes[cik]`` most traded: its share classes in the
+    index (both of Alphabet's), not its notes and preferreds."""
     by_company: dict[int, list[_Stock]] = {}
     for stock in stocks:
-        by_company.setdefault(stock.listing.cik, []).append(stock)
-    kept: set[str] = set()
+        if stock.listing.symbol in only:
+            by_company.setdefault(stock.listing.cik, []).append(stock)
+    kept = {stock.listing.symbol for stock in stocks if stock.listing.symbol not in only}
     for cik, listed in by_company.items():
         listed.sort(key=lambda stock: -(stock.metrics.average_volume or 0.0))
         kept |= {stock.listing.symbol for stock in listed[: classes.get(cik, 1)]}
     return [stock for stock in stocks if stock.listing.symbol in kept]
 
 
-async def _chosen_listings(
-    universe: NightlyUniverse, listings: list[tuple[Listing, float | None]]
-) -> tuple[list[tuple[Listing, float | None]], IndexMembers | None]:
-    """The ``listings`` (with their SEC shares outstanding) that ``universe`` rebuilds, and
-    for an index, its members.
+@dataclass(frozen=True)
+class _Chosen:
+    """The listings a refresh's choice picks, each once, and what it found doing so."""
+
+    listings: list[tuple[Listing, float | None]]
+    """The stocks to ask Finnhub about, with their SEC shares outstanding."""
+    index_only: set[str] = field(default_factory=set)
+    """Those picked through an index alone, so trimmed to its share classes."""
+    classes: dict[int, int] = field(default_factory=dict)
+    """CIK -> share classes of the company an index holds."""
+    added: set[str] = field(default_factory=set)
+    """Stocks the user added by ticker, kept whatever the floors."""
+    added_etfs: list[str] = field(default_factory=list)
+    """Tickers the user added that are not stocks on the SEC's list: ETFs, if any."""
+    notes: list[str] = field(default_factory=list)
+
+
+async def choose_listings(
+    choice: UniverseChoice, listings: list[tuple[Listing, float | None]]
+) -> _Chosen:
+    """The listings (with their SEC shares outstanding) the sets and tickers in ``choice``
+    pick, combined, so a stock in several sets is asked about once.
 
     Raises:
         RuntimeError: If an index's companies could not be read from its fund's filing.
     """
-    if universe in ("all", "stocks"):
-        return listings, None
-    if universe == "nasdaq":
-        return [
-            (listing, count) for listing, count in listings if listing.exchange == "Nasdaq"
-        ], None
-    index: Index = "sp500" if universe == "sp500" else "nasdaq100"
+    by_symbol = {listing.symbol: (listing, count) for listing, count in listings}
+    chosen = set(choice.universes)
+    broad: set[str] = set()
+    if "us_stocks" in chosen:
+        broad = set(by_symbol)
+    else:
+        if "nasdaq" in chosen:
+            broad |= {
+                symbol for symbol, (listing, _) in by_symbol.items() if listing.exchange == "Nasdaq"
+            }
+        if "international" in chosen:
+            async with get_sessionmaker()() as session:
+                foreign = await foreign_companies(session)
+            broad |= {
+                symbol for symbol, (listing, _) in by_symbol.items() if listing.cik in foreign
+            }
+    in_indexes: set[str] = set()
+    classes: dict[int, int] = {}
+    # Every index company is already among the US stocks.
+    for index in ("sp500", "nasdaq100") if "us_stocks" not in chosen else ():
+        if index not in chosen:
+            continue
+        try:
+            members = await index_members(index, (listing for listing, _ in listings))
+        except DataFetchError as exc:
+            raise RuntimeError(
+                f"The {INDEX_NAMES[index]}'s companies could not be read from the SEC ({exc}); "
+                "your universe was kept."
+            ) from exc
+        in_indexes |= {listing.symbol for listing in members.listings}
+        for cik, count in members.classes.items():
+            classes[cik] = max(classes.get(cik, 0), count)
+
+    added: set[str] = set()
+    added_etfs: list[str] = []
+    notes: list[str] = []
+    for symbol in choice.custom_symbols:
+        # BRK.B as some sites write it is BRK-B on the SEC's list.
+        listed = next((s for s in (symbol, symbol.replace(".", "-")) if s in by_symbol), None)
+        if listed is not None:
+            added.add(listed)
+        elif symbol_kind(symbol) == "international":
+            try:
+                stand_ins = [s for s in await us_listings(symbol) if s in by_symbol]
+            except DataFetchError:
+                stand_ins = []
+            if stand_ins:
+                added.update(stand_ins)
+                notes.append(
+                    f"{symbol}: free plans have no figures for listings abroad, so its "
+                    f"company's US listing, {listed_text(stand_ins)}, was refreshed instead."
+                )
+            else:
+                notes.append(
+                    f"{symbol}: free plans have no figures for listings abroad, and no US "
+                    "listing of its company was found, so it was left out. A Finnhub plan "
+                    "covering its exchange would include it."
+                )
+        else:
+            added_etfs.append(symbol)
+    picked = broad | in_indexes | added
+    return _Chosen(
+        listings=[(listing, count) for listing, count in listings if listing.symbol in picked],
+        index_only=in_indexes - broad - added,
+        classes=classes,
+        added=added,
+        added_etfs=added_etfs,
+        notes=notes,
+    )
+
+
+async def _added_etfs(symbols: list[str], notes: list[str]) -> list[_Etf]:
+    """The ETFs among ``symbols``, tickers the user added, with Finnhub's metrics, kept
+    whatever the floors; a note in ``notes`` for each that is not one.
+
+    Raises:
+        ProviderNotConfiguredError: If the user's Finnhub key is missing or rejected.
+    """
     try:
-        members = await index_members(index, (listing for listing, _ in listings))
+        listed = {etf.symbol: etf for etf in await fetch_etf_listings()}
+    except ProviderNotConfiguredError:
+        raise
     except DataFetchError as exc:
-        raise RuntimeError(
-            f"The index's companies could not be read from the SEC ({exc}); your universe "
-            "was kept."
-        ) from exc
-    chosen = {listing.symbol for listing in members.listings}
-    return [(listing, count) for listing, count in listings if listing.symbol in chosen], members
+        notes.append(
+            f"{listed_text(symbols)} could not be looked up, since Finnhub's list of ETFs "
+            f"failed ({exc})."
+        )
+        return []
+    found = {symbol: listed[symbol] for symbol in symbols if symbol in listed}
+    for symbol in symbols:
+        if symbol not in found:
+            notes.append(
+                f"{symbol} is not a stock or ETF listed in the US that PyQxel could find, so "
+                "it was left out."
+            )
+    provided = await fetch_etf_metrics(found) if found else {}
+    for symbol in found:
+        if symbol not in provided:
+            notes.append(f"Finnhub had no figures for {symbol}, so it was left out.")
+    return [_Etf(found[symbol], metrics) for symbol, metrics in provided.items()]
 
 
 async def build_user_universe(
@@ -314,16 +430,17 @@ async def build_user_universe(
     now: datetime,
     price_history_stocks: int | None = None,
     etfs_scanned_at: datetime | None = None,
-    universe: NightlyUniverse = "all",
+    choice: UniverseChoice | None = None,
 ) -> UserRefreshResult:
-    """Build and store ``user_id``'s own universe of ``universe`` on the current provider
-    keys. Only a universe of everything includes ETFs.
+    """Build and store ``user_id``'s own universe of the sets and tickers in ``choice``
+    (every US stock and ETF unless given) on the current provider keys.
 
     Raises:
         RuntimeError: If the SEC first stage has not stored any listings yet, or an index's
             companies could not be read.
         ProviderNotConfiguredError: If the user's Finnhub key is missing or rejected.
     """
+    choice = choice or UniverseChoice()
     settings = get_settings()
     today = now.date()
     async with get_sessionmaker()() as session:
@@ -331,43 +448,54 @@ async def build_user_universe(
     if not listings:
         raise RuntimeError("The shared SEC stage has not run yet; try again tomorrow.")
     every_symbol = {listing.symbol for listing, _ in listings}
-    listings, members = await _chosen_listings(universe, listings)
-    shares = {listing.symbol: count for listing, count in listings}
-    by_symbol = {listing.symbol: listing for listing, _ in listings}
+    chosen = await choose_listings(choice, listings)
+    notes = list(chosen.notes)
+    shares = {listing.symbol: count for listing, count in chosen.listings}
+    by_symbol = {listing.symbol: listing for listing, _ in chosen.listings}
 
-    provided = await fetch_screen_metrics(by_symbol)
+    provided = await fetch_screen_metrics(by_symbol) if by_symbol else {}
     stocks = [
         _Stock(by_symbol[symbol], shares[symbol], metrics)
         for symbol, metrics in provided.items()
-        if (metrics.market_cap or 0.0) >= settings.screener_min_market_cap
+        if (metrics.market_cap or 0.0) >= settings.screener_min_market_cap or symbol in chosen.added
     ]
-    if members is not None:
-        stocks = main_classes(stocks, members.classes)
+    for symbol in sorted(chosen.added - set(provided)):
+        notes.append(f"Finnhub had no figures for {symbol}, so it was left out.")
+    stocks = main_classes(stocks, chosen.classes, chosen.index_only)
     stocks.sort(key=lambda stock: -(stock.metrics.market_cap or 0.0))
     logger.info(
         "User %s: Finnhub had metrics for %d of %d stocks; %d pass the market cap floor.",
         user_id,
         len(provided),
-        len(listings),
+        len(chosen.listings),
         len(stocks),
     )
 
     known_etfs: list[EtfListing] | None = None
     etfs: list[_Etf] = []
-    if universe == "all":
+    every_etf = "us_etfs" in choice.universes
+    if every_etf:
         if not scans_every_etf(etfs_scanned_at, now):
             async with get_sessionmaker()() as session:
                 known_etfs = [EtfListing(*row) for row in await user_etfs(session, user_id)]
             if not known_etfs:
                 # None were kept last time, as when that refresh failed: check them all.
                 known_etfs = None
-        etfs = await _etfs(every_symbol, known_etfs)
+        # The ETFs the user added are asked about once, below.
+        etfs = await _etfs(every_symbol | set(chosen.added_etfs), known_etfs)
+    if chosen.added_etfs:
+        etfs += await _added_etfs(chosen.added_etfs, notes)
+    added = chosen.added | set(chosen.added_etfs)
 
     # The user chose how many stocks and ETFs get price histories: one request each on
-    # their price-history keys, which free plans allow only so many of a day.
-    priced_first = interleave(
+    # their price-history keys, which free plans allow only so many of a day. Those they
+    # added by ticker come first.
+    ranked = interleave(
         [stock.listing.symbol for stock in stocks], [etf.listing.symbol for etf in etfs]
     )
+    priced_first = [symbol for symbol in ranked if symbol in added] + [
+        symbol for symbol in ranked if symbol not in added
+    ]
     if price_history_stocks is not None:
         priced_first = priced_first[:price_history_stocks]
     histories = await fetch_histories(priced_first, today - timedelta(days=PRICE_HISTORY_DAYS))
@@ -413,7 +541,16 @@ async def build_user_universe(
         {company.currency for company in financials.values()} - {"USD"}
     )
     screened = await asyncio.to_thread(
-        _score, stocks, histories, financials, companies, factors, exchange_rates, today, etfs
+        _score,
+        stocks,
+        histories,
+        financials,
+        companies,
+        factors,
+        exchange_rates,
+        today,
+        etfs,
+        added,
     )
     if not screened:
         raise RuntimeError("No stock passed the baseline filters; your universe was kept.")
@@ -426,7 +563,8 @@ async def build_user_universe(
         stocks=count,
         priced=len(priced),
         prices_as_of=max(last_closes, default=None),
-        scanned_etfs=universe == "all" and known_etfs is None,
+        scanned_etfs=every_etf and known_etfs is None,
+        notes=notes,
     )
 
 
@@ -456,7 +594,7 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None) -> None:
     with usage.track() as sent:
         try:
             result = await build_user_universe(
-                due.user_id, now, due.price_history_stocks, due.etfs_scanned_at, due.universe
+                due.user_id, now, due.price_history_stocks, due.etfs_scanned_at, due.choice
             )
         except Exception as exc:
             logger.warning("User %s's nightly refresh failed: %s", due.user_id, exc)
@@ -476,6 +614,7 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None) -> None:
             priced=result.priced,
             prices_as_of=result.prices_as_of,
             usage=dict(sent),
+            notes=result.notes,
         )
     await usage.flush()
     logger.info(

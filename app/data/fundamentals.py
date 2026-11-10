@@ -84,6 +84,8 @@ FORMS: frozenset[str] = frozenset(
     {"10-K", "10-K/A", "10-KT", "10-Q", "10-Q/A", "10-QT", "20-F", "20-F/A", "40-F", "40-F/A"}
 )
 """Periodic reports whose figures are used; registration statements and 8-Ks are not."""
+FOREIGN_FORMS: frozenset[str] = frozenset({"20-F", "40-F"})
+"""Annual reports a foreign private issuer files instead of a 10-K."""
 
 ANNUAL_DAYS: tuple[int, int] = (350, 380)
 """Lengths of a fiscal year, including 52- and 53-week years."""
@@ -230,6 +232,8 @@ class Reporting:
 
     currency: str
     taxonomy: str
+    foreign_issuer: bool = False
+    """Whether the latest report is a 20-F or 40-F, a foreign private issuer's."""
 
 
 @dataclass(frozen=True)
@@ -304,6 +308,7 @@ def reporting(company: dict[str, Any]) -> Reporting | None:
     reverse, is read in the taxonomy of its latest filing.
     """
     seen: dict[tuple[str, str], tuple[date, int]] = {}
+    latest_form: tuple[date, str] = (date.min, "")
     for taxonomy, concept in _key_concepts():
         units = company.get("facts", {}).get(taxonomy, {}).get(concept, {}).get("units", {})
         for unit, rows in units.items():
@@ -315,10 +320,16 @@ def reporting(company: dict[str, Any]) -> Reporting | None:
                     continue
                 latest, count = seen.get((unit, taxonomy), (date.min, 0))
                 seen[unit, taxonomy] = (max(latest, filed), count + 1)
+                if filed > latest_form[0]:
+                    latest_form = (filed, str(row.get("form")))
     if not seen:
         return None
     currency, taxonomy = max(seen, key=lambda key: seen[key])
-    return Reporting(currency=currency, taxonomy=taxonomy)
+    return Reporting(
+        currency=currency,
+        taxonomy=taxonomy,
+        foreign_issuer=latest_form[1].split("/")[0] in FOREIGN_FORMS,
+    )
 
 
 def _durations(facts: Iterable[Fact]) -> Durations:
@@ -754,6 +765,7 @@ def normalize(company: dict[str, Any], cik: int) -> Financials:
         entity_name=str(company.get("entityName") or ""),
         accounting_standard=STANDARDS[found.taxonomy],
         currency=currency,
+        foreign_issuer=found.foreign_issuer,
         latest_period_end=latest,
         cash=cash,
         total_debt=debt,

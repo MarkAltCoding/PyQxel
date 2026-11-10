@@ -178,6 +178,25 @@ async def load_fundamentals(session: AsyncSession, ciks: Iterable[int]) -> dict[
     return found
 
 
+async def foreign_companies(session: AsyncSession) -> set[int]:
+    """The CIKs of foreign companies among those with stored financials: each that files
+    as a foreign private issuer (20-F or 40-F), or reports in a currency other than the
+    dollar. Only those two fields are read, not every company's whole financials."""
+    rows = await session.execute(
+        select(
+            ScreenerFundamentalsRecord.cik,
+            ScreenerFundamentalsRecord.financials["currency"].as_string(),
+            ScreenerFundamentalsRecord.financials["foreign_issuer"].as_string(),
+        )
+    )
+    return {
+        cik
+        for cik, currency, foreign in rows
+        # Postgres reads a stored true as "true", SQLite as 1.
+        if (currency and currency != "USD") or str(foreign).lower() in ("true", "1")
+    }
+
+
 async def save_companies(
     session: AsyncSession, codes: dict[int, tuple[int | None, str | None]], fetched_at: datetime
 ) -> None:

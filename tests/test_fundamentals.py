@@ -98,8 +98,10 @@ def test_ttm_adds_year_to_date_to_the_last_fiscal_year() -> None:
         fact(QUARTER_2026, 110.0),
     ]
 
-    item = normalize(company({"Revenues": revenue} | EQUITY), CIK).revenue
+    financials = normalize(company({"Revenues": revenue} | EQUITY), CIK)
+    item = financials.revenue
 
+    assert not financials.foreign_issuer, "a 10-K and 10-Q filer"
     assert item is not None
     assert item.ttm == 430.0
     assert str(item.ttm_end) == "2026-06-27"
@@ -356,6 +358,7 @@ def test_ifrs_figures_are_read_in_the_home_currency() -> None:
     financials = normalize(document, CIK)
 
     assert (financials.accounting_standard, financials.currency) == ("IFRS", "TWD")
+    assert financials.foreign_issuer, "its latest report is a 20-F"
     assert financials.revenue is not None
     assert financials.revenue.concept == "ifrs-full:Revenue"
     assert financials.revenue.ttm == 3_800.0

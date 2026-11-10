@@ -474,8 +474,10 @@ class NightlyRefreshRecord(Base):
     etfs_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     """When the refresh last checked every US ETF; on other nights it checks only the ETFs
     already in the user's universe."""
-    universe: Mapped[str] = mapped_column(String(16), server_default="all")
-    """What each refresh rebuilds (:data:`app.models.nightly.NightlyUniverse`)."""
+    universes: Mapped[list[str]] = mapped_column(JSON, server_default='["us_stocks", "us_etfs"]')
+    """The sets each refresh rebuilds, combined (:data:`app.models.nightly.NightlyUniverse`)."""
+    custom_symbols: Mapped[list[str]] = mapped_column(JSON, server_default="[]")
+    """Tickers each refresh adds to those sets."""
 
 
 class UserScreenerRunRecord(Base):
@@ -497,6 +499,8 @@ class UserScreenerRunRecord(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     usage: Mapped[dict[str, int] | None] = mapped_column(JSON, nullable=True)
     """Requests the run sent to each provider, by provider name."""
+    notes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    """What the run could not do as asked, and what it did instead."""
 
 
 class ProviderUsageRecord(Base):

@@ -114,6 +114,11 @@ class Financials(BaseModel):
         default="USD",
         description="ISO 4217 code of the currency every amount here is in, e.g. ``EUR``.",
     )
+    foreign_issuer: bool = Field(
+        default=False,
+        description="Whether the company reports to the SEC as a foreign private issuer, "
+        "on Form 20-F or 40-F rather than 10-K, as the companies behind ADRs do.",
+    )
     latest_period_end: date | None = Field(
         default=None, description="End of the most recent period any statement covers."
     )

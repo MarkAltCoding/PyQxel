@@ -9,8 +9,8 @@ does (:func:`app.db.users.delete_user`).
 
 import json
 from collections.abc import Iterable
-from dataclasses import dataclass
-from typing import cast
+from dataclasses import dataclass, field
+from typing import cast, get_args
 from datetime import date, datetime, time, timedelta, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -35,6 +35,7 @@ from app.models.nightly import (
     NightlyKeyUse,
     NightlyRefreshStatus,
     NightlyRun,
+    EVERYTHING,
     NightlyUniverse,
     RunStatus,
 )
@@ -56,6 +57,25 @@ class MissingFinnhubKeyError(ValueError):
 
 
 @dataclass(frozen=True)
+class UniverseChoice:
+    """The sets of securities a refresh rebuilds, combined, and the tickers it adds."""
+
+    universes: tuple[NightlyUniverse, ...] = tuple(EVERYTHING)
+    custom_symbols: tuple[str, ...] = ()
+
+    @classmethod
+    def of(cls, record: NightlyRefreshRecord) -> "UniverseChoice":
+        """The choice stored with ``record``, leaving out any set this version does not know."""
+        known = set(get_args(NightlyUniverse))
+        return cls(
+            universes=tuple(
+                cast(NightlyUniverse, name) for name in (record.universes or []) if name in known
+            ),
+            custom_symbols=tuple(record.custom_symbols or []),
+        )
+
+
+@dataclass(frozen=True)
 class DueRefresh:
     """A user whose refresh is due, and the keys it runs on."""
 
@@ -65,7 +85,7 @@ class DueRefresh:
     """Most stocks to fetch price histories for; ``None`` for as many as the plans allow."""
     etfs_scanned_at: datetime | None = None
     """When the refresh last checked every US ETF; ``None`` if never."""
-    universe: NightlyUniverse = "all"
+    choice: UniverseChoice = field(default_factory=UniverseChoice)
     """What the refresh rebuilds."""
 
 
@@ -109,7 +129,8 @@ async def enable(
     record.credentials = credentials
     record.providers = list(providers)
     record.price_history_stocks = settings.price_history_stocks
-    record.universe = settings.universe
+    record.universes = list(settings.universes)
+    record.custom_symbols = list(settings.custom_symbols)
     record.keys_updated_at = now
     await session.commit()
 
@@ -205,6 +226,7 @@ def _run(record: UserScreenerRunRecord) -> NightlyRun:
         prices_as_of=record.prices_as_of,
         error=record.error,
         usage=record.usage,
+        notes=record.notes or [],
     )
 
 
@@ -225,27 +247,58 @@ ASSUMED_PRICED_STOCKS: int = 2_000
 INDEX_LISTINGS: dict[NightlyUniverse, int] = {"sp500": 545, "nasdaq100": 115}
 """About how many listings an index's companies have, each asked of Finnhub: its notes and
 preferreds too, until Finnhub's figures show which are its common shares."""
+SP500_ON_NASDAQ: int = 100
+"""About how many of the S&P 500's listings are on Nasdaq, so already among its stocks."""
+NASDAQ100_IN_SP500: int = 90
+"""About how many of the Nasdaq-100's listings are in the S&P 500 as well."""
+ASSUMED_INTERNATIONAL: int = 700
+"""About how many foreign companies' stocks are listed in the US."""
 ASSUMED_ETF_REQUESTS: int = 4_600
-"""Finnhub requests for ETFs in a refresh of everything: each one's metrics and, without
-price history, a quote."""
+"""Finnhub requests for every US ETF: each one's metrics and, without price history, a
+quote."""
+INDEX_STOCKS: dict[NightlyUniverse, int] = {"sp500": 500, "nasdaq100": 100, "international": 400}
+"""About how many stocks a set keeps above the floors, for the price-history estimate."""
 
 
-INDEX_STOCKS: dict[NightlyUniverse, int] = {"sp500": 500, "nasdaq100": 100}
-"""About how many stocks an index's refresh keeps, for its price-history estimate."""
+async def _finnhub_requests(session: AsyncSession, choice: UniverseChoice) -> int:
+    """About how many Finnhub requests a refresh of ``choice`` sends: one per security for
+    its metrics, counting a security in several sets once."""
+    chosen = set(choice.universes)
+    if "us_stocks" in chosen:
+        listings = int(
+            await session.scalar(select(func.count()).select_from(ScreenerListingRecord)) or 0
+        )
+        stocks = listings or ASSUMED_LISTINGS
+    else:
+        # Every set but the US's is part of it, so the others overlap less; this counts the
+        # overlaps it knows of once.
+        stocks = 0
+        if "nasdaq" in chosen:
+            nasdaq = int(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(ScreenerListingRecord)
+                    .where(ScreenerListingRecord.exchange == "Nasdaq")
+                )
+                or 0
+            )
+            stocks += nasdaq or ASSUMED_LISTINGS // 2
+        if "sp500" in chosen:
+            stocks += INDEX_LISTINGS["sp500"] - (SP500_ON_NASDAQ if "nasdaq" in chosen else 0)
+        if "nasdaq100" in chosen and "nasdaq" not in chosen:
+            stocks += INDEX_LISTINGS["nasdaq100"] - (NASDAQ100_IN_SP500 if "sp500" in chosen else 0)
+        if "international" in chosen:
+            stocks += ASSUMED_INTERNATIONAL
+    etfs = ASSUMED_ETF_REQUESTS if "us_etfs" in chosen else 0
+    return stocks + etfs + len(choice.custom_symbols)
 
 
-async def _finnhub_requests(session: AsyncSession, universe: NightlyUniverse) -> int:
-    """About how many Finnhub requests a refresh of ``universe`` sends: one per listing
-    for its metrics, and for everything, the ETFs' too."""
-    if universe in INDEX_LISTINGS:
-        return INDEX_LISTINGS[universe]
-    query = select(func.count()).select_from(ScreenerListingRecord)
-    if universe == "nasdaq":
-        query = query.where(ScreenerListingRecord.exchange == "Nasdaq")
-    listings = int(await session.scalar(query) or 0)
-    if not listings:
-        listings = ASSUMED_LISTINGS // 2 if universe == "nasdaq" else ASSUMED_LISTINGS
-    return listings + (ASSUMED_ETF_REQUESTS if universe == "all" else 0)
+def _priced_stocks(choice: UniverseChoice) -> int:
+    """About how many stocks a refresh of ``choice`` keeps, before one has counted them."""
+    chosen = set(choice.universes)
+    if chosen & {"us_stocks", "nasdaq"}:
+        return ASSUMED_PRICED_STOCKS
+    return sum(INDEX_STOCKS.get(name, 0) for name in chosen) + len(choice.custom_symbols)
 
 
 async def key_use(
@@ -253,40 +306,38 @@ async def key_use(
     providers: list[NightlyProvider],
     price_history_stocks: int | None,
     success: UserScreenerRunRecord | None,
-    universe: NightlyUniverse = "all",
-    measured_universe: NightlyUniverse | None = "all",
+    choice: UniverseChoice | None = None,
+    measured: UniverseChoice | None = None,
 ) -> list[NightlyKeyUse]:
-    """About how many requests one refresh of ``universe`` sends on each stored key.
+    """About how many requests one refresh of ``choice`` sends on each stored key.
 
-    Finnhub gets one request per listed stock for its metrics, and a refresh of
-    everything one per ETF too. Price histories go to the price-history keys, one request
-    per stock, largest first, up to ``price_history_stocks``, each key taking as many as a
-    free plan answers before the next is tried. The latest successful refresh's own counts
-    are used where it has them, if it rebuilt ``measured_universe`` and that is
-    ``universe``.
+    Finnhub gets one request per security for its metrics, once however many of the sets
+    chosen hold it. Price histories go to the price-history keys, one request per stock,
+    largest first, up to ``price_history_stocks``, each key taking as many as a free plan
+    answers before the next is tried. The latest successful refresh's own counts are
+    used where it has them, if it rebuilt ``measured`` and that is ``choice``.
     """
-    same = success is not None and measured_universe == universe
-    if same and success is not None and success.stocks:
-        stocks = success.stocks
-    else:
-        stocks = INDEX_STOCKS.get(universe, ASSUMED_PRICED_STOCKS)
+    choice = choice or UniverseChoice()
+    same = success is not None and measured == choice
+    stocks = success.stocks if same and success is not None and success.stocks else None
+    stocks = stocks or _priced_stocks(choice)
     wanted = stocks if price_history_stocks is None else min(price_history_stocks, stocks)
-    measured = success.usage if same and success is not None and success.usage else {}
+    counts = success.usage if same and success is not None and success.usage else {}
     found: list[NightlyKeyUse] = []
     if "finnhub" in providers:
         found.append(
             NightlyKeyUse(
                 provider="finnhub",
-                requests=measured.get("finnhub") or await _finnhub_requests(session, universe),
-                detail="One request per listed stock for its metrics, paced under 60 a "
-                "minute, plus a quote for each stock with no other price.",
+                requests=counts.get("finnhub") or await _finnhub_requests(session, choice),
+                detail="One request per stock or ETF for its metrics, paced under 60 a "
+                "minute, plus a quote for each with no other price.",
             )
         )
     left = wanted
     for provider in PRICE_KEY_ORDER:
         if provider not in providers:
             continue
-        take = measured.get(provider, min(left, PRICE_KEY_CAPACITY[provider]))
+        take = counts.get(provider, min(left, PRICE_KEY_CAPACITY[provider]))
         found.append(
             NightlyKeyUse(
                 provider=provider,
@@ -298,8 +349,8 @@ async def key_use(
     return found
 
 
-Preview = tuple[list[NightlyProvider], int | None, NightlyUniverse]
-"""Keys, a price-history cap, and a universe the user is considering."""
+Preview = tuple[list[NightlyProvider], int | None, UniverseChoice]
+"""Keys, a price-history cap, and sets and tickers the user is considering."""
 
 
 async def refresh_status(
@@ -311,17 +362,15 @@ async def refresh_status(
 ) -> NightlyRefreshStatus:
     """Whether ``user_id`` opted in, what is stored, and how their refreshes went.
 
-    With ``preview``, keys, a price-history cap, and a universe the user is considering,
-    ``key_use`` says what one refresh would send on each of those keys instead of the
-    stored ones.
+    With ``preview``, keys, a price-history cap, and sets and tickers the user is
+    considering, ``key_use`` says what one refresh would send on each of those keys
+    instead of the stored ones.
     """
     record = await session.get(NightlyRefreshRecord, user_id)
     latest = await _runs(session, user_id)
     success = await latest_success(session, user_id)
-    # The last refresh's counts are taken to be of the universe stored now.
-    stored_universe: NightlyUniverse | None = (
-        None if record is None else cast(NightlyUniverse, record.universe)
-    )
+    # The last refresh's counts are taken to be of the choice stored now.
+    stored = None if record is None else UniverseChoice.of(record)
     status = NightlyRefreshStatus(
         available=available,
         enabled=record is not None,
@@ -330,9 +379,9 @@ async def refresh_status(
     )
     if preview is not None:
         status.key_use = await key_use(
-            session, preview[0], preview[1], success, preview[2], stored_universe or "all"
+            session, preview[0], preview[1], success, preview[2], stored or UniverseChoice()
         )
-    if record is None or stored_universe is None:
+    if record is None or stored is None:
         return status
     started = as_utc(latest[0].started_at) if latest else None
     return status.model_copy(
@@ -341,7 +390,8 @@ async def refresh_status(
             "time_zone": record.time_zone,
             "providers": [p for p in record.providers if p in STORED_PROVIDERS],
             "price_history_stocks": record.price_history_stocks,
-            "universe": stored_universe,
+            "universes": list(stored.universes),
+            "custom_symbols": list(stored.custom_symbols),
             "key_use": (
                 status.key_use
                 if preview is not None
@@ -350,8 +400,8 @@ async def refresh_status(
                     [p for p in record.providers if p in STORED_PROVIDERS],
                     record.price_history_stocks,
                     success,
-                    stored_universe,
-                    stored_universe,
+                    stored,
+                    stored,
                 )
             ),
             "keys_updated_at": as_utc(record.keys_updated_at),
@@ -427,7 +477,7 @@ async def due_refreshes(session: AsyncSession, now: datetime) -> list[DueRefresh
                 etfs_scanned_at=(
                     None if record.etfs_scanned_at is None else as_utc(record.etfs_scanned_at)
                 ),
-                universe=cast(NightlyUniverse, record.universe),
+                choice=UniverseChoice.of(record),
             )
         )
     return due
@@ -480,9 +530,10 @@ async def finish_run(
     priced: int | None = None,
     prices_as_of: date | None = None,
     usage: dict[str, int] | None = None,
+    notes: list[str] | None = None,
 ) -> None:
     """Record a user's refresh as failed with ``error``, or succeeded with its results,
-    and the requests it sent on each key."""
+    the requests it sent on each key, and what it could not do as asked (``notes``)."""
     run = await session.get(UserScreenerRunRecord, run_id)
     if run is None:
         return
@@ -493,6 +544,7 @@ async def finish_run(
     run.priced = priced
     run.prices_as_of = prices_as_of
     run.usage = usage or None
+    run.notes = notes or None
     await session.commit()
 
 

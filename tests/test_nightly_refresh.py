@@ -4,6 +4,7 @@ stores, when it runs, and the universe it builds from the user's keys alone."""
 import asyncio
 import json
 from collections.abc import Awaitable, Callable, Iterable
+from typing import Any
 from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
@@ -32,9 +33,9 @@ from app.data.screener_metrics import (
 from app.data.index_members import IndexMembers, name_keys
 from app.data.universe import Listing
 from app.db import nightly as storage
-from app.db.screener import replace_listings, save_companies
+from app.db.screener import foreign_companies, replace_listings, save_companies
 from app.db.session import get_sessionmaker
-from app.db.tables import NightlyRefreshRecord
+from app.db.tables import NightlyRefreshRecord, ScreenerFundamentalsRecord
 from app.db.users import User, create_api_key
 from app.jobs import nightly as job
 from app.main import app
@@ -338,13 +339,20 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
     return seen
 
 
-def _opt_in(user: User, universe: NightlyUniverse = "all") -> None:
+def _opt_in(
+    user: User, universes: list[NightlyUniverse] | None = None, custom: Iterable[str] = ()
+) -> None:
     async def enable() -> None:
         async with get_sessionmaker()() as session:
             await storage.enable(
                 session,
                 user.id,
-                NightlyRefreshSettings(refresh_time="00:00", time_zone="UTC", universe=universe),
+                NightlyRefreshSettings(
+                    refresh_time="00:00",
+                    time_zone="UTC",
+                    universes=universes if universes is not None else ["us_stocks", "us_etfs"],
+                    custom_symbols=list(custom),
+                ),
                 ProviderKeys(finnhub=SecretStr(FINNHUB)),
             )
 
@@ -687,53 +695,75 @@ def test_a_refresh_that_scans_every_etf_records_when(
     assert asyncio.run(scanned()) is not None
 
 
-# Smaller universes.
+# Chosen sets and added tickers.
 
 
-@pytest.mark.usefixtures("encryption")
-def test_a_smaller_universe_is_stored_and_estimated(user: User, key: str) -> None:
-    response = client.put(
-        "/api/v1/me/nightly-refresh",
-        headers=_headers(key, finnhub=FINNHUB),
-        json={"universe": "sp500"},
-    )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["universe"] == "sp500"
-    finnhub = next(item for item in body["key_use"] if item["provider"] == "finnhub")
-    assert finnhub["requests"] == 545, "the index's listings, not every stock's"
-    preview = client.get(
-        "/api/v1/me/nightly-refresh",
-        headers=_headers(key, finnhub=FINNHUB),
-        params={"use_key": ["finnhub"], "universe": "nasdaq100"},
-    ).json()
-    assert [item["requests"] for item in preview["key_use"]] == [115]
-    refused = client.put(
-        "/api/v1/me/nightly-refresh",
-        headers=_headers(key, finnhub=FINNHUB),
-        json={"universe": "everything"},
-    )
-    assert refused.status_code == 422
-
-
-@pytest.mark.usefixtures("encryption")
-def test_a_refresh_of_nasdaq_stocks_asks_only_about_them_and_no_etfs(
-    user: User, fakes: dict[str, list[str]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    asked: list[str] = []
-    # The fixture's fake, patched onto the job.
+@pytest.fixture
+def asked(monkeypatch: pytest.MonkeyPatch, fakes: dict[str, list[str]]) -> list[str]:
+    """Every symbol whose Finnhub metrics a refresh asks for, in order, through the
+    fixture's fake."""
+    symbols: list[str] = []
     metrics: Callable[[Iterable[str]], Awaitable[dict[str, ProviderScreenMetrics]]] = getattr(
         job, "fetch_screen_metrics"
     )
 
-    async def counted(symbols: Iterable[str]) -> dict[str, ProviderScreenMetrics]:
-        symbols = list(symbols)
-        asked.extend(symbols)
-        return await metrics(symbols)
+    async def counted(wanted: Iterable[str]) -> dict[str, ProviderScreenMetrics]:
+        wanted = list(wanted)
+        symbols.extend(wanted)
+        return await metrics(wanted)
 
     monkeypatch.setattr(job, "fetch_screen_metrics", counted)
-    _opt_in(user, "nasdaq")
+    return symbols
+
+
+def _members(*ciks: int, classes: dict[int, int] | None = None) -> Callable[..., Any]:
+    """A fake index whose companies are ``ciks``."""
+
+    async def members(index: str, listings: Iterable[Listing]) -> IndexMembers:
+        chosen = [listing for listing in listings if listing.cik in ciks]
+        return IndexMembers(listings=chosen, classes=classes or dict.fromkeys(ciks, 1))
+
+    return members
+
+
+@pytest.mark.usefixtures("encryption")
+def test_the_sets_and_tickers_chosen_are_stored_and_estimated(user: User, key: str) -> None:
+    response = client.put(
+        "/api/v1/me/nightly-refresh",
+        headers=_headers(key, finnhub=FINNHUB),
+        json={"universes": ["sp500"], "custom_symbols": ["brk.b", "7203.T", "BRK.B"]},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["universes"] == ["sp500"]
+    assert body["custom_symbols"] == ["BRK.B", "7203.T"], "upper case, each once"
+    finnhub = next(item for item in body["key_use"] if item["provider"] == "finnhub")
+    assert finnhub["requests"] == 545 + 2, "the index's listings and the tickers added"
+    preview = client.get(
+        "/api/v1/me/nightly-refresh",
+        headers=_headers(key, finnhub=FINNHUB),
+        params={"use_key": ["finnhub"], "universe": ["sp500", "nasdaq100"]},
+    ).json()
+    # The Nasdaq-100's companies in the S&P 500 too are counted once.
+    assert [item["requests"] for item in preview["key_use"]] == [545 + 115 - 90]
+    refusals: list[dict[str, list[str]]] = [
+        {"universes": [], "custom_symbols": []},
+        {"universes": ["everything"]},
+        {"custom_symbols": ["NOT A TICKER"]},
+    ]
+    for refused in refusals:
+        answer = client.put(
+            "/api/v1/me/nightly-refresh", headers=_headers(key, finnhub=FINNHUB), json=refused
+        )
+        assert answer.status_code == 422, refused
+
+
+@pytest.mark.usefixtures("encryption")
+def test_a_refresh_of_nasdaq_stocks_asks_only_about_them_and_no_etfs(
+    user: User, fakes: dict[str, list[str]], asked: list[str]
+) -> None:
+    _opt_in(user, ["nasdaq"])
 
     assert asyncio.run(job.refresh_due_users()) == 1
 
@@ -744,16 +774,60 @@ def test_a_refresh_of_nasdaq_stocks_asks_only_about_them_and_no_etfs(
 
 
 @pytest.mark.usefixtures("encryption")
+def test_a_stock_in_several_sets_chosen_is_asked_about_once(
+    user: User, fakes: dict[str, list[str]], asked: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # BIG is listed on Nasdaq and in both indexes; MID is in the S&P 500.
+    monkeypatch.setattr(job, "index_members", _members(1, 2))
+    _opt_in(user, ["nasdaq", "sp500", "nasdaq100"], custom=["BIG"])
+
+    asyncio.run(job.refresh_due_users())
+
+    assert sorted(asked) == ["BIG", "MID"]
+
+
+@pytest.mark.usefixtures("encryption")
+def test_us_and_international_stocks_together_ask_about_each_stock_once(
+    user: User, fakes: dict[str, list[str]], asked: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def foreign(session: object) -> set[int]:
+        return {2, 5}
+
+    monkeypatch.setattr(job, "foreign_companies", foreign)
+    _opt_in(user, ["international"])
+    asyncio.run(job.refresh_due_users())
+    assert sorted(asked) == ["DUAL", "MID"], "the foreign companies alone"
+
+    asked.clear()
+    _opt_in(user, ["us_stocks", "international"])
+    asyncio.run(job.refresh_due_users(datetime.now(timezone.utc) + timedelta(days=1)))
+    assert sorted(asked) == sorted(listing.symbol for listing in LISTINGS)
+
+
+def test_foreign_companies_are_those_filing_as_foreign_issuers_or_in_another_currency() -> None:
+    async def run() -> set[int]:
+        now = datetime.now(timezone.utc)
+        async with get_sessionmaker()() as session:
+            for cik, figures in {
+                1: {"currency": "USD"},
+                2: {"currency": "EUR"},
+                3: {"currency": "USD", "foreign_issuer": True},
+                4: {"currency": "USD", "foreign_issuer": False},
+            }.items():
+                session.add(
+                    ScreenerFundamentalsRecord(cik=cik, refreshed_at=now, financials=figures)
+                )
+            await session.commit()
+            return await foreign_companies(session)
+
+    assert asyncio.run(run()) == {2, 3}
+
+
+@pytest.mark.usefixtures("encryption")
 def test_a_refresh_of_an_index_keeps_its_companies_main_share_classes(
     user: User, fakes: dict[str, list[str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     asked: list[str] = []
-
-    async def members(index: str, listings: Iterable[Listing]) -> IndexMembers:
-        assert index == "sp500"
-        # Big Corp's two listings, of which the index holds one class, and Mid Corp.
-        chosen = [listing for listing in listings if listing.cik in (1, 2)]
-        return IndexMembers(listings=chosen, classes={1: 1, 2: 1})
 
     async def metrics(symbols: Iterable[str]) -> dict[str, ProviderScreenMetrics]:
         symbols = list(symbols)
@@ -772,9 +846,9 @@ def test_a_refresh_of_an_index_keeps_its_companies_main_share_classes(
             )
 
     asyncio.run(seed())
-    monkeypatch.setattr(job, "index_members", members)
+    monkeypatch.setattr(job, "index_members", _members(1, 2))
     monkeypatch.setattr(job, "fetch_screen_metrics", metrics)
-    _opt_in(user, "sp500")
+    _opt_in(user, ["sp500"])
 
     assert asyncio.run(job.refresh_due_users()) == 1
 
@@ -786,6 +860,36 @@ def test_a_refresh_of_an_index_keeps_its_companies_main_share_classes(
 
 
 @pytest.mark.usefixtures("encryption")
+def test_tickers_added_are_refreshed_whatever_the_floors_and_explained_when_they_cannot_be(
+    user: User, fakes: dict[str, list[str]], asked: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def stand_ins(symbol: str) -> list[str]:
+        # DUAL plays the US listing of a company listed abroad.
+        return ["DUAL"] if symbol == "7203.T" else []
+
+    monkeypatch.setattr(job, "us_listings", stand_ins)
+    _opt_in(user, ["nasdaq"], custom=["TINY", "SPY", "7203.T", "0700.HK", "ZZZZ"])
+
+    asyncio.run(job.refresh_due_users())
+
+    # Each stock once, and the ETF on its own, with no scan of every ETF.
+    assert sorted(asked) == ["BIG", "DUAL", "TINY"]
+    assert fakes["etf_metrics"] == ["SPY"] and fakes["etf_lists"] == ["asked"]
+    # Those added get price histories first.
+    assert fakes["histories"][:3] == ["DUAL", "TINY", "SPY"]
+    key = _key_for(user)
+    screened = client.post("/api/v1/screener", headers=_headers(key), json={}).json()
+    # TINY is far below the market cap floor, but was asked for.
+    assert sorted(item["symbol"] for item in screened["items"]) == ["BIG", "DUAL", "SPY", "TINY"]
+    notes = client.get("/api/v1/me/nightly-refresh", headers=_headers(key)).json()["latest_run"][
+        "notes"
+    ]
+    assert any("7203.T" in note and "DUAL" in note for note in notes)
+    assert any("0700.HK" in note and "left out" in note for note in notes)
+    assert any(note.startswith("ZZZZ is not a stock or ETF") for note in notes)
+
+
+@pytest.mark.usefixtures("encryption")
 def test_a_refresh_of_an_index_the_sec_cannot_give_fails_and_keeps_the_universe(
     user: User, fakes: dict[str, list[str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -793,14 +897,14 @@ def test_a_refresh_of_an_index_the_sec_cannot_give_fails_and_keeps_the_universe(
         raise DataFetchError("The SEC's fund filings could not be reached.")
 
     monkeypatch.setattr(job, "index_members", unreachable)
-    _opt_in(user, "nasdaq100")
+    _opt_in(user, ["nasdaq100"])
 
     asyncio.run(job.refresh_due_users())
 
     key = _key_for(user)
     refresh = client.get("/api/v1/me/nightly-refresh", headers=_headers(key)).json()
     assert refresh["latest_run"]["status"] == "failed"
-    assert "index's companies could not be read" in refresh["latest_run"]["error"]
+    assert "Nasdaq-100's companies could not be read" in refresh["latest_run"]["error"]
 
 
 def test_index_funds_and_the_sec_write_a_company_alike() -> None:

@@ -240,6 +240,15 @@ company's listings it holds, so the refresh keeps as many of its listings as the
 share classes, the most traded first (GOOG and GOOGL, not the GOOGM notes). A company that
 joined or left the index shows up a quarter or two late.
 
+**International stocks** in a user's nightly refresh are foreign companies listed in the US:
+those whose latest report with the SEC is a 20-F or 40-F (a foreign private issuer's, as
+behind every ADR), or whose financials are in a currency other than the dollar
+(`app/db/screener.py: foreign_companies`). Both come from the weekly bulk rebuild of the
+SEC's company facts, so they need no request of their own. Listings on exchanges abroad
+are not included: Finnhub's free plan has no figures for them, and a ticker abroad a user
+adds (7203.T) is refreshed through its company's US listing (TM) when Finnhub's and
+Tiingo's searches find one.
+
 From the holdings, PyQxel weights the companies' own figures into the fund's
 (`app/stats/fund_stats.py`): P/E and price to sales as harmonic means, margins, return on
 equity, growth, and market cap as weighted means, and sectors from the companies' SEC

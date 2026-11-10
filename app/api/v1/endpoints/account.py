@@ -44,7 +44,13 @@ from app.db.app_settings import (
     server_uses_restricted_sources,
     set_setting,
 )
-from app.db.nightly import MissingFinnhubKeyError, disable, enable, refresh_status
+from app.db.nightly import (
+    MissingFinnhubKeyError,
+    UniverseChoice,
+    disable,
+    enable,
+    refresh_status,
+)
 from app.db.session import get_session
 from app.db.users import (
     User,
@@ -67,6 +73,8 @@ from app.models.account import (
     ProviderCredential,
 )
 from app.models.nightly import (
+    EVERYTHING,
+    MAX_CUSTOM_SYMBOLS,
     NightlyProvider,
     NightlyRefreshSettings,
     NightlyRefreshStatus,
@@ -223,18 +231,32 @@ async def read_nightly_refresh(
         Query(ge=0, le=10_000, description="A price-history cap being considered, likewise."),
     ] = None,
     universe: Annotated[
-        NightlyUniverse,
-        Query(description="What a refresh would rebuild, likewise."),
-    ] = "all",
+        list[NightlyUniverse],
+        Query(
+            description="The sets a refresh would rebuild, likewise; every US stock and ETF "
+            "when none is given."
+        ),
+    ] = [],  # noqa: B006
+    custom_symbol: Annotated[
+        list[str],
+        Query(max_length=MAX_CUSTOM_SYMBOLS, description="Tickers it would add, likewise."),
+    ] = [],  # noqa: B006
 ) -> NightlyRefreshStatus:
     """Return whether your nightly screener refresh is on, when it runs, which of your
     keys it stores, how its latest runs went, and about how many requests one refresh
     sends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of
-    keys, of ``price_history_stocks``, and of ``universe`` before it is saved.
+    keys, of ``price_history_stocks``, and of the sets (``universe``) and tickers
+    (``custom_symbol``) it rebuilds, before they are saved.
 
     Returns 503 when the database is unavailable.
     """
-    preview = (list(use_key), price_history_stocks, universe) if use_key else None
+    choice = UniverseChoice(
+        universes=(
+            tuple(dict.fromkeys(universe)) if universe or custom_symbol else tuple(EVERYTHING)
+        ),
+        custom_symbols=tuple(dict.fromkeys(symbol.strip().upper() for symbol in custom_symbol)),
+    )
+    preview = (list(use_key), price_history_stocks, choice) if use_key else None
     try:
         return await refresh_status(session, user.id, encryption_available(), preview=preview)
     except SQLAlchemyError as exc:
@@ -252,12 +274,13 @@ async def store_nightly_refresh(
     """Opt in to a nightly refresh of your own screener, or change when it runs.
 
     Each night at ``refresh_time`` in ``time_zone``, your own universe (every US stock and
-    ETF, or the smaller one ``universe`` chooses) is rebuilt from the SEC's shared list of
-    stocks and financials, Finnhub's free metrics on your Finnhub key,
-    and price-history columns from whichever price-history key you have (Tiingo, FMP,
-    EODHD, or Alpha Vantage). It runs with no browser open, so the market data keys this
-    request carries are stored, encrypted, replacing any stored before; your Anthropic key
-    is never stored. Send this again after changing a key.
+    ETF, or the sets ``universes`` chooses, combined, with the tickers in
+    ``custom_symbols``) is rebuilt from the SEC's shared list of stocks and financials,
+    Finnhub's free metrics on your Finnhub key, and price-history columns from whichever
+    price-history key you have (Tiingo, FMP, EODHD, or Alpha Vantage). It runs with no
+    browser open, so the market data keys this request carries are stored, encrypted,
+    replacing any stored before; your Anthropic key is never stored. Send this again after
+    changing a key.
 
     Returns 422 without a Finnhub key, or for an unknown time zone; 503 when this server
     cannot store keys or the database is unavailable.

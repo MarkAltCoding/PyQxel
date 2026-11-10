@@ -63,9 +63,11 @@ export async function resyncNightlyKeys(
   return enableNightlyRefresh({
     refresh_time: status.refresh_time,
     time_zone: status.time_zone,
-    // The same keys, cap, and universe the user chose, so a changed key does not widen them.
+    // The same keys, cap, sets, and tickers the user chose, so a changed key does not widen
+    // them.
     use_keys: status.providers ?? null,
-    universe: status.universe ?? 'all',
+    universes: status.universes ?? EVERYTHING,
+    custom_symbols: status.custom_symbols ?? [],
     price_history_stocks:
       status.price_history_stocks === null
         ? ALL_STOCKS
@@ -91,14 +93,20 @@ export const PRICE_HISTORY_CHOICES = [
 /** Price-history keys, in the order a refresh tries them. */
 export const PRICE_KEYS = ['tiingo', 'fmp', 'eodhd', 'alpha_vantage'] as const
 
-export type NightlyUniverse = NonNullable<NightlyRefreshSettings['universe']>
+export type NightlyUniverse = NonNullable<NightlyRefreshSettings['universes']>[number]
 
-/** What a refresh can rebuild, largest first, with about how long each takes at Finnhub's
- * free pace. The labels are short enough for a phone's menu. */
-export const UNIVERSE_CHOICES: { value: NightlyUniverse; label: string; takes: string }[] = [
-  { value: 'all', label: 'Every US stock and ETF', takes: 'about four hours' },
-  { value: 'stocks', label: 'US stocks only, no ETFs', takes: 'about two hours' },
-  { value: 'nasdaq', label: 'Stocks listed on Nasdaq', takes: 'about an hour' },
-  { value: 'sp500', label: 'S&P 500 companies', takes: 'about 10 minutes' },
-  { value: 'nasdaq100', label: 'Nasdaq-100 companies', takes: 'about 2 minutes' },
+/** Every US stock and ETF: what a refresh rebuilds until the user chooses. */
+export const EVERYTHING: NightlyUniverse[] = ['us_stocks', 'us_etfs']
+
+/** The sets a refresh can rebuild, combined as the user chooses. */
+export const UNIVERSE_CHOICES: { value: NightlyUniverse; label: string }[] = [
+  { value: 'us_stocks', label: 'Every US stock' },
+  { value: 'us_etfs', label: 'Every US ETF' },
+  { value: 'nasdaq', label: 'Stocks listed on Nasdaq' },
+  { value: 'sp500', label: 'S&P 500' },
+  { value: 'nasdaq100', label: 'Nasdaq-100' },
+  { value: 'international', label: 'International stocks (US-listed)' },
 ]
+
+/** Most tickers a user may add, as the server allows. */
+export const MAX_CUSTOM_SYMBOLS = 100

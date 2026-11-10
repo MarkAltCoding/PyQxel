@@ -664,7 +664,8 @@ export interface paths {
      * @description Return whether your nightly screener refresh is on, when it runs, which of your
      *     keys it stores, how its latest runs went, and about how many requests one refresh
      *     sends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of
-     *     keys, of ``price_history_stocks``, and of ``universe`` before it is saved.
+     *     keys, of ``price_history_stocks``, and of the sets (``universe``) and tickers
+     *     (``custom_symbol``) it rebuilds, before they are saved.
      *
      *     Returns 503 when the database is unavailable.
      */
@@ -674,12 +675,13 @@ export interface paths {
      * @description Opt in to a nightly refresh of your own screener, or change when it runs.
      *
      *     Each night at ``refresh_time`` in ``time_zone``, your own universe (every US stock and
-     *     ETF, or the smaller one ``universe`` chooses) is rebuilt from the SEC's shared list of
-     *     stocks and financials, Finnhub's free metrics on your Finnhub key,
-     *     and price-history columns from whichever price-history key you have (Tiingo, FMP,
-     *     EODHD, or Alpha Vantage). It runs with no browser open, so the market data keys this
-     *     request carries are stored, encrypted, replacing any stored before; your Anthropic key
-     *     is never stored. Send this again after changing a key.
+     *     ETF, or the sets ``universes`` chooses, combined, with the tickers in
+     *     ``custom_symbols``) is rebuilt from the SEC's shared list of stocks and financials,
+     *     Finnhub's free metrics on your Finnhub key, and price-history columns from whichever
+     *     price-history key you have (Tiingo, FMP, EODHD, or Alpha Vantage). It runs with no
+     *     browser open, so the market data keys this request carries are stored, encrypted,
+     *     replacing any stored before; your Anthropic key is never stored. Send this again after
+     *     changing a key.
      *
      *     Returns 422 without a Finnhub key, or for an unknown time zone; 503 when this server
      *     cannot store keys or the database is unavailable.
@@ -3738,6 +3740,12 @@ export interface components {
        * @description Items the SEC filings left out that Alpha Vantage filled in.
        */
       filled_items?: string[]
+      /**
+       * Foreign Issuer
+       * @description Whether the company reports to the SEC as a foreign private issuer, on Form 20-F or 40-F rather than 10-K, as the companies behind ADRs do.
+       * @default false
+       */
+      foreign_issuer?: boolean
       /** @description Operating cash flow less capital expenditure. */
       free_cash_flow?: components['schemas']['FlowItem'] | null
       gross_profit?: components['schemas']['FlowItem'] | null
@@ -5617,6 +5625,11 @@ export interface components {
      */
     NightlyRefreshSettings: {
       /**
+       * Custom Symbols
+       * @description Tickers of stocks and ETFs to refresh as well, such as one not in the sets chosen. A listing abroad, such as 7203.T, is refreshed through its company's US listing, since free plans have no figures for it.
+       */
+      custom_symbols?: string[]
+      /**
        * Price History Stocks
        * @description Most stocks to fetch price histories for each night, largest first, one request each on the price-history keys; null for as many as their plans allow, which can use up a free plan's day.
        * @default 40
@@ -5635,12 +5648,10 @@ export interface components {
        */
       time_zone?: string
       /**
-       * Universe
-       * @description What each refresh rebuilds: every US stock and ETF (all), US stocks only (stocks), stocks listed on Nasdaq (nasdaq), or the companies in the S&P 500 (sp500) or the Nasdaq-100 (nasdaq100). Only all includes ETFs.
-       * @default all
-       * @enum {string}
+       * Universes
+       * @description The sets each refresh rebuilds, combined: us_stocks (every stock on a US exchange), us_etfs (every ETF on one), nasdaq (stocks listed on Nasdaq), sp500 and nasdaq100 (those indexes' companies), and international (foreign companies' stocks listed in the US). A security in several is fetched once.
        */
-      universe?: 'all' | 'stocks' | 'nasdaq' | 'sp500' | 'nasdaq100'
+      universes?: ('us_stocks' | 'us_etfs' | 'nasdaq' | 'sp500' | 'nasdaq100' | 'international')[]
       /**
        * Use Keys
        * @description The keys the refresh may use and so stores, of those the request carries; Finnhub's is needed. Null for every one the request carries.
@@ -5657,6 +5668,11 @@ export interface components {
        * @description Whether this server can store keys, which the refresh needs; false when its owner has not set CREDENTIALS_ENCRYPTION_KEY.
        */
       available: boolean
+      /**
+       * Custom Symbols
+       * @description Tickers each refresh adds to those sets.
+       */
+      custom_symbols?: string[]
       /**
        * Enabled
        * @description Whether the user has opted in.
@@ -5703,12 +5719,10 @@ export interface components {
        */
       time_zone?: string | null
       /**
-       * Universe
-       * @description What each refresh rebuilds; all while it is off.
-       * @default all
-       * @enum {string}
+       * Universes
+       * @description The sets each refresh rebuilds; every US stock and ETF while it is off.
        */
-      universe?: 'all' | 'stocks' | 'nasdaq' | 'sp500' | 'nasdaq100'
+      universes?: ('us_stocks' | 'us_etfs' | 'nasdaq' | 'sp500' | 'nasdaq100' | 'international')[]
     }
     /**
      * NightlyRun
@@ -5725,6 +5739,11 @@ export interface components {
        * @description Null while it runs.
        */
       finished_at?: string | null
+      /**
+       * Notes
+       * @description What the refresh could not do as asked, such as a ticker added that no key had figures for, and what it did instead.
+       */
+      notes?: string[]
       /**
        * Priced
        * @description Of those, stocks whose price-history columns (momentum, volatility, drawdown, factor betas) the user's price-history key could fill.
@@ -9187,8 +9206,10 @@ export interface operations {
         use_key?: ('finnhub' | 'tiingo' | 'fmp' | 'eodhd' | 'alpha_vantage')[]
         /** @description A price-history cap being considered, likewise. */
         price_history_stocks?: number | null
-        /** @description What a refresh would rebuild, likewise. */
-        universe?: 'all' | 'stocks' | 'nasdaq' | 'sp500' | 'nasdaq100'
+        /** @description The sets a refresh would rebuild, likewise; every US stock and ETF when none is given. */
+        universe?: ('us_stocks' | 'us_etfs' | 'nasdaq' | 'sp500' | 'nasdaq100' | 'international')[]
+        /** @description Tickers it would add, likewise. */
+        custom_symbol?: string[]
       }
       header?: never
       path?: never

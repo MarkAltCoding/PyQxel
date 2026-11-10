@@ -3822,6 +3822,12 @@
             "title": "Filled Items",
             "type": "array"
           },
+          "foreign_issuer": {
+            "default": false,
+            "description": "Whether the company reports to the SEC as a foreign private issuer, on Form 20-F or 40-F rather than 10-K, as the companies behind ADRs do.",
+            "title": "Foreign Issuer",
+            "type": "boolean"
+          },
           "free_cash_flow": {
             "anyOf": [
               {
@@ -7746,6 +7752,16 @@
       "NightlyRefreshSettings": {
         "description": "Turns on the nightly refresh, or changes when it runs.\n\nThe keys the request carries are encrypted and stored with it, replacing any stored\nearlier, so send this again after changing a key.",
         "properties": {
+          "custom_symbols": {
+            "description": "Tickers of stocks and ETFs to refresh as well, such as one not in the sets chosen. A listing abroad, such as 7203.T, is refreshed through its company's US listing, since free plans have no figures for it.",
+            "items": {
+              "pattern": "^[A-Z0-9][A-Z0-9.\\-]{0,15}$",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Custom Symbols",
+            "type": "array"
+          },
           "price_history_stocks": {
             "anyOf": [
               {
@@ -7775,18 +7791,22 @@
             "title": "Time Zone",
             "type": "string"
           },
-          "universe": {
-            "default": "all",
-            "description": "What each refresh rebuilds: every US stock and ETF (all), US stocks only (stocks), stocks listed on Nasdaq (nasdaq), or the companies in the S&P 500 (sp500) or the Nasdaq-100 (nasdaq100). Only all includes ETFs.",
-            "enum": [
-              "all",
-              "stocks",
-              "nasdaq",
-              "sp500",
-              "nasdaq100"
-            ],
-            "title": "Universe",
-            "type": "string"
+          "universes": {
+            "description": "The sets each refresh rebuilds, combined: us_stocks (every stock on a US exchange), us_etfs (every ETF on one), nasdaq (stocks listed on Nasdaq), sp500 and nasdaq100 (those indexes' companies), and international (foreign companies' stocks listed in the US). A security in several is fetched once.",
+            "items": {
+              "enum": [
+                "us_stocks",
+                "us_etfs",
+                "nasdaq",
+                "sp500",
+                "nasdaq100",
+                "international"
+              ],
+              "type": "string"
+            },
+            "maxItems": 6,
+            "title": "Universes",
+            "type": "array"
           },
           "use_keys": {
             "anyOf": [
@@ -7821,6 +7841,14 @@
             "description": "Whether this server can store keys, which the refresh needs; false when its owner has not set CREDENTIALS_ENCRYPTION_KEY.",
             "title": "Available",
             "type": "boolean"
+          },
+          "custom_symbols": {
+            "description": "Tickers each refresh adds to those sets.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Custom Symbols",
+            "type": "array"
           },
           "enabled": {
             "description": "Whether the user has opted in.",
@@ -7935,18 +7963,21 @@
             "description": "IANA time zone of refresh_time.",
             "title": "Time Zone"
           },
-          "universe": {
-            "default": "all",
-            "description": "What each refresh rebuilds; all while it is off.",
-            "enum": [
-              "all",
-              "stocks",
-              "nasdaq",
-              "sp500",
-              "nasdaq100"
-            ],
-            "title": "Universe",
-            "type": "string"
+          "universes": {
+            "description": "The sets each refresh rebuilds; every US stock and ETF while it is off.",
+            "items": {
+              "enum": [
+                "us_stocks",
+                "us_etfs",
+                "nasdaq",
+                "sp500",
+                "nasdaq100",
+                "international"
+              ],
+              "type": "string"
+            },
+            "title": "Universes",
+            "type": "array"
           }
         },
         "required": [
@@ -7983,6 +8014,14 @@
             ],
             "description": "Null while it runs.",
             "title": "Finished At"
+          },
+          "notes": {
+            "description": "What the refresh could not do as asked, such as a ticker added that no key had figures for, and what it did instead.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
           },
           "priced": {
             "anyOf": [
@@ -14210,7 +14249,7 @@
         ]
       },
       "get": {
-        "description": "Return whether your nightly screener refresh is on, when it runs, which of your\nkeys it stores, how its latest runs went, and about how many requests one refresh\nsends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of\nkeys, of ``price_history_stocks``, and of ``universe`` before it is saved.\n\nReturns 503 when the database is unavailable.",
+        "description": "Return whether your nightly screener refresh is on, when it runs, which of your\nkeys it stores, how its latest runs went, and about how many requests one refresh\nsends on each key (``key_use``). With ``use_key``, ``key_use`` previews a choice of\nkeys, of ``price_history_stocks``, and of the sets (``universe``) and tickers\n(``custom_symbol``) it rebuilds, before they are saved.\n\nReturns 503 when the database is unavailable.",
         "operationId": "read_nightly_refresh_api_v1_me_nightly_refresh_get",
         "parameters": [
           {
@@ -14256,22 +14295,42 @@
             }
           },
           {
-            "description": "What a refresh would rebuild, likewise.",
+            "description": "The sets a refresh would rebuild, likewise; every US stock and ETF when none is given.",
             "in": "query",
             "name": "universe",
             "required": false,
             "schema": {
-              "default": "all",
-              "description": "What a refresh would rebuild, likewise.",
-              "enum": [
-                "all",
-                "stocks",
-                "nasdaq",
-                "sp500",
-                "nasdaq100"
-              ],
+              "default": [],
+              "description": "The sets a refresh would rebuild, likewise; every US stock and ETF when none is given.",
+              "items": {
+                "enum": [
+                  "us_stocks",
+                  "us_etfs",
+                  "nasdaq",
+                  "sp500",
+                  "nasdaq100",
+                  "international"
+                ],
+                "type": "string"
+              },
               "title": "Universe",
-              "type": "string"
+              "type": "array"
+            }
+          },
+          {
+            "description": "Tickers it would add, likewise.",
+            "in": "query",
+            "name": "custom_symbol",
+            "required": false,
+            "schema": {
+              "default": [],
+              "description": "Tickers it would add, likewise.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Custom Symbol",
+              "type": "array"
             }
           }
         ],
@@ -14303,7 +14362,7 @@
         ]
       },
       "put": {
-        "description": "Opt in to a nightly refresh of your own screener, or change when it runs.\n\nEach night at ``refresh_time`` in ``time_zone``, your own universe (every US stock and\nETF, or the smaller one ``universe`` chooses) is rebuilt from the SEC's shared list of\nstocks and financials, Finnhub's free metrics on your Finnhub key,\nand price-history columns from whichever price-history key you have (Tiingo, FMP,\nEODHD, or Alpha Vantage). It runs with no browser open, so the market data keys this\nrequest carries are stored, encrypted, replacing any stored before; your Anthropic key\nis never stored. Send this again after changing a key.\n\nReturns 422 without a Finnhub key, or for an unknown time zone; 503 when this server\ncannot store keys or the database is unavailable.",
+        "description": "Opt in to a nightly refresh of your own screener, or change when it runs.\n\nEach night at ``refresh_time`` in ``time_zone``, your own universe (every US stock and\nETF, or the sets ``universes`` chooses, combined, with the tickers in\n``custom_symbols``) is rebuilt from the SEC's shared list of stocks and financials,\nFinnhub's free metrics on your Finnhub key, and price-history columns from whichever\nprice-history key you have (Tiingo, FMP, EODHD, or Alpha Vantage). It runs with no\nbrowser open, so the market data keys this request carries are stored, encrypted,\nreplacing any stored before; your Anthropic key is never stored. Send this again after\nchanging a key.\n\nReturns 422 without a Finnhub key, or for an unknown time zone; 503 when this server\ncannot store keys or the database is unavailable.",
         "operationId": "store_nightly_refresh_api_v1_me_nightly_refresh_put",
         "requestBody": {
           "content": {

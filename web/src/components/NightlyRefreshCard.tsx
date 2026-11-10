@@ -25,6 +25,8 @@ import {
   PRICE_HISTORY_CHOICES,
   PRICE_KEYS,
   timeZoneLabel,
+  EVERYTHING,
+  MAX_CUSTOM_SYMBOLS,
   UNIVERSE_CHOICES,
   US_TIME_ZONES,
   type NightlyUniverse,
@@ -33,6 +35,7 @@ import { requestLimit } from '../lib/usage'
 import { InfoTip } from './InfoTip'
 import { ErrorNotice, Notice } from './Notice'
 import { PresetOrCustom } from './PresetOrCustom'
+import { SearchBox } from './SearchBox'
 import { Stat } from './Stat'
 
 type PriceKey = (typeof PRICE_KEYS)[number]
@@ -52,14 +55,16 @@ export function NightlyRefreshCard({
   const [zone, setZone] = useState<string | null>(null)
   const [keys, setKeys] = useState<PriceKey[] | null>(null)
   const [stocks, setStocks] = useState<number | null>(null)
-  const [universe, setUniverse] = useState<NightlyUniverse | null>(null)
+  const [universes, setUniverses] = useState<NightlyUniverse[] | null>(null)
+  const [custom, setCustom] = useState<string[] | null>(null)
   const onChanged = (data: NightlyRefreshStatus) => {
     queryClient.setQueryData(NIGHTLY_QUERY_KEY, data)
     setTime(null)
     setZone(null)
     setKeys(null)
     setStocks(null)
-    setUniverse(null)
+    setUniverses(null)
+    setCustom(null)
   }
   const enable = useMutation({
     mutationFn: enableNightlyRefresh,
@@ -93,24 +98,36 @@ export function NightlyRefreshCard({
       ? ALL_STOCKS
       : (data.price_history_stocks ?? DEFAULT_STOCKS)
   const shownStocks = stocks ?? savedStocks
-  const savedUniverse = data?.universe ?? 'all'
-  const shownUniverse = universe ?? savedUniverse
+  const savedUniverses = data?.universes ?? EVERYTHING
+  const shownUniverses = universes ?? savedUniverses
+  const savedCustom = data?.custom_symbols ?? []
+  const shownCustom = custom ?? savedCustom
+  /** Nothing chosen: the server refuses a refresh of nothing. */
+  const nothing = shownUniverses.length === 0 && shownCustom.length === 0
   const changed =
     (time !== null && time !== data?.refresh_time) ||
     (zone !== null && zone !== data?.time_zone) ||
     (keys !== null && keys.join() !== savedKeys.join()) ||
     (stocks !== null && stocks !== savedStocks) ||
-    (universe !== null && universe !== savedUniverse)
+    (universes !== null && universes.join() !== savedUniverses.join()) ||
+    (custom !== null && custom.join() !== savedCustom.join())
   const choice = {
     refresh_time: shownTime,
     time_zone: shownZone,
     use_keys: ['finnhub' as const, ...shownKeys],
     price_history_stocks: shownStocks,
-    universe: shownUniverse,
+    universes: shownUniverses,
+    custom_symbols: shownCustom,
   }
   const preview = useQuery({
-    queryKey: ['nightly-preview', choice.use_keys.join(), shownStocks, shownUniverse],
-    queryFn: () => previewNightlyRefresh(choice.use_keys, shownStocks, shownUniverse),
+    queryKey: [
+      'nightly-preview',
+      choice.use_keys.join(),
+      shownStocks,
+      shownUniverses.join(),
+      shownCustom.join(),
+    ],
+    queryFn: () => previewNightlyRefresh(choice.use_keys, shownStocks, shownUniverses, shownCustom),
     enabled: hasFinnhub && Boolean(data?.available),
     placeholderData: keepPreviousData,
   })
@@ -131,9 +148,10 @@ export function NightlyRefreshCard({
           Finnhub key, and price-history columns (momentum, volatility, drawdown, factor betas) from
           the price-history keys you choose below, for as many stocks and ETFs as you choose. A
           refresh of every stock and ETF takes about four hours at Finnhub’s free pace; a smaller
-          universe, such as the S&P 500, takes minutes. It runs while your browser is closed, so
-          turning it on stores your market data keys on PyQxel’s server, encrypted. Your Anthropic
-          key is never stored. Turning it off, or deleting your account, deletes them at once.
+          choice, such as the S&P 500 and a few tickers of your own, takes minutes. It runs while
+          your browser is closed, so turning it on stores your market data keys on PyQxel’s server,
+          encrypted. Your Anthropic key is never stored. Turning it off, or deleting your account,
+          deletes them at once.
         </p>
       </div>
 
@@ -199,33 +217,11 @@ export function NightlyRefreshCard({
             </optgroup>
           </select>
         </label>
-        <div className="field" style={{ width: 330, maxWidth: '100%' }}>
-          <span className="heading-with-info">
-            <label htmlFor="nightly-universe">What to refresh</label>
-            <InfoTip topic="nightlyUniverse" />
-          </span>
-          <select
-            id="nightly-universe"
-            value={shownUniverse}
-            disabled={!data?.available || busy || !hasFinnhub}
-            onChange={(event) => setUniverse(event.target.value as NightlyUniverse)}
-          >
-            {UNIVERSE_CHOICES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <span className="muted">
-            Takes {UNIVERSE_CHOICES.find((option) => option.value === shownUniverse)?.takes} a night
-            at Finnhub’s free pace.
-          </span>
-        </div>
         {data?.enabled && changed && hasFinnhub && (
           <button
             type="button"
             className="button primary"
-            disabled={busy || !shownTime}
+            disabled={busy || !shownTime || nothing}
             onClick={() => enable.mutate(choice)}
           >
             Save changes
@@ -243,6 +239,79 @@ export function NightlyRefreshCard({
 
       {data?.available && hasFinnhub && (
         <div className="stack" style={{ gap: 10 }}>
+          <fieldset className="stack" style={{ gap: 8, border: 0, margin: 0, padding: 0 }}>
+            <legend className="heading-with-info" style={{ padding: 0 }}>
+              <span>What to refresh</span>
+              <InfoTip topic="nightlyUniverse" />
+            </legend>
+            <div className="filter-row" style={{ alignItems: 'center' }}>
+              {UNIVERSE_CHOICES.map((option) => (
+                <label
+                  key={option.value}
+                  className="filter-row"
+                  style={{ alignItems: 'center', gap: 6 }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={shownUniverses.includes(option.value)}
+                    disabled={busy}
+                    onChange={(event) =>
+                      setUniverses(
+                        UNIVERSE_CHOICES.map((choice) => choice.value).filter((value) =>
+                          value === option.value
+                            ? event.target.checked
+                            : shownUniverses.includes(value),
+                        ),
+                      )
+                    }
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="stack" style={{ gap: 6 }}>
+              <div className="heading-with-info">
+                <span>Also refresh these tickers</span>
+                <InfoTip topic="nightlyCustom" />
+              </div>
+              {shownCustom.length > 0 && (
+                <ul className="filter-row" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  {shownCustom.map((symbol) => (
+                    <li key={symbol} className="chip">
+                      <span>{symbol}</span>
+                      <button
+                        type="button"
+                        className="chip-remove"
+                        aria-label={`Remove ${symbol}`}
+                        disabled={busy}
+                        onClick={() => setCustom(shownCustom.filter((other) => other !== symbol))}
+                      >
+                        ×
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {shownCustom.length < MAX_CUSTOM_SYMBOLS && (
+                <div style={{ maxWidth: 360 }}>
+                  <SearchBox
+                    label="Add a stock or ETF to refresh"
+                    placeholder="Add a ticker or company"
+                    clearOnSelect
+                    onSelect={(symbol) => {
+                      const upper = symbol.toUpperCase()
+                      if (!shownCustom.includes(upper)) setCustom([...shownCustom, upper])
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+            {nothing && (
+              <Notice tone="warning">
+                Choose at least one set above or add a ticker, or there is nothing to refresh.
+              </Notice>
+            )}
+          </fieldset>
           <div className="filter-row" style={{ alignItems: 'center' }}>
             <span>Price-history keys it may use:</span>
             {available.length === 0 && <span className="muted">none in this browser</span>}
@@ -304,6 +373,16 @@ function RefreshStatus({ status }: { status: NightlyRefreshStatus }) {
         <Notice>
           Refreshing now, since {dateTime(latest.started_at)}. It takes from a few minutes to a few
           hours, depending on what it refreshes.
+        </Notice>
+      )}
+      {latest?.status === 'succeeded' && (latest.notes ?? []).length > 0 && (
+        <Notice>
+          <p style={{ margin: 0 }}>The latest refresh, {dateTime(latest.started_at)}:</p>
+          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+            {(latest.notes ?? []).map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
         </Notice>
       )}
       {latest?.status === 'failed' && (

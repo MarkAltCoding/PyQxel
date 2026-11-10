@@ -101,9 +101,19 @@ export const deleteAccount = () => api<void>(`${V1}/me`, { method: 'DELETE' })
 export const getNightlyRefresh = () => api<NightlyRefreshStatus>(`${V1}/me/nightly-refresh`)
 /** The status, with `key_use` saying what a refresh on `keys`, giving `stocks` stocks price
  * histories, would send on each key. */
-export const previewNightlyRefresh = (keys: string[], stocks: number, universe: string) =>
+export const previewNightlyRefresh = (
+  keys: string[],
+  stocks: number,
+  universes: string[],
+  customSymbols: string[],
+) =>
   api<NightlyRefreshStatus>(`${V1}/me/nightly-refresh`, {
-    query: { use_key: keys, price_history_stocks: stocks, universe },
+    query: {
+      use_key: keys,
+      price_history_stocks: stocks,
+      universe: universes,
+      custom_symbol: customSymbols,
+    },
   })
 
 /** Each key's plan usage; `plans` are `provider:plan` choices for keys not on a free plan. */

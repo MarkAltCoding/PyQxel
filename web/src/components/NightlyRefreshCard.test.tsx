@@ -73,7 +73,8 @@ describe('NightlyRefreshCard', () => {
       time_zone: 'America/New_York',
       use_keys: ['finnhub'],
       price_history_stocks: 40,
-      universe: 'all',
+      universes: ['us_stocks', 'us_etfs'],
+      custom_symbols: [],
     })
     expect(screen.getByText(/Stored, encrypted: Finnhub, Tiingo/)).toBeInTheDocument()
     expect(screen.getByText(/Finnhub rejected your API key/)).toBeInTheDocument()
@@ -124,29 +125,73 @@ describe('NightlyRefreshCard', () => {
         time_zone: 'America/Los_Angeles',
         use_keys: ['finnhub'],
         price_history_stocks: 40,
-        universe: 'all',
+        universes: ['us_stocks', 'us_etfs'],
+        custom_symbols: [],
       })
     })
   })
 
-  it('saves a smaller universe, and previews what it would use', async () => {
+  it('saves the sets and tickers chosen, and previews what they would use', async () => {
     const fetch = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => new Response(JSON.stringify(ON)))
     renderCard()
-    const universe = await screen.findByRole('combobox', { name: 'What to refresh' })
-    await waitFor(() => expect(universe).toHaveValue('all'))
+    const usStocks = await screen.findByRole('checkbox', { name: 'Every US stock' })
+    await waitFor(() => expect(usStocks).toBeChecked())
 
-    await userEvent.selectOptions(universe, 'sp500')
+    await userEvent.click(usStocks)
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Every US ETF' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'S&P 500' }))
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: 'International stocks (US-listed)' }),
+    )
+    const add = screen.getByRole('combobox', { name: 'Add a stock or ETF to refresh' })
+    await userEvent.type(add, 'spy{Enter}')
+    await userEvent.type(add, '7203.T{Enter}')
+    await userEvent.type(add, 'SPY{Enter}')
+    await userEvent.click(screen.getByRole('button', { name: 'Remove 7203.T' }))
 
     await waitFor(() =>
-      expect(fetch.mock.calls.some(([url]) => String(url).includes('universe=sp500'))).toBe(true),
+      expect(
+        fetch.mock.calls.some(
+          ([url]) =>
+            String(url).includes('universe=sp500') && String(url).includes('custom_symbol=SPY'),
+        ),
+      ).toBe(true),
     )
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
     await waitFor(() => {
       const put = fetch.mock.calls.find(([, init]) => init?.method === 'PUT')
-      expect(JSON.parse(String(put![1]!.body))).toMatchObject({ universe: 'sp500' })
+      expect(JSON.parse(String(put![1]!.body))).toMatchObject({
+        universes: ['sp500', 'international'],
+        custom_symbols: ['SPY'],
+      })
     })
+  })
+
+  it('will not save a refresh of nothing', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify(ON)))
+    renderCard()
+    const usStocks = await screen.findByRole('checkbox', { name: 'Every US stock' })
+    await waitFor(() => expect(usStocks).toBeChecked())
+
+    await userEvent.click(usStocks)
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Every US ETF' }))
+
+    expect(screen.getByText(/there is nothing to refresh/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled()
+  })
+
+  it('says what the latest refresh did in place of a ticker it could not refresh', async () => {
+    const note =
+      '7203.T: free plans have no figures for listings abroad, so its company’s US listing, TM, was refreshed instead.'
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ ...ON, latest_run: { ...ON.last_success, notes: [note] } })),
+    )
+    renderCard()
+
+    expect(await screen.findByText(note)).toBeInTheDocument()
   })
 
   it('lets the user choose the keys and how many histories, and says what a refresh uses', async () => {

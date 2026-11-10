@@ -1102,6 +1102,33 @@ table.data .muted {
   color: var(--critical);
 }
 
+/* A ticker in a list the user builds, with a button that takes it out. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 10px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.chip-remove {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.chip-remove:hover {
+  color: var(--text-primary);
+}
+
 .up {
   color: var(--good);
 }
@@ -1986,6 +2013,11 @@ table.data .muted {
    and every control is at least 44px tall, the smallest target Apple's guidelines allow
    for a fingertip. */
 @media (pointer: coarse) {
+  .chip-remove {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
   .strategy-editor .cm-editor,
   input,
   select,
