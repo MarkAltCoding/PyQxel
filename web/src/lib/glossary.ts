@@ -905,7 +905,7 @@ const entries = {
   // ── Billing ──
   billing: {
     title: 'Billing',
-    what: 'What you pay for the nightly screener refresh. Everything else in PyQxel is free to use, since your own keys pay the data providers. The refresh is different: it runs on PyQxel’s cloud server, which charges by the second of computing time, and you pay your refreshes’ share of that, at cost, with nothing added.',
+    what: 'What you pay for the nightly screener refresh. Everything else in PyQxel is free to use, since your own keys pay the data providers. The refresh is different: it runs on PyQxel’s cloud server, which charges by the second of computing time, and you pay your refreshes’ share of that at cost, plus Stripe’s processing fees on your own payments, with nothing added.',
     good: 'A refresh of the S&P 500 costs about a cent a night, and one of the Nasdaq-100 less. Every US stock and ETF, which takes about four hours, costs roughly 25 to 30 cents a night.',
     note: 'If you have neither credit nor a subscription, your refresh pauses until you add one; nothing else in PyQxel changes.',
   },
@@ -922,19 +922,19 @@ const entries = {
   },
   billingTopUp: {
     title: 'Add credit',
-    what: 'Pay any amount from $5 to $500 on Stripe’s secure checkout page; the credit appears within seconds. Refreshes use it before any subscription is billed.',
-    good: '$10 to $20 suits most refresh choices: Stripe keeps 30 cents plus 2.9% of each payment, about 6% of $10 and 4% of $20, and less of larger ones.',
+    what: 'Buy any amount of credit from $5 to $500 on Stripe’s secure checkout page; it appears within seconds. You pay Stripe’s processing fee on top, so $10 of credit costs $10.61. Refreshes use the credit before any subscription is billed.',
+    good: '$10 to $20 suits most refresh choices. Stripe’s fee is 30 cents plus 2.9% of each payment, about 6% on $10 and 4% on $20, so larger top-ups pay less in fees.',
     note: 'Credit you have not used is refunded to your card if you delete your account.',
   },
   billingSubscription: {
     title: 'Subscription',
-    what: 'Stripe bills your card at the end of each week, month, or year for what your refreshes cost in that period, after any credit is used. You choose how often; the amount is whatever your refreshes cost, not a fixed price.',
-    good: 'Yearly or monthly: each bill pays Stripe’s fee of 30 cents plus 2.9%, which is a large share of a small weekly bill.',
+    what: 'Stripe bills your card at the end of each week, month, or year for what your refreshes cost in that period, after any credit is used. You choose how often; the amount is whatever your refreshes cost, not a fixed price. Stripe’s fees on each bill, 30 cents plus 3.6%, are added to the next bill.',
+    good: 'Yearly or monthly: the 30-cent part of the fee is a large share of a small weekly bill.',
     note: 'Stripe charges nothing under 50 cents; a smaller bill is added to the next one. If a payment fails, Stripe retries it and your refresh pauses until it is paid. Cancel any time on Stripe’s billing page: the subscription ends at the end of the period, billing the refreshes up to then.',
   },
   billingHistory: {
     title: 'History',
-    what: 'Your latest payments and charges: credit you added, each refresh’s cost (taken from credit, or billed through your subscription when credit ran out), and any refund. Receipts and invoices are on Stripe’s billing page.',
+    what: 'Your latest payments and charges: credit you added, each refresh’s cost (taken from credit, or billed through your subscription when credit ran out), Stripe’s fees on a subscription bill, and any refund. Receipts and invoices are on Stripe’s billing page.',
   },
   nightlyKeyUse: {
     title: 'What one refresh uses',

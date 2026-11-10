@@ -714,8 +714,9 @@ export interface paths {
     put?: never
     /**
      * Buy credit
-     * @description A Stripe Checkout page that buys ``amount_cents`` of credit, from $5 to $500. The
-     *     credit is added when Stripe reports the payment, usually within seconds.
+     * @description A Stripe Checkout page that buys ``amount_cents`` of credit, from $5 to $500, charging
+     *     Stripe's fee on top so the credit is the amount asked for. The credit is added when
+     *     Stripe reports the payment, usually within seconds.
      *
      *     Returns 404 when this server does not bill, 422 for an amount out of range, 502 when
      *     Stripe cannot be reached, and 503 when the database is unavailable.
@@ -2872,10 +2873,10 @@ export interface components {
       credit_usd: number
       /**
        * Kind
-       * @description top_up: credit bought; usage: one nightly refresh's cost; refund or dispute: a top-up's money returned, taken back out of the credit.
+       * @description top_up: credit bought, less Stripe's fee; usage: one nightly refresh's cost; fee: Stripe's fees on a subscription bill, charged like usage; refund or dispute: a top-up's money returned, taken back out of the credit.
        * @enum {string}
        */
-      kind: 'top_up' | 'usage' | 'refund' | 'dispute'
+      kind: 'top_up' | 'usage' | 'fee' | 'refund' | 'dispute'
       /**
        * Subscription Usd
        * @description A refresh's cost that the subscription bills, in dollars, since credit did not cover it.
@@ -2887,6 +2888,11 @@ export interface components {
      * @description What the user pays for their nightly refresh, and how.
      */
     BillingStatus: {
+      /**
+       * Billing Fee Rate
+       * @description Stripe Billing's share of each subscription bill (0.007 = 0.7%), on top of the card fee.
+       */
+      billing_fee_rate: number
       /**
        * Can Refresh
        * @description Whether the nightly refresh may run: the account is exempt, or has credit left or a subscription Stripe is billing.
@@ -8289,7 +8295,7 @@ export interface components {
     TopUpRequest: {
       /**
        * Amount Cents
-       * @description How much credit, in cents.
+       * @description How much credit, in cents; the payment adds Stripe's fee to it.
        */
       amount_cents: number
     }

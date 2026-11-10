@@ -28,6 +28,7 @@ const STATUS: BillingStatus = {
   max_top_up_cents: 50000,
   card_fee_cents: 30,
   card_fee_rate: 0.029,
+  billing_fee_rate: 0.007,
   min_charge_cents: 50,
 }
 
@@ -83,7 +84,9 @@ describe('BillingCard', () => {
     renderCard()
 
     await userEvent.click(await screen.findByRole('button', { name: '$20' }))
-    await userEvent.click(screen.getByRole('button', { name: /pay \$20\.00 with stripe/i }))
+    await userEvent.click(
+      screen.getByRole('button', { name: /pay \$20\.91 for \$20\.00 of credit/i }),
+    )
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs'))
     const post = fetch.mock.calls.find(([, init]) => init?.method === 'POST')
@@ -112,10 +115,10 @@ describe('periodBills', () => {
 
     // $0.90 a month: 21 cents a week, charged at Stripe's 50-cent minimum.
     expect(week.chargeCents).toBe(50)
-    expect(week.feeShare).toBeCloseTo(0.629, 3)
-    expect(month.feeShare).toBeCloseTo((30 + 90 * 0.029) / 90, 5)
-    // $10.95 a year: 30 cents plus 2.9% is under 6%.
-    expect(year.feeShare).toBeCloseTo((30 + 1095 * 0.029) / 1095, 5)
+    expect(week.feeShare).toBeCloseTo((30 + 50 * 0.036) / 50, 5)
+    expect(month.feeShare).toBeCloseTo((30 + 90 * 0.036) / 90, 5)
+    // $10.95 a year: 30 cents plus 3.6% (the card's 2.9% and Billing's 0.7%).
+    expect(year.feeShare).toBeCloseTo((30 + 1095 * 0.036) / 1095, 5)
   })
 
   it('has nothing to show before refreshes have cost anything', () => {

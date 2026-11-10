@@ -41,6 +41,18 @@ export function feeShare(cents: number, status: BillingStatus): number {
   return cents > 0 ? cardFee(cents, status) / cents : 0
 }
 
+/** What buying `creditCents` of credit charges: the credit plus Stripe's fee on the whole
+ * payment, which the user pays so it costs PyQxel nothing. Matches the server's
+ * `app/billing/fees.py: checkout_cents`. */
+export function checkoutCents(creditCents: number, status: BillingStatus): number {
+  return Math.ceil((creditCents + status.card_fee_cents) / (1 - status.card_fee_rate))
+}
+
+/** Stripe's fees on a subscription bill of `cents`: the card fee and Stripe Billing's share. */
+export function billFee(cents: number, status: BillingStatus): number {
+  return cardFee(cents, status) + cents * status.billing_fee_rate
+}
+
 export interface PeriodBill {
   interval: BillingInterval
   /** What one period's refreshes cost, in cents, at the last 30 days' pace. */
@@ -48,7 +60,8 @@ export interface PeriodBill {
   /** What a card is charged at a time: the period's usage, or Stripe's minimum charge
    * when usage is less, since a smaller bill waits until the usage reaches it. */
   chargeCents: number
-  /** The share of each charge Stripe's fee takes. */
+  /** What Stripe's fees add to each charge, as a share of it: the card fee and Stripe
+   * Billing's, which the user pays on their next bill. */
   feeShare: number
 }
 
@@ -60,7 +73,12 @@ export function periodBills(status: BillingStatus): PeriodBill[] {
   return INTERVAL_CHOICES.map(({ value }) => {
     const usageCents = perDayCents * PERIOD_DAYS[value]
     const chargeCents = Math.max(usageCents, status.min_charge_cents)
-    return { interval: value, usageCents, chargeCents, feeShare: feeShare(chargeCents, status) }
+    return {
+      interval: value,
+      usageCents,
+      chargeCents,
+      feeShare: billFee(chargeCents, status) / chargeCents,
+    }
   })
 }
 

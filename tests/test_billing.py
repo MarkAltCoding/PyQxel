@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.api.v1.endpoints import billing as billing_route
+from app.billing import fees as stripe_fees
 from app.billing import stripe_api
 from app.core.config import get_settings
 from app.db import billing
@@ -245,8 +246,9 @@ def test_a_paid_top_up_adds_credit_once(user: User) -> None:
     # Stripe sends an event again when unsure it arrived.
     assert _send("checkout.session.completed", _top_up_session(1000), "evt_2") == 204
 
+    # $10 paid, less Stripe's fee of 30 cents plus 2.9%.
     account = _run(_account(user.id))
-    assert account is not None and account.credit_micros == 10 * MICROS
+    assert account is not None and account.credit_micros == 9_410_000
 
 
 @pytest.mark.usefixtures("billed")
@@ -258,7 +260,7 @@ def test_a_top_up_still_unpaid_adds_nothing_until_it_is_paid(user: User) -> None
     assert (account := _run(_account(user.id))) is not None and account.credit_micros == 0
 
     _send("checkout.session.async_payment_succeeded", _top_up_session(), "evt_2")
-    assert (account := _run(_account(user.id))) is not None and account.credit_micros == 10 * MICROS
+    assert (account := _run(_account(user.id))) is not None and account.credit_micros == 9_410_000
 
 
 @pytest.mark.usefixtures("billed")
@@ -271,8 +273,10 @@ def test_refunds_and_disputes_take_a_top_up_back_out_of_the_credit(user: User) -
     _send("charge.refunded", {**refund, "amount_refunded": 500}, "evt_r1")
     _send("charge.refunded", {**refund, "amount_refunded": 800}, "evt_r2")
     _send("charge.refunded", {**refund, "amount_refunded": 800}, "evt_r2")
-    assert (account := _run(_account(user.id))) is not None and account.credit_micros == 12 * MICROS
+    # $20 paid bought $19.12 of credit after Stripe's fee; $8 of it was refunded.
+    assert (account := _run(_account(user.id))) is not None and account.credit_micros == 11_120_000
 
+    # The dispute takes back only what is left of the top-up: Stripe's fee was never credit.
     dispute = {"id": "dp_1", "object": "dispute", "payment_intent": "pi_1", "amount": 1200}
     _send("charge.dispute.created", dispute, "evt_d1")
     assert (account := _run(_account(user.id))) is not None and account.credit_micros == 0
@@ -315,6 +319,33 @@ def test_a_subscription_is_recorded_and_ended(user: User) -> None:
     _send("customer.subscription.deleted", {**subscription, "status": "canceled"}, "evt_2")
     account = _run(_account(user.id))
     assert account is not None and account.subscription_id is None
+
+
+@pytest.mark.usefixtures("billed")
+def test_stripes_fees_on_a_subscription_bill_are_charged_to_the_user_once(user: User) -> None:
+    _make_account(user, subscription="active")
+    invoice = {"id": "in_1", "object": "invoice", "customer": CUSTOMER, "amount_paid": 1000}
+
+    _send("invoice.paid", invoice)
+    _send("invoice.paid", invoice, "evt_2")
+    # A bill under Stripe's minimum charges nothing, and so costs no fee.
+    _send("invoice.paid", {**invoice, "id": "in_2", "amount_paid": 0}, "evt_3")
+
+    async def fees() -> list[tuple[str, int]]:
+        async with get_sessionmaker()() as session:
+            entries = await billing.recent_entries(session, user.id)
+            return [(entry.kind, entry.subscription_micros) for entry in entries]
+
+    # 30 cents plus 2.9% for the card, and Stripe Billing's 0.7%: 66 cents, on the next bill.
+    assert _run(fees()) == [("fee", 660_000)]
+
+
+def test_a_top_up_charges_its_fee_on_top_so_the_credit_is_what_was_asked() -> None:
+    for cents in (500, 1000, 2345, 50_000):
+        paid = stripe_fees.checkout_cents(cents)
+        assert stripe_fees.credit_micros(paid) >= cents * 10_000
+        assert stripe_fees.credit_micros(paid - 1) < cents * 10_000
+    assert stripe_fees.checkout_cents(1000) == 1061
 
 
 # --- Usage reports -------------------------------------------------------------------
@@ -425,7 +456,7 @@ def test_deleting_the_account_ends_billing_and_refunds_credit(
 ) -> None:
     _make_account(user, subscription="active")
     _send("checkout.session.completed", _top_up_session(1000))
-    _charge(user, 2_345_678)  # $2.35 of usage leaves $7.65.
+    _charge(user, 2_345_678)  # $9.41 of credit, less $2.35 of usage, leaves $7.06.
     canceled: list[str] = []
     refunds: list[dict[str, Any]] = []
 
@@ -446,7 +477,7 @@ def test_deleting_the_account_ends_billing_and_refunds_credit(
     assert client.delete("/api/v1/me").status_code == 204
 
     assert canceled == ["sub_1"]
-    assert refunds == [{"payment_intent": "pi_1", "amount": 765, "reason": "requested_by_customer"}]
+    assert refunds == [{"payment_intent": "pi_1", "amount": 706, "reason": "requested_by_customer"}]
     assert _run(_account(user.id)) is None
 
 

@@ -22,6 +22,7 @@ from app.db import billing
 from app.db.session import get_session
 from app.db.tables import BillingAccountRecord, BillingEntryRecord
 from app.models.billing import (
+    BILLING_FEE_RATE,
     CARD_FEE_CENTS,
     CARD_FEE_RATE,
     MAX_TOP_UP_CENTS,
@@ -125,6 +126,7 @@ async def read_billing(user: CurrentUser, session: Session) -> BillingStatus:
         max_top_up_cents=MAX_TOP_UP_CENTS,
         card_fee_cents=CARD_FEE_CENTS,
         card_fee_rate=CARD_FEE_RATE,
+        billing_fee_rate=BILLING_FEE_RATE,
         min_charge_cents=MIN_CHARGE_CENTS,
     )
 
@@ -141,8 +143,9 @@ async def buy_credit(
     request: TopUpRequest,
     origin: Annotated[str | None, Header()] = None,
 ) -> CheckoutLink:
-    """A Stripe Checkout page that buys ``amount_cents`` of credit, from $5 to $500. The
-    credit is added when Stripe reports the payment, usually within seconds.
+    """A Stripe Checkout page that buys ``amount_cents`` of credit, from $5 to $500, charging
+    Stripe's fee on top so the credit is the amount asked for. The credit is added when
+    Stripe reports the payment, usually within seconds.
 
     Returns 404 when this server does not bill, 422 for an amount out of range, 502 when
     Stripe cannot be reached, and 503 when the database is unavailable.

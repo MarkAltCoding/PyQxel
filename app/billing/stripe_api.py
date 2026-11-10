@@ -3,7 +3,9 @@ reports, and the events Stripe sends back.
 
 PyQxel bills at cost. A user pays for their nightly refreshes with prepaid credit, bought
 on a Stripe Checkout page in any amount from $5 to $500, or a usage subscription that
-Stripe bills weekly, monthly, or yearly for what the refreshes cost in that period. The
+Stripe bills weekly, monthly, or yearly for what the refreshes cost in that period. Users
+pay Stripe's fees on their own payments too (:mod:`app.billing.fees`), so none costs
+PyQxel's owner anything. The
 ledger of credit and usage is PyQxel's own (:mod:`app.db.billing`); Stripe takes the
 payments and, for subscriptions, adds up the usage PyQxel reports to its meter
 (:data:`METER_EVENT`), billed at one ten-thousandth of a cent per micro, so a dollar of
@@ -31,6 +33,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.billing import fees
 from app.db import billing
 from app.db.tables import BillingAccountRecord, BillingEntryRecord
 from app.models.billing import BillingInterval
@@ -58,6 +61,9 @@ TOP_UP_FLOW: str = "pyqxel-top-up-kqmvxtrw"
 """The label Stripe's Dashboard groups top-up Checkout Sessions under."""
 SUBSCRIBE_FLOW: str = "pyqxel-subscribe-hzpdnclg"
 """The label Stripe's Dashboard groups subscription Checkout Sessions under."""
+
+EXCLUDED: Any = fees.EXCLUDED_METHODS
+"""Payment methods Checkout leaves out, so the fee passed on matches the fee paid."""
 
 NOT_MANAGED: Any = {"enabled": False}
 """PyQxel sells as itself, not through Stripe's Managed Payments, in which Stripe is the
@@ -264,7 +270,14 @@ async def account_of(session: AsyncSession, user_id: str, email: str) -> Billing
 
 
 async def top_up_link(account: BillingAccountRecord, cents: int, return_url: str) -> str:
-    """A Checkout page that buys ``cents`` of credit."""
+    """A Checkout page that buys ``cents`` of credit, charging Stripe's fee on top so the
+    user, not PyQxel, pays it (:func:`app.billing.fees.checkout_cents`)."""
+    charged = fees.checkout_cents(cents)
+    message = (
+        f"${cents / 100:,.2f} goes to your PyQxel credit; the other "
+        f"${(charged - cents) / 100:,.2f} is Stripe's processing fee, which PyQxel passes on "
+        "at cost."
+    )
     checkout = await client().v1.checkout.sessions.create_async(
         {
             "mode": "payment",
@@ -275,10 +288,12 @@ async def top_up_link(account: BillingAccountRecord, cents: int, return_url: str
                     "price_data": {
                         "currency": "usd",
                         "product": CREDIT_PRODUCT,
-                        "unit_amount": cents,
+                        "unit_amount": charged,
                     },
                 }
             ],
+            "custom_text": {"submit": {"message": message}},
+            "excluded_payment_method_types": EXCLUDED,
             "success_url": f"{return_url}?billing=paid#billing",
             "cancel_url": f"{return_url}#billing",
             "integration_identifier": TOP_UP_FLOW,
@@ -297,6 +312,13 @@ async def subscribe_link(
             "mode": "subscription",
             "customer": account.stripe_customer_id,
             "line_items": [{"price": await _price(interval)}],
+            "custom_text": {
+                "submit": {
+                    "message": "Each bill is what your refreshes cost. Stripe's processing "
+                    "fee on a bill is added to the next one, at cost."
+                }
+            },
+            "excluded_payment_method_types": EXCLUDED,
             "success_url": f"{return_url}?billing=subscribed#billing",
             "cancel_url": f"{return_url}#billing",
             "integration_identifier": SUBSCRIBE_FLOW,
@@ -455,10 +477,12 @@ async def handle_event(session: AsyncSession, event: stripe.Event) -> None:
         logger.info("Checkout Session %s: the payment failed.", data.get("id"))
     elif kind.startswith("customer.subscription."):
         await _subscription_changed(session, data, ended=kind.endswith(".deleted"))
-    elif kind in ("invoice.paid", "invoice.payment_failed"):
+    elif kind == "invoice.paid":
+        await _invoice_paid(session, data)
+    elif kind == "invoice.payment_failed":
         # The subscription's own update event carries the state this changes (past_due,
-        # then active again), so the invoice is only logged.
-        logger.info("Invoice %s for %s: %s.", data.get("id"), data.get("customer"), kind)
+        # then active again), so the failure is only logged.
+        logger.info("Invoice %s for %s was not paid.", data.get("id"), data.get("customer"))
     elif kind == "charge.refunded":
         await _refunded(session, data, event.id)
     elif kind == "charge.dispute.created":
@@ -477,16 +501,35 @@ async def _checkout_paid(session: AsyncSession, checkout: Any) -> None:
     if account is None:
         logger.warning("Checkout Session %s names no PyQxel customer.", checkout.get("id"))
         return
-    cents = int(checkout.get("amount_subtotal") or checkout.get("amount_total") or 0)
+    cents = int(checkout.get("amount_total") or 0)
     added = await billing.add_credit(
         session,
         account,
-        cents * billing.MICROS_PER_CENT,
+        # The user paid Stripe's fee on top; what is left is their credit.
+        fees.credit_micros(cents),
         stripe_ref=str(checkout.get("id")),
         payment_intent=_id(checkout.get("payment_intent")),
     )
     if added:
-        logger.info("User %s added $%.2f of credit.", account.user_id, cents / 100)
+        logger.info("User %s paid $%.2f for credit.", account.user_id, cents / 100)
+
+
+async def _invoice_paid(session: AsyncSession, invoice: Any) -> None:
+    """Charge the user Stripe's fees on a subscription bill they paid, once per bill: from
+    their credit, else on their next bill, so PyQxel pays none of it."""
+    customer = _id(invoice.get("customer"))
+    account = None if customer is None else await billing.account_for_customer(session, customer)
+    micros = fees.invoice_fee_micros(int(invoice.get("amount_paid") or 0))
+    if account is None or micros <= 0:
+        return
+    await billing.charge_usage(
+        session,
+        account.user_id,
+        micros,
+        None,
+        kind=billing.FEE,
+        stripe_ref=f"fee-{invoice.get('id')}",
+    )
 
 
 async def _subscription_changed(session: AsyncSession, subscription: Any, ended: bool) -> None:

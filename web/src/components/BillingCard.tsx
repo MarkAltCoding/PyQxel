@@ -11,7 +11,7 @@ import {
   INTERVAL_NAMES,
   TOP_UP_PRESETS,
   creditDays,
-  feeShare,
+  checkoutCents,
   paymentPlace,
   periodBills,
 } from '../lib/billing'
@@ -34,6 +34,7 @@ function smallMoney(dollars: number): string {
 const ENTRY_NAMES: Record<BillingEntry['kind'], string> = {
   top_up: 'Credit added',
   usage: 'Nightly refresh',
+  fee: 'Stripe’s fee on a bill',
   refund: 'Refund',
   dispute: 'Disputed payment',
 }
@@ -84,7 +85,8 @@ export function BillingCard() {
           Using PyQxel is free. Only the nightly screener refresh costs money: it runs on PyQxel’s
           cloud server for minutes or hours each night. You pay what your refreshes cost that
           server, with nothing added, from prepaid credit or a subscription that bills what they
-          cost each week, month, or year. Payments go through Stripe; PyQxel never sees your card.
+          cost each week, month, or year. Payments go through Stripe, whose processing fee on each
+          payment you also pay, at cost; PyQxel never sees your card.
         </p>
       </div>
 
@@ -182,6 +184,8 @@ function BillingStats({ status }: { status: BillingStatus }) {
 
 function TopUp({ status }: { status: BillingStatus }) {
   const [cents, setCents] = useState(DEFAULT_TOP_UP_CENTS)
+  const charged = checkoutCents(cents, status)
+  const fee = charged - cents
   const buy = useMutation({
     mutationFn: () => buyCredit(cents),
     onSuccess: ({ url }) => window.location.assign(url),
@@ -205,9 +209,9 @@ function TopUp({ status }: { status: BillingStatus }) {
       />
       <p className="subtitle" style={{ color: 'var(--text-secondary)' }}>
         Any amount from {money(status.min_top_up_cents / 100, 'USD', 0)} to{' '}
-        {money(status.max_top_up_cents / 100, 'USD', 0)}. Stripe keeps{' '}
-        {percent(feeShare(cents, status))} of a {money(cents / 100)} payment as its fee, so a larger
-        top-up loses less of it.
+        {money(status.max_top_up_cents / 100, 'USD', 0)}. You pay Stripe’s processing fee on top:{' '}
+        {money(fee / 100)} on this payment, {percent(fee / charged)} of it, so a larger top-up pays
+        less in fees for the same credit.
       </p>
       <div>
         <button
@@ -216,7 +220,9 @@ function TopUp({ status }: { status: BillingStatus }) {
           onClick={() => buy.mutate()}
           disabled={buy.isPending}
         >
-          {buy.isPending ? 'Opening Stripe…' : `Pay ${money(cents / 100)} with Stripe`}
+          {buy.isPending
+            ? 'Opening Stripe…'
+            : `Pay ${money(charged / 100)} for ${money(cents / 100)} of credit`}
         </button>
       </div>
       {buy.error && <ErrorNotice error={buy.error} />}
@@ -246,10 +252,11 @@ function SubscriptionChoice({ status }: { status: BillingStatus }) {
       </div>
       <p className="subtitle" style={{ color: 'var(--text-secondary)' }}>
         Instead of topping up, let Stripe bill what your refreshes cost at the end of each week,
-        month, or year, after any credit you have is used. Each bill pays Stripe’s fee of{' '}
-        {status.card_fee_cents} cents plus {percent(status.card_fee_rate)}, so billing less often
-        loses less to fees. Stripe charges nothing under {money(status.min_charge_cents / 100)}: a
-        smaller bill waits until the next one.
+        month, or year, after any credit you have is used. Stripe’s fees on each bill,{' '}
+        {status.card_fee_cents} cents plus {percent(status.card_fee_rate + status.billing_fee_rate)}
+        , are added to your next bill, so billing less often pays less in fees. Stripe charges
+        nothing under {money(status.min_charge_cents / 100)}: a smaller bill waits until the next
+        one.
       </p>
       {bills.length > 0 ? (
         <ul className="stack" style={{ gap: 4, margin: 0, paddingLeft: 18 }}>
@@ -257,13 +264,13 @@ function SubscriptionChoice({ status }: { status: BillingStatus }) {
             <li key={bill.interval}>
               {INTERVAL_CHOICES.find((choice) => choice.value === bill.interval)?.label}: about{' '}
               {smallMoney(bill.usageCents / 100)} of refreshes each {INTERVAL_NAMES[bill.interval]},
-              with {percent(bill.feeShare)} of each charge going to fees.
+              with fees adding {percent(bill.feeShare)} to it.
             </li>
           ))}
         </ul>
       ) : (
         <p className="subtitle" style={{ color: 'var(--text-secondary)' }}>
-          Once your refreshes have run, this shows what each choice would lose to fees at your pace.
+          Once your refreshes have run, this shows what each choice would add in fees at your pace.
         </p>
       )}
       {subscribed ? (

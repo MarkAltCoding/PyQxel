@@ -27,6 +27,7 @@ MICROS_PER_CENT: int = 10_000
 
 TOP_UP = "top_up"
 USAGE = "usage"
+FEE = "fee"
 REFUND = "refund"
 DISPUTE = "dispute"
 
@@ -160,8 +161,9 @@ async def take_back_credit(
     stripe_ref: str,
 ) -> bool:
     """Take ``micros`` of a refunded or disputed top-up back out of its user's credit,
-    once per ``stripe_ref``; return whether it was taken now. A payment that was not a
-    top-up (a subscription's invoice) changes no credit, so nothing is taken."""
+    once per ``stripe_ref``, but never more than the top-up added, since Stripe's fee was
+    never credited; return whether it was taken now. A payment that was not a top-up (a
+    subscription's invoice) changes no credit, so nothing is taken."""
     top_up = await session.scalar(
         select(BillingEntryRecord).where(
             BillingEntryRecord.payment_intent == payment_intent,
@@ -172,6 +174,16 @@ async def take_back_credit(
         return False
     account = await get_account(session, top_up.user_id)
     if account is None:
+        return False
+    earlier = await session.scalars(
+        select(BillingEntryRecord).where(
+            BillingEntryRecord.payment_intent == payment_intent,
+            BillingEntryRecord.kind.in_((REFUND, DISPUTE)),
+        )
+    )
+    left = top_up.credit_micros + sum(entry.credit_micros for entry in earlier)
+    micros = min(micros, left)
+    if micros <= 0:
         return False
     account.credit_micros -= micros
     account.updated_at = datetime.now(timezone.utc)
@@ -209,12 +221,19 @@ async def set_subscription(
 
 
 async def charge_usage(
-    session: AsyncSession, user_id: str, micros: int, run_id: str | None
+    session: AsyncSession,
+    user_id: str,
+    micros: int,
+    run_id: str | None,
+    *,
+    kind: str = USAGE,
+    stripe_ref: str | None = None,
 ) -> Charge | None:
-    """Charge ``user_id`` ``micros`` for one refresh: from credit first, the rest through
-    their subscription, or past their credit with none. Returns ``None``, charging
-    nothing, when the user has no billing account, as the owner's and every user's on a
-    server without billing do not."""
+    """Charge ``user_id`` ``micros`` for one refresh, or for the fees on a subscription
+    bill (``kind`` :data:`FEE`, once per ``stripe_ref``): from credit first, the rest
+    through their subscription, or past their credit with none. Returns ``None``,
+    charging nothing, when the user has no billing account, as the owner's and every
+    user's on a server without billing do not, or when it was charged already."""
     account = await get_account(session, user_id)
     if account is None or micros <= 0:
         return None
@@ -226,27 +245,28 @@ async def charge_usage(
         from_credit, to_subscription = micros, 0
     account.credit_micros -= from_credit
     account.updated_at = datetime.now(timezone.utc)
-    await _add_entry(
+    added = await _add_entry(
         session,
         _entry(
             user_id,
-            USAGE,
+            kind,
             credit_micros=-from_credit,
             subscription_micros=to_subscription,
             run_id=run_id,
+            stripe_ref=stripe_ref,
         ),
     )
-    return Charge(from_credit=from_credit, to_subscription=to_subscription)
+    return Charge(from_credit=from_credit, to_subscription=to_subscription) if added else None
 
 
 async def unreported_usage(session: AsyncSession) -> list[tuple[BillingEntryRecord, str]]:
-    """Usage billed through subscriptions and not yet reported to Stripe, with each
-    one's Stripe customer."""
+    """Usage and fees billed through subscriptions and not yet reported to Stripe, with
+    each one's Stripe customer."""
     rows = await session.execute(
         select(BillingEntryRecord, BillingAccountRecord.stripe_customer_id)
         .join(BillingAccountRecord, BillingAccountRecord.user_id == BillingEntryRecord.user_id)
         .where(
-            BillingEntryRecord.kind == USAGE,
+            BillingEntryRecord.kind.in_((USAGE, FEE)),
             BillingEntryRecord.subscription_micros > 0,
             BillingEntryRecord.reported_at.is_(None),
         )

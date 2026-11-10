@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 BillingInterval = Literal["week", "month", "year"]
 """How often a usage subscription bills what the refreshes cost since the last bill."""
 
-EntryKind = Literal["top_up", "usage", "refund", "dispute"]
+EntryKind = Literal["top_up", "usage", "fee", "refund", "dispute"]
 
 MIN_TOP_UP_CENTS: int = 500
 """The smallest top-up: at $5, Stripe's fee of 30 cents plus 2.9% takes about 9%."""
@@ -21,6 +21,8 @@ CARD_FEE_CENTS: int = 30
 """Stripe's fixed fee on each US card payment."""
 CARD_FEE_RATE: float = 0.029
 """Stripe's share of each US card payment."""
+BILLING_FEE_RATE: float = 0.007
+"""Stripe Billing's share of each subscription bill, on top of the card fee."""
 MIN_CHARGE_CENTS: int = 50
 """The least Stripe charges a card; a smaller bill waits for the next one."""
 
@@ -29,7 +31,8 @@ class BillingEntry(BaseModel):
     """One change to the user's billing."""
 
     kind: EntryKind = Field(
-        description="top_up: credit bought; usage: one nightly refresh's cost; refund or "
+        description="top_up: credit bought, less Stripe's fee; usage: one nightly refresh's "
+        "cost; fee: Stripe's fees on a subscription bill, charged like usage; refund or "
         "dispute: a top-up's money returned, taken back out of the credit."
     )
     credit_usd: float = Field(description="The change to the credit, in dollars.")
@@ -76,6 +79,10 @@ class BillingStatus(BaseModel):
     max_top_up_cents: int = Field(description="The largest top-up, in cents.")
     card_fee_cents: int = Field(description="Stripe's fixed fee on each card payment, in cents.")
     card_fee_rate: float = Field(description="Stripe's share of each card payment (0.029 = 2.9%).")
+    billing_fee_rate: float = Field(
+        description="Stripe Billing's share of each subscription bill (0.007 = 0.7%), on top "
+        "of the card fee."
+    )
     min_charge_cents: int = Field(
         description="The least Stripe charges a card, in cents; a smaller bill carries over."
     )
@@ -85,7 +92,9 @@ class TopUpRequest(BaseModel):
     """Credit to buy."""
 
     amount_cents: int = Field(
-        ge=MIN_TOP_UP_CENTS, le=MAX_TOP_UP_CENTS, description="How much credit, in cents."
+        ge=MIN_TOP_UP_CENTS,
+        le=MAX_TOP_UP_CENTS,
+        description="How much credit, in cents; the payment adds Stripe's fee to it.",
     )
 
 
