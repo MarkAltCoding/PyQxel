@@ -36,7 +36,7 @@ from app.core.config import get_settings
 from app.billing import fees
 from app.db import billing
 from app.db.tables import BillingAccountRecord, BillingEntryRecord
-from app.models.billing import BillingInterval
+from app.models.billing import DISPUTE_FEE_CENTS, BillingInterval
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,13 @@ TOP_UP_FLOW: str = "pyqxel-top-up-kqmvxtrw"
 SUBSCRIBE_FLOW: str = "pyqxel-subscribe-hzpdnclg"
 """The label Stripe's Dashboard groups subscription Checkout Sessions under."""
 
+DOLLARS_ONLY: Any = {"enabled": False}
+"""Checkout charges in dollars, never converting to the card's currency, which would add
+Stripe's 1% conversion fee."""
+
+FEE_LINE: str = "Stripe's processing fees on this bill, passed on at cost"
+"""The description of the fee line added to each subscription bill."""
+
 EXCLUDED: Any = fees.EXCLUDED_METHODS
 """Payment methods Checkout leaves out, so the fee passed on matches the fee paid."""
 
@@ -77,10 +84,12 @@ EVENTS: tuple[str, ...] = (
     "customer.subscription.created",
     "customer.subscription.updated",
     "customer.subscription.deleted",
+    "invoice.created",
     "invoice.paid",
     "invoice.payment_failed",
     "charge.refunded",
     "charge.dispute.created",
+    "charge.dispute.closed",
     "radar.early_fraud_warning.created",
 )
 """The events the webhook endpoint subscribes to: the ones :func:`handle_event` acts on."""
@@ -207,6 +216,7 @@ async def _portal(public_url: str | None) -> str:
     }
     if public_url:
         params["business_profile"]["privacy_policy_url"] = f"{public_url}/privacy"
+        params["business_profile"]["terms_of_service_url"] = f"{public_url}/terms"
         params["default_return_url"] = f"{public_url}/settings#billing"
     made = await client().v1.billing_portal.configurations.create_async(params)
     return made.id
@@ -276,7 +286,8 @@ async def top_up_link(account: BillingAccountRecord, cents: int, return_url: str
     message = (
         f"${cents / 100:,.2f} goes to your PyQxel credit; the other "
         f"${(charged - cents) / 100:,.2f} is Stripe's processing fee, which PyQxel passes on "
-        "at cost."
+        "at cost. A card issued outside the US costs Stripe 1.5% more, which is taken from "
+        "the credit."
     )
     checkout = await client().v1.checkout.sessions.create_async(
         {
@@ -294,6 +305,7 @@ async def top_up_link(account: BillingAccountRecord, cents: int, return_url: str
             ],
             "custom_text": {"submit": {"message": message}},
             "excluded_payment_method_types": EXCLUDED,
+            "adaptive_pricing": DOLLARS_ONLY,
             "success_url": f"{return_url}?billing=paid#billing",
             "cancel_url": f"{return_url}#billing",
             "integration_identifier": TOP_UP_FLOW,
@@ -314,11 +326,12 @@ async def subscribe_link(
             "line_items": [{"price": await _price(interval)}],
             "custom_text": {
                 "submit": {
-                    "message": "Each bill is what your refreshes cost. Stripe's processing "
-                    "fee on a bill is added to the next one, at cost."
+                    "message": "Each bill is what your refreshes cost, plus Stripe's "
+                    "processing fees on that bill, at cost."
                 }
             },
             "excluded_payment_method_types": EXCLUDED,
+            "adaptive_pricing": DOLLARS_ONLY,
             "success_url": f"{return_url}?billing=subscribed#billing",
             "cancel_url": f"{return_url}#billing",
             "integration_identifier": SUBSCRIBE_FLOW,
@@ -350,12 +363,16 @@ def _url(url: str | None) -> str:
 
 
 async def cancel_subscription(account: BillingAccountRecord) -> None:
-    """End ``account``'s subscription now, billing the usage so far, as when the account
-    is deleted. A subscription Stripe already ended is left as it is."""
+    """End ``account``'s subscription at the end of its period, as when the account is
+    deleted: no usage is added after, and its last bill is made like any other, as a draft
+    that gets its fee line (:func:`_invoice_created`), where ending it now would bill at
+    once, leaving no time to add it. A subscription Stripe already ended is left as it is."""
     if account.subscription_id is None:
         return
     try:
-        await client().v1.subscriptions.cancel_async(account.subscription_id, {"invoice_now": True})
+        await client().v1.subscriptions.update_async(
+            account.subscription_id, {"cancel_at_period_end": True}
+        )
     except stripe.InvalidRequestError as exc:
         logger.info("Subscription %s was not canceled: %s", account.subscription_id, exc)
 
@@ -477,8 +494,10 @@ async def handle_event(session: AsyncSession, event: stripe.Event) -> None:
         logger.info("Checkout Session %s: the payment failed.", data.get("id"))
     elif kind.startswith("customer.subscription."):
         await _subscription_changed(session, data, ended=kind.endswith(".deleted"))
+    elif kind == "invoice.created":
+        await _invoice_created(data)
     elif kind == "invoice.paid":
-        await _invoice_paid(session, data)
+        logger.info("Invoice %s for %s was paid.", data.get("id"), data.get("customer"))
     elif kind == "invoice.payment_failed":
         # The subscription's own update event carries the state this changes (past_due,
         # then active again), so the failure is only logged.
@@ -487,6 +506,8 @@ async def handle_event(session: AsyncSession, event: stripe.Event) -> None:
         await _refunded(session, data, event.id)
     elif kind == "charge.dispute.created":
         await _disputed(session, data)
+    elif kind == "charge.dispute.closed":
+        await _dispute_closed(session, data)
     elif kind == "radar.early_fraud_warning.created":
         await _fraud_warning(session, data)
 
@@ -510,25 +531,87 @@ async def _checkout_paid(session: AsyncSession, checkout: Any) -> None:
         stripe_ref=str(checkout.get("id")),
         payment_intent=_id(checkout.get("payment_intent")),
     )
-    if added:
-        logger.info("User %s paid $%.2f for credit.", account.user_id, cents / 100)
-
-
-async def _invoice_paid(session: AsyncSession, invoice: Any) -> None:
-    """Charge the user Stripe's fees on a subscription bill they paid, once per bill: from
-    their credit, else on their next bill, so PyQxel pays none of it."""
-    customer = _id(invoice.get("customer"))
-    account = None if customer is None else await billing.account_for_customer(session, customer)
-    micros = fees.invoice_fee_micros(int(invoice.get("amount_paid") or 0))
-    if account is None or micros <= 0:
+    if not added:
         return
-    await billing.charge_usage(
-        session,
-        account.user_id,
-        micros,
-        None,
-        kind=billing.FEE,
-        stripe_ref=f"fee-{invoice.get('id')}",
+    logger.info("User %s paid $%.2f for credit.", account.user_id, cents / 100)
+    if not fees.is_domestic(await _paid_card_country(_id(checkout.get("payment_intent")))):
+        # Stripe's checkout priced the credit for a US card before the card was known.
+        await billing.charge_usage(
+            session,
+            account.user_id,
+            fees.international_micros(cents),
+            None,
+            kind=billing.FEE,
+            stripe_ref=f"abroad-{checkout.get('id')}",
+        )
+
+
+async def _paid_card_country(payment_intent: str | None) -> str | None:
+    """The country that issued the card a payment was made with, or ``None`` when it
+    cannot be read, which is charged as if the card were from abroad."""
+    if payment_intent is None:
+        return None
+    try:
+        intent = await client().v1.payment_intents.retrieve_async(
+            payment_intent, {"expand": ["latest_charge"]}
+        )
+    except stripe.StripeError as exc:
+        logger.warning("Payment %s's card could not be read: %s", payment_intent, exc)
+        return None
+    charge = intent.to_dict().get("latest_charge")
+    if not isinstance(charge, dict):
+        return None
+    return _card_country(charge.get("payment_method_details"))
+
+
+def _card_country(payment_method: Any) -> str | None:
+    """The country that issued a payment method's card, or ``None`` when it is not known."""
+    if not isinstance(payment_method, dict):
+        return None
+    card = payment_method.get("card") or {}
+    country = card.get("country")
+    return str(country) if country else None
+
+
+async def _invoice_created(invoice: Any) -> None:
+    """Add Stripe's fees to a subscription bill while it is still a draft, so the user pays
+    them on the bill itself, the last one included (:func:`app.billing.fees.invoice_fee_cents`).
+    A card issued abroad, or one whose country cannot be read, pays the extra 1.5% too.
+    Bills too small to charge, and ones already final, are left as they are."""
+    if invoice.get("status") != "draft":
+        return
+    lines = (invoice.get("lines") or {}).get("data") or []
+    if any(line.get("description") == FEE_LINE for line in lines):
+        return
+    parent = invoice.get("parent") or {}
+    subscription_id = _id(
+        (parent.get("subscription_details") or {}).get("subscription")
+        or invoice.get("subscription")
+    )
+    if subscription_id is None:
+        return
+    country = None
+    try:
+        subscription = await client().v1.subscriptions.retrieve_async(
+            subscription_id, {"expand": ["default_payment_method"]}
+        )
+        country = _card_country(subscription.to_dict().get("default_payment_method"))
+    except stripe.StripeError as exc:
+        logger.warning(
+            "The card on %s could not be read; it pays the extra: %s", subscription_id, exc
+        )
+    fee = fees.invoice_fee_cents(int(invoice.get("amount_due") or 0), fees.is_domestic(country))
+    if fee <= 0:
+        return
+    await client().v1.invoice_items.create_async(
+        {
+            "customer": _id(invoice.get("customer")) or "",
+            "invoice": str(invoice.get("id")),
+            "amount": fee,
+            "currency": "usd",
+            "description": FEE_LINE,
+        },
+        {"idempotency_key": f"pyqxel-fee-{invoice.get('id')}"},
     )
 
 
@@ -591,20 +674,70 @@ async def _refunded(session: AsyncSession, charge: Any, event_id: str) -> None:
 
 
 async def _disputed(session: AsyncSession, dispute: Any) -> None:
-    """Take a disputed top-up's money back out of the credit: the card's bank has
-    already returned it to the cardholder."""
+    """Charge a dispute to the account whose payment was disputed: the money the bank took
+    back (out of a top-up's credit, or, for a subscription bill, owed like usage), and
+    Stripe's dispute fee, which Stripe keeps whatever the outcome."""
     payment_intent = _id(dispute.get("payment_intent"))
-    if payment_intent is None:
+    dispute_id = str(dispute.get("id"))
+    micros = int(dispute.get("amount") or 0) * billing.MICROS_PER_CENT
+    account = None if payment_intent is None else await _account_of_payment(session, payment_intent)
+    if account is not None and payment_intent is not None:
+        await billing.take_back_credit(
+            session, payment_intent, micros, kind=billing.DISPUTE, stripe_ref=dispute_id
+        )
+    else:
+        account = await _account_of_charge(session, _id(dispute.get("charge")))
+        if account is not None:
+            await billing.charge_usage(
+                session, account.user_id, micros, None, kind=billing.DISPUTE, stripe_ref=dispute_id
+            )
+    if account is None:
+        logger.warning("Dispute %s names no PyQxel customer.", dispute_id)
         return
-    taken = await billing.take_back_credit(
+    await billing.charge_usage(
         session,
-        payment_intent,
-        int(dispute.get("amount") or 0) * billing.MICROS_PER_CENT,
-        kind=billing.DISPUTE,
-        stripe_ref=str(dispute.get("id")),
+        account.user_id,
+        DISPUTE_FEE_CENTS * billing.MICROS_PER_CENT,
+        None,
+        kind=billing.FEE,
+        stripe_ref=f"dispute-fee-{dispute_id}",
     )
-    if taken:
-        logger.warning("Top-up %s was disputed (%s).", payment_intent, dispute.get("reason"))
+    logger.warning("User %s disputed a payment (%s).", account.user_id, dispute.get("reason"))
+
+
+async def _dispute_closed(session: AsyncSession, dispute: Any) -> None:
+    """Give back what a dispute took once it is won, since the bank returned the money;
+    Stripe keeps its dispute fee either way, so that stays charged."""
+    if dispute.get("status") == "won":
+        await billing.reverse_dispute(session, str(dispute.get("id")))
+
+
+async def _account_of_payment(
+    session: AsyncSession, payment_intent: str
+) -> BillingAccountRecord | None:
+    """The account whose top-up was paid with ``payment_intent``, if one was."""
+    top_up = await session.scalar(
+        select(BillingEntryRecord).where(
+            BillingEntryRecord.payment_intent == payment_intent,
+            BillingEntryRecord.kind == billing.TOP_UP,
+        )
+    )
+    return None if top_up is None else await billing.get_account(session, top_up.user_id)
+
+
+async def _account_of_charge(
+    session: AsyncSession, charge_id: str | None
+) -> BillingAccountRecord | None:
+    """The account of the Stripe customer a charge was made to."""
+    if charge_id is None:
+        return None
+    try:
+        charge = await client().v1.charges.retrieve_async(charge_id)
+    except stripe.StripeError as exc:
+        logger.warning("Charge %s could not be read: %s", charge_id, exc)
+        return None
+    customer = _id(charge.to_dict().get("customer"))
+    return None if customer is None else await billing.account_for_customer(session, customer)
 
 
 async def _fraud_warning(session: AsyncSession, warning: Any) -> None:

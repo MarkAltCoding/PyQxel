@@ -29,6 +29,8 @@ const STATUS: BillingStatus = {
   card_fee_cents: 30,
   card_fee_rate: 0.029,
   billing_fee_rate: 0.007,
+  international_fee_rate: 0.015,
+  dispute_fee_cents: 1500,
   min_charge_cents: 50,
 }
 

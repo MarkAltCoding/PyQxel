@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { apiUrl } from '../api/client'
 import { buyCredit, getBilling, openBillingPortal, startSubscription } from '../api/endpoints'
 import type { BillingEntry, BillingInterval, BillingStatus } from '../api/types'
@@ -34,7 +34,7 @@ function smallMoney(dollars: number): string {
 const ENTRY_NAMES: Record<BillingEntry['kind'], string> = {
   top_up: 'Credit added',
   usage: 'Nightly refresh',
-  fee: 'Stripe’s fee on a bill',
+  fee: 'Stripe fee',
   refund: 'Refund',
   dispute: 'Disputed payment',
 }
@@ -131,6 +131,10 @@ export function BillingCard() {
         <>
           <TopUp status={data} />
           <SubscriptionChoice status={data} />
+          <p className="subtitle" style={{ color: 'var(--text-secondary)' }}>
+            Paying means you agree to the <Link to="/terms">terms of service</Link>; unused credit
+            is refundable, as the <Link to="/refunds">refund policy</Link> explains.
+          </p>
         </>
       )}
 
@@ -211,7 +215,8 @@ function TopUp({ status }: { status: BillingStatus }) {
         Any amount from {money(status.min_top_up_cents / 100, 'USD', 0)} to{' '}
         {money(status.max_top_up_cents / 100, 'USD', 0)}. You pay Stripe’s processing fee on top:{' '}
         {money(fee / 100)} on this payment, {percent(fee / charged)} of it, so a larger top-up pays
-        less in fees for the same credit.
+        less in fees for the same credit. A card issued outside the US costs Stripe{' '}
+        {percent(status.international_fee_rate)} more, which is taken from the credit.
       </p>
       <div>
         <button
@@ -252,11 +257,10 @@ function SubscriptionChoice({ status }: { status: BillingStatus }) {
       </div>
       <p className="subtitle" style={{ color: 'var(--text-secondary)' }}>
         Instead of topping up, let Stripe bill what your refreshes cost at the end of each week,
-        month, or year, after any credit you have is used. Stripe’s fees on each bill,{' '}
+        month, or year, after any credit you have is used. Each bill includes Stripe’s fees on it,{' '}
         {status.card_fee_cents} cents plus {percent(status.card_fee_rate + status.billing_fee_rate)}
-        , are added to your next bill, so billing less often pays less in fees. Stripe charges
-        nothing under {money(status.min_charge_cents / 100)}: a smaller bill waits until the next
-        one.
+        , so billing less often pays less in fees. Stripe charges nothing under{' '}
+        {money(status.min_charge_cents / 100)}: a smaller bill waits until the next one.
       </p>
       {bills.length > 0 ? (
         <ul className="stack" style={{ gap: 4, margin: 0, paddingLeft: 18 }}>

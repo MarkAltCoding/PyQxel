@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Link, Navigate, useLocation, useNavigate } from 'react-router'
+import { Navigate, useLocation, useNavigate } from 'react-router'
+import { PolicyLinks } from '../components/LegalSection'
 import { useQuery } from '@tanstack/react-query'
 import { apiUrl } from '../api/client'
 import { collectAppSignIn, getPasswordSignIn, getSignInProviders } from '../api/endpoints'
@@ -261,8 +262,7 @@ export function SignInPage() {
           />
         )}
         <p className="disclaimer">
-          PyQxel is a research tool, not investment advice.{' '}
-          <Link to="/privacy">Privacy policy</Link>
+          PyQxel is a research tool, not investment advice. <PolicyLinks />
         </p>
       </section>
     </main>

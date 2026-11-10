@@ -23,6 +23,10 @@ CARD_FEE_RATE: float = 0.029
 """Stripe's share of each US card payment."""
 BILLING_FEE_RATE: float = 0.007
 """Stripe Billing's share of each subscription bill, on top of the card fee."""
+INTERNATIONAL_FEE_RATE: float = 0.015
+"""What Stripe adds on a card issued outside the US."""
+DISPUTE_FEE_CENTS: int = 1500
+"""What Stripe charges, and keeps, when a cardholder disputes a payment with their bank."""
 MIN_CHARGE_CENTS: int = 50
 """The least Stripe charges a card; a smaller bill waits for the next one."""
 
@@ -32,8 +36,10 @@ class BillingEntry(BaseModel):
 
     kind: EntryKind = Field(
         description="top_up: credit bought, less Stripe's fee; usage: one nightly refresh's "
-        "cost; fee: Stripe's fees on a subscription bill, charged like usage; refund or "
-        "dispute: a top-up's money returned, taken back out of the credit."
+        "cost; fee: a Stripe fee the payment's price did not include (a card from abroad, "
+        "or a dispute), charged like usage; refund: a top-up's money returned, taken back "
+        "out of the credit; dispute: a disputed payment taken back, or returned when the "
+        "dispute is won."
     )
     credit_usd: float = Field(description="The change to the credit, in dollars.")
     subscription_usd: float = Field(
@@ -82,6 +88,14 @@ class BillingStatus(BaseModel):
     billing_fee_rate: float = Field(
         description="Stripe Billing's share of each subscription bill (0.007 = 0.7%), on top "
         "of the card fee."
+    )
+    international_fee_rate: float = Field(
+        description="What Stripe adds on a card issued outside the US (0.015 = 1.5%), which "
+        "only those cards pay."
+    )
+    dispute_fee_cents: int = Field(
+        description="Stripe's fee when a payment is disputed with the bank, in cents, which "
+        "the account that disputed it pays."
     )
     min_charge_cents: int = Field(
         description="The least Stripe charges a card, in cents; a smaller bill carries over."

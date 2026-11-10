@@ -1,21 +1,30 @@
 """Stripe's fees, which each user pays on their own payments, so no user costs PyQxel's owner
 anything.
 
-A top-up is charged its credit plus the fee Stripe will keep (:func:`checkout_cents`), and
-the credit added is what is left once that fee is taken (:func:`credit_micros`). A usage
-subscription's bill pays Stripe's fee and Stripe Billing's share of the amount
-(:func:`invoice_fee_micros`); that is charged to the user afterwards, like a refresh: from
-credit, else on the next bill.
+A top-up is charged its credit plus the fee Stripe will keep on a US card
+(:func:`checkout_cents`), and the credit added is what is left once that fee is taken
+(:func:`credit_micros`). Stripe's checkout shows the price before the card is entered, so a
+card issued abroad has Stripe's extra 1.5% taken from its credit once it has paid
+(:func:`international_micros`), and only such a card does. A usage subscription's bill
+carries its own fees as a line Stripe adds while the bill is still a draft
+(:func:`invoice_fee_cents`): the card fee, Stripe Billing's share, and the extra on a card
+from abroad, all on the whole bill, fee line included. A dispute's $15 fee is charged to
+the account that disputed.
 
 The fees are Stripe's standard US prices, for cards and the wallets priced like them (Apple
 Pay, Google Pay, Link); Checkout leaves out the payment methods that cost more
-(:data:`EXCLUDED_METHODS`). Not passed on: the extra 1.5% Stripe charges on a card issued
-abroad, and the $15 fee on a dispute.
+(:data:`EXCLUDED_METHODS`) and charges in dollars only, so no currency is converted.
 """
 
 import math
 
-from app.models.billing import BILLING_FEE_RATE, CARD_FEE_CENTS, CARD_FEE_RATE
+from app.models.billing import (
+    BILLING_FEE_RATE,
+    CARD_FEE_CENTS,
+    CARD_FEE_RATE,
+    INTERNATIONAL_FEE_RATE,
+    MIN_CHARGE_CENTS,
+)
 
 MICROS_PER_CENT: int = 10_000
 
@@ -41,10 +50,22 @@ def credit_micros(paid_cents: int) -> int:
     return paid_cents * MICROS_PER_CENT - card_fee_micros(paid_cents)
 
 
-def invoice_fee_micros(paid_cents: int) -> int:
-    """What a subscription bill of ``paid_cents`` costs in fees: Stripe's card fee and
-    Stripe Billing's share. Nothing for a bill that charged nothing, as one under Stripe's
-    50-cent minimum does."""
-    if paid_cents <= 0:
+def international_micros(paid_cents: int) -> int:
+    """Stripe's extra fee on a payment of ``paid_cents`` by a card issued abroad."""
+    return round(paid_cents * INTERNATIONAL_FEE_RATE * MICROS_PER_CENT)
+
+
+def is_domestic(country: str | None) -> bool:
+    """Whether a card issued in ``country`` pays only the US fee. A card whose country is
+    unknown pays the extra too, so no payment costs PyQxel's owner anything."""
+    return country == "US"
+
+
+def invoice_fee_cents(due_cents: int, domestic: bool) -> int:
+    """The fee line to add to a subscription bill of ``due_cents`` so that the user pays
+    every fee on it: the smallest amount at least Stripe's fees on the bill with that line
+    included. Nothing for a bill too small for Stripe to charge, which waits for the next."""
+    if due_cents < MIN_CHARGE_CENTS:
         return 0
-    return card_fee_micros(paid_cents) + round(paid_cents * BILLING_FEE_RATE * MICROS_PER_CENT)
+    rate = CARD_FEE_RATE + BILLING_FEE_RATE + (0 if domestic else INTERNATIONAL_FEE_RATE)
+    return math.ceil((CARD_FEE_CENTS + due_cents * rate) / (1 - rate))

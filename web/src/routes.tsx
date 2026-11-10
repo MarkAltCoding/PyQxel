@@ -8,6 +8,8 @@ import { MarketsPage } from './pages/MarketsPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { PortfolioPage } from './pages/PortfolioPage'
 import { PrivacyPage } from './pages/PrivacyPage'
+import { RefundPage } from './pages/RefundPage'
+import { TermsPage } from './pages/TermsPage'
 import { ScreenerPage } from './pages/ScreenerPage'
 import { SetPasswordPage } from './pages/SetPasswordPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -24,7 +26,14 @@ export const routes = [
       { path: '/signin/password', element: <SetPasswordPage /> },
       // Public, so it can be read before signing in; inside the app's own layout once
       // signed in, so every tab is a tap away.
-      { element: <PublicLayout />, children: [{ path: '/privacy', element: <PrivacyPage /> }] },
+      {
+        element: <PublicLayout />,
+        children: [
+          { path: '/privacy', element: <PrivacyPage /> },
+          { path: '/terms', element: <TermsPage /> },
+          { path: '/refunds', element: <RefundPage /> },
+        ],
+      },
       {
         element: (
           <RequireKey>

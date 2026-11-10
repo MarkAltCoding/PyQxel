@@ -199,6 +199,33 @@ async def take_back_credit(
     )
 
 
+async def reverse_dispute(session: AsyncSession, dispute_id: str) -> bool:
+    """Give back what dispute ``dispute_id`` took, as credit, once the dispute is won;
+    return whether it was given now. Stripe's dispute fee is not given back: Stripe keeps
+    it whoever wins."""
+    taken = await session.scalar(
+        select(BillingEntryRecord).where(BillingEntryRecord.stripe_ref == dispute_id)
+    )
+    if taken is None:
+        return False
+    account = await get_account(session, taken.user_id)
+    if account is None:
+        return False
+    micros = -taken.credit_micros + taken.subscription_micros
+    account.credit_micros += micros
+    account.updated_at = datetime.now(timezone.utc)
+    return await _add_entry(
+        session,
+        _entry(
+            account.user_id,
+            DISPUTE,
+            credit_micros=micros,
+            stripe_ref=f"won-{dispute_id}",
+            payment_intent=taken.payment_intent,
+        ),
+    )
+
+
 async def set_subscription(
     session: AsyncSession,
     account: BillingAccountRecord,

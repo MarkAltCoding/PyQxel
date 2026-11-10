@@ -23,6 +23,8 @@ from app.db.session import get_session
 from app.db.tables import BillingAccountRecord, BillingEntryRecord
 from app.models.billing import (
     BILLING_FEE_RATE,
+    DISPUTE_FEE_CENTS,
+    INTERNATIONAL_FEE_RATE,
     CARD_FEE_CENTS,
     CARD_FEE_RATE,
     MAX_TOP_UP_CENTS,
@@ -127,6 +129,8 @@ async def read_billing(user: CurrentUser, session: Session) -> BillingStatus:
         card_fee_cents=CARD_FEE_CENTS,
         card_fee_rate=CARD_FEE_RATE,
         billing_fee_rate=BILLING_FEE_RATE,
+        international_fee_rate=INTERNATIONAL_FEE_RATE,
+        dispute_fee_cents=DISPUTE_FEE_CENTS,
         min_charge_cents=MIN_CHARGE_CENTS,
     )
 

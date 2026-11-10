@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router'
+import { NavLink, Outlet, useNavigate } from 'react-router'
+import { PolicyLinks } from './LegalSection'
 import { useAuth } from '../auth/useAuth'
 import { useScrollToHash } from '../lib/scrollToHash'
 import { AdviceNotice } from './AdviceNotice'
@@ -95,7 +96,7 @@ export function Layout() {
       <AdviceNotice />
       <footer className="footer">
         PyQxel helps investors research securities. Analyses, backtests, and simulations are built
-        from historical data and are not investment advice. <Link to="/privacy">Privacy</Link>
+        from historical data and are not investment advice. <PolicyLinks />
       </footer>
     </div>
   )

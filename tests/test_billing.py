@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import stripe
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
@@ -34,12 +35,47 @@ CUSTOMER = "cus_test_1"
 MICROS = billing.MICROS_PER_DOLLAR
 
 
+class FakeStripe:
+    """The Stripe calls billing makes on webhook events, recorded instead of sent."""
+
+    def __init__(self, card_country: str | None, customer: str = CUSTOMER) -> None:
+        self.items: list[dict[str, Any]] = []
+        self.card_country = card_country
+        self.customer = customer
+        payment_method = None if card_country is None else {"card": {"country": card_country}}
+        charge = {"customer": customer, "payment_method_details": payment_method}
+
+        async def retrieve_subscription(subscription_id: str, params: Any) -> Any:
+            return SimpleNamespace(to_dict=lambda: {"default_payment_method": payment_method})
+
+        async def create_item(params: dict[str, Any], options: dict[str, Any]) -> None:
+            self.items.append(params)
+
+        async def retrieve_intent(payment_intent: str, params: Any) -> Any:
+            return SimpleNamespace(to_dict=lambda: {"latest_charge": charge})
+
+        async def retrieve_charge(charge_id: str) -> Any:
+            return SimpleNamespace(to_dict=lambda: charge)
+
+        # Webhook signatures are checked as Stripe's own client checks them.
+        self.construct_event = stripe.Webhook.construct_event
+        self.v1 = SimpleNamespace(
+            subscriptions=SimpleNamespace(retrieve_async=retrieve_subscription),
+            invoice_items=SimpleNamespace(create_async=create_item),
+            payment_intents=SimpleNamespace(retrieve_async=retrieve_intent),
+            charges=SimpleNamespace(retrieve_async=retrieve_charge),
+        )
+
+
 @pytest.fixture
 def billed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A server that bills, with a Stripe key no test sends anything on."""
+    """A server that bills, whose Stripe calls reach a fake that says every card is from
+    the US, unless a test makes its own."""
     monkeypatch.setattr(get_settings(), "stripe_secret_key", SecretStr("sk_test_unused"))
     monkeypatch.setattr(get_settings(), "stripe_webhook_secret", SecretStr(WEBHOOK_SECRET))
     stripe_api.client.cache_clear()
+    us = FakeStripe("US")
+    monkeypatch.setattr(stripe_api, "client", lambda: us)
 
 
 def _run[T](coro: Coroutine[Any, Any, T]) -> T:
@@ -279,7 +315,9 @@ def test_refunds_and_disputes_take_a_top_up_back_out_of_the_credit(user: User) -
     # The dispute takes back only what is left of the top-up: Stripe's fee was never credit.
     dispute = {"id": "dp_1", "object": "dispute", "payment_intent": "pi_1", "amount": 1200}
     _send("charge.dispute.created", dispute, "evt_d1")
-    assert (account := _run(_account(user.id))) is not None and account.credit_micros == 0
+    # And Stripe's $15 dispute fee is the user's to pay.
+    assert (account := _run(_account(user.id))) is not None
+    assert account.credit_micros == -15_000_000
 
 
 @pytest.mark.usefixtures("billed")
@@ -321,23 +359,75 @@ def test_a_subscription_is_recorded_and_ended(user: User) -> None:
     assert account is not None and account.subscription_id is None
 
 
+def _draft(due: int) -> dict[str, Any]:
+    return {
+        "id": "in_1",
+        "object": "invoice",
+        "status": "draft",
+        "customer": CUSTOMER,
+        "amount_due": due,
+        "parent": {"subscription_details": {"subscription": "sub_1"}},
+        "lines": {"object": "list", "data": []},
+    }
+
+
 @pytest.mark.usefixtures("billed")
-def test_stripes_fees_on_a_subscription_bill_are_charged_to_the_user_once(user: User) -> None:
-    _make_account(user, subscription="active")
-    invoice = {"id": "in_1", "object": "invoice", "customer": CUSTOMER, "amount_paid": 1000}
+@pytest.mark.parametrize(
+    ("country", "fee"),
+    # $10.00 billed: a US card pays 30 cents plus 3.6% (the card's 2.9% and Billing's 0.7%)
+    # on the bill with the fee included; a card from abroad, or one not known, 1.5% more.
+    [("US", 69), ("GB", 86), (None, 86)],
+)
+def test_a_subscription_bill_carries_its_own_fees(
+    user: User, monkeypatch: pytest.MonkeyPatch, country: str | None, fee: int
+) -> None:
+    fake = FakeStripe(country)
+    monkeypatch.setattr(stripe_api, "client", lambda: fake)
 
-    _send("invoice.paid", invoice)
-    _send("invoice.paid", invoice, "evt_2")
-    # A bill under Stripe's minimum charges nothing, and so costs no fee.
-    _send("invoice.paid", {**invoice, "id": "in_2", "amount_paid": 0}, "evt_3")
+    _send("invoice.created", _draft(1000))
+    # Too small for Stripe to charge: it waits for the next bill, with no fee.
+    _send("invoice.created", {**_draft(40), "id": "in_2"}, "evt_2")
+    # Already final: nothing can be added.
+    _send("invoice.created", {**_draft(1000), "id": "in_3", "status": "open"}, "evt_3")
 
-    async def fees() -> list[tuple[str, int]]:
-        async with get_sessionmaker()() as session:
-            entries = await billing.recent_entries(session, user.id)
-            return [(entry.kind, entry.subscription_micros) for entry in entries]
+    assert [(item["invoice"], item["amount"]) for item in fake.items] == [("in_1", fee)]
+    paid = 1000 + fee
+    rate = 0.036 if country == "US" else 0.051
+    assert fee >= 30 + paid * rate > fee - 1
 
-    # 30 cents plus 2.9% for the card, and Stripe Billing's 0.7%: 66 cents, on the next bill.
-    assert _run(fees()) == [("fee", 660_000)]
+
+@pytest.mark.usefixtures("billed")
+@pytest.mark.parametrize(("country", "taken"), [("US", 0), ("CA", 150_000), (None, 150_000)])
+def test_a_card_from_abroad_pays_stripes_extra_out_of_its_credit(
+    user: User, monkeypatch: pytest.MonkeyPatch, country: str | None, taken: int
+) -> None:
+    monkeypatch.setattr(stripe_api, "client", lambda: FakeStripe(country))
+    _make_account(user)
+
+    _send("checkout.session.completed", _top_up_session(1000))
+
+    account = _run(_account(user.id))
+    # $10 paid, less 59 cents of US fees, less 1.5% for a card from abroad.
+    assert account is not None and account.credit_micros == 9_410_000 - taken
+
+
+@pytest.mark.usefixtures("billed")
+def test_a_disputed_subscription_bill_is_owed_with_stripes_dispute_fee(
+    user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(stripe_api, "client", lambda: FakeStripe("US"))
+    _make_account(user, credit=1_000_000)
+    dispute = {"id": "dp_9", "object": "dispute", "charge": "ch_9", "payment_intent": "pi_9"}
+
+    _send("charge.dispute.created", {**dispute, "amount": 500})
+    _send("charge.dispute.created", {**dispute, "amount": 500}, "evt_2")
+    # $1 of credit, less the $5 bill the bank took back and Stripe's $15 fee.
+    assert (account := _run(_account(user.id))) is not None and account.credit_micros == -19_000_000
+
+    # Won: the $5 comes back; Stripe keeps its fee, so the user still owes it.
+    _send("charge.dispute.closed", {**dispute, "amount": 500, "status": "won"}, "evt_3")
+    _send("charge.dispute.closed", {**dispute, "amount": 500, "status": "won"}, "evt_4")
+    assert (account := _run(_account(user.id))) is not None and account.credit_micros == -14_000_000
 
 
 def test_a_top_up_charges_its_fee_on_top_so_the_credit_is_what_was_asked() -> None:
@@ -460,16 +550,21 @@ def test_deleting_the_account_ends_billing_and_refunds_credit(
     canceled: list[str] = []
     refunds: list[dict[str, Any]] = []
 
-    async def cancel_async(subscription_id: str, params: dict[str, Any]) -> None:
-        canceled.append(subscription_id)
+    async def update_async(subscription_id: str, params: dict[str, Any]) -> None:
+        if params == {"cancel_at_period_end": True}:
+            canceled.append(subscription_id)
+
+    async def report_async(params: dict[str, Any]) -> None:
+        pass
 
     async def refund_async(params: dict[str, Any], options: dict[str, Any]) -> None:
         refunds.append(params)
 
     fake = SimpleNamespace(
         v1=SimpleNamespace(
-            subscriptions=SimpleNamespace(cancel_async=cancel_async),
+            subscriptions=SimpleNamespace(update_async=update_async),
             refunds=SimpleNamespace(create_async=refund_async),
+            billing=SimpleNamespace(meter_events=SimpleNamespace(create_async=report_async)),
         )
     )
     monkeypatch.setattr(stripe_api, "client", lambda: fake)

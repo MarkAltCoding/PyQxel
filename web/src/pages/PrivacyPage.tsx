@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
-import { Link } from 'react-router'
-import { useAuth } from '../auth/useAuth'
+import { LegalFooter } from '../components/LegalSection'
 
 const UPDATED = 'November 6, 2026'
 const CONTACT = 'https://github.com/MarkAltCoding'
@@ -17,7 +16,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 /** What PyQxel keeps about the people who use it, and why. Public, so it can be read
  * before signing in, as Google's sign-in requires. */
 export function PrivacyPage() {
-  const { apiKey } = useAuth()
   return (
     <>
       <article className="card privacy stack" style={{ gap: 20 }}>
@@ -166,10 +164,10 @@ export function PrivacyPage() {
           <p>
             To delete your account and everything it holds, including any keys the nightly screener
             refresh stored, use Delete account in Settings. It takes effect at once and cannot be
-            undone. It also ends any subscription, billing the refreshes up to then, and refunds the
-            credit you have left to the card that paid for it; Stripe keeps its own records of
-            payments, as the law requires. To delete only the stored keys, turn the nightly refresh
-            off. If you can no longer sign in, contact me through{' '}
+            undone. It also ends any subscription at the end of its period, billing the refreshes up
+            to then, and refunds the credit you have left to the card that paid for it; Stripe keeps
+            its own records of payments, as the law requires. To delete only the stored keys, turn
+            the nightly refresh off. If you can no longer sign in, contact me through{' '}
             <a href={CONTACT} target="_blank" rel="noopener noreferrer">
               GitHub
             </a>{' '}
@@ -185,13 +183,7 @@ export function PrivacyPage() {
           </p>
         </Section>
 
-        <p className="disclaimer">
-          Questions? Reach me through{' '}
-          <a href={CONTACT} target="_blank" rel="noopener noreferrer">
-            GitHub
-          </a>
-          . {apiKey ? <Link to="/">Back to PyQxel</Link> : <Link to="/signin">Sign in</Link>}
-        </p>
+        <LegalFooter />
       </article>
     </>
   )

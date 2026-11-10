@@ -923,18 +923,18 @@ const entries = {
   billingTopUp: {
     title: 'Add credit',
     what: 'Buy any amount of credit from $5 to $500 on Stripe’s secure checkout page; it appears within seconds. You pay Stripe’s processing fee on top, so $10 of credit costs $10.61. Refreshes use the credit before any subscription is billed.',
+    note: 'A card issued outside the US costs Stripe 1.5% more; that is taken from the credit after paying, since the checkout page cannot know the card’s country first. Unused credit is refunded to your card if you delete your account.',
     good: '$10 to $20 suits most refresh choices. Stripe’s fee is 30 cents plus 2.9% of each payment, about 6% on $10 and 4% on $20, so larger top-ups pay less in fees.',
-    note: 'Credit you have not used is refunded to your card if you delete your account.',
   },
   billingSubscription: {
     title: 'Subscription',
-    what: 'Stripe bills your card at the end of each week, month, or year for what your refreshes cost in that period, after any credit is used. You choose how often; the amount is whatever your refreshes cost, not a fixed price. Stripe’s fees on each bill, 30 cents plus 3.6%, are added to the next bill.',
+    what: 'Stripe bills your card at the end of each week, month, or year for what your refreshes cost in that period, after any credit is used. You choose how often; the amount is whatever your refreshes cost, not a fixed price. Each bill includes Stripe’s fees on it: 30 cents plus 3.6%, and 1.5% more on a card issued outside the US.',
     good: 'Yearly or monthly: the 30-cent part of the fee is a large share of a small weekly bill.',
     note: 'Stripe charges nothing under 50 cents; a smaller bill is added to the next one. If a payment fails, Stripe retries it and your refresh pauses until it is paid. Cancel any time on Stripe’s billing page: the subscription ends at the end of the period, billing the refreshes up to then.',
   },
   billingHistory: {
     title: 'History',
-    what: 'Your latest payments and charges: credit you added, each refresh’s cost (taken from credit, or billed through your subscription when credit ran out), Stripe’s fees on a subscription bill, and any refund. Receipts and invoices are on Stripe’s billing page.',
+    what: 'Your latest payments and charges: credit you added, each refresh’s cost (taken from credit, or billed through your subscription when credit ran out), Stripe fees not in a payment’s price (a card from abroad, or a disputed payment’s $15 fee), and any refund or dispute. Receipts and invoices are on Stripe’s billing page.',
   },
   nightlyKeyUse: {
     title: 'What one refresh uses',

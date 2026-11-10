@@ -336,8 +336,8 @@ async def delete_account(user: CurrentUser, session: Session) -> Response:
     analyses, and simulations, and your nightly screener refresh with the keys it stored
     and the universe it built are deleted, and every API key stops
     working. Signing in again afterwards starts a new, empty account. A usage subscription
-    ends, billing the refreshes so far, and credit left is refunded to the cards that
-    paid for it.
+    ends at the end of its period, billing the refreshes so far, and credit left is
+    refunded to the cards that paid for it.
     """
     try:
         await _close_billing(session, user.id)
@@ -358,6 +358,8 @@ async def _close_billing(session: AsyncSession, user_id: str) -> None:
     if account is None:
         return
     try:
+        # Usage not yet reported would be lost with the account; its last bill needs it.
+        await stripe_api.report_usage(session)
         await stripe_api.cancel_subscription(account)
         refunded = await stripe_api.refund_unused_credit(session, account)
     except stripe.StripeError as exc:

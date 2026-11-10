@@ -576,8 +576,8 @@ export interface paths {
      *     analyses, and simulations, and your nightly screener refresh with the keys it stored
      *     and the universe it built are deleted, and every API key stops
      *     working. Signing in again afterwards starts a new, empty account. A usage subscription
-     *     ends, billing the refreshes so far, and credit left is refunded to the cards that
-     *     paid for it.
+     *     ends at the end of its period, billing the refreshes so far, and credit left is
+     *     refunded to the cards that paid for it.
      */
     delete: operations['delete_account_api_v1_me_delete']
     options?: never
@@ -2873,7 +2873,7 @@ export interface components {
       credit_usd: number
       /**
        * Kind
-       * @description top_up: credit bought, less Stripe's fee; usage: one nightly refresh's cost; fee: Stripe's fees on a subscription bill, charged like usage; refund or dispute: a top-up's money returned, taken back out of the credit.
+       * @description top_up: credit bought, less Stripe's fee; usage: one nightly refresh's cost; fee: a Stripe fee the payment's price did not include (a card from abroad, or a dispute), charged like usage; refund: a top-up's money returned, taken back out of the credit; dispute: a disputed payment taken back, or returned when the dispute is won.
        * @enum {string}
        */
       kind: 'top_up' | 'usage' | 'fee' | 'refund' | 'dispute'
@@ -2914,6 +2914,11 @@ export interface components {
        */
       credit_usd: number
       /**
+       * Dispute Fee Cents
+       * @description Stripe's fee when a payment is disputed with the bank, in cents, which the account that disputed it pays.
+       */
+      dispute_fee_cents: number
+      /**
        * Enabled
        * @description Whether this server bills for the nightly refresh; without billing it is free.
        */
@@ -2928,6 +2933,11 @@ export interface components {
        * @description Whether this account's refreshes are never billed.
        */
       exempt: boolean
+      /**
+       * International Fee Rate
+       * @description What Stripe adds on a card issued outside the US (0.015 = 1.5%), which only those cards pay.
+       */
+      international_fee_rate: number
       /**
        * Last 30 Days Runs
        * @description Refreshes in the last 30 days.

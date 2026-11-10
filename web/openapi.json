@@ -1991,7 +1991,7 @@
             "type": "number"
           },
           "kind": {
-            "description": "top_up: credit bought, less Stripe's fee; usage: one nightly refresh's cost; fee: Stripe's fees on a subscription bill, charged like usage; refund or dispute: a top-up's money returned, taken back out of the credit.",
+            "description": "top_up: credit bought, less Stripe's fee; usage: one nightly refresh's cost; fee: a Stripe fee the payment's price did not include (a card from abroad, or a dispute), charged like usage; refund: a top-up's money returned, taken back out of the credit; dispute: a disputed payment taken back, or returned when the dispute is won.",
             "enum": [
               "top_up",
               "usage",
@@ -2045,6 +2045,11 @@
             "title": "Credit Usd",
             "type": "number"
           },
+          "dispute_fee_cents": {
+            "description": "Stripe's fee when a payment is disputed with the bank, in cents, which the account that disputed it pays.",
+            "title": "Dispute Fee Cents",
+            "type": "integer"
+          },
           "enabled": {
             "description": "Whether this server bills for the nightly refresh; without billing it is free.",
             "title": "Enabled",
@@ -2062,6 +2067,11 @@
             "description": "Whether this account's refreshes are never billed.",
             "title": "Exempt",
             "type": "boolean"
+          },
+          "international_fee_rate": {
+            "description": "What Stripe adds on a card issued outside the US (0.015 = 1.5%), which only those cards pay.",
+            "title": "International Fee Rate",
+            "type": "number"
           },
           "last_30_days_runs": {
             "description": "Refreshes in the last 30 days.",
@@ -2114,6 +2124,8 @@
           "card_fee_cents",
           "card_fee_rate",
           "billing_fee_rate",
+          "international_fee_rate",
+          "dispute_fee_cents",
           "min_charge_cents"
         ],
         "title": "BillingStatus",
@@ -14290,7 +14302,7 @@
     },
     "/api/v1/me": {
       "delete": {
-        "description": "Delete your account and everything it holds, at once and for good.\n\nYour PyQxel API keys, sign-in links to GitHub and Google, holdings, stored backtests,\nanalyses, and simulations, and your nightly screener refresh with the keys it stored\nand the universe it built are deleted, and every API key stops\nworking. Signing in again afterwards starts a new, empty account. A usage subscription\nends, billing the refreshes so far, and credit left is refunded to the cards that\npaid for it.",
+        "description": "Delete your account and everything it holds, at once and for good.\n\nYour PyQxel API keys, sign-in links to GitHub and Google, holdings, stored backtests,\nanalyses, and simulations, and your nightly screener refresh with the keys it stored\nand the universe it built are deleted, and every API key stops\nworking. Signing in again afterwards starts a new, empty account. A usage subscription\nends at the end of its period, billing the refreshes so far, and credit left is\nrefunded to the cards that paid for it.",
         "operationId": "delete_account_api_v1_me_delete",
         "responses": {
           "204": {
