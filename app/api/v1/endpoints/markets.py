@@ -53,7 +53,9 @@ router = APIRouter()
 PART_NAMES: tuple[str, ...] = ("earnings reports", "IPOs", "market holidays", "market status")
 
 
-async def _major(events: list[EarningsEvent], min_market_cap: float) -> list[EarningsEvent]:
+async def _major(
+    events: list[EarningsEvent], min_market_cap: float, max_market_cap: float | None = None
+) -> list[EarningsEvent]:
     """The major companies' reports among ``events``, sized from the screened universe."""
     try:
         async with get_sessionmaker()() as session:
@@ -65,7 +67,7 @@ async def _major(events: list[EarningsEvent], min_market_cap: float) -> list[Ear
     except (SQLAlchemyError, OSError) as exc:
         logger.error("Could not read market caps for the earnings calendar: %s", exc)
         caps = {}
-    return major_earnings(events, caps, min_market_cap)
+    return major_earnings(events, caps, min_market_cap, max_market_cap)
 
 
 def _missing(name: str, error: BaseException) -> str:
@@ -77,7 +79,10 @@ def _missing(name: str, error: BaseException) -> str:
 
 
 async def _finnhub_parts(
-    start: date, end: date, min_market_cap: float = MAJOR_MARKET_CAP
+    start: date,
+    end: date,
+    min_market_cap: float = MAJOR_MARKET_CAP,
+    max_market_cap: float | None = None,
 ) -> tuple[list[Any], list[str]]:
     """Earnings, IPOs, holidays, and the market status, each ``None`` when Finnhub could
     not supply it, and why."""
@@ -103,7 +108,7 @@ async def _finnhub_parts(
         else:
             parts.append(result)
     if parts[0] is not None:
-        parts[0] = await _major(parts[0], min_market_cap)
+        parts[0] = await _major(parts[0], min_market_cap, max_market_cap)
     return parts, missing
 
 
@@ -122,11 +127,19 @@ async def get_calendar(
     min_market_cap: Annotated[
         float,
         Query(
-            ge=1e9,
+            ge=0,
             le=MAX_MIN_MARKET_CAP,
             description="Smallest market cap, in US dollars, of companies listed.",
         ),
     ] = MAJOR_MARKET_CAP,
+    max_market_cap: Annotated[
+        float | None,
+        Query(
+            ge=1e9,
+            le=MAX_MIN_MARKET_CAP,
+            description="If given, only companies worth less than this, in US dollars.",
+        ),
+    ] = None,
 ) -> MarketCalendar:
     """Return the market-moving dates of the next ``days`` days.
 
@@ -136,13 +149,14 @@ async def get_calendar(
     universe a quarterly revenue estimate of $2 billion or more), ``ipos`` the IPO
     calendar, ``holidays`` US market holidays and early closes, and ``status`` whether
     the market is open. ``min_market_cap`` sets which companies' reports are listed
-    ($10 billion by default). Calendars are reused for six hours. A part that could not be
-    supplied is left empty and ``notice`` says why.
+    ($10 billion by default), and ``max_market_cap``, if given, lists only those worth
+    less (send ``min_market_cap=0`` for every company below it). Calendars are reused for
+    six hours. A part that could not be supplied is left empty and ``notice`` says why.
     """
     start = date.today()
     end = start + timedelta(days=days - 1)
     meetings, (parts, missing) = await asyncio.gather(
-        fetch_fomc_meetings(), _finnhub_parts(start, end, min_market_cap)
+        fetch_fomc_meetings(), _finnhub_parts(start, end, min_market_cap, max_market_cap)
     )
     earnings, ipos, holidays, market_status = parts
     notices = []

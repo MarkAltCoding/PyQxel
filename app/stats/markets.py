@@ -51,22 +51,28 @@ def major_earnings(
     events: list[EarningsEvent],
     caps: dict[str, tuple[str, float]],
     min_market_cap: float = MAJOR_MARKET_CAP,
+    max_market_cap: float | None = None,
 ) -> list[EarningsEvent]:
-    """The reports of companies worth ``min_market_cap`` or more, named and with their
-    market caps where known.
+    """The reports of companies worth ``min_market_cap`` or more, and less than
+    ``max_market_cap`` when one is given, named and with their market caps where known.
 
     A company outside the screened universe, such as a foreign issuer, has no known market
-    cap, so it is listed from :data:`REVENUE_PER_MARKET_CAP` times ``min_market_cap`` of
-    quarterly revenue estimate.
+    cap, so it is sized by its quarterly revenue estimate, taken as
+    :data:`REVENUE_PER_MARKET_CAP` of its market cap; with a ceiling, a company without
+    an estimate is left out, since nothing says it is below it.
     """
     major: list[EarningsEvent] = []
     for event in events:
         known = caps.get(event.symbol)
         if known is not None:
             name, cap = known
-            if cap >= min_market_cap:
+            if cap >= min_market_cap and (max_market_cap is None or cap < max_market_cap):
                 major.append(event.model_copy(update={"name": _name(name), "market_cap": cap}))
-        elif (event.revenue_estimate or 0) >= min_market_cap * REVENUE_PER_MARKET_CAP:
+            continue
+        revenue = event.revenue_estimate or 0
+        if revenue < min_market_cap * REVENUE_PER_MARKET_CAP:
+            continue
+        if max_market_cap is None or 0 < revenue < max_market_cap * REVENUE_PER_MARKET_CAP:
             major.append(event)
     return major
 

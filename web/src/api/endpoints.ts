@@ -162,9 +162,17 @@ export const getFactors = (symbol: string, period: string, model: string) =>
   api<FactorRegression>(`${path(symbol)}/factors`, { query: { period, model } })
 export const getAlternative = (symbol: string) =>
   api<AlternativeData>(`${path(symbol)}/alternative`)
-export const getMarketCalendar = (days: number, minMarketCap: number) =>
+/** The smallest company whose earnings the calendar lists when a ceiling is chosen, so
+ * "less than" does not list thousands of tiny companies. */
+export const CALENDAR_FLOOR = 1e9
+
+/** The calendar of the next `days` days, with the earnings of companies worth at least
+ * `marketCap`, or, when `below`, worth from `CALENDAR_FLOOR` up to less than it. */
+export const getMarketCalendar = (days: number, marketCap: number, below = false) =>
   api<MarketCalendar>(`${V1}/markets/calendar`, {
-    query: { days, min_market_cap: minMarketCap },
+    query: below
+      ? { days, min_market_cap: CALENDAR_FLOOR, max_market_cap: marketCap }
+      : { days, min_market_cap: marketCap },
   })
 export const getMarketNews = (category: MarketNewsCategory) =>
   api<MarketNews>(`${V1}/markets/news`, { query: { category } })

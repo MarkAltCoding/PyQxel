@@ -96,10 +96,18 @@ describe('the Markets page', () => {
     renderPage()
     const caps = await screen.findByRole('group', { name: 'Companies reporting, by market cap' })
 
-    await userEvent.click(within(caps).getByRole('button', { name: '$500B+' }))
+    await userEvent.click(within(caps).getByRole('button', { name: '$500B' }))
     await waitFor(() =>
       expect(calendarCalls().at(-1)?.searchParams.get('min_market_cap')).toBe('500000000000'),
     )
+
+    // "Less than" turns the same size into a ceiling.
+    const side = screen.getByRole('group', { name: 'Market cap' })
+    await userEvent.click(within(side).getByRole('button', { name: 'Less than' }))
+    await waitFor(() =>
+      expect(calendarCalls().at(-1)?.searchParams.get('max_market_cap')).toBe('500000000000'),
+    )
+    expect(calendarCalls().at(-1)?.searchParams.get('min_market_cap')).toBe('1000000000')
 
     await userEvent.click(
       within(screen.getByRole('group', { name: 'Window' })).getByRole('button', { name: 'Custom' }),

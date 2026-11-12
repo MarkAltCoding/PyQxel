@@ -239,6 +239,23 @@ def test_major_earnings_by_market_cap_or_revenue() -> None:
     ]
 
 
+def test_earnings_below_a_market_cap() -> None:
+    """A ceiling keeps the smaller companies: those known to be worth less, and those
+    outside the universe whose revenue estimate puts them below it."""
+    events = [
+        EarningsEvent(symbol="AAPL", date=TODAY, revenue_estimate=1e11),
+        EarningsEvent(symbol="MID", date=TODAY),
+        EarningsEvent(symbol="SMALL", date=TODAY, revenue_estimate=1e9),
+        EarningsEvent(symbol="BIGABROAD", date=TODAY, revenue_estimate=9e9),
+        EarningsEvent(symbol="UNSIZED", date=TODAY),
+    ]
+    caps = {"AAPL": ("Apple Inc.", 3e12), "MID": ("Mid Corp", 4e9)}
+
+    below = major_earnings(events, caps, min_market_cap=0, max_market_cap=10e9)
+
+    assert [e.symbol for e in below] == ["MID", "SMALL"]
+
+
 def test_market_context_keeps_what_is_soon() -> None:
     """The context keeps the next two meetings and the next two weeks' largest events."""
     news = MarketNews(
@@ -347,6 +364,8 @@ def test_market_news_route_needs_a_key(user: object) -> None:
         ({"days": 91}, 422),
         ({"min_market_cap": 5e11}, 200),
         ({"min_market_cap": 6e12}, 422),
+        ({"min_market_cap": 0, "max_market_cap": 1e10}, 200),
+        ({"max_market_cap": 1e8}, 422),
     ],
 )
 def test_calendar_accepts_custom_windows_and_market_caps(

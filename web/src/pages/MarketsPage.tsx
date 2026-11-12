@@ -39,11 +39,19 @@ const KINDS: { value: Kind; label: string }[] = [
 const ALL_KINDS = KINDS.map((kind) => kind.value)
 
 const SIZES = [
-  { value: 10e9, label: '$10B+' },
-  { value: 50e9, label: '$50B+' },
-  { value: 100e9, label: '$100B+' },
-  { value: 500e9, label: '$500B+' },
+  { value: 10e9, label: '$10B' },
+  { value: 50e9, label: '$50B' },
+  { value: 100e9, label: '$100B' },
+  { value: 500e9, label: '$500B' },
 ] as const
+
+/** Whether the market cap chosen is a floor or a ceiling. */
+type SizeSide = 'above' | 'below'
+
+const SIZE_SIDES: { value: SizeSide; label: string }[] = [
+  { value: 'above', label: 'At least' },
+  { value: 'below', label: 'Less than' },
+]
 
 /** Range of a custom market cap, in billions of dollars, as the API allows. */
 const MIN_CAP_BILLIONS = 1
@@ -90,10 +98,11 @@ function MarketsDetails() {
   const [days, setDays] = useState(30)
   const [kinds, setKinds] = useState<Kind[]>(ALL_KINDS)
   const [size, setSize] = useState(50e9)
+  const [side, setSide] = useState<SizeSide>('above')
   const [categories, setCategories] = useState<MarketNewsCategory[]>(['general'])
   const calendar = useQuery({
-    queryKey: ['market-calendar', days, size],
-    queryFn: () => getMarketCalendar(days, size),
+    queryKey: ['market-calendar', days, size, side],
+    queryFn: () => getMarketCalendar(days, size, side === 'below'),
     placeholderData: keepPreviousData,
   })
   const status = calendar.data?.status
@@ -119,12 +128,16 @@ function MarketsDetails() {
           <div>
             <h2>Calendar</h2>
             <div className="subtitle">
-              FOMC meetings from the Federal Reserve; earnings of companies above the market cap
-              chosen, IPOs, and market holidays from Finnhub
+              FOMC meetings from the Federal Reserve; earnings of companies{' '}
+              {side === 'below' ? 'worth $1B up to' : 'above'} the market cap chosen, IPOs, and
+              market holidays from Finnhub
             </div>
           </div>
           <div className="filter-row">
             <MultiToggle label="Events" values={kinds} options={KINDS} onChange={setKinds} />
+            {kinds.includes('earnings') && (
+              <Segmented label="Market cap" value={side} options={SIZE_SIDES} onChange={setSide} />
+            )}
             {kinds.includes('earnings') && (
               <PresetOrCustom
                 label="Companies reporting, by market cap"
