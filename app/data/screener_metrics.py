@@ -59,6 +59,22 @@ within the minute's limit, so on the free plan most of them wait."""
 FINNHUB_RETRIES: int = 3
 """Times a stock is retried after Finnhub says the minute's limit was reached."""
 
+HISTORY_WORKERS: int = 6
+"""Price histories asked of one key at a time; its pace in :data:`HISTORY_PER_MINUTE`
+keeps them within its plan's limit a minute."""
+
+HISTORY_PER_MINUTE: dict[str, int] = {
+    "tiingo": 150,
+    "fmp": 250,
+    "eodhd": 800,
+    "alpha_vantage": 60,
+}
+"""Price histories asked of each key a minute, under the lowest paid plan's limit, so a
+paid key is never cut off for the night by asking too fast: Tiingo's Power plan allows
+10,000 an hour (166 a minute), FMP's Starter 300 a minute, every EODHD plan 1,000, and
+Alpha Vantage's smallest premium plan 75. A free plan's daily or hourly limit stops its
+key long before its pace matters."""
+
 HISTORY_GIVE_UP_AFTER: int = 25
 """Price histories that may fail in a row before the pass stops, taking the user's
 price-history keys to have reached their plans' limits for the night."""
@@ -342,35 +358,58 @@ async def _fetch_into(
     provider: str | None = None,
 ) -> None:
     """Add to ``histories`` the histories of ``symbols`` the current keys answer, trying at
-    most ``limit`` of them, and stopping once a key's limit for the night is reached or
-    :data:`HISTORY_GIVE_UP_AFTER` fail in a row."""
-    failures = 0
+    most ``limit`` of them, in order, and stopping once a key's limit for the night is
+    reached or :data:`HISTORY_GIVE_UP_AFTER` fail in a row.
+
+    One key on its own (``provider``) is asked :data:`HISTORY_WORKERS` at a time, paced
+    under :data:`HISTORY_PER_MINUTE`, so a paid plan's thousands of histories take minutes
+    rather than most of an hour; a free plan reaches its limit as soon as before. The keys
+    answering together are asked one at a time.
+    """
     cutoff = pd.Timestamp(start)
     who = provider or "the price-history keys"
-    for tried, symbol in enumerate(symbols):
-        if limit is not None and tried >= limit:
-            logger.info("%s reached its limit of %d price histories.", who, limit)
+    pace = HISTORY_PER_MINUTE.get(provider) if provider is not None else None
+    pacer = RequestPacer(pace) if pace is not None else None
+    taken = failures = 0
+    stopped = False
+
+    def stop(message: str, *args: object) -> None:
+        nonlocal stopped
+        if not stopped:
+            logger.info(message, *args)
+        stopped = True
+
+    # The symbols this key may try: no more than its limit, claimed in order.
+    allowed = len(symbols) if limit is None else min(limit, len(symbols))
+
+    async def fetch_one() -> None:
+        nonlocal taken, failures
+        # Claimed before any wait, so the symbols are tried in order.
+        symbol = symbols[taken]
+        taken += 1
+        if pacer is not None:
+            await pacer.wait()
+        if stopped:
             return
         try:
             frame = await fetch_price_history(symbol, "2y", "1d")
         except ProviderNotConfiguredError:
-            logger.info("No key for %s, so it fetches no price histories.", who)
+            stop("No key for %s, so it fetches no price histories.", who)
             return
         except ProviderLimitError:
-            logger.info("%s's plan reached its limit for now after %d price histories.", who, tried)
+            stop("%s's plan reached its limit for now after %d price histories.", who, taken - 1)
             return
         except DataFetchError as exc:
             failures += 1
             logger.debug("No price history for %s: %s", symbol, exc)
             if failures >= HISTORY_GIVE_UP_AFTER:
-                logger.info(
+                stop(
                     "Price histories on %s failed %d times in a row, so its plan's limit is "
                     "taken to be reached.",
                     who,
                     failures,
                 )
-                return
-            continue
+            return
         failures = 0
         index = pd.DatetimeIndex(frame.index)
         if index.tz is not None:
@@ -379,3 +418,11 @@ async def _fetch_into(
         window = window[window.index >= cutoff]
         if not window.empty:
             histories[symbol] = window
+
+    async def worker() -> None:
+        while not stopped and taken < allowed:
+            await fetch_one()
+
+    await asyncio.gather(*(worker() for _ in range(HISTORY_WORKERS if pacer is not None else 1)))
+    if not stopped and limit is not None and taken >= limit and len(symbols) > limit:
+        logger.info("%s reached its limit of %d price histories.", who, limit)

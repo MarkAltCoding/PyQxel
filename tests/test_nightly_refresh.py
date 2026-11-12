@@ -1083,3 +1083,31 @@ def test_the_check_minute_matches_the_deploy_schedule() -> None:
     assert (
         f'NIGHTLY_SCHEDULE="${{NIGHTLY_SCHEDULE-{storage.NIGHTLY_CHECK_MINUTE} * * * *}}"' in script
     )
+
+
+def test_one_keys_price_histories_are_fetched_several_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A key on its own is asked several histories at once, at most HISTORY_WORKERS, in
+    order and up to its limit, so a paid plan's thousands take minutes."""
+    started: list[str] = []
+    running = most = 0
+
+    async def slow_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
+        nonlocal running, most
+        started.append(symbol)
+        running += 1
+        most = max(most, running)
+        await asyncio.sleep(0.02)
+        running -= 1
+        return _history()
+
+    monkeypatch.setattr(screener_metrics, "fetch_price_history", slow_history)
+    monkeypatch.setitem(screener_metrics.HISTORY_PER_MINUTE, "eodhd", 60_000)
+    use_provider_keys(ProviderKeys(eodhd=SecretStr("e")))
+    symbols = [f"S{number:02d}" for number in range(20)]
+
+    found = asyncio.run(screener_metrics.fetch_histories(symbols, date(2026, 1, 1), {"eodhd": 15}))
+
+    assert started == symbols[:15] and sorted(found) == symbols[:15]
+    assert 1 < most <= screener_metrics.HISTORY_WORKERS
