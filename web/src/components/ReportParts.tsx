@@ -149,9 +149,17 @@ export function ReportTabs({ label, tabs }: { label: string; tabs: Tab[] }) {
   )
 }
 
-/** Text without Markdown's bold marks, which the report shows as plain text. */
-function plain(text: string): string {
-  return text.replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1')
+/**
+ * Claude's text as shown: without Markdown's bold marks, which would show as asterisks,
+ * and with a short snippet of code in backticks, such as `stop_loss`, set as code.
+ */
+function rich(text: string): ReactNode {
+  const parts = text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .split(/`([^`\n]+)`/)
+  // Splitting on the captured snippet puts the code at every odd index.
+  return parts.map((part, index) => (index % 2 === 1 ? <code key={index}>{part}</code> : part))
 }
 
 /** Whether a line of a summary is an item of a list, as "- " or "* " starts one. */
@@ -176,7 +184,7 @@ function asLines(text: string): string {
 export function Paragraph({ text }: { text: string }) {
   const lines = asLines(text).split('\n')
   const first = lines.findIndex((line) => LIST_ITEM.test(line))
-  if (first === -1) return <p>{plain(text)}</p>
+  if (first === -1) return <p>{rich(text)}</p>
   const lead = lines.slice(0, first).join(' ').trim()
   const items = lines
     .slice(first)
@@ -189,10 +197,10 @@ export function Paragraph({ text }: { text: string }) {
     .filter(Boolean)
   return (
     <>
-      {lead && <p>{plain(lead)}</p>}
+      {lead && <p>{rich(lead)}</p>}
       <ul className="summary-list">
         {items.map((item) => (
-          <li key={item}>{plain(item)}</li>
+          <li key={item}>{rich(item)}</li>
         ))}
       </ul>
     </>
@@ -285,7 +293,7 @@ export function RiskCards({ risks }: { risks: RiskFactor[] }) {
                 {risk.severity}
               </span>
             </div>
-            <p>{plain(risk.evidence)}</p>
+            <p>{rich(risk.evidence)}</p>
           </li>
         )
       })}
@@ -301,7 +309,7 @@ export function FinePrint({ title, items }: { title: string; items: string[] }) 
       <h3>{title}</h3>
       <ul>
         {items.map((item) => (
-          <li key={item}>{plain(item)}</li>
+          <li key={item}>{rich(item)}</li>
         ))}
       </ul>
     </div>

@@ -73,8 +73,10 @@ class AssistantReply(BaseModel):
     """The assistant's answer: an explanation, and the revised code when it changes it."""
 
     explanation: str = Field(
-        description="The answer: what was wrong or what changed and why, in plain prose. "
-        "Short code snippets may appear in backticks."
+        description="The answer: what was wrong or what changed and why, in plain prose, "
+        "in short paragraphs separated by blank lines; a sentence may be followed by a "
+        'short list, one item per line, each starting with "- ". Short code snippets '
+        "may appear in backticks; no other Markdown."
     )
     code: str | None = Field(
         description="The complete revised strategy source, ready to replace the editor's "

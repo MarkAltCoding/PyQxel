@@ -1795,6 +1795,21 @@ table.data td.wrap {
 }
 
 /* ── Strategy coding assistant ── */
+
+/* A snippet of code inside Claude's prose, written in backticks. */
+p code,
+li code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 1px 4px;
+  border-radius: var(--radius-small);
+  background: var(--surface-raised);
+}
+
+.assistant-turn .report-summary p:last-child,
+.assistant-turn .report-summary .summary-list:last-child {
+  margin-bottom: 0;
+}
 .assistant-turn {
   padding: 10px 12px;
   border: 1px solid var(--border);

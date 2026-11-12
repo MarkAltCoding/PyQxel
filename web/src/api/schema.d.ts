@@ -2554,7 +2554,7 @@ export interface components {
       code: string | null
       /**
        * Explanation
-       * @description The answer: what was wrong or what changed and why, in plain prose. Short code snippets may appear in backticks.
+       * @description The answer: what was wrong or what changed and why, in plain prose, in short paragraphs separated by blank lines; a sentence may be followed by a short list, one item per line, each starting with "- ". Short code snippets may appear in backticks; no other Markdown.
        */
       explanation: string
     }

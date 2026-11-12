@@ -50,3 +50,11 @@ describe('a report point', () => {
     expect(screen.getByText('Revenue rose - slowly - this year.')).toBeTruthy()
   })
 })
+
+describe('code in Claude’s prose', () => {
+  it('sets a backticked snippet as code and keeps the words around it', () => {
+    render(<FullText text={'Scale by `0.15 / volatility` each day.'} />)
+    expect(screen.getByText('0.15 / volatility').tagName).toBe('CODE')
+    expect(screen.getByText(/each day\./)).toBeTruthy()
+  })
+})

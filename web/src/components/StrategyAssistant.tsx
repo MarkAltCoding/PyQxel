@@ -9,7 +9,9 @@ import type {
   CodeLanguage,
   LastRun,
 } from '../api/types'
+import { paragraphs } from '../lib/reportText'
 import { ExternalClaude } from './ExternalClaude'
+import { Paragraph } from './ReportParts'
 import { NoAnthropicKey } from './NoAnthropicKey'
 import { providerKeys } from '../lib/providerKeys'
 import { ErrorNotice } from './Notice'
@@ -175,7 +177,11 @@ export function StrategyAssistant({
           </div>
         ) : (
           <div key={index} className="assistant-turn">
-            <div style={{ whiteSpace: 'pre-wrap' }}>{turn.explanation}</div>
+            <div className="report-summary">
+              {paragraphs(turn.explanation).map((paragraph) => (
+                <Paragraph key={paragraph} text={paragraph} />
+              ))}
+            </div>
             {turn.code && (
               <div className="stack" style={{ gap: 6, marginTop: 8 }}>
                 <div className="filter-row" style={{ alignItems: 'center' }}>
