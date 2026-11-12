@@ -515,8 +515,9 @@ export interface paths {
      *     universe a quarterly revenue estimate of $2 billion or more), ``ipos`` the IPO
      *     calendar, ``holidays`` US market holidays and early closes, and ``status`` whether
      *     the market is open. ``min_market_cap`` sets which companies' reports are listed
-     *     ($10 billion by default). Calendars are reused for six hours. A part that could not be
-     *     supplied is left empty and ``notice`` says why.
+     *     ($10 billion by default), and ``max_market_cap``, if given, lists only those worth
+     *     less (send ``min_market_cap=0`` for every company below it). Calendars are reused for
+     *     six hours. A part that could not be supplied is left empty and ``notice`` says why.
      */
     get: operations['get_calendar_api_v1_markets_calendar_get']
     put?: never
@@ -1199,10 +1200,11 @@ export interface paths {
      * Screen stocks by their metrics
      * @description Return the stocks matching ``request``'s filters, sorted and paged.
      *
-     *     ``universe`` narrows the screen to ``large_cap`` (the 500 largest stocks, standing in
-     *     for the S&P 500), ``broad_market`` (the 3,000 largest, like the Russell 3000) or
-     *     ``liquid`` ($5M or more traded a day), or keeps ``all`` stocks that passed the
-     *     baseline filter. Each filter keeps stocks whose ``field`` is within ``min`` and
+     *     ``universe`` narrows the screen to ``sp500`` (the S&P 500's companies, from the SEC
+     *     filings of IVV, a fund that tracks it), ``nasdaq`` (stocks and ETFs listed on Nasdaq),
+     *     ``large_cap`` (the 500 largest stocks), ``broad_market`` (the 3,000 largest, like the
+     *     Russell 3000) or ``liquid`` ($5M or more traded a day), or keeps ``all`` stocks that
+     *     passed the baseline filter. Each filter keeps stocks whose ``field`` is within ``min`` and
      *     ``max`` and drops those without a value. Results are sorted by ``sort.field``, stocks
      *     without it last; ``rank`` is each stock's place in that order.
      *
@@ -1212,7 +1214,8 @@ export interface paths {
      *     The user's own universe is screened when their nightly refresh has built one
      *     (``own`` is then true), and the shared one otherwise.
      *
-     *     Returns 503 when the universe has not been built yet or the database is unavailable.
+     *     Returns 503 when the universe has not been built yet, the database is unavailable, or
+     *     the S&P 500's companies cannot be read from the SEC just then.
      */
     post: operations['screen_stocks_api_v1_screener_post']
     delete?: never
@@ -7621,7 +7624,7 @@ export interface components {
        * @default all
        * @enum {string}
        */
-      universe?: 'all' | 'large_cap' | 'broad_market' | 'liquid'
+      universe?: 'all' | 'sp500' | 'nasdaq' | 'large_cap' | 'broad_market' | 'liquid'
     }
     /**
      * ScreenResponse
@@ -9284,6 +9287,8 @@ export interface operations {
         days?: number
         /** @description Smallest market cap, in US dollars, of companies listed. */
         min_market_cap?: number
+        /** @description If given, only companies worth less than this, in US dollars. */
+        max_market_cap?: number | null
       }
       header?: never
       path?: never

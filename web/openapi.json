@@ -11352,6 +11352,8 @@
             "default": "all",
             "enum": [
               "all",
+              "sp500",
+              "nasdaq",
               "large_cap",
               "broad_market",
               "liquid"
@@ -14242,7 +14244,7 @@
     },
     "/api/v1/markets/calendar": {
       "get": {
-        "description": "Return the market-moving dates of the next ``days`` days.\n\n``fomc`` lists the Federal Reserve's scheduled FOMC meetings, from its own calendar,\nfor every account. With a Finnhub key, ``earnings`` lists major companies' earnings\nreports (a market cap of $10 billion or more, or for companies outside the screened\nuniverse a quarterly revenue estimate of $2 billion or more), ``ipos`` the IPO\ncalendar, ``holidays`` US market holidays and early closes, and ``status`` whether\nthe market is open. ``min_market_cap`` sets which companies' reports are listed\n($10 billion by default). Calendars are reused for six hours. A part that could not be\nsupplied is left empty and ``notice`` says why.",
+        "description": "Return the market-moving dates of the next ``days`` days.\n\n``fomc`` lists the Federal Reserve's scheduled FOMC meetings, from its own calendar,\nfor every account. With a Finnhub key, ``earnings`` lists major companies' earnings\nreports (a market cap of $10 billion or more, or for companies outside the screened\nuniverse a quarterly revenue estimate of $2 billion or more), ``ipos`` the IPO\ncalendar, ``holidays`` US market holidays and early closes, and ``status`` whether\nthe market is open. ``min_market_cap`` sets which companies' reports are listed\n($10 billion by default), and ``max_market_cap``, if given, lists only those worth\nless (send ``min_market_cap=0`` for every company below it). Calendars are reused for\nsix hours. A part that could not be supplied is left empty and ``notice`` says why.",
         "operationId": "get_calendar_api_v1_markets_calendar_get",
         "parameters": [
           {
@@ -14268,9 +14270,29 @@
               "default": 10000000000.0,
               "description": "Smallest market cap, in US dollars, of companies listed.",
               "maximum": 5000000000000.0,
-              "minimum": 1000000000.0,
+              "minimum": 0,
               "title": "Min Market Cap",
               "type": "number"
+            }
+          },
+          {
+            "description": "If given, only companies worth less than this, in US dollars.",
+            "in": "query",
+            "name": "max_market_cap",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 5000000000000.0,
+                  "minimum": 1000000000.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "If given, only companies worth less than this, in US dollars.",
+              "title": "Max Market Cap"
             }
           }
         ],
@@ -15725,7 +15747,7 @@
     },
     "/api/v1/screener": {
       "post": {
-        "description": "Return the stocks matching ``request``'s filters, sorted and paged.\n\n``universe`` narrows the screen to ``large_cap`` (the 500 largest stocks, standing in\nfor the S&P 500), ``broad_market`` (the 3,000 largest, like the Russell 3000) or\n``liquid`` ($5M or more traded a day), or keeps ``all`` stocks that passed the\nbaseline filter. Each filter keeps stocks whose ``field`` is within ``min`` and\n``max`` and drops those without a value. Results are sorted by ``sort.field``, stocks\nwithout it last; ``rank`` is each stock's place in that order.\n\nRank by factor exposure by sorting on a beta: ``{\"field\": \"beta_market\",\n\"descending\": false}`` lists the lowest market betas first.\n\nThe user's own universe is screened when their nightly refresh has built one\n(``own`` is then true), and the shared one otherwise.\n\nReturns 503 when the universe has not been built yet or the database is unavailable.",
+        "description": "Return the stocks matching ``request``'s filters, sorted and paged.\n\n``universe`` narrows the screen to ``sp500`` (the S&P 500's companies, from the SEC\nfilings of IVV, a fund that tracks it), ``nasdaq`` (stocks and ETFs listed on Nasdaq),\n``large_cap`` (the 500 largest stocks), ``broad_market`` (the 3,000 largest, like the\nRussell 3000) or ``liquid`` ($5M or more traded a day), or keeps ``all`` stocks that\npassed the baseline filter. Each filter keeps stocks whose ``field`` is within ``min`` and\n``max`` and drops those without a value. Results are sorted by ``sort.field``, stocks\nwithout it last; ``rank`` is each stock's place in that order.\n\nRank by factor exposure by sorting on a beta: ``{\"field\": \"beta_market\",\n\"descending\": false}`` lists the lowest market betas first.\n\nThe user's own universe is screened when their nightly refresh has built one\n(``own`` is then true), and the shared one otherwise.\n\nReturns 503 when the universe has not been built yet, the database is unavailable, or\nthe S&P 500's companies cannot be read from the SEC just then.",
         "operationId": "screen_stocks_api_v1_screener_post",
         "requestBody": {
           "content": {
