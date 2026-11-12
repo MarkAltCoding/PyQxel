@@ -31,6 +31,12 @@ class InvestorProfile(BaseModel):
         description="Anything else to take into account, e.g. a taxable account, holdings "
         "to keep, or sectors to avoid.",
     )
+    fractional_shares: bool = Field(
+        default=True,
+        description="Whether the person's broker trades fractions of a share: then every "
+        "order is sized to the exact fraction its target needs; otherwise orders are in "
+        "whole shares, and in fractions only where whole shares cannot carry them out.",
+    )
 
 
 MIN_HISTORY_MONTHS: int = 12

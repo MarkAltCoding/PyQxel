@@ -799,7 +799,7 @@ const entries = {
   },
   fractionalShares: {
     title: 'Fractional order',
-    what: 'An order for part of a share, used when whole shares would round the trade away, or to sell a holding of less than one share in full.',
+    what: 'An order for part of a share: every order is sized this way when your broker trades fractional shares, so each position lands on its target. Otherwise it is used only when whole shares would round the trade away, or to sell a holding of less than one share in full.',
     note: 'Not every broker trades fractions of every security. Some, including Fidelity, accept fractional limit orders only as day orders, and allow no stop or trailing-stop orders on fractions; if yours will not take one, trade the fraction at market or round to whole shares.',
   },
   stance: {
@@ -875,6 +875,11 @@ const entries = {
     what: 'The server checks for due refreshes once an hour and starts every refresh whose time has come since the last check, up to 8 at once (when more are due, the next starts as soon as one finishes). Refreshes running at the same moment split the cost of the server’s time, so each pays less: with 3 running, each pays a third of every second they run together. The count is of other users’ refreshes that are on and paid for, at their next time.',
     good: 'The busiest hour is usually the cheapest. The default, 7:00 PM Eastern Time, is the likeliest to be shared, but not a sure one.',
     note: 'Not guaranteed: sharing lasts only while the others run, so a long refresh beside short ones still pays for most of its own time, and other users can change their times or turn theirs off.',
+  },
+  fractionalBroker: {
+    title: 'Fractional shares',
+    what: 'Many brokers, such as Fidelity, Schwab, and Robinhood, let you buy and sell part of a share, like 2.5 shares, or $100 of a $400 stock. Ticked, the plan sizes every order to the exact fraction (to four decimal places) that reaches its target weight. Unticked, it uses whole shares, and fractions only where whole shares cannot work, such as selling a holding of 0.3 shares.',
+    note: 'Brokers limit fractional orders: many take them only as market orders, or as limit orders that expire at the end of the day, and some allow no stop orders on them. The plan notes these limits under its orders. Check that your broker trades fractions of each security in the plan.',
   },
   nightlyUniverse: {
     title: 'What to refresh',

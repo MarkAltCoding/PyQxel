@@ -1484,7 +1484,13 @@ async def _plan(context: PortfolioContext, report: PortfolioReview) -> Rebalance
         )
         for symbol, info, rate in zip(new, found, rates, strict=True)
     }
-    plan = plan_trades(held, targets, prices, context.profile.cash_to_invest + cash_held)
+    plan = plan_trades(
+        held,
+        targets,
+        prices,
+        context.profile.cash_to_invest + cash_held,
+        fractional=context.profile.fractional_shares,
+    )
     notes = list(plan.notes)
     if unpriced:
         notes.append(f"No order for {', '.join(unpriced)}: it could not be priced.")

@@ -100,6 +100,7 @@ def plan_trades(
     targets: dict[str, Target],
     prices: dict[str, float | None],
     cash: float = 0.0,
+    fractional: bool = False,
 ) -> Plan:
     """Size the orders that take ``holdings`` and ``cash`` to ``targets``.
 
@@ -108,13 +109,16 @@ def plan_trades(
         targets: Target per symbol, including new ones and :data:`CASH`.
         prices: Latest prices of the new symbols; ``None`` where none was found.
         cash: New cash to invest.
+        fractional: Whether the broker trades fractions of a share, so every order is
+            sized to the fraction its target needs, to :data:`SHARE_DECIMALS` places.
 
     Returns:
-        Sells first, then buys, in whole shares where it can: buys round down so the plan
-        never spends more than it has, sells round to the nearest share, and a target of
-        zero sells the whole holding, fraction and all. A trade that whole shares would
-        round away, such as one of under a share, is sized in fractional shares instead,
-        and flagged, with notes on what brokers allow for fractions.
+        Sells first, then buys. Buys round down so the plan never spends more than it
+        has, sells round to the nearest unit, and a target of zero sells the whole
+        holding, fraction and all. With ``fractional``, the unit is a ten-thousandth of a
+        share; without, a whole share, and a trade that whole shares would round away,
+        such as one of under a share, is sized in fractional shares instead. Fractional
+        orders are flagged, with notes on what brokers allow for fractions.
     """
     total = math.fsum(shares * price for shares, price in holdings.values()) + cash
     if total <= 0:
@@ -142,13 +146,15 @@ def plan_trades(
             )
             continue
         ideal = abs(difference) / price
+        # The smallest amount an order can be: a whole share, or a ten-thousandth of one.
+        unit = 10**SHARE_DECIMALS if fractional else 1
         if difference < 0:
             action = "sell"
-            whole = float(round(ideal))
-            shares = held_shares if target.weight == 0 else min(held_shares, whole)
+            nearest = round(ideal * unit) / unit
+            shares = held_shares if target.weight == 0 else min(held_shares, nearest)
         else:
             action = "buy"
-            shares = float(math.floor(ideal))
+            shares = math.floor(ideal * unit) / unit
         if shares <= 0:
             # Whole shares round this trade away; a fraction of a share carries it out.
             factor = 10**SHARE_DECIMALS
@@ -182,9 +188,9 @@ def plan_trades(
     if invested + cash > 0 and cash_after < -MIN_TRADE_VALUE:
         notes.append("The buys cost more than the sells and new cash raise; trim them to fit.")
     trades = sells + buys
-    fractional = [trade.symbol for trade in trades if trade.fractional]
-    if fractional:
-        notes.append(FRACTIONAL_NOTE.format(symbols=", ".join(fractional)))
+    fractions = [trade.symbol for trade in trades if trade.fractional]
+    if fractions:
+        notes.append(FRACTIONAL_NOTE.format(symbols=", ".join(fractions)))
     limits = [t.symbol for t in trades if t.fractional and t.order_type == "limit"]
     if limits:
         notes.append(FRACTIONAL_LIMIT_NOTE.format(symbols=", ".join(limits)))

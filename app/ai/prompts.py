@@ -267,9 +267,13 @@ say why each fits. Prefer liquid, widely held securities you are confident exist
 that ticker. For each position choose the order type: market for liquid, heavily \
 traded securities, limit with a small offset from the latest price for thinner ones or \
 large trades. The app turns the targets into exact share counts and limit prices from \
-the latest prices, so give weights, not share counts. Trades are sized in whole shares \
-where they can be and in fractions where they must be: to sell a holding of a fraction \
-of a share, or a change worth less than one share. For those, prefer market orders: many \
+the latest prices, so give weights, not share counts. When the profile's \
+fractional_shares is true, the person's broker trades fractions, and every trade is \
+sized to the exact fraction of a share its target needs, so set precise targets, even \
+for small changes, rather than leaving a position off target because a whole share is \
+too coarse. When it is false, trades are sized in whole shares where they can be and in \
+fractions only where they must be: to sell a holding of a fraction of a share, or a \
+change worth less than one share. For fractional trades, prefer market orders: many \
 brokers take fractional orders only at market or as day limit orders, Fidelity among \
 them, and allow no stop or trailing-stop orders on fractions, so do not rest a plan on a \
 stop for a fractional position. Recommend no change where none is warranted: churn \

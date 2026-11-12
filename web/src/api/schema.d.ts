@@ -4944,6 +4944,12 @@ export interface components {
        */
       cash_to_invest?: number
       /**
+       * Fractional Shares
+       * @description Whether the person's broker trades fractions of a share: then every order is sized to the exact fraction its target needs; otherwise orders are in whole shares, and in fractions only where whole shares cannot carry them out.
+       * @default true
+       */
+      fractional_shares?: boolean
+      /**
        * Horizon Years
        * @description Years until the money is needed.
        */

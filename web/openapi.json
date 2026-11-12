@@ -6010,6 +6010,12 @@
             "title": "Cash To Invest",
             "type": "number"
           },
+          "fractional_shares": {
+            "default": true,
+            "description": "Whether the person's broker trades fractions of a share: then every order is sized to the exact fraction its target needs; otherwise orders are in whole shares, and in fractions only where whole shares cannot carry them out.",
+            "title": "Fractional Shares",
+            "type": "boolean"
+          },
           "horizon_years": {
             "anyOf": [
               {
@@ -14993,7 +14999,8 @@
                   "period": "1y",
                   "portfolio": 1,
                   "profile": {
-                    "cash_to_invest": 0.0
+                    "cash_to_invest": 0.0,
+                    "fractional_shares": true
                   },
                   "refresh": false
                 }
@@ -15085,7 +15092,8 @@
                   "period": "1y",
                   "portfolio": 1,
                   "profile": {
-                    "cash_to_invest": 0.0
+                    "cash_to_invest": 0.0,
+                    "fractional_shares": true
                   },
                   "refresh": false
                 }
@@ -15135,7 +15143,8 @@
                   "period": "1y",
                   "portfolio": 1,
                   "profile": {
-                    "cash_to_invest": 0.0
+                    "cash_to_invest": 0.0,
+                    "fractional_shares": true
                   },
                   "refresh": false
                 }

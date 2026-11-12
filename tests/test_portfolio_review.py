@@ -209,6 +209,37 @@ def test_a_change_under_one_share_is_a_fraction_not_nothing() -> None:
     assert not any("day orders" in note for note in plan.notes)
 
 
+def test_a_broker_that_trades_fractions_gets_exact_orders() -> None:
+    """With fractional shares, each order is sized to the fraction its target needs,
+    buys rounding down so the plan never overspends, and flagged with the broker notes."""
+    holdings = {"AAPL": (10.0, 200.0), "XOM": (20.0, 100.0)}  # 2,000 and 2,000
+    targets = {
+        "AAPL": Target(0.3, "market", None, "Trim."),  # 2,000 to 1,500.30
+        "XOM": Target(0.4, "market", None, "Trim."),  # 2,000 to 2,000.40
+        "VXUS": Target(0.3, "limit", -0.5, "Add."),
+    }
+
+    plan = plan_trades(holdings, targets, {"VXUS": 70.0}, cash=1_001.0, fractional=True)
+
+    trades = {t.symbol: t for t in plan.trades}
+    assert (trades["AAPL"].action, trades["AAPL"].shares) == ("sell", 2.4985)
+    assert (trades["VXUS"].action, trades["VXUS"].shares) == ("buy", 21.4328)
+    assert "XOM" not in trades  # Forty cents off target is not worth an order.
+    assert all(t.fractional for t in trades.values())
+    assert plan.cash_after >= 0
+    assert any("Fractional orders (AAPL, VXUS)" in note for note in plan.notes)
+    assert any("Fractional limit orders (VXUS)" in note for note in plan.notes)
+
+
+def test_without_fractions_orders_stay_in_whole_shares() -> None:
+    holdings = {"AAPL": (10.0, 200.0), "XOM": (20.0, 100.0)}
+    targets = {"AAPL": Target(0.3, "market", None, ""), "XOM": Target(0.7, "market", None, "")}
+
+    plan = plan_trades(holdings, targets, {}, cash=1_001.0)
+
+    assert all(not t.fractional for t in plan.trades)
+
+
 # Routes.
 
 
@@ -262,14 +293,21 @@ def test_review_is_grounded_in_the_saved_holdings(market: list[PortfolioContext]
     }
     assert context.sectors == pytest.approx({"Technology": 2 / 3, "Energy": 1 / 3})
     assert context.total_value == pytest.approx(6000.0)
-    # 2,000 in each holding of 6,000: to 1,500, 1,500, 1,800 and 1,200 of VXUS.
+    # 2,000 in each holding of 6,000: to 1,500, 1,500, 1,800 and 1,200 of VXUS, to the
+    # fraction of a share, as brokers that trade fractions take by default.
     trades = {t["symbol"]: (t["action"], t["shares"]) for t in body["plan"]["trades"]}
     assert trades == {
-        "AAPL": ("sell", 2),
-        "MSFT": ("sell", 1),
+        "AAPL": ("sell", 2.5),
+        "MSFT": ("sell", 1.25),
         "XOM": ("sell", 2),
         "VXUS": ("buy", 24),
     }
+    whole = client.post(
+        "/api/v1/portfolio/analysis",
+        json={"period": "1y", "profile": {"fractional_shares": False}},
+    ).json()
+    shares = {t["symbol"]: t["shares"] for t in whole["plan"]["trades"]}
+    assert shares == {"AAPL": 2, "MSFT": 1, "XOM": 2, "VXUS": 24}
     vxus = next(t for t in body["plan"]["trades"] if t["symbol"] == "VXUS")
     assert (vxus["order_type"], vxus["limit_price"]) == ("limit", 49.75)
 

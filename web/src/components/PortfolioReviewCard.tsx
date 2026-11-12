@@ -73,8 +73,11 @@ function historyLabel(response: { period: Period; history_months?: number | null
 }
 
 /** A share count: whole numbers as they are, fractions to four places. */
+/** A share count as brokers take it: whole, or a fraction to four decimals, e.g. 1,204.0625. */
 const shareCount = (shares: number) =>
-  Number.isInteger(shares) ? number(shares, 0) : String(Number(shares.toFixed(4)))
+  shares.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 4 })
+
+const FRACTIONAL_KEY = 'pyqxel.fractionalShares'
 
 type Risk = NonNullable<InvestorProfile['risk_tolerance']> | 'unset'
 
@@ -125,6 +128,8 @@ export function PortfolioReviewCard({
   const [horizon, setHorizon] = useState('')
   const [cash, setCash] = useState('')
   const [notes, setNotes] = useState('')
+  // Most brokers trade fractions of a share now; the choice is remembered in this browser.
+  const [fractional, setFractional] = useState(() => readStored(FRACTIONAL_KEY) !== 'off')
   const [progress, setProgress] = useState<AiProgress | null>(null)
   const [error, setError] = useState<unknown>(null)
   const abort = useRef<AbortController | null>(null)
@@ -141,6 +146,7 @@ export function PortfolioReviewCard({
     horizon_years: horizon.trim() ? Number(horizon) : null,
     cash_to_invest: cash.trim() ? Number(cash) : 0,
     notes: notes.trim() || null,
+    fractional_shares: fractional,
   })
 
   // Outside the app: the prompt's data is kept so the pasted answer is saved with it.
@@ -288,6 +294,20 @@ export function PortfolioReviewCard({
               onChange={(e) => setNotes(e.target.value)}
             />
           </label>
+          <span className="heading-with-info">
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={fractional}
+                onChange={(e) => {
+                  setFractional(e.target.checked)
+                  writeStored(FRACTIONAL_KEY, e.target.checked ? null : 'off')
+                }}
+              />
+              My broker trades fractional shares
+            </label>
+            <InfoTip topic="fractionalBroker" />
+          </span>
         </div>
       </details>
 

@@ -123,7 +123,13 @@ describe('PortfolioReviewCard', () => {
         combined: false,
         period: '1y',
         refresh: true,
-        profile: { risk_tolerance: null, horizon_years: null, cash_to_invest: 0, notes: null },
+        profile: {
+          risk_tolerance: null,
+          horizon_years: null,
+          cash_to_invest: 0,
+          notes: null,
+          fractional_shares: true,
+        },
       },
     ])
   })
