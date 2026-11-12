@@ -344,7 +344,9 @@ export function HoldingsTable({
                     title={`Remove ${row.symbol}`}
                     onClick={() => onRemove(row.symbol)}
                   >
-                    ✕
+                    <span className="remove-mark" aria-hidden="true">
+                      ✕
+                    </span>
                   </button>
                 </td>
               </tr>

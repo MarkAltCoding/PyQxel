@@ -741,6 +741,12 @@ table.data th.num {
   font-variant-numeric: tabular-nums;
 }
 
+/* A numeric column's heading with its "i" is a flex row, which text-align does not move:
+   it is pushed to the right edge itself, over the numbers below it. */
+table.data th.num .heading-with-info {
+  justify-content: flex-end;
+}
+
 table.data tbody tr.clickable {
   cursor: pointer;
 }
@@ -871,6 +877,30 @@ table.data .muted {
 .holdings-table .remove-holding {
   width: 32px;
   padding: 0;
+}
+
+/* The ✕ sits in a circle drawn inside the button, so the button keeps its full tap target
+   on a touch screen while the circle stays small. */
+.remove-holding .remove-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.holdings-table .remove-holding:hover:not(:disabled) {
+  background: transparent;
+}
+
+.remove-holding:hover:not(:disabled) .remove-mark {
+  background: var(--critical);
+  border-color: var(--critical);
+  color: var(--surface);
 }
 
 /* On a phone (HoldingsTable renders "holdings-cards" under 760px) each holding is a
