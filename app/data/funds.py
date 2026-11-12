@@ -41,7 +41,7 @@ from app.data.sec_edgar import edgar_client
 from app.data.universe import fetch_listings
 from app.db.screener import CompanyFigures, company_figures
 from app.db.session import get_sessionmaker
-from app.models.screener import ScreenedStock
+from app.models.screener import ProviderScreenMetrics, ScreenedStock
 from app.models.stock import FundHolding, FundProfile, FundWeight
 from app.stats.fund_stats import HARMONIC_FIELDS, MEAN_FIELDS, HeldCompany, holdings_stats
 
@@ -202,9 +202,9 @@ async def _finnhub_figures(symbols: list[str]) -> dict[str, dict[str, float | No
     if not symbols or current_provider_keys().finnhub is None:
         return {}
     from app.data.finnhub import cached_get  # It imports this module's neighbors.
-    from app.data.screener_metrics import parse_screen_metrics
+    from app.data.screener_metrics import all_in_dollars, parse_screen_metrics
 
-    async def one(symbol: str) -> tuple[str, dict[str, float | None] | None]:
+    async def one(symbol: str) -> tuple[str, ProviderScreenMetrics | None]:
         try:
             payload = await cached_get(
                 "stock/metric",
@@ -215,11 +215,15 @@ async def _finnhub_figures(symbols: list[str]) -> dict[str, dict[str, float | No
         except DataFetchError as exc:
             logger.info("No Finnhub figures for %s: %s", symbol, exc)
             return symbol, None
-        metrics = parse_screen_metrics(payload)
-        return symbol, None if metrics is None else metrics.model_dump()
+        return symbol, parse_screen_metrics(payload)
 
     found = await asyncio.gather(*(one(symbol) for symbol in symbols))
-    return {symbol: figures for symbol, figures in found if figures is not None}
+    # A foreign company's figures come in its home currency; the market cap is converted.
+    converted = await all_in_dollars({symbol: m for symbol, m in found if m is not None})
+    return {
+        symbol: metrics.model_dump(exclude={"home_listing"})
+        for symbol, metrics in converted.items()
+    }
 
 
 async def _weighted(

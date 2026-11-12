@@ -491,6 +491,38 @@ async def test_metrics_convert_percents_and_millions() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_us_listings_home_market_metrics_are_in_dollars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Asked about TSM, Finnhub answers with Taipei's listing in Taiwan dollars: the totals
+    are converted, and the figures per home share, which are not the ADR's, left out."""
+    home = {
+        "metric": {
+            "marketCapitalization": 59_255_464,
+            "enterpriseValue": 56_617_083,
+            "52WeekHigh": 2590,
+            "3MonthAverageTradingVolume": 31.0,
+            "peTTM": 23.3,
+        },
+        "symbol": "2330.TW",
+    }
+
+    async def rate(currency: str, quote: str = "USD") -> float:
+        assert (currency, quote) == ("TWD", "USD")
+        return 0.031
+
+    monkeypatch.setattr(finnhub, "fetch_exchange_rate", rate)
+    client, _ = _finnhub({"stock/metric": lambda request: httpx2.Response(200, json=home)})
+
+    metrics = (await fetch_company_metrics("TSM", client)).metrics
+
+    assert metrics.market_cap == pytest.approx(59_255_464e6 * 0.031)
+    assert metrics.enterprise_value == pytest.approx(56_617_083e6 * 0.031)
+    assert metrics.week_52_high is None and metrics.average_volume_3_month is None
+    assert metrics.pe_ttm == 23.3
+
+
+@pytest.mark.asyncio
 async def test_unknown_symbol_has_no_metrics() -> None:
     """Finnhub's empty metrics for an unknown symbol are a not-found error."""
     empty = {"metric": {}, "metricType": "all", "series": {}, "symbol": "ZZZZQ"}

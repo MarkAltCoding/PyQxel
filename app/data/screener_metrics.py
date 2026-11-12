@@ -30,6 +30,7 @@ from app.data.fetcher import (
     FinnhubRateLimitError,
     ProviderLimitError,
     ProviderNotConfiguredError,
+    SUFFIX_CURRENCIES,
     fetch_price_history,
     finnhub_key,
     finnhub_symbol,
@@ -37,6 +38,7 @@ from app.data.fetcher import (
     finnhub_requests_per_minute,
 )
 from app.core.credentials import current_provider_keys, use_provider_keys
+from app.data.exchange_rates import fetch_exchange_rates
 from app.data.universe import RequestPacer
 from app.models.screener import ProviderScreenMetrics
 
@@ -182,7 +184,43 @@ def parse_screen_metrics(payload: Any) -> ProviderScreenMetrics | None:
         fields["fcf_yield"] = 1 / price_to_fcf
     if fields.get("market_cap", 0.0) <= 0:
         return None
-    return ProviderScreenMetrics(**fields)
+    answered = payload.get("symbol")
+    home = str(answered) if isinstance(answered, str) and "." in answered else None
+    return ProviderScreenMetrics.model_validate(fields | {"home_listing": home})
+
+
+def home_currency(listing: str) -> str | None:
+    """The currency of a listing abroad, e.g. TWD for 2330.TW, from its suffix; ``None``
+    for a suffix :data:`SUFFIX_CURRENCIES` does not know."""
+    return SUFFIX_CURRENCIES.get(listing.rsplit(".", 1)[-1].upper())
+
+
+def in_dollars(
+    metrics: ProviderScreenMetrics, rates: Mapping[str, float]
+) -> ProviderScreenMetrics | None:
+    """``metrics`` with a market cap in US dollars.
+
+    For a foreign company's US listing, Finnhub answers with its home market's figures: the
+    market cap in the home currency (TSM's in Taiwan dollars, a thousand times too large
+    if read as dollars) and the volume in home shares, which are not the US listing's
+    (one TSM ADR is five shares in Taipei). The market cap is converted at ``rates`` (US
+    dollars per unit) and the volume dropped, so the dollar volume comes from the US
+    listing's own prices. Ratios, margins, growth, and returns need no conversion.
+
+    Returns:
+        The metrics, or ``None`` when the home currency or its rate is unknown, since a
+        market cap in the wrong currency would rank and filter the stock wrongly.
+    """
+    if metrics.home_listing is None:
+        return metrics
+    currency = home_currency(metrics.home_listing)
+    rate = None if currency is None else rates.get(currency)
+    if rate is None or metrics.market_cap is None:
+        logger.info("No dollar rate for %s's market cap; it is left out.", metrics.home_listing)
+        return None
+    return metrics.model_copy(
+        update={"market_cap": metrics.market_cap * rate, "average_volume": None}
+    )
 
 
 T = TypeVar("T")
@@ -272,7 +310,7 @@ def parse_etf_metrics(payload: Any) -> ProviderScreenMetrics | None:
         fields["week_52_high"] = high
     if fields.get("average_volume", 0.0) <= 0:
         return None
-    return ProviderScreenMetrics(**fields)
+    return ProviderScreenMetrics.model_validate(fields)
 
 
 async def fetch_etf_metrics(symbols: Iterable[str]) -> dict[str, ProviderScreenMetrics]:
@@ -292,7 +330,30 @@ async def fetch_screen_metrics(symbols: Iterable[str]) -> dict[str, ProviderScre
     Raises:
         ProviderNotConfiguredError: If the user has no Finnhub key, or it is rejected.
     """
-    return await _paced_finnhub(symbols, "stock/metric", {"metric": "all"}, parse_screen_metrics)
+    found = await _paced_finnhub(symbols, "stock/metric", {"metric": "all"}, parse_screen_metrics)
+    return await all_in_dollars(found)
+
+
+async def all_in_dollars(
+    found: Mapping[str, ProviderScreenMetrics],
+) -> dict[str, ProviderScreenMetrics]:
+    """Each of ``found``, metrics by the symbol asked about, with its market cap in US
+    dollars (:func:`in_dollars`), fetching each home currency's rate once. Those whose
+    currency has no rate are left out."""
+    asked: dict[str, ProviderScreenMetrics] = {}
+    for symbol, metrics in found.items():
+        # A US share class such as BRK.B comes back as asked; only another listing is abroad.
+        same = metrics.home_listing == finnhub_symbol(symbol)
+        asked[symbol] = metrics.model_copy(update={"home_listing": None}) if same else metrics
+    currencies = {
+        currency
+        for metrics in asked.values()
+        if metrics.home_listing and (currency := home_currency(metrics.home_listing))
+    }
+    rates = await fetch_exchange_rates(currencies - {"USD"}) if currencies else {}
+    rates["USD"] = 1.0
+    converted = {symbol: in_dollars(metrics, rates) for symbol, metrics in asked.items()}
+    return {symbol: metrics for symbol, metrics in converted.items() if metrics is not None}
 
 
 def parse_quote_price(payload: Any) -> float | None:

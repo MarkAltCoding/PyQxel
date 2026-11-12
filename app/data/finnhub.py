@@ -26,9 +26,11 @@ from typing import Any, TypeVar
 import httpx2
 
 from app.core.cache import cache_get, cache_set
+from app.data.exchange_rates import fetch_exchange_rate
 from app.data.fetcher import (
     finnhub_abroad_hint,
     EXCHANGE_NAMES,
+    SUFFIX_CURRENCIES,
     DataFetchError,
     FinnhubRateLimitError,
     ProviderNotConfiguredError,
@@ -429,6 +431,39 @@ def _metrics(payload: Any) -> KeyMetrics:
     return KeyMetrics(**fields)
 
 
+HOME_PRICE_FIELDS: tuple[str, ...] = (
+    "week_52_high",
+    "week_52_high_date",
+    "week_52_low",
+    "week_52_low_date",
+    "average_volume_10_day",
+    "average_volume_3_month",
+    "dividend_per_share_ttm",
+)
+"""Figures of a home listing's own shares, in its currency, which do not describe a US
+listing of the company (an ADR may be several shares, and is priced in dollars)."""
+
+
+async def _home_listing_in_dollars(metrics: KeyMetrics, listing: str) -> KeyMetrics:
+    """``metrics`` Finnhub gave for ``listing``, a foreign company's home listing, when it
+    was asked about the company's US listing: the market cap and enterprise value in US
+    dollars, and the figures per home share (:data:`HOME_PRICE_FIELDS`) left out. Ratios,
+    margins, growth, and returns need no conversion. Totals whose currency has no rate are
+    left out, rather than shown in the wrong currency."""
+    currency = SUFFIX_CURRENCIES.get(listing.rsplit(".", 1)[-1].upper())
+    rate: float | None = None
+    if currency is not None:
+        try:
+            rate = await fetch_exchange_rate(currency, "USD")
+        except DataFetchError as exc:
+            logger.info("No %s rate for %s's market cap: %s", currency, listing, exc)
+    update: dict[str, Any] = dict.fromkeys(HOME_PRICE_FIELDS)
+    for field in ("market_cap", "enterprise_value"):
+        value = getattr(metrics, field)
+        update[field] = None if value is None or rate is None else value * rate
+    return metrics.model_copy(update=update)
+
+
 async def fetch_company_metrics(
     symbol: str, client: httpx2.AsyncClient | None = None
 ) -> CompanyMetrics:
@@ -456,6 +491,9 @@ async def fetch_company_metrics(
     metrics = _metrics(payload)
     if not metrics.model_dump(exclude_none=True):
         raise SymbolNotFoundError(f"Finnhub has no metrics for {symbol!r}.")
+    answered = payload.get("symbol") if isinstance(payload, dict) else None
+    if isinstance(answered, str) and answered != params["symbol"]:
+        metrics = await _home_listing_in_dollars(metrics, answered)
     if isinstance(peers, ProviderNotConfiguredError):
         raise peers
     if isinstance(peers, DataFetchError):

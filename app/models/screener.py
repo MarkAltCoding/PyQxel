@@ -143,6 +143,13 @@ class ProviderScreenMetrics(BaseModel):
     week_52_high: float | None = Field(
         default=None, description="Highest price over 52 weeks, bounding the current price."
     )
+    home_listing: str | None = Field(
+        default=None,
+        description=(
+            "The listing abroad the figures are of, e.g. 2330.TW for TSM, when Finnhub "
+            "answered for a foreign company's home market instead of its US listing."
+        ),
+    )
 
 
 class ScreenedStock(ScreenMetrics):

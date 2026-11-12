@@ -505,6 +505,42 @@ def test_finnhub_basic_financials_are_converted() -> None:
     assert parse_screen_metrics({"metric": {"peTTM": 10}}) is None
 
 
+@pytest.mark.asyncio
+async def test_a_home_listings_market_cap_is_converted_to_dollars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finnhub answers about TSM with Taipei's 2330.TW, in Taiwan dollars: the market cap is
+    converted and the home shares' volume dropped; a share class asked as itself is kept,
+    and a currency without a rate leaves the stock out rather than ranked wrongly."""
+
+    async def rates(currencies: set[str]) -> dict[str, float]:
+        return {currency: 0.031 for currency in currencies if currency == "TWD"}
+
+    monkeypatch.setattr(screener_metrics, "fetch_exchange_rates", rates)
+
+    def payload(symbol: str, cap_millions: float) -> dict[str, object]:
+        metric = {"marketCapitalization": cap_millions, "peTTM": 23.0}
+        return {"metric": metric | {"3MonthAverageTradingVolume": 31.0}, "symbol": symbol}
+
+    found = {
+        "TSM": parse_screen_metrics(payload("2330.TW", 59_255_464)),
+        "BRK-B": parse_screen_metrics(payload("BRK.B", 1_000_000)),
+        "HXSCL": parse_screen_metrics(payload("000660.KS", 883_384_960)),
+        "AAPL": parse_screen_metrics(payload("AAPL", 5_000_000)),
+    }
+
+    converted = await screener_metrics.all_in_dollars(
+        {symbol: metrics for symbol, metrics in found.items() if metrics is not None}
+    )
+
+    assert set(converted) == {"TSM", "BRK-B", "AAPL"}
+    assert converted["TSM"].market_cap == pytest.approx(59_255_464e6 * 0.031)
+    assert converted["TSM"].average_volume is None and converted["TSM"].pe_ratio == 23.0
+    assert converted["BRK-B"].home_listing is None
+    assert converted["BRK-B"].market_cap == pytest.approx(1e12)
+    assert converted["AAPL"].average_volume == pytest.approx(31e6)
+
+
 def test_price_history_fills_its_columns_and_the_provider_comes_first() -> None:
     provider = _metrics(5e9)
     today = date(2026, 10, 30)
