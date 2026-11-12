@@ -47,6 +47,10 @@ SECTOR_RANGES: tuple[tuple[int, int, str], ...] = (
     (5000, 5199, "Industrials"),
     (5400, 5499, "Consumer Staples"),
     (5910, 5912, "Consumer Staples"),
+    # Variety stores (Walmart, Costco, Target, and the dollar stores) mostly sell
+    # groceries and household goods, so GICS has counted them as Consumer Staples since
+    # 2023.
+    (5331, 5331, "Consumer Staples"),
     (5200, 5999, "Consumer Discretionary"),
     (6500, 6553, "Real Estate"),
     (6798, 6798, "Real Estate"),

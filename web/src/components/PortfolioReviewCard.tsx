@@ -30,6 +30,7 @@ import {
   FinePrint,
   FullText,
   LevelMeter,
+  Paragraph,
   PointColumn,
   ReportTabs,
   ReportViewToggle,
@@ -40,6 +41,7 @@ import {
   Verdict,
   type Tab,
 } from './ReportParts'
+import { paragraphs } from '../lib/reportText'
 import { Segmented } from './Segmented'
 import { Stat } from './Stat'
 import { InfoTip } from './InfoTip'
@@ -445,7 +447,11 @@ function VisualReview({ response }: { response: PortfolioAnalysisResponse }) {
       count: response.plan?.trades.length,
       content: (
         <div className="stack" style={{ gap: 16 }}>
-          <p className="plan-summary">{report.plan_summary}</p>
+          <div className="plan-summary report-summary">
+            {paragraphs(report.plan_summary).map((paragraph) => (
+              <Paragraph key={paragraph} text={paragraph} />
+            ))}
+          </div>
           <AllocationChart response={response} />
           {response.plan && <Orders plan={response.plan} />}
         </div>
@@ -519,7 +525,11 @@ function TextReview({ response }: { response: PortfolioAnalysisResponse }) {
         </div>
       </div>
       <h3>Recommended plan</h3>
-      <p>{report.plan_summary}</p>
+      <div className="report-summary">
+        {paragraphs(report.plan_summary).map((paragraph) => (
+          <Paragraph key={paragraph} text={paragraph} />
+        ))}
+      </div>
       <TargetTable response={response} />
       {response.plan && <Orders plan={response.plan} />}
       <TextPoints title="Trade-offs and what would change the plan" items={report.considerations} />
@@ -596,7 +606,7 @@ function TargetTable({ response }: { response: PortfolioAnalysisResponse }) {
                 {percent(row.target)}
                 {row.keep && <span className="muted"> · hold</span>}
               </td>
-              <td>{row.why}</td>
+              <td className="wrap">{row.why}</td>
             </tr>
           ))}
         </tbody>

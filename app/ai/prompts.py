@@ -6,10 +6,10 @@ from app.models.research import AnalysisKind, Filing
 PLAIN_TEXT: str = """
 
 The report is shown as plain text, not Markdown: use no asterisks for bold and no # for \
-headings. In a summary, separate paragraphs with a blank line, and a sentence may be \
-followed by a short list, one item per line, each line starting with "- ". Every other \
-item, such as a supporting point, counterpoint, or risk, is one or two plain sentences \
-with no list inside it."""
+headings. In a summary or a plan summary, separate paragraphs with a blank line, and a \
+sentence may be followed by a short list, one item per line, each line starting with \
+"- ". Every other item, such as a point, risk, consideration, or rationale, is one or two \
+plain sentences with no list inside it."""
 """How every report is written out, since the app shows its text as it comes."""
 
 SYSTEM_PROMPT: str = """\

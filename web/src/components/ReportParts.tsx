@@ -1,6 +1,7 @@
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { RiskFactor } from '../api/types'
 import type { InfoKey } from '../lib/glossary'
+import { paragraphs } from '../lib/reportText'
 import type { ReportView } from '../lib/reportView'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE, type Tone } from '../lib/tones'
 import { InfoTip } from './InfoTip'
@@ -172,7 +173,7 @@ function asLines(text: string): string {
  * One paragraph of a summary. Claude sometimes ends a paragraph with a list, one item
  * per line; a paragraph would run those lines together, so they are shown as a list.
  */
-function Paragraph({ text }: { text: string }) {
+export function Paragraph({ text }: { text: string }) {
   const lines = asLines(text).split('\n')
   const first = lines.findIndex((line) => LIST_ITEM.test(line))
   if (first === -1) return <p>{plain(text)}</p>
@@ -201,19 +202,16 @@ function Paragraph({ text }: { text: string }) {
 /** Prose split into paragraphs, showing the first until more is asked for. */
 export function Summary({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
-  const paragraphs = text
-    .split(/\n\s*\n/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-  const shown = open ? paragraphs : paragraphs.slice(0, 1)
+  const all = paragraphs(text)
+  const shown = open ? all : all.slice(0, 1)
   return (
     <div className="report-summary">
       {shown.map((paragraph) => (
         <Paragraph key={paragraph} text={paragraph} />
       ))}
-      {paragraphs.length > 1 && (
+      {all.length > 1 && (
         <button type="button" className="link-button" onClick={() => setOpen((was) => !was)}>
-          {open ? 'Show less' : `Read the full summary (${paragraphs.length} paragraphs)`}
+          {open ? 'Show less' : `Read the full summary (${all.length} paragraphs)`}
         </button>
       )}
     </div>
@@ -337,13 +335,9 @@ export function ReportViewToggle({
 export function FullText({ text }: { text: string }) {
   return (
     <div className="report-summary">
-      {text
-        .split(/\n\s*\n/)
-        .map((paragraph) => paragraph.trim())
-        .filter(Boolean)
-        .map((paragraph) => (
-          <Paragraph key={paragraph} text={paragraph} />
-        ))}
+      {paragraphs(text).map((paragraph) => (
+        <Paragraph key={paragraph} text={paragraph} />
+      ))}
     </div>
   )
 }

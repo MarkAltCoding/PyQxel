@@ -635,6 +635,8 @@ def test_sic_codes_map_to_sectors_and_readable_industries() -> None:
     assert sector_for_sic(6798) == "Real Estate"  # REITs, inside the finance range
     assert sector_for_sic(6022) == "Finance"
     assert sector_for_sic(4911) == "Utilities"
+    assert sector_for_sic(5331) == "Consumer Staples"  # Costco and Walmart
+    assert sector_for_sic(5311) == "Consumer Discretionary"  # department stores
     assert sector_for_sic(None) is None and sector_for_sic(9995) is None
     assert industry_name("SERVICES-PREPACKAGED SOFTWARE") == "Services-Prepackaged Software"
 

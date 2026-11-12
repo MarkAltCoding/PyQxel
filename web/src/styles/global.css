@@ -1637,6 +1637,13 @@ table.data .muted {
   max-width: 72ch;
 }
 
+/* A sentence of reasoning in a table, such as a plan's "Why", wraps instead of running
+   off the edge. */
+table.data td.wrap {
+  white-space: normal;
+  min-width: 24ch;
+}
+
 .allocation-legend {
   display: flex;
   align-items: center;
