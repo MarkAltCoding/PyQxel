@@ -148,6 +148,56 @@ export function ReportTabs({ label, tabs }: { label: string; tabs: Tab[] }) {
   )
 }
 
+/** Text without Markdown's bold marks, which the report shows as plain text. */
+function plain(text: string): string {
+  return text.replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1')
+}
+
+/** Whether a line of a summary is an item of a list, as "- " or "* " starts one. */
+const LIST_ITEM = /^\s*[-*•]\s+/
+
+/**
+ * A list run into one line, as in "Margins (10-Q): - Gross 63%. - Operating 33%.",
+ * put back one item per line. Only a colon followed by " - " starts one, so a dash
+ * inside an ordinary sentence is left alone.
+ */
+function asLines(text: string): string {
+  const start = text.search(/:\s+-\s+\S/)
+  if (start === -1 || text.includes('\n- ')) return text
+  const [lead, ...items] = text.slice(start + 1).split(/\s+-\s+(?=\S)/)
+  return [text.slice(0, start + 1) + lead, ...items.map((item) => `- ${item}`)].join('\n')
+}
+
+/**
+ * One paragraph of a summary. Claude sometimes ends a paragraph with a list, one item
+ * per line; a paragraph would run those lines together, so they are shown as a list.
+ */
+function Paragraph({ text }: { text: string }) {
+  const lines = asLines(text).split('\n')
+  const first = lines.findIndex((line) => LIST_ITEM.test(line))
+  if (first === -1) return <p>{plain(text)}</p>
+  const lead = lines.slice(0, first).join(' ').trim()
+  const items = lines
+    .slice(first)
+    .reduce<string[]>((found, line) => {
+      if (LIST_ITEM.test(line)) found.push(line.replace(LIST_ITEM, ''))
+      else if (found.length > 0) found[found.length - 1] += ` ${line.trim()}`
+      return found
+    }, [])
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return (
+    <>
+      {lead && <p>{plain(lead)}</p>}
+      <ul className="summary-list">
+        {items.map((item) => (
+          <li key={item}>{plain(item)}</li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
 /** Prose split into paragraphs, showing the first until more is asked for. */
 export function Summary({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
@@ -159,7 +209,7 @@ export function Summary({ text }: { text: string }) {
   return (
     <div className="report-summary">
       {shown.map((paragraph) => (
-        <p key={paragraph}>{paragraph}</p>
+        <Paragraph key={paragraph} text={paragraph} />
       ))}
       {paragraphs.length > 1 && (
         <button type="button" className="link-button" onClick={() => setOpen((was) => !was)}>
@@ -198,7 +248,9 @@ export function PointColumn({
               <span className="point-mark" aria-hidden="true">
                 {MARKS[tone]}
               </span>
-              <span>{item}</span>
+              <div className="point-text">
+                <Paragraph text={item} />
+              </div>
             </li>
           ))}
         </ul>
@@ -235,7 +287,7 @@ export function RiskCards({ risks }: { risks: RiskFactor[] }) {
                 {risk.severity}
               </span>
             </div>
-            <p>{risk.evidence}</p>
+            <p>{plain(risk.evidence)}</p>
           </li>
         )
       })}
@@ -251,7 +303,7 @@ export function FinePrint({ title, items }: { title: string; items: string[] }) 
       <h3>{title}</h3>
       <ul>
         {items.map((item) => (
-          <li key={item}>{item}</li>
+          <li key={item}>{plain(item)}</li>
         ))}
       </ul>
     </div>
@@ -290,7 +342,7 @@ export function FullText({ text }: { text: string }) {
         .map((paragraph) => paragraph.trim())
         .filter(Boolean)
         .map((paragraph) => (
-          <p key={paragraph}>{paragraph}</p>
+          <Paragraph key={paragraph} text={paragraph} />
         ))}
     </div>
   )
@@ -304,7 +356,9 @@ export function TextPoints({ title, items }: { title: string; items: string[] })
       <h3>{title}</h3>
       <ul>
         {items.map((item) => (
-          <li key={item}>{item}</li>
+          <li key={item} className="point-text">
+            <Paragraph text={item} />
+          </li>
         ))}
       </ul>
     </div>

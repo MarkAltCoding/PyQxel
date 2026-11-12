@@ -3,6 +3,15 @@ coding assistant."""
 
 from app.models.research import AnalysisKind, Filing
 
+PLAIN_TEXT: str = """
+
+The report is shown as plain text, not Markdown: use no asterisks for bold and no # for \
+headings. In a summary, separate paragraphs with a blank line, and a sentence may be \
+followed by a short list, one item per line, each line starting with "- ". Every other \
+item, such as a supporting point, counterpoint, or risk, is one or two plain sentences \
+with no list inside it."""
+"""How every report is written out, since the app shows its text as it comes."""
+
 SYSTEM_PROMPT: str = """\
 You are an equity research analyst writing for an investment research tool.
 
@@ -181,7 +190,7 @@ the evidence supports. Where it helps, be concrete about acting on the view: a \
 position size as a share of a diversified portfolio that suits the stock's volatility, \
 and an entry or exit approach such as scaling in or limit orders near levels the \
 price data shows. You do not know the reader's portfolio or goals, so give these as \
-general sizing, not as instructions for their account."""
+general sizing, not as instructions for their account.""" + PLAIN_TEXT
 
 TASKS: dict[AnalysisKind, str] = {
     "thesis": "Write an investment thesis for this security, including how its valuation, "
@@ -285,7 +294,7 @@ costs money, and trading in a taxable account can realize gains.
 Be direct and specific, and honest about uncertainty: a recommendation built on past \
 prices can be wrong, so name what would change it under considerations. Never promise \
 returns. The person is told the review comes from an AI and that the decision is \
-theirs."""
+theirs.""" + PLAIN_TEXT
 
 PORTFOLIO_TASK: str = (
     "Review this portfolio: how concentrated it is by holding and sector, where its risk "

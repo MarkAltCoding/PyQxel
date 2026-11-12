@@ -91,7 +91,8 @@ METRIC = {
     "metric": {
         "52WeekHigh": 348.15, "52WeekHighDate": "2026-10-13", "52WeekLow": 243.42,
         "52WeekLowDate": "2026-01-20", "beta": 1.1, "peTTM": 39.0, "forwardPE": 31.2,
-        "grossMarginTTM": 48.65, "dividendYieldIndicatedAnnual": 0.5,
+        "grossMarginTTM": 48.65, "dividendYieldIndicatedAnnual": 0.5, "epsTTM": 6.4,
+        "dividendIndicatedAnnual": 1.04,
         "marketCapitalization": 5030228.5, "10DayAverageTradingVolume": 39.4,
         "totalDebt/totalEquityQuarterly": 0.78, "evEbitdaTTM": None,
     },
@@ -482,7 +483,8 @@ async def test_metrics_convert_percents_and_millions() -> None:
     assert (metrics.week_52_high, metrics.week_52_high_date) == (348.15, date(2026, 10, 13))
     assert (metrics.pe_ttm, metrics.forward_pe, metrics.beta) == (39.0, 31.2, 1.1)
     assert metrics.gross_margin_ttm == pytest.approx(0.4865)
-    assert metrics.dividend_yield == pytest.approx(0.005)
+    # The indicated $1.04 over the $249.60 the P/E is on, not Finnhub's stale 0.5%.
+    assert metrics.dividend_yield == pytest.approx(1.04 / 249.6)
     assert metrics.market_cap == pytest.approx(5.0302285e12)
     assert metrics.average_volume_10_day == pytest.approx(39.4e6)
     assert metrics.debt_to_equity == 0.78
@@ -699,3 +701,15 @@ def test_search_without_finnhub_key_uses_the_universe_only(
     monkeypatch.setattr(search_route, "search_symbols", finnhub_search)
 
     assert client.get("/api/v1/search", params={"q": "apple"}).json()["items"] == []
+
+
+def test_a_dividend_yield_falls_back_to_sales_and_then_to_finnhubs_figure() -> None:
+    """With no earnings, the price comes from sales; with no price at all, Finnhub's yield."""
+    loss_maker = {"peTTM": None, "epsTTM": -1.2, "psTTM": 2.0, "revenuePerShareTTM": 25.0}
+    assert finnhub._metrics(
+        {"metric": loss_maker | {"dividendIndicatedAnnual": 1.0}}
+    ).dividend_yield == pytest.approx(0.02)
+    assert finnhub._metrics(
+        {"metric": {"dividendYieldIndicatedAnnual": 3.0}}
+    ).dividend_yield == pytest.approx(0.03)
+    assert finnhub._metrics({"metric": {}}).dividend_yield is None

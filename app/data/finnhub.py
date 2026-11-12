@@ -91,7 +91,6 @@ METRIC_FIELDS: dict[str, tuple[str, float]] = {
     "ev_ebitda_ttm": ("evEbitdaTTM", PLAIN),
     "ev_revenue_ttm": ("evRevenueTTM", PLAIN),
     "price_to_fcf_ttm": ("pfcfShareTTM", PLAIN),
-    "dividend_yield": ("dividendYieldIndicatedAnnual", PERCENT),
     "dividend_per_share_ttm": ("dividendPerShareTTM", PLAIN),
     "payout_ratio_ttm": ("payoutRatioTTM", PERCENT),
     "dividend_growth_5y": ("dividendGrowthRate5Y", PERCENT),
@@ -428,7 +427,31 @@ def _metrics(payload: Any) -> KeyMetrics:
             fields[name] = number * factor
     fields["week_52_high_date"] = _date(values.get("52WeekHighDate"))
     fields["week_52_low_date"] = _date(values.get("52WeekLowDate"))
+    fields["dividend_yield"] = _dividend_yield(values)
     return KeyMetrics(**fields)
+
+
+def _dividend_yield(values: dict[str, Any]) -> float | None:
+    """The indicated annual dividend over the share price, as a decimal.
+
+    Finnhub's own ``dividendYieldIndicatedAnnual`` is often months out of date (Coca-Cola's
+    read 3.1% at a price that put it near 2.2%, and NVIDIA's missed a raise from 1 to 25
+    cents a quarter), so the yield is worked out from the indicated dividend and the price
+    Finnhub's current multiples are on: the P/E times the earnings per share or, for a
+    company with no earnings, the price-to-sales ratio times the sales per share. Finnhub's
+    figure is the fallback when either is missing.
+    """
+    dividend = _number(values.get("dividendIndicatedAnnual"))
+    price = None
+    for ratio, per_share in (("peTTM", "epsTTM"), ("psTTM", "revenuePerShareTTM")):
+        multiple, amount = _number(values.get(ratio)), _number(values.get(per_share))
+        if multiple is not None and amount is not None and multiple > 0 and amount > 0:
+            price = multiple * amount
+            break
+    if dividend is not None and dividend >= 0 and price is not None:
+        return dividend / price
+    stated = _number(values.get("dividendYieldIndicatedAnnual"))
+    return None if stated is None else stated * PERCENT
 
 
 HOME_PRICE_FIELDS: tuple[str, ...] = (

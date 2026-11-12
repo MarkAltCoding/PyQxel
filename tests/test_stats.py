@@ -41,6 +41,17 @@ def test_summary_skips_annualizing_short_windows() -> None:
     assert summary.ewma_volatility is None
 
 
+def test_a_one_year_window_of_trading_days_is_annualized() -> None:
+    """A year of trading days spans a day or two under 365 and still counts as a year."""
+    index = pd.bdate_range("2025-11-12", "2026-11-11")
+    closes = pd.Series([100.0 + i * 0.1 for i in range(len(index))], index=index)
+    assert (index[-1] - index[0]).days < 365
+
+    summary = summarize_prices(closes, periods_per_year=252)
+
+    assert summary.annualized_return is not None
+
+
 def test_summary_annualizes_long_windows() -> None:
     """A two-year doubling annualizes to about 41%, and EWMA volatility is reported."""
     index = pd.bdate_range("2022-01-03", "2024-01-03")

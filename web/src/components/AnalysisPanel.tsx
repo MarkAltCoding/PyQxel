@@ -241,12 +241,21 @@ function Report({ response }: { response: AnalysisResponse }) {
 function PriceFacts({ prices }: { prices: PriceSummary }) {
   return (
     <div className="stats">
-      <Stat
-        info="annualizedReturn"
-        label="Return, annualized"
-        value={signedPercent(prices.annualized_return)}
-        className={tone(prices.annualized_return)}
-      />
+      {prices.annualized_return == null ? (
+        <Stat
+          info="periodReturn"
+          label="Return over the window"
+          value={signedPercent(prices.period_return)}
+          className={tone(prices.period_return)}
+        />
+      ) : (
+        <Stat
+          info="annualizedReturn"
+          label="Return, annualized"
+          value={signedPercent(prices.annualized_return)}
+          className={tone(prices.annualized_return)}
+        />
+      )}
       <Stat
         info="realizedVolatility"
         label="Volatility"

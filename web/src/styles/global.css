@@ -1421,6 +1421,33 @@ table.data .muted {
   line-height: 1.6;
 }
 
+.point-text p {
+  margin: 0;
+}
+
+/* A list inside a point keeps its bullets, not the point column's marks and flex rows. */
+.report .point-column .point-text .summary-list {
+  padding-left: 1.25em;
+  list-style: disc;
+}
+
+.report .point-column .point-text .summary-list li {
+  display: list-item;
+  margin-top: 4px;
+}
+
+.point-text .summary-list {
+  margin: 4px 0 0;
+  padding-left: 1.25em;
+}
+
+.report-summary .summary-list {
+  margin: -4px 0 10px;
+  padding-left: 1.25em;
+  max-width: 72ch;
+  line-height: 1.6;
+}
+
 .billing-history {
   list-style: none;
   margin: 0;

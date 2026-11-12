@@ -21,8 +21,10 @@ from app.stats.volatility import (
 MIN_SUMMARY_RETURNS: int = 20
 """Fewest returns a summary is computed from, about one trading month of daily bars."""
 
-MIN_ANNUALIZING_DAYS: int = 365
-"""Shortest calendar span whose return is annualized; shorter spans overstate it."""
+MIN_ANNUALIZING_DAYS: int = 360
+"""Shortest calendar span whose return is annualized; shorter spans overstate it. A
+one-year window of trading days spans 362 to 364 days, from the first trading day on or
+after the date a year back to the last close, so the cutoff sits a few days under 365."""
 
 
 def summarize_prices(
