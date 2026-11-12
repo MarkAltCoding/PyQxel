@@ -1810,6 +1810,16 @@ li code {
 .assistant-turn .report-summary .summary-list:last-child {
   margin-bottom: 0;
 }
+/* The conversation scrolls inside a box of its own, so the page stays short. */
+.assistant-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(520px, 60vh);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .assistant-turn {
   padding: 10px 12px;
   border: 1px solid var(--border);

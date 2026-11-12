@@ -133,6 +133,12 @@ describe('StrategyAssistant', () => {
     expect(screen.getByText('Add a stop.')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Apply to editor' }))
     expect(onApply).toHaveBeenCalledWith(FIXED)
+
+    // The conversation folds away to one button, and comes back.
+    await userEvent.click(screen.getByRole('button', { name: 'Hide conversation' }))
+    expect(screen.queryByText('Pasted explanation.')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Show conversation (2 messages)' }))
+    expect(screen.getByText('Pasted explanation.')).toBeInTheDocument()
     expect(paths).toEqual([
       '/api/v1/backtests/assistant/prompt',
       '/api/v1/backtests/assistant/import',

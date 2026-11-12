@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { readAiStream, type AiProgress } from '../api/aiStream'
 import { exportAssistantPrompt, importAssistantReply, streamAssistant } from '../api/endpoints'
 import type {
@@ -67,6 +67,17 @@ export function StrategyAssistant({
   const [progress, setProgress] = useState<AiProgress | null>(null)
   const [error, setError] = useState<unknown>(null)
   const abort = useRef<AbortController | null>(null)
+  // A long conversation scrolls inside its own box, newest last, and can be folded away.
+  // It stays folded only until a new message arrives: hiding records how many there were.
+  const [hiddenAt, setHiddenAt] = useState<number | null>(null)
+  const hidden = hiddenAt === turns.length
+  const log = useRef<HTMLDivElement>(null)
+  const logId = useId()
+  useEffect(() => {
+    // Scroll the conversation to its newest message.
+    const box = log.current
+    if (box) box.scrollTop = box.scrollHeight
+  }, [turns.length, hidden])
   useEffect(() => () => abort.current?.abort(), [])
 
   /** The question as the API takes it, with the code, its last run, and the conversation. */
@@ -163,46 +174,65 @@ export function StrategyAssistant({
             your Anthropic key; the conversation is not saved.
           </div>
         </div>
-        {turns.length > 0 && !asking && (
-          <button type="button" className="button ghost small" onClick={() => setTurns([])}>
-            Clear conversation
-          </button>
+        {turns.length > 0 && (
+          <div className="filter-row" style={{ alignItems: 'center' }}>
+            <button
+              type="button"
+              className="button ghost small"
+              aria-expanded={!hidden}
+              aria-controls={logId}
+              onClick={() => setHiddenAt(hidden ? null : turns.length)}
+            >
+              {hidden
+                ? `Show conversation (${turns.length} ${turns.length === 1 ? 'message' : 'messages'})`
+                : 'Hide conversation'}
+            </button>
+            {!asking && (
+              <button type="button" className="button ghost small" onClick={() => setTurns([])}>
+                Clear conversation
+              </button>
+            )}
+          </div>
         )}
       </div>
 
-      {turns.map((turn, index) =>
-        turn.role === 'user' ? (
-          <div key={index} className="assistant-turn user">
-            {turn.text}
-          </div>
-        ) : (
-          <div key={index} className="assistant-turn">
-            <div className="report-summary">
-              {paragraphs(turn.explanation).map((paragraph) => (
-                <Paragraph key={paragraph} text={paragraph} />
-              ))}
-            </div>
-            {turn.code && (
-              <div className="stack" style={{ gap: 6, marginTop: 8 }}>
-                <div className="filter-row" style={{ alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    className="button primary small"
-                    disabled={turn.applied || turn.code === code}
-                    onClick={() => apply(index)}
-                  >
-                    {turn.applied || turn.code === code ? 'Applied' : 'Apply to editor'}
-                  </button>
-                  <span className="disclaimer">Replaces the code in the editor.</span>
-                </div>
-                <details>
-                  <summary>Show the revised code</summary>
-                  <pre className="assistant-code">{turn.code}</pre>
-                </details>
+      {turns.length > 0 && !hidden && (
+        <div id={logId} ref={log} className="assistant-log" aria-label="Conversation with Claude">
+          {turns.map((turn, index) =>
+            turn.role === 'user' ? (
+              <div key={index} className="assistant-turn user">
+                {turn.text}
               </div>
-            )}
-          </div>
-        ),
+            ) : (
+              <div key={index} className="assistant-turn">
+                <div className="report-summary">
+                  {paragraphs(turn.explanation).map((paragraph) => (
+                    <Paragraph key={paragraph} text={paragraph} />
+                  ))}
+                </div>
+                {turn.code && (
+                  <div className="stack" style={{ gap: 6, marginTop: 8 }}>
+                    <div className="filter-row" style={{ alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="button primary small"
+                        disabled={turn.applied || turn.code === code}
+                        onClick={() => apply(index)}
+                      >
+                        {turn.applied || turn.code === code ? 'Applied' : 'Apply to editor'}
+                      </button>
+                      <span className="disclaimer">Replaces the code in the editor.</span>
+                    </div>
+                    <details>
+                      <summary>Show the revised code</summary>
+                      <pre className="assistant-code">{turn.code}</pre>
+                    </details>
+                  </div>
+                )}
+              </div>
+            ),
+          )}
+        </div>
       )}
 
       {asking && (
