@@ -35,6 +35,9 @@ side you are changing before searching the code.
 - **All checks, as CI runs them:** `scripts/check.sh` (or `py` / `web`; extra args go to
   pytest, e.g. `scripts/check.sh py -k portfolio`). It regenerates the OpenAPI schema
   and the frontend types and formats the code first, then prints only failures.
+- **Browser tests:** `scripts/check.sh e2e` builds the frontend and runs Playwright
+  (`web/e2e/`) against the real API, which `scripts/e2e-server.sh` starts on a fresh
+  SQLite database seeded by `scripts/e2e_seed.py`, with no provider keys; CI runs them too.
 - **Run locally:**
   - API: `YFINANCE_FALLBACK=true venv/bin/uvicorn app.main:app --port 8000`
   - Web: `cd web && npm run dev`, at `http://localhost:5173`. Vite listens on IPv6
@@ -86,8 +89,8 @@ side you are changing before searching the code.
   watch it with `/opt/homebrew/bin/gh run list --branch main` (`gh` is not on the PATH).
 - After changing a Pydantic model or a route, regenerate the frontend's types (the check
   script does), then fix what `tsc` reports.
-- Check a UI change in a real browser before calling it done. Playwright is not in the
-  repo: install it in a scratch directory.
+- Check a UI change in a real browser before calling it done: add or extend a test in
+  `web/e2e/` where it fits, or drive the dev server with Playwright from `web/`.
 
 ## Traps
 

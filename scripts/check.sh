@@ -4,6 +4,8 @@
 #   scripts/check.sh          everything
 #   scripts/check.sh py       the API's: formatting, lint, types, tests
 #   scripts/check.sh web      the frontend's: types, lint, formatting, tests
+#   scripts/check.sh e2e      the browser tests: builds the frontend, then runs Playwright
+#                             against the real API (a few minutes; not part of "everything")
 #
 # It first regenerates web/openapi.json and web/src/api/schema.d.ts from the API, so the
 # frontend's types always match it, and formats the code, as CI then expects. Extra
@@ -35,9 +37,9 @@ if [[ $part == all || $part == py || $part == web ]]; then
 fi
 
 if [[ $part == all || $part == py ]]; then
-    step "black" venv/bin/black -q app tests web/src/runners/python
-    step "flake8" venv/bin/flake8 app tests web/src/runners/python
-    step "mypy" venv/bin/mypy app tests web/src/runners/python
+    step "black" venv/bin/black -q app tests scripts/e2e_seed.py web/src/runners/python
+    step "flake8" venv/bin/flake8 app tests scripts/e2e_seed.py web/src/runners/python
+    step "mypy" venv/bin/mypy app tests scripts/e2e_seed.py web/src/runners/python
     step "pytest" bash -c "$python -m pytest -q -p no:cacheprovider $* 2>&1 | tail -15; exit \${PIPESTATUS[0]}"
 fi
 
@@ -46,6 +48,11 @@ if [[ $part == all || $part == web ]]; then
     step "tsc" bash -c "cd web && npm run --silent typecheck"
     step "oxlint" bash -c "cd web && npm run --silent lint"
     step "vitest" bash -c "cd web && npx vitest run --reporter=dot 2>&1 | tail -15; exit \${PIPESTATUS[0]}"
+fi
+
+if [[ $part == e2e ]]; then
+    step "build" bash -c "cd web && npm run --silent build >/dev/null"
+    step "playwright" bash -c "cd web && npx playwright test --reporter=line 2>&1 | tail -40; exit \${PIPESTATUS[0]}"
 fi
 
 if ((${#failed[@]})); then

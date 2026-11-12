@@ -95,6 +95,10 @@ Web Worker that goes off the network once loaded (`runners/lockdown.ts`).
   whose header holds the app's threat model. `AuthContext` renews a sign-in key in use.
 - **Lint:** oxlint fails on exporting non-components from a component file. Put shared
   constants and hooks in `lib/`.
+- **Browser tests:** Playwright in `e2e/` (`npm run e2e` after `npm run build`), against
+  the real API and a seeded database, at a desktop and a phone's width; `e2e/fixtures.ts`
+  signs a page in and fails a test on any error thrown in the page. They reach no market
+  data provider, so they cover what the seeded account and universe can show.
 - **Tests:** vitest + Testing Library, next to the code (`*.test.tsx`). Fake the API with
   `vi.spyOn(globalThis, 'fetch')`. Mock `charts/EChart`, since jsdom has no
   `ResizeObserver` (see `BacktestPage.test.tsx`). `test/setup.ts` clears localStorage

@@ -7,3 +7,6 @@ package-lock.json
 CLAUDE.md
 src-tauri/target
 src-tauri/gen
+e2e/.data
+playwright-report
+test-results

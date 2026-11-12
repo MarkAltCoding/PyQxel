@@ -28,13 +28,13 @@ jobs:
         run: pytest
 
       - name: mypy
-        run: mypy app tests web/src/runners/python
+        run: mypy app tests scripts/e2e_seed.py web/src/runners/python
 
       - name: flake8
-        run: flake8 app tests web/src/runners/python
+        run: flake8 app tests scripts/e2e_seed.py web/src/runners/python
 
       - name: black
-        run: black --check app tests web/src/runners/python
+        run: black --check app tests scripts/e2e_seed.py web/src/runners/python
 
   web:
     name: Web frontend
@@ -85,6 +85,57 @@ jobs:
         run: npm run build
         env:
           PYODIDE_OFFLINE: "1"
+
+  browser:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          grep -v '^rpy2' requirements.txt > requirements-ci.txt
+          pip install -r requirements-ci.txt
+          cd web && npm ci
+
+      - name: Build
+        working-directory: web
+        run: npm run build
+        env:
+          PYODIDE_OFFLINE: "1"
+
+      - name: Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      # The real API serves the built app on a seeded SQLite database, with no provider
+      # keys (scripts/e2e-server.sh), at a desktop and a phone's width.
+      - name: Browser tests
+        working-directory: web
+        run: npm run e2e
+        env:
+          PYTHON: python
+
+      - name: Report
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 7
 
   docker:
     name: Docker image, Postgres, Redis, and R
