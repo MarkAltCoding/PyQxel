@@ -8,6 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import markets, research
+from app.api.v1.endpoints import screener as screener_route
+from app.data.fetcher import DataFetchError
+from app.data.index_members import IndexMembers
+from app.data.universe import Listing
 from app.core.config import get_settings
 from app.core.credentials import ProviderKeys, use_provider_keys
 from app.db.screener import finish_run, replace_universe, start_run
@@ -179,6 +183,48 @@ def test_universe_tiers(universe: str, symbols: list[str]) -> None:
     _store(STOCKS)
 
     assert _symbols(_screen(universe=universe)) == symbols
+
+
+def test_a_nasdaq_screen_keeps_its_listings() -> None:
+    _store(STOCKS[:2] + [_stock("NDQ", 5, exchange="Nasdaq")])
+
+    assert _symbols(_screen(universe="nasdaq")) == ["NDQ"]
+
+
+def test_an_sp500_screen_keeps_the_index_companies_share_classes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The index's companies come from its fund's filing; of a company with notes listed
+    beside its shares, only the share classes the index holds, most traded first."""
+
+    async def members(index: str, listings: list[Listing]) -> IndexMembers:
+        assert index == "sp500"
+        return IndexMembers(listings=[], classes={1: 1, 3: 2})
+
+    monkeypatch.setattr(screener_route, "cached_index_members", members)
+    _store(
+        STOCKS
+        + [
+            _stock("LOSSB", 3, avg_dollar_volume=5e6),
+            _stock("LOSSN", 3, avg_dollar_volume=1e4),  # Its notes, barely traded.
+        ]
+    )
+
+    assert _symbols(_screen(universe="sp500")) == ["BIG", "LOSS", "LOSSB"]
+
+
+def test_an_sp500_screen_without_the_secs_list_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def down(index: str, listings: list[Listing]) -> IndexMembers:
+        raise DataFetchError("The SEC is down.")
+
+    monkeypatch.setattr(screener_route, "cached_index_members", down)
+    _store(STOCKS)
+
+    response = client.post("/api/v1/screener", json={"universe": "sp500"})
+
+    assert response.status_code == 503 and "Large cap" in response.json()["detail"]
 
 
 def test_sector_filter() -> None:

@@ -9,10 +9,13 @@ from typing import Literal, Self, get_args
 
 from pydantic import BaseModel, Field, model_validator
 
-UniverseTier = Literal["all", "large_cap", "broad_market", "liquid"]
+UniverseTier = Literal["all", "sp500", "nasdaq", "large_cap", "broad_market", "liquid"]
 """Which part of the screened universe a screen covers:
 
 * ``all``: every stock that passed the baseline filter when the universe was refreshed.
+* ``sp500``: the companies in the S&P 500, from the filings of IVV, a fund that tracks it
+  (:mod:`app.data.index_members`), each in the share classes the index holds.
+* ``nasdaq``: the stocks and ETFs listed on Nasdaq.
 * ``large_cap``: the 500 largest by market cap, approximating the S&P 500.
 * ``broad_market``: the 3,000 largest by market cap, approximating the Russell 3000.
 * ``liquid``: stocks trading at least $5M a day on average.

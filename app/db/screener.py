@@ -1,6 +1,6 @@
 """Storage of the screened universe, its fundamentals and refresh runs, and screening."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
@@ -343,11 +343,56 @@ async def universe_status(
     )
 
 
+async def universe_listings(session: AsyncSession, universe: Universe) -> list[Listing]:
+    """The companies' listings in ``universe``, to match an index's holdings against when
+    the SEC's listings have not been stored."""
+    table = universe.table
+    rows = await session.execute(
+        select(
+            getattr(table, "symbol"),
+            getattr(table, "cik"),
+            getattr(table, "name"),
+            getattr(table, "exchange"),
+        ).where(universe.rows, getattr(table, "cik").is_not(None))
+    )
+    return [
+        Listing(symbol=symbol, cik=cik, name=name, exchange=exchange)
+        for symbol, cik, name, exchange in rows
+    ]
+
+
+async def index_symbols(
+    session: AsyncSession, universe: Universe, classes: Mapping[int, int]
+) -> set[str]:
+    """The symbols in ``universe`` of the companies an index holds, ``classes`` giving
+    how many of each company's share classes it holds (CIK -> count): those most traded,
+    so Alphabet's two classes are kept and a company's notes or preferreds are not."""
+    table = universe.table
+    cik: InstrumentedAttribute[Any] = getattr(table, "cik")
+    rows = await session.execute(
+        select(getattr(table, "symbol"), cik, getattr(table, "avg_dollar_volume")).where(
+            universe.rows, cik.in_(list(classes))
+        )
+    )
+    by_company: dict[int, list[tuple[float, str]]] = {}
+    for symbol, company, volume in rows:
+        by_company.setdefault(company, []).append((-(volume or 0.0), symbol))
+    return {
+        symbol
+        for company, listed in by_company.items()
+        for _, symbol in sorted(listed)[: classes.get(company, 1)]
+    }
+
+
 async def screen(
-    session: AsyncSession, request: ScreenRequest, universe: Universe | None = None
+    session: AsyncSession,
+    request: ScreenRequest,
+    universe: Universe | None = None,
+    index_classes: Mapping[int, int] | None = None,
 ) -> ScreenResponse:
     """Return the page of stocks in ``universe`` (the shared one by default) matching
-    ``request``, in its sort order."""
+    ``request``, in its sort order. A screen of the S&P 500 needs ``index_classes``, the
+    share classes of each company in it (CIK -> count)."""
     universe = universe or await shared_universe(session)
     table = universe.table
 
@@ -356,7 +401,12 @@ async def screen(
         return found
 
     query = select(table).where(universe.rows)
-    if request.universe == "large_cap":
+    if request.universe == "sp500":
+        symbols = await index_symbols(session, universe, index_classes or {})
+        query = query.where(column("symbol").in_(sorted(symbols)))
+    elif request.universe == "nasdaq":
+        query = query.where(column("exchange") == "Nasdaq")
+    elif request.universe == "large_cap":
         query = query.where(column("market_cap_rank") <= LARGE_CAP_COUNT)
     elif request.universe == "broad_market":
         query = query.where(column("market_cap_rank") <= BROAD_MARKET_COUNT)

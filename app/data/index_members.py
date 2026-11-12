@@ -21,6 +21,7 @@ many once it knows which trade most.
 
 import logging
 import re
+import time
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -105,3 +106,25 @@ async def index_members(index: Index, listings: Iterable[Listing]) -> IndexMembe
         listings=[listing for listing in listings if listing.cik in classes],
         classes=dict(classes),
     )
+
+
+MEMBERS_TTL_SECONDS: float = 12 * 3600
+"""How long an index's member list is reused by the screener: the fund files quarterly."""
+
+_members_cache: dict[Index, tuple[float, IndexMembers]] = {}
+
+
+async def cached_index_members(index: Index, listings: Iterable[Listing]) -> IndexMembers:
+    """:func:`index_members`, reused for :data:`MEMBERS_TTL_SECONDS`, for screens that
+    narrow to an index on every request.
+
+    Raises:
+        DataFetchError: If the fund's filing cannot be read from the SEC.
+    """
+    found = _members_cache.get(index)
+    if found is not None and time.monotonic() - found[0] < MEMBERS_TTL_SECONDS:
+        return found[1]
+    members = await index_members(index, listings)
+    if members.classes:  # Nothing matched, as with no listings stored: ask again next time.
+        _members_cache[index] = (time.monotonic(), members)
+    return members

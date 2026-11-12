@@ -14,7 +14,18 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import CurrentUser
-from app.db.screener import Universe, screen, shows_universe, universe_status, user_universe
+from app.data.fetcher import DataFetchError
+from app.data.index_members import cached_index_members
+from app.db.screener import (
+    Universe,
+    load_listings,
+    screen,
+    shared_universe,
+    shows_universe,
+    universe_listings,
+    universe_status,
+    user_universe,
+)
 from app.db.session import get_session
 from app.models.screener import ScreenRequest, ScreenResponse, UniverseStatus
 
@@ -47,10 +58,11 @@ async def screen_stocks(
 ) -> ScreenResponse:
     """Return the stocks matching ``request``'s filters, sorted and paged.
 
-    ``universe`` narrows the screen to ``large_cap`` (the 500 largest stocks, standing in
-    for the S&P 500), ``broad_market`` (the 3,000 largest, like the Russell 3000) or
-    ``liquid`` ($5M or more traded a day), or keeps ``all`` stocks that passed the
-    baseline filter. Each filter keeps stocks whose ``field`` is within ``min`` and
+    ``universe`` narrows the screen to ``sp500`` (the S&P 500's companies, from the SEC
+    filings of IVV, a fund that tracks it), ``nasdaq`` (stocks and ETFs listed on Nasdaq),
+    ``large_cap`` (the 500 largest stocks), ``broad_market`` (the 3,000 largest, like the
+    Russell 3000) or ``liquid`` ($5M or more traded a day), or keeps ``all`` stocks that
+    passed the baseline filter. Each filter keeps stocks whose ``field`` is within ``min`` and
     ``max`` and drops those without a value. Results are sorted by ``sort.field``, stocks
     without it last; ``rank`` is each stock's place in that order.
 
@@ -60,14 +72,30 @@ async def screen_stocks(
     The user's own universe is screened when their nightly refresh has built one
     (``own`` is then true), and the shared one otherwise.
 
-    Returns 503 when the universe has not been built yet or the database is unavailable.
+    Returns 503 when the universe has not been built yet, the database is unavailable, or
+    the S&P 500's companies cannot be read from the SEC just then.
     """
     try:
         universe = await _universe(session, user.id)
         shown = universe is not None or await shows_universe(session)
-        result = await screen(session, request, universe) if shown else None
+        classes = None
+        if shown and request.universe == "sp500":
+            listings = [listing for listing, _ in await load_listings(session)]
+            if not listings:
+                listings = await universe_listings(
+                    session, universe or await shared_universe(session)
+                )
+            classes = (await cached_index_members("sp500", listings)).classes
+        result = await screen(session, request, universe, classes) if shown else None
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
+    except DataFetchError as exc:
+        logger.warning("The S&P 500's companies could not be read: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The S&P 500's list of companies could not be read from the SEC just now. "
+            "Try again in a minute, or choose “Large cap (top 500 stocks)” meanwhile.",
+        ) from exc
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

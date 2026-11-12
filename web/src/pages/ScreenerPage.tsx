@@ -98,6 +98,8 @@ const ASSET_TYPES = [
 ] as const
 
 const UNIVERSES = [
+  { value: 'sp500', label: 'S&P 500' },
+  { value: 'nasdaq', label: 'Listed on Nasdaq' },
   { value: 'all', label: 'Everything' },
   { value: 'large_cap', label: 'Large cap (top 500 stocks)' },
   { value: 'broad_market', label: 'Broad market (top 3,000 stocks)' },
@@ -157,7 +159,7 @@ interface Screen {
 }
 
 const DEFAULT_SCREEN: Screen = {
-  universe: 'large_cap',
+  universe: 'sp500',
   sector: '',
   assetType: '',
   filters: [],
@@ -415,6 +417,8 @@ export function ScreenerPage() {
             <div className="subtitle">
               Sorted by {FIELDS[state.sort].label.toLowerCase()},{' '}
               {state.descending ? 'highest' : 'lowest'} first · click a column to sort
+              {state.universe === 'sp500' &&
+                ' · S&P 500 companies as of the latest holdings report of IVV, a fund that tracks the index, so a company that joined in the last few months may be missing'}
             </div>
           </div>
           <div className="filter-row" style={{ alignItems: 'center' }}>
