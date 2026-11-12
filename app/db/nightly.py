@@ -20,7 +20,9 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.credentials import ProviderKeys
+from app.core.text import listed
 from app.core.security import CredentialsUnavailableError, decrypt_secret, encrypt_secret
+from app.data.fetcher import PROVIDER_NAMES
 from app.db.billing import refresh_paid_for
 from app.db.tables import (
     NightlyRefreshRecord,
@@ -46,7 +48,7 @@ from app.models.nightly import (
 )
 from app.models.screener import ScreenedStock
 
-RUNNING, SUCCEEDED, FAILED = "running", "succeeded", "failed"
+RUNNING, SUCCEEDED, FAILED, STOPPED = "running", "succeeded", "failed", "stopped"
 """States of a user's refresh run."""
 
 STALE_AFTER: timedelta = timedelta(hours=8)
@@ -194,6 +196,39 @@ def _keys(record: NightlyRefreshRecord) -> ProviderKeys:
     )
 
 
+async def stop_reason(session: AsyncSession, user_id: str, running_on: ProviderKeys) -> str | None:
+    """Why a refresh running on ``running_on`` must stop now, or ``None`` if it may go on:
+    the user turned the refresh off, or unticked, removed, or changed a key it is using,
+    which it must not use any further."""
+    record = await session.get(NightlyRefreshRecord, user_id)
+    if record is None:
+        return "You turned the nightly refresh off while it ran, so it stopped there."
+    try:
+        stored = _keys(record)
+    except Exception:  # Unreadable stored keys: none of them may be used.
+        stored = ProviderKeys()
+    allowed = set(record.providers or [])
+    dropped = [
+        provider
+        for provider in STORED_PROVIDERS
+        if (key := getattr(running_on, provider)) is not None
+        and (
+            provider not in allowed
+            or (now := getattr(stored, provider)) is None
+            or now.get_secret_value() != key.get_secret_value()
+        )
+    ]
+    if not dropped:
+        return None
+    names = listed([PROVIDER_NAMES[provider] for provider in dropped])
+    one = len(dropped) == 1
+    return (
+        f"Your {names} {'key was' if one else 'keys were'} unticked or changed while it ran, "
+        f"so it stopped there and no longer uses {'it' if one else 'them'}. Your universe "
+        "from before was kept; the next refresh runs on the keys you chose."
+    )
+
+
 def _secret(value: object) -> SecretStr | None:
     """A stored key, or ``None`` when none was stored."""
     return SecretStr(value) if isinstance(value, str) and value else None
@@ -241,11 +276,8 @@ async def latest_success(session: AsyncSession, user_id: str) -> UserScreenerRun
 
 
 def _run(record: UserScreenerRunRecord) -> NightlyRun:
-    status: RunStatus = (
-        "running"
-        if record.status == RUNNING
-        else "failed" if record.status == FAILED else "succeeded"
-    )
+    statuses: dict[str, RunStatus] = {RUNNING: "running", FAILED: "failed", STOPPED: "stopped"}
+    status: RunStatus = statuses.get(record.status, "succeeded")
     return NightlyRun(
         status=status,
         started_at=as_utc(record.started_at),
@@ -607,15 +639,16 @@ async def finish_run(
     usage: dict[str, int] | None = None,
     notes: list[str] | None = None,
     cost_micros: int | None = None,
+    stopped: bool = False,
 ) -> None:
-    """Record a user's refresh as failed with ``error``, or succeeded with its results,
-    the requests it sent on each key, what it could not do as asked (``notes``), and what
-    it cost to compute (``cost_micros``)."""
+    """Record a user's refresh as failed with ``error`` (or ``stopped`` by the user, saying
+    why), or succeeded with its results, the requests it sent on each key, what it could
+    not do as asked (``notes``), and what it cost to compute (``cost_micros``)."""
     run = await session.get(UserScreenerRunRecord, run_id)
     if run is None:
         return
     run.finished_at = datetime.now(timezone.utc)
-    run.status = FAILED if error else SUCCEEDED
+    run.status = STOPPED if stopped else FAILED if error else SUCCEEDED
     run.error = error
     run.stocks = stocks
     run.priced = priced

@@ -43,6 +43,10 @@ Each run refreshes every user whose chosen time has come since their last refres
    ETFs above the price and dollar volume floors, and replaces the user's own universe
    with them, shown only to that user.
 
+A running refresh checks every :data:`STOP_CHECK_SECONDS` whether its user turned it off,
+or unticked, removed, or changed a key it is using, and if so stops at once, recorded as
+stopped, keeping the universe from before, so no further request goes out on that key.
+
 Each refresh runs in its own task with only its user's keys and the same data access as
 that user's own requests (see :mod:`app.core.credentials`), so no user's data reaches
 another.
@@ -55,10 +59,13 @@ makes a refresh shorter, and so cheaper.
 """
 
 import asyncio
+import contextlib
 import logging
 import time
+from collections.abc import Coroutine
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
+from typing import Any, TypeVar
 
 import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -94,6 +101,7 @@ from app.db.nightly import (
     replace_user_universe,
     run_choice,
     start_run,
+    stop_reason,
     user_etfs,
 )
 from app.db.screener import (
@@ -627,6 +635,47 @@ class JobClock:
         return self._shares.pop(token)
 
 
+STOP_CHECK_SECONDS: float = 5.0
+"""How often a running refresh checks whether the user turned it off, or unticked or
+changed a key it is using, so it stops within seconds of either."""
+
+
+class RefreshStopped(Exception):
+    """The user turned their refresh off, or withdrew a key it was using, while it ran."""
+
+
+T = TypeVar("T")
+
+
+async def _unless_stopped(work: Coroutine[Any, Any, T], due: DueRefresh) -> T:
+    """Run ``work``, checking every :data:`STOP_CHECK_SECONDS` whether the user stopped
+    the refresh, and cancel it at once if they did, so it sends no further request on a
+    key they withdrew.
+
+    Raises:
+        RefreshStopped: Saying why, when the user stopped it.
+    """
+    task = asyncio.create_task(work)
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=STOP_CHECK_SECONDS)
+            if done:
+                return task.result()
+            try:
+                async with get_sessionmaker()() as session:
+                    reason = await stop_reason(session, due.user_id, due.keys)
+            except Exception as exc:  # A database blip does not stop the refresh.
+                logger.warning("Could not check whether a refresh was stopped: %s", exc)
+                continue
+            if reason is not None:
+                raise RefreshStopped(reason)
+    finally:
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(BaseException):
+                await task
+
+
 async def refresh_user(
     due: DueRefresh, now: datetime | None = None, clock: JobClock | None = None
 ) -> None:
@@ -662,11 +711,18 @@ async def refresh_user(
     )
     with usage.track() as sent:
         try:
-            result = await build_user_universe(
-                due.user_id, now, due.price_history_limits, due.etfs_scanned_at, due.choice
+            result = await _unless_stopped(
+                build_user_universe(
+                    due.user_id, now, due.price_history_limits, due.etfs_scanned_at, due.choice
+                ),
+                due,
             )
         except Exception as exc:
-            logger.warning("User %s's nightly refresh failed: %s", due.user_id, exc)
+            stopped = isinstance(exc, RefreshStopped)
+            if stopped:
+                logger.info("User %s's nightly refresh was stopped: %s", due.user_id, exc)
+            else:
+                logger.warning("User %s's nightly refresh failed: %s", due.user_id, exc)
             cost = run_cost_micros(clock.stop(counting))
             async with get_sessionmaker()() as session:
                 await finish_run(
@@ -675,6 +731,7 @@ async def refresh_user(
                     error=str(exc) or type(exc).__name__,
                     usage=dict(sent),
                     cost_micros=cost,
+                    stopped=stopped,
                 )
                 await _charge(session, user, run_id, cost)
             await usage.flush()

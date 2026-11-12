@@ -18,7 +18,9 @@ STORED_PROVIDERS: tuple[NightlyProvider, ...] = (
 )
 """The providers in :data:`NightlyProvider`, in the order they are listed."""
 
-RunStatus = Literal["running", "succeeded", "failed"]
+RunStatus = Literal["running", "succeeded", "failed", "stopped"]
+"""A refresh is stopped when the user turned it off, or unticked or changed a key it was
+using, while it ran; its ``error`` says which."""
 
 NightlyUniverse = Literal["us_stocks", "us_etfs", "nasdaq", "sp500", "nasdaq100", "international"]
 """Sets of securities a refresh can rebuild, combined as the user chooses: every stock on a

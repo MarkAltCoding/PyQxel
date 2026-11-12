@@ -5991,7 +5991,7 @@ export interface components {
        * Status
        * @enum {string}
        */
-      status: 'running' | 'succeeded' | 'failed'
+      status: 'running' | 'succeeded' | 'failed' | 'stopped'
       /**
        * Stocks
        * @description Stocks in the universe built.

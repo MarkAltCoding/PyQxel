@@ -8258,7 +8258,8 @@
             "enum": [
               "running",
               "succeeded",
-              "failed"
+              "failed",
+              "stopped"
             ],
             "title": "Status",
             "type": "string"

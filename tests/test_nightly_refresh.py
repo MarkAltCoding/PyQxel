@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.credentials import (
@@ -432,6 +433,80 @@ def test_a_refresh_builds_the_users_own_universe_from_their_keys(
     assert refresh["last_success"]["stocks"] == 4 and refresh["last_success"]["priced"] == 1
     # The refresh does not run again the same day.
     assert asyncio.run(job.refresh_due_users()) == 0
+
+
+def _stopping_refresh(
+    monkeypatch: pytest.MonkeyPatch, stop: Callable[[AsyncSession], Awaitable[object]]
+) -> list[str]:
+    """Make Finnhub's figures run until the test's ``stop`` acts on the user's settings, as
+    the user would partway through; return what was asked after that."""
+    monkeypatch.setattr(job, "STOP_CHECK_SECONDS", 0.01)
+    after: list[str] = []
+
+    async def slow(symbols: Iterable[str]) -> dict[str, ProviderScreenMetrics]:
+        async with get_sessionmaker()() as session:
+            await stop(session)
+        for symbol in symbols:
+            await asyncio.sleep(0.05)
+            after.append(symbol)
+        return {}
+
+    monkeypatch.setattr(job, "fetch_screen_metrics", slow)
+    return after
+
+
+@pytest.mark.usefixtures("encryption")
+def test_turning_the_refresh_off_stops_one_running(
+    user: User, key: str, fakes: dict[str, list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _opt_in(user)
+    after = _stopping_refresh(monkeypatch, lambda session: storage.disable(session, user.id))
+
+    asyncio.run(job.refresh_due_users())
+
+    assert len(after) <= 1  # Cancelled at once, not left to ask about every stock.
+    refresh = client.get("/api/v1/me/nightly-refresh", headers=_headers(key)).json()
+    assert refresh["latest_run"]["status"] == "stopped"
+    assert "turned the nightly refresh off" in refresh["latest_run"]["error"]
+
+
+@pytest.mark.usefixtures("encryption")
+def test_unticking_a_key_stops_a_refresh_using_it(
+    user: User, key: str, fakes: dict[str, list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def with_tiingo() -> None:
+        async with get_sessionmaker()() as session:
+            await storage.enable(session, user.id, settings, both)
+
+    settings = NightlyRefreshSettings(refresh_time="00:00", time_zone="UTC")
+    both = ProviderKeys(finnhub=SecretStr(FINNHUB), tiingo=SecretStr(TIINGO))
+    asyncio.run(with_tiingo())
+    finnhub_only = settings.model_copy(update={"use_keys": ["finnhub"]})
+    after = _stopping_refresh(
+        monkeypatch, lambda session: storage.enable(session, user.id, finnhub_only, both)
+    )
+
+    asyncio.run(job.refresh_due_users())
+
+    assert len(after) <= 1
+    run = client.get("/api/v1/me/nightly-refresh", headers=_headers(key)).json()["latest_run"]
+    assert run["status"] == "stopped"
+    assert "Tiingo key was unticked or changed" in run["error"]
+
+
+@pytest.mark.usefixtures("encryption")
+def test_saving_the_same_keys_does_not_stop_a_refresh(
+    user: User, fakes: dict[str, list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def reason() -> str | None:
+        async with get_sessionmaker()() as session:
+            return await storage.stop_reason(
+                session, user.id, ProviderKeys(finnhub=SecretStr(FINNHUB))
+            )
+
+    _opt_in(user)
+
+    assert asyncio.run(reason()) is None
 
 
 @pytest.mark.usefixtures("encryption")

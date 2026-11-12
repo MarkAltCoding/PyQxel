@@ -252,6 +252,12 @@ export function ScreenerPage() {
           finishes, this shows your last universe.
         </Notice>
       )}
+      {latestRun?.status === 'stopped' && (
+        <Notice>
+          Your latest nightly refresh was stopped partway, so this shows your last universe.{' '}
+          <Link to="/settings#nightly-refresh">See why in Settings</Link>.
+        </Notice>
+      )}
       {latestRun?.status === 'failed' && (
         <Notice tone="warning">
           Your latest nightly refresh failed: {latestRun.error}{' '}

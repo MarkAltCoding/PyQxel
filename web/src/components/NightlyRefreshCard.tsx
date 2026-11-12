@@ -252,6 +252,14 @@ export function NightlyRefreshCard({
           </button>
         )}
       </div>
+      {data?.enabled &&
+        data.latest_run?.status === 'running' &&
+        savedKeys.some((key) => !shownKeys.includes(key)) && (
+          <p className="disclaimer" style={{ margin: 0 }}>
+            A refresh is running now. Saving stops it within seconds, so it sends nothing more on
+            the key you unticked; your universe from before is kept.
+          </p>
+        )}
 
       {data?.available && hasFinnhub && (data.time_slots?.length ?? 0) > 0 && (
         <SharingNote slots={data.time_slots ?? []} time={shownTime} zone={shownZone} />
@@ -433,6 +441,11 @@ function RefreshStatus({ status }: { status: NightlyRefreshStatus }) {
               <li key={note}>{note}</li>
             ))}
           </ul>
+        </Notice>
+      )}
+      {latest?.status === 'stopped' && (
+        <Notice>
+          The latest refresh, {dateTime(latest.started_at)}, was stopped: {latest.error}
         </Notice>
       )}
       {latest?.status === 'failed' && (
