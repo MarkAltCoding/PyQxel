@@ -44,9 +44,9 @@ PyQxel runs in a web browser at the hosted site, and as an app for Mac and iPhon
 4. Acknowledge that PyQxel is not investment advice, then sign in with your email and password, or with GitHub or Google. An email and password sign in within the app. GitHub and Google open your browser to sign in, and when you finish it offers to open PyQxel again: allow it.
 5. In **Settings**, add your market data keys. Free plans from Tiingo, Finnhub, and Alpha Vantage are enough to start; the page says what each one adds.
 
-**Updates install themselves.** When a new version is out, PyQxel says so in its corner, on opening or within a few hours, with **Update and restart**: it downloads the new version, checks that it is signed by PyQxel, puts it in place of the old one, and reopens, keeping your sign-in and keys. **Later** hides that version until a newer one comes. (Version 0.1.0, the first, cannot update itself: download the newer `.dmg` once and replace the app in Applications, then sign in again.)
+**Updates install themselves.** When a new version is out, PyQxel says so in its corner, on opening or within a few hours, with **Update and restart**: it downloads the new version, checks that it is signed by PyQxel, puts it in place of the old one, and reopens, keeping your sign-in and keys. **Later** hides that version until a newer one comes.
 
-To uninstall, drag PyQxel from Applications to the Trash. Its saved sign-in and keys on your Mac are in `~/Library/Application Support/com.markaltcoding.pyqxel`, and its pages' storage in `~/Library/WebKit/com.markaltcoding.pyqxel`, which you can delete too (version 0.1.0 kept them in `~/Library/Containers/com.markaltcoding.pyqxel`). Your account and saved work stay on the server until you use **Delete account** in Settings.
+To uninstall, drag PyQxel from Applications to the Trash. Its saved sign-in and keys on your Mac are in `~/Library/Application Support/com.markaltcoding.pyqxel`, and its pages' storage in `~/Library/WebKit/com.markaltcoding.pyqxel`, which you can delete too. Your account and saved work stay on the server until you use **Delete account** in Settings.
 
 ### iPhone, or the Mac app from source
 
