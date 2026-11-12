@@ -16,7 +16,7 @@ from pydantic import SecretStr
 from app.api.v1.endpoints import search as search_route
 from app.api.v1.endpoints import signals as signals_route
 from app.core.credentials import ProviderKeys, use_provider_keys
-from app.data import fetcher, finnhub
+from app.data import fetcher, finnhub, usage
 from app.data.fetcher import (
     FinnhubRateLimitError,
     ProviderNotConfiguredError,
@@ -213,6 +213,28 @@ async def test_requests_beyond_the_minutes_budget_are_not_sent(
         await finnhub_get("quote", {"symbol": "NVDA"}, KEY, client)
 
     assert len(requests) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_paid_plans_limit_sets_the_keys_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Once Finnhub's headers report a paid plan's 900 a minute, the key may send most of
+    that, not the free plan's 55; the nightly refresh's share is lower still."""
+    monkeypatch.setattr(usage, "_reported", {})
+    assert fetcher.finnhub_requests_per_minute(KEY) == 55
+    client, _ = _finnhub(
+        {
+            "quote": lambda request: httpx2.Response(
+                200, json=ROUTES["quote"], headers={"X-Ratelimit-Limit": "900"}
+            )
+        }
+    )
+
+    await finnhub_get("quote", {"symbol": "AAPL"}, KEY, client)
+
+    assert fetcher.finnhub_minute_limit(KEY) == 900
+    assert fetcher.finnhub_requests_per_minute(KEY) == 828
+    assert fetcher.finnhub_requests_per_minute(KEY, 0.85) == 765
+    assert fetcher.finnhub_minute_limit("another-key") is None
 
 
 @pytest.mark.asyncio

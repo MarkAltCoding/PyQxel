@@ -117,8 +117,17 @@ such as a free plan's 250 requests a day."""
 ALPHA_VANTAGE_LIMIT_PAUSE_SECONDS: float = 60 * 60
 """How long Alpha Vantage is left out for a key after its daily limit is reached."""
 FINNHUB_REQUESTS_PER_MINUTE: int = 55
-"""Finnhub requests sent per key per minute, under the free plan's 60. Beyond it, quotes
-fall to the next provider rather than spending the key's allowance meant for news."""
+"""Finnhub requests sent per key per minute until Finnhub has reported the key's own limit,
+under the free plan's 60. Beyond it, quotes fall to the next provider rather than
+spending the key's allowance meant for news."""
+FINNHUB_PACE_SHARE: float = 0.92
+"""The share of a key's per-minute limit, as Finnhub reports it, that PyQxel sends: 55 of
+the free plan's 60, or 828 of a paid plan's 900. The rest is room for clocks that differ
+and for requests the user sends from elsewhere."""
+FINNHUB_FREE_PER_MINUTE: int = 60
+"""The requests a minute Finnhub's free plan allows."""
+FINNHUB_MOST_PER_MINUTE: int = 30 * 60
+"""Finnhub's cap of 30 requests a second, which holds on every plan above its own limit."""
 FINNHUB_REFUSAL_TTL_SECONDS: float = 24 * 60 * 60
 """How long a key's Finnhub plan is taken not to cover a request for a symbol."""
 FINNHUB_LIMIT_PAUSE_SECONDS: float = 60
@@ -753,9 +762,30 @@ async def fmp_get(
     return response.json()
 
 
+def finnhub_minute_limit(api_key: str) -> int | None:
+    """The requests a minute that ``api_key``'s Finnhub plan allows, as Finnhub's
+    ``X-Ratelimit-Limit`` header last said (60 on the free plan, up to 900 on paid ones),
+    or ``None`` before it has answered recently. The header tells the plan the key is
+    really on, so a paid plan is used at its own pace and no other key is."""
+    report = usage.reported("finnhub", api_key)
+    if report is None:
+        return None
+    for limit in report.limits:
+        if limit.window == "minute" and limit.unit == "requests" and limit.limit:
+            return min(limit.limit, FINNHUB_MOST_PER_MINUTE)
+    return None
+
+
+def finnhub_requests_per_minute(api_key: str, share: float = FINNHUB_PACE_SHARE) -> int:
+    """The requests a minute PyQxel sends on ``api_key``: ``share`` of the limit Finnhub
+    reports for it, or of the free plan's before it has reported one."""
+    limit = finnhub_minute_limit(api_key) or FINNHUB_FREE_PER_MINUTE
+    return max(1, math.floor(limit * share))
+
+
 async def _finnhub_slot(api_key: str) -> None:
     """Count a request against the key's minute, refusing it beyond
-    :data:`FINNHUB_REQUESTS_PER_MINUTE`. The count is shared through Redis when it is set."""
+    :func:`finnhub_requests_per_minute`. The count is shared through Redis when it is set."""
     now = time.time()
     minute, digest = int(now // 60), _key_digest(api_key)
     count = await cache_increment(f"finnhub:count:{digest}:{minute}", 60)
@@ -764,7 +794,9 @@ async def _finnhub_slot(api_key: str) -> None:
         _finnhub_counts[digest, minute] = count
         for stale in [entry for entry in _finnhub_counts if entry[1] < minute]:
             del _finnhub_counts[stale]
-    if count > FINNHUB_REQUESTS_PER_MINUTE:
+    known = finnhub_minute_limit(api_key) is not None
+    allowed = finnhub_requests_per_minute(api_key) if known else FINNHUB_REQUESTS_PER_MINUTE
+    if count > allowed:
         raise FinnhubRateLimitError(
             "Your Finnhub plan's rate limit was reached; try again shortly.",
             retry_after=60 - int(now % 60),

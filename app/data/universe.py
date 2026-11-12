@@ -211,6 +211,15 @@ class RequestPacer:
         self._next = 0.0
         self._lock = asyncio.Lock()
 
+    @property
+    def per_minute(self) -> float:
+        """The requests a minute this pacer allows."""
+        return 60.0 / self._interval
+
+    def set_rate(self, per_minute: int) -> None:
+        """Allow ``per_minute`` requests a minute from the next slot on."""
+        self._interval = 60.0 / per_minute
+
     async def wait(self) -> None:
         """Wait for the next free slot."""
         async with self._lock:

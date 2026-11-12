@@ -5937,6 +5937,11 @@ export interface components {
        */
       refresh_time?: string | null
       /**
+       * Time Slots
+       * @description The next 24 hourly checks, soonest first, with how many other users' refreshes each will start, to choose a time that shares the server with others.
+       */
+      time_slots?: components['schemas']['NightlyTimeSlot'][]
+      /**
        * Time Zone
        * @description IANA time zone of refresh_time.
        */
@@ -5999,6 +6004,25 @@ export interface components {
       usage?: {
         [key: string]: number
       } | null
+    }
+    /**
+     * NightlyTimeSlot
+     * @description One of the server's hourly checks for due refreshes, and how many other users'
+     *     refreshes it will start. Refreshes started by the same check run side by side and
+     *     split the server's time, so each costs less.
+     */
+    NightlyTimeSlot: {
+      /**
+       * Checks At
+       * Format: date-time
+       * @description When the check runs; it starts every refresh whose time has come since the check an hour before.
+       */
+      checks_at: string
+      /**
+       * Others
+       * @description Other users' refreshes, on and paid for, that this check will start.
+       */
+      others: number
     }
     /**
      * OHLCVBar

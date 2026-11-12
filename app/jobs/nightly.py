@@ -18,8 +18,9 @@ Each run refreshes every user whose chosen time has come since their last refres
    the refresh sends far fewer requests and finishes sooner.
 2. Reads each stock's market cap, valuation, margins, growth, 26- and 52-week returns,
    three-month volatility, beta, and volume from Finnhub's free basic financials on the
-   user's Finnhub key, one request per stock, paced under the free plan's limit: about an
-   hour and a half for every listed stock.
+   user's Finnhub key, one request per stock, paced under the key's own limit as Finnhub
+   reports it: about an hour and a half for every listed stock on the free plan's 60 a
+   minute, and a fraction of that on a paid plan's 150 to 900.
 3. Keeps stocks above the market cap floor, and fetches daily prices for them, largest
    first, on the price-history keys they let it use (Tiingo, FMP, EODHD, or Alpha
    Vantage, cheapest first), each key up to the number the user chose for it, or until
@@ -46,7 +47,9 @@ another.
 
 On a server that bills (``STRIPE_SECRET_KEY`` set), a refresh runs only for a user with
 credit left or a usage subscription, and each costs its user its share of the job's time
-at Cloud Run's rates (:func:`run_cost_micros`), paid as :mod:`app.db.billing` explains.
+at Cloud Run's rates (:func:`run_cost_micros`), shared with the refreshes running beside
+it (:class:`JobClock`), paid as :mod:`app.db.billing` explains. A faster Finnhub plan
+makes a refresh shorter, and so cheaper.
 """
 
 import asyncio
@@ -577,28 +580,66 @@ async def build_user_universe(
     )
 
 
-def run_cost_micros(seconds: float, sharing: int) -> int:
-    """What ``seconds`` of a refresh cost on Cloud Run, in millionths of a dollar, when
-    ``sharing`` refreshes ran at once on the job's CPU and memory, each paying its share."""
+def run_cost_micros(seconds: float) -> int:
+    """What ``seconds`` of the job's CPU and memory cost on Cloud Run, in millionths of a
+    dollar. A refresh pays for its share of the job's time, as :class:`JobClock` counts it."""
     settings = get_settings()
     per_second = (
         settings.nightly_job_cpus * settings.job_cpu_second_usd
         + settings.nightly_job_memory_gib * settings.job_gib_second_usd
     )
-    return round(seconds * per_second / max(sharing, 1) * MICROS_PER_DOLLAR)
+    return round(seconds * per_second * MICROS_PER_DOLLAR)
 
 
-async def refresh_user(due: DueRefresh, now: datetime | None = None, sharing: int = 1) -> None:
+class JobClock:
+    """Splits the job's time among the refreshes running in it, so the whole time is paid.
+
+    Each moment of the job is shared equally by the refreshes running then: while three
+    run, each pays a third of every second, and once two finish, the one still running pays
+    for all of its seconds, since the job runs, and costs, until it finishes.
+    """
+
+    def __init__(self) -> None:
+        self._shares: dict[object, float] = {}
+        self._last = time.monotonic()
+
+    def _advance(self) -> None:
+        """Share the seconds since the last start or stop among the refreshes running."""
+        now = time.monotonic()
+        if self._shares:
+            each = (now - self._last) / len(self._shares)
+            for refresh in self._shares:
+                self._shares[refresh] += each
+        self._last = now
+
+    def start(self) -> object:
+        """Start counting a refresh's share; return the token that stops it."""
+        self._advance()
+        token = object()
+        self._shares[token] = 0.0
+        return token
+
+    def stop(self, token: object) -> float:
+        """Stop counting the refresh ``token`` names; return its share, in seconds."""
+        self._advance()
+        return self._shares.pop(token)
+
+
+async def refresh_user(
+    due: DueRefresh, now: datetime | None = None, clock: JobClock | None = None
+) -> None:
     """Run one user's refresh on their own keys, recording how it went and what it cost.
 
     A failure is recorded for the user to see in Settings, never raised, so one user's
     rejected key does not stop anyone else's refresh. Its cost is the refresh's share of
-    the job's time, with ``sharing`` refreshes running at once; it is charged to the user
-    (:func:`app.db.billing.charge_usage`) whether the refresh succeeded or failed, since
-    the job ran either way, except to the owner's account, which pays the cloud bill.
+    the job's time, as ``clock`` counts it (all of its own time, if it runs alone). It is
+    charged to the user (:func:`app.db.billing.charge_usage`) whether the refresh
+    succeeded or failed, since the job ran either way, except to the owner's account,
+    which pays the cloud bill.
     """
     now = now or datetime.now(timezone.utc)
-    started = time.monotonic()
+    clock = clock or JobClock()
+    counting = clock.start()
     async with get_sessionmaker()() as session:
         user = await get_user(session, due.user_id)
         run_id = await start_run(
@@ -624,7 +665,7 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None, sharing: in
             )
         except Exception as exc:
             logger.warning("User %s's nightly refresh failed: %s", due.user_id, exc)
-            cost = run_cost_micros(time.monotonic() - started, sharing)
+            cost = run_cost_micros(clock.stop(counting))
             async with get_sessionmaker()() as session:
                 await finish_run(
                     session,
@@ -636,7 +677,7 @@ async def refresh_user(due: DueRefresh, now: datetime | None = None, sharing: in
                 await _charge(session, user, run_id, cost)
             await usage.flush()
             return
-    cost = run_cost_micros(time.monotonic() - started, sharing)
+    cost = run_cost_micros(clock.stop(counting))
     async with get_sessionmaker()() as session:
         if result.scanned_etfs:
             await mark_etfs_scanned(session, due.user_id, now)
@@ -671,14 +712,13 @@ async def refresh_due_users(now: datetime | None = None) -> int:
     await init_db()
     async with get_sessionmaker()() as session:
         due = await due_refreshes(session, now)
-    concurrency = get_settings().nightly_refresh_concurrency
-    slots = asyncio.Semaphore(concurrency)
-    # How many refreshes share the job's CPU and memory at a time, and so its cost.
-    sharing = min(concurrency, len(due))
+    slots = asyncio.Semaphore(get_settings().nightly_refresh_concurrency)
+    # The refreshes running at each moment share the job's CPU and memory, and its cost.
+    clock = JobClock()
 
     async def run(refresh: DueRefresh) -> None:
         async with slots:
-            await refresh_user(refresh, sharing=sharing)
+            await refresh_user(refresh, clock=clock)
 
     # Each refresh is its own task, so the keys it sets are visible to it alone.
     await asyncio.gather(*(asyncio.create_task(run(refresh)) for refresh in due))

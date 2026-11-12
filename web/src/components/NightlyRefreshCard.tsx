@@ -10,6 +10,7 @@ import {
 import type {
   Account,
   NightlyKeyUse,
+  NightlyTimeSlot,
   NightlyRefreshStatus,
   ProviderUsage,
   UsageResponse,
@@ -19,6 +20,7 @@ import { dateTime, percent, shortDate } from '../lib/format'
 import { DATA_PROVIDER_NAMES, hasKey } from '../lib/keyCoverage'
 import {
   ALL_THE_PLAN_ALLOWS,
+  busiestSlot,
   DEFAULT_TIME_ZONE,
   heldBy,
   inTimeZone,
@@ -29,6 +31,8 @@ import {
   otherTimeZones,
   PRICE_KEYS,
   PRICE_LIMIT_CHOICES,
+  slotFor,
+  slotSpan,
   timeZoneLabel,
   EVERYTHING,
   MAX_CUSTOM_SYMBOLS,
@@ -159,11 +163,13 @@ export function NightlyRefreshCard({
           of stocks and their financials, Finnhub’s list of ETFs and its free metrics on your
           Finnhub key, and price-history columns (momentum, volatility, drawdown, factor betas) from
           the price-history keys you choose below, for as many stocks and ETFs as you choose. A
-          refresh of every stock and ETF takes about four hours at Finnhub’s free pace; a smaller
-          choice, such as the S&P 500 and a few tickers of your own, takes minutes. It runs while
-          your browser is closed, so turning it on stores your market data keys on PyQxel’s server,
-          encrypted. Your Anthropic key is never stored. Turning it off, or deleting your account,
-          deletes them at once.
+          refresh of every stock and ETF takes about four hours at Finnhub’s free pace of 60
+          requests a minute, about an hour and a half on its paid plan of 150 a minute, and under 20
+          minutes on one of 900. Since you pay for the server’s time, a faster plan also makes each
+          refresh cheaper. A smaller choice, such as the S&P 500 and a few tickers of your own,
+          takes minutes. It runs while your browser is closed, so turning it on stores your market
+          data keys on PyQxel’s server, encrypted. Your Anthropic key is never stored. Turning it
+          off, or deleting your account, deletes them at once.
         </p>
       </div>
 
@@ -246,6 +252,10 @@ export function NightlyRefreshCard({
           </button>
         )}
       </div>
+
+      {data?.available && hasFinnhub && (data.time_slots?.length ?? 0) > 0 && (
+        <SharingNote slots={data.time_slots ?? []} time={shownTime} zone={shownZone} />
+      )}
 
       {data?.enabled && !hasFinnhub && (
         <Notice>
@@ -502,11 +512,56 @@ function KeyUseTable({
   )
 }
 
+/** How many other refreshes start alongside one at `time` in `zone`, which split the
+ * server's time with it, and the hour most others have chosen. */
+function SharingNote({
+  slots,
+  time,
+  zone,
+}: {
+  slots: NightlyTimeSlot[]
+  time: string
+  zone: string
+}) {
+  const mine = slotFor(slots, time, zone)
+  const busiest = busiestSlot(slots)
+  const count = (others: number) =>
+    others === 1
+      ? '1 other user’s refresh'
+      : `${others.toLocaleString('en-US')} other users’ refreshes`
+  return (
+    <div className="stack" style={{ gap: 4 }}>
+      <div className="heading-with-info">
+        <strong>Sharing the server</strong>
+        <InfoTip topic="nightlySharing" />
+      </div>
+      <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+        {!mine
+          ? 'Choose a time to see how many other refreshes start with yours.'
+          : mine.others === 0
+            ? `No other user’s refresh starts in the same hourly batch as yours (times from ${slotSpan(mine, zone)}), so yours would pay for all of its time.`
+            : `${count(mine.others)} start in the same hourly batch as yours (times from ${slotSpan(mine, zone)}) and split the server’s time with it.`}{' '}
+        {busiest && busiest !== mine
+          ? `The most start for times from ${slotSpan(busiest, zone)} (${count(busiest.others)}).`
+          : !busiest
+            ? 'No one else refreshes yet.'
+            : ''}{' '}
+        Some times cost more or less than others, depending on whether yours is grouped with others.
+        The default, 7:00 PM Eastern Time, gives the best chance of sharing, but not a sure one: how
+        much sharing saves depends on how long the others run, and they can change their times.
+      </p>
+    </div>
+  )
+}
+
 /** How a refresh's requests on one key compare with that key's plan, in words. */
 function shareOf(use: NightlyKeyUse, report: ProviderUsage | undefined): string {
   if (use.provider === 'finnhub') {
-    const minutes = Math.ceil(use.requests / 55)
-    return `No daily limit; paced under its 60 a minute, which takes about ${minutes.toLocaleString('en-US')} minutes.`
+    // The refresh sends 85% of the key's limit a minute, as Finnhub reports it (60 on the
+    // free plan), so a paid plan's refresh takes, and costs, that much less.
+    const limit = requestLimit(report, 'minute')?.limit || 60
+    const minutes = Math.ceil(use.requests / Math.floor(limit * 0.85))
+    return `No daily limit; paced under its ${limit.toLocaleString('en-US')} a minute, which takes about ${minutes.toLocaleString('en-US')} minutes.`
   }
   const day = requestLimit(report, 'day')
   const hour = requestLimit(report, 'hour')

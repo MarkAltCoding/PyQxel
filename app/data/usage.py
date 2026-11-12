@@ -129,7 +129,27 @@ PLANS: dict[UsageProvider, tuple[Plan, ...]] = {
             (PlanLimit("minute", 1_000), PlanLimit("day", 100_000, "calls")),
         ),
     ),
-    "finnhub": (Plan("free", "Free", (PlanLimit("second", 30), PlanLimit("minute", 60))),),
+    "finnhub": (
+        Plan("free", "Free", (PlanLimit("second", 30), PlanLimit("minute", 60))),
+        Plan(
+            "basic",
+            "Basic",
+            (PlanLimit("second", 30), PlanLimit("minute", 150)),
+            verified=False,
+        ),
+        Plan(
+            "standard",
+            "Standard",
+            (PlanLimit("second", 30), PlanLimit("minute", 300)),
+            verified=False,
+        ),
+        Plan(
+            "professional",
+            "Professional",
+            (PlanLimit("second", 30), PlanLimit("minute", 900)),
+            verified=False,
+        ),
+    ),
     "alpha_vantage": (
         Plan("free", "Free", (PlanLimit("day", 25),)),
         Plan("premium_75", "Premium, 75 a minute", (PlanLimit("minute", 75),)),

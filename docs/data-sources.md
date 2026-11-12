@@ -143,7 +143,7 @@ The cells below record what happened when each free key requested that kind of d
 | Provider | Limit | When it resets |
 | --- | --- | --- |
 | FMP | 250 requests a day. The audit plus a day of use reached it. | Not published; PyQxel counts days from midnight UTC |
-| Finnhub | 60 requests a minute, no daily cap; at most 30 a second on every plan. | Every minute |
+| Finnhub | 60 requests a minute, no daily cap; at most 30 a second on every plan. Its US market data plans allow 150 (Basic, $49.99 a month), 300 (Standard, $129.99), or 900 (Professional, $199.99) a minute, and All-In-One 300 a minute for fundamentals, as search results quote its pricing page (the page itself needs a browser). | Every minute |
 | Alpha Vantage | 25 requests a day. | Not published; PyQxel counts days from midnight UTC |
 | Tiingo | 50 requests an hour, 1,000 a day, 500 different symbols a month, 1 GB of data a month. | Hourly; daily at midnight EST; monthly on the 1st at midnight EST. "We do not rate limit to minute or second." |
 | EODHD | 20 calls a day (an intraday request costs 5 calls, fundamentals 10), plus a one-time bonus of 500 extra calls; 1,000 requests a minute. | Daily at midnight GMT, zeroed by the first request after it; every minute |
@@ -158,7 +158,7 @@ Checked against the providers' documentation on November 5, 2026:
 | Provider | What it reports |
 | --- | --- |
 | EODHD | `GET /api/user` (costs no calls): `apiRequests` on `apiRequestsDate`, `dailyRateLimit`, `extraLimit`. Every answer carries `X-RateLimit-Limit` and `X-RateLimit-Remaining` for the current minute; a 429 carries `Retry-After`. |
-| Finnhub | `X-Ratelimit-Limit`, `X-Ratelimit-Remaining`, and `X-Ratelimit-Reset` headers for the minute, as seen on live answers; its rate-limit page could not be read. |
+| Finnhub | `X-Ratelimit-Limit`, `X-Ratelimit-Remaining`, and `X-Ratelimit-Reset` headers for the minute, as seen on live answers; its rate-limit page could not be read. PyQxel paces each key by the limit these headers give (92% of it for pages, 85% for the nightly refresh), so a paid plan's key is used at its own pace and the nightly refresh finishes, and costs, that much less. Until a key's first answer, it is paced as a free one. |
 | Anthropic | `anthropic-ratelimit-requests-*`, `-input-tokens-*`, and `-output-tokens-*` headers (`limit`, `remaining`, and `reset` as an RFC 3339 time). They refill continuously. Monthly spend is shown only in its Console. |
 | Tiingo | Nothing: no usage endpoint or headers. Its account page shows usage. |
 | FMP | Not known: its documentation refuses automated reading. PyQxel counts its own requests. |

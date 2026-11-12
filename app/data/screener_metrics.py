@@ -25,6 +25,7 @@ import pandas as pd
 
 from app.data.fetcher import (
     HTTP_TIMEOUT_SECONDS,
+    FINNHUB_FREE_PER_MINUTE,
     DataFetchError,
     FinnhubRateLimitError,
     ProviderLimitError,
@@ -33,6 +34,7 @@ from app.data.fetcher import (
     finnhub_key,
     finnhub_symbol,
     finnhub_get,
+    finnhub_requests_per_minute,
 )
 from app.core.credentials import current_provider_keys, use_provider_keys
 from app.data.universe import RequestPacer
@@ -40,11 +42,19 @@ from app.models.screener import ProviderScreenMetrics
 
 logger = logging.getLogger(__name__)
 
-FINNHUB_NIGHTLY_PER_MINUTE: int = 50
-"""Finnhub requests the nightly refresh sends a minute, under the free plan's 60."""
+FINNHUB_NIGHTLY_SHARE: float = 0.85
+"""The share of the key's per-minute limit the nightly refresh sends: 51 a minute on the
+free plan's 60, 765 on a paid plan's 900. A paid plan's refresh is that much faster, and so
+cheaper, since a refresh is paid for by its time on the server. Until Finnhub's first
+answer reports the key's limit, the refresh sends at the free plan's pace."""
 
-FINNHUB_WORKERS: int = 4
-"""Finnhub requests in flight at once; the pacer keeps them within the minute's limit."""
+FINNHUB_THROTTLED_SHARE: float = 0.7
+"""What the pace is cut to, as a share, each time Finnhub answers that the limit was
+reached anyway, as a plan whose fundamentals allow less than its market data might."""
+
+FINNHUB_WORKERS: int = 16
+"""Finnhub requests in flight at once, enough for a paid plan's pace; the pacer keeps them
+within the minute's limit, so on the free plan most of them wait."""
 
 FINNHUB_RETRIES: int = 3
 """Times a stock is retried after Finnhub says the minute's limit was reached."""
@@ -169,8 +179,9 @@ async def _paced_finnhub(
     parse: Callable[[Any], T | None],
 ) -> dict[str, T]:
     """Ask Finnhub's ``path`` about each of ``symbols`` on the user's key, paced at
-    :data:`FINNHUB_NIGHTLY_PER_MINUTE`, keeping what ``parse`` reads from each answer.
-    Stocks Finnhub does not cover, or fails on, are left out.
+    :data:`FINNHUB_NIGHTLY_SHARE` of the key's limit as Finnhub reports it, keeping what
+    ``parse`` reads from each answer. Stocks Finnhub does not cover, or fails on, are left
+    out.
 
     Raises:
         ProviderNotConfiguredError: If the user has no Finnhub key, or it is rejected.
@@ -181,16 +192,28 @@ async def _paced_finnhub(
     queue: asyncio.Queue[str] = asyncio.Queue()
     for symbol in symbols:
         queue.put_nowait(symbol)
-    pacer = RequestPacer(FINNHUB_NIGHTLY_PER_MINUTE)
+    slowest = math.floor(FINNHUB_FREE_PER_MINUTE * FINNHUB_NIGHTLY_SHARE)
+    pacer = RequestPacer(finnhub_requests_per_minute(api_key, FINNHUB_NIGHTLY_SHARE))
+    # The most this refresh sends a minute, lowered each time Finnhub says it was too many.
+    ceiling: float = float("inf")
     found: dict[str, T] = {}
 
+    def follow_plan() -> None:
+        """Set the pace from the key's limit as Finnhub last reported it."""
+        rate = min(finnhub_requests_per_minute(api_key, FINNHUB_NIGHTLY_SHARE), ceiling)
+        if rate != pacer.per_minute:
+            pacer.set_rate(max(int(rate), 1))
+
     async def one(symbol: str, client: httpx2.AsyncClient) -> None:
+        nonlocal ceiling
         query = {"symbol": finnhub_symbol(symbol)} | params
         for attempt in range(FINNHUB_RETRIES + 1):
+            follow_plan()
             await pacer.wait()
             try:
                 payload = await finnhub_get(path, query, api_key, client)
             except FinnhubRateLimitError as exc:
+                ceiling = max(slowest, math.floor(pacer.per_minute * FINNHUB_THROTTLED_SHARE))
                 if attempt == FINNHUB_RETRIES:
                     logger.info("Finnhub stayed at its limit; %s is left out.", symbol)
                     return

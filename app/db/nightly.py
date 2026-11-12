@@ -39,6 +39,7 @@ from app.models.nightly import (
     NightlyKeyUse,
     NightlyRefreshStatus,
     NightlyRun,
+    NightlyTimeSlot,
     EVERYTHING,
     NightlyUniverse,
     RunStatus,
@@ -351,8 +352,9 @@ async def key_use(
             NightlyKeyUse(
                 provider="finnhub",
                 requests=counts.get("finnhub") or await _finnhub_requests(session, choice),
-                detail="One request per stock or ETF for its metrics, paced under 60 a "
-                "minute, plus a quote for each with no other price.",
+                detail="One request per stock or ETF for its metrics, paced under the "
+                "plan's limit a minute (60 on the free plan), plus a quote for each with no "
+                "other price.",
             )
         )
     for provider, limit in limits.items():
@@ -369,6 +371,41 @@ async def key_use(
         )
         left = max(0, left - take)
     return found
+
+
+NIGHTLY_CHECK_MINUTE: int = 7
+"""The minute past each UTC hour at which Cloud Scheduler asks the service whether any
+refresh is due (``NIGHTLY_SCHEDULE`` in ``deploy/cloud-run.sh``; a test checks they agree).
+Every refresh whose time came since the check before starts in the same job."""
+
+
+def check_for(moment: datetime) -> datetime:
+    """The first hourly check at or after ``moment``, which starts a refresh due then."""
+    check = moment.astimezone(timezone.utc).replace(
+        minute=NIGHTLY_CHECK_MINUTE, second=0, microsecond=0
+    )
+    return check if check >= moment else check + timedelta(hours=1)
+
+
+async def time_slots(session: AsyncSession, user_id: str, now: datetime) -> list[NightlyTimeSlot]:
+    """The next 24 hourly checks, with how many refreshes of users other than ``user_id``
+    each will start: those turned on and paid for (:func:`refresh_paid_for`), at their
+    next scheduled time."""
+    first = check_for(now)
+    counts = {first + timedelta(hours=hour): 0 for hour in range(24)}
+    for record in list(await session.scalars(select(NightlyRefreshRecord))):
+        if record.user_id == user_id or not await refresh_paid_for(session, record.user_id):
+            continue
+        today = now.astimezone(ZoneInfo(record.time_zone)).date()
+        moment = scheduled_moment(record.refresh_time, record.time_zone, today)
+        if check_for(moment) < first:
+            moment = scheduled_moment(
+                record.refresh_time, record.time_zone, today + timedelta(days=1)
+            )
+        check = check_for(moment)
+        if check in counts:
+            counts[check] += 1
+    return [NightlyTimeSlot(checks_at=check, others=others) for check, others in counts.items()]
 
 
 Preview = tuple[list[NightlyProvider], PriceLimits, UniverseChoice]
@@ -398,6 +435,8 @@ async def refresh_status(
         latest_run=_run(latest[0]) if latest else None,
         last_success=None if success is None else _run(success),
     )
+    if available:
+        status.time_slots = await time_slots(session, user_id, now or datetime.now(timezone.utc))
     if preview is not None:
         status.key_use = await key_use(session, preview[0], preview[1], success, preview[2])
     if record is None or stored is None:

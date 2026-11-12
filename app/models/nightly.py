@@ -167,6 +167,21 @@ class NightlyKeyUse(BaseModel):
     detail: str = Field(description="What the requests are for.")
 
 
+class NightlyTimeSlot(BaseModel):
+    """One of the server's hourly checks for due refreshes, and how many other users'
+    refreshes it will start. Refreshes started by the same check run side by side and
+    split the server's time, so each costs less."""
+
+    checks_at: datetime = Field(
+        description="When the check runs; it starts every refresh whose time has come "
+        "since the check an hour before."
+    )
+    others: int = Field(
+        ge=0,
+        description="Other users' refreshes, on and paid for, that this check will start.",
+    )
+
+
 class NightlyRefreshStatus(BaseModel):
     """Whether the user's nightly refresh is on, what it stores, and how it last went."""
 
@@ -208,6 +223,11 @@ class NightlyRefreshStatus(BaseModel):
         default_factory=list,
         description="About how many requests one refresh sends on each stored key, to weigh "
         "against its plan's limits.",
+    )
+    time_slots: list[NightlyTimeSlot] = Field(
+        default_factory=list,
+        description="The next 24 hourly checks, soonest first, with how many other users' "
+        "refreshes each will start, to choose a time that shares the server with others.",
     )
 
 

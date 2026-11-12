@@ -1,7 +1,7 @@
 // The nightly refresh of the user's own screener: its query key, the time zones a refresh
 // time can be in, and keeping the server's stored keys in step with the browser's.
 import { enableNightlyRefresh } from '../api/endpoints'
-import type { NightlyRefreshSettings, NightlyRefreshStatus } from '../api/types'
+import type { NightlyRefreshSettings, NightlyRefreshStatus, NightlyTimeSlot } from '../api/types'
 
 export const NIGHTLY_QUERY_KEY = ['nightly-refresh'] as const
 
@@ -46,6 +46,58 @@ export function inTimeZone(moment: string, zone: string): string {
     })
   } catch {
     return new Date(moment).toLocaleString('en-US')
+  }
+}
+
+/** Minutes past midnight of `moment` in `zone`. */
+function minutesIn(moment: string, zone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: zone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(moment))
+  const part = (type: string) => Number(parts.find((found) => found.type === type)?.value ?? 0)
+  return part('hour') * 60 + part('minute')
+}
+
+/** The server's hourly check that starts a refresh set for `time` (HH:MM) in `zone`: the
+ * first check at or after it. Refreshes started by the same check share the server. */
+export function slotFor(
+  slots: NightlyTimeSlot[],
+  time: string,
+  zone: string,
+): NightlyTimeSlot | undefined {
+  const [hour = NaN, minute = NaN] = time.split(':').map(Number)
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return undefined
+  const chosen = hour * 60 + minute
+  try {
+    return slots.find((slot) => (minutesIn(slot.checks_at, zone) - chosen + 1440) % 1440 < 60)
+  } catch {
+    return undefined
+  }
+}
+
+/** The check that starts the most other refreshes, the soonest of those tied; none while
+ * no one else refreshes. */
+export function busiestSlot(slots: NightlyTimeSlot[]): NightlyTimeSlot | undefined {
+  return slots.reduce<NightlyTimeSlot | undefined>(
+    (best, slot) => (slot.others > (best?.others ?? 0) ? slot : best),
+    undefined,
+  )
+}
+
+/** The span of refresh times one check starts, in `zone`, e.g. "6:08 to 7:07 PM": from
+ * just after the check an hour before up to the check itself. */
+export function slotSpan(slot: NightlyTimeSlot, zone: string): string {
+  const clock = (moment: Date) =>
+    moment.toLocaleTimeString('en-US', { timeZone: zone, hour: 'numeric', minute: '2-digit' })
+  const end = new Date(slot.checks_at)
+  const start = new Date(end.getTime() - 59 * 60_000)
+  try {
+    return `${clock(start)} to ${clock(end)}`
+  } catch {
+    return `${start.toISOString().slice(11, 16)} to ${end.toISOString().slice(11, 16)} UTC`
   }
 }
 

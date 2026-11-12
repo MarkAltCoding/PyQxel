@@ -32,7 +32,7 @@ from app.data.screener_metrics import (
     parse_screen_metrics,
 )
 from app.data.index_members import IndexMembers, name_keys
-from app.data.universe import Listing
+from app.data.universe import Listing, RequestPacer
 from app.db import nightly as storage
 from app.db.screener import foreign_companies, replace_listings, save_companies
 from app.db.session import get_sessionmaker
@@ -1007,3 +1007,79 @@ def test_a_refreshs_counts_estimate_only_a_refresh_of_the_same_choice(user: User
     assert finnhub(["sp500"]) == 545, "not the everything-refresh's count"
     assert finnhub(["us_stocks", "us_etfs"]) == 7, "that refresh's own count, for its choice"
     assert finnhub(["us_stocks", "us_etfs", "nasdaq", "sp500"]) > finnhub(["us_stocks"])
+
+
+@pytest.mark.asyncio
+async def test_a_paid_finnhub_plan_paces_the_refresh_faster(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refresh starts at the free plan's pace and, once Finnhub's answer reports the
+    key's paid plan of 900 a minute, sends 85% of that, so it finishes, and costs, less."""
+    monkeypatch.setattr(usage, "_reported", {})
+    rates: list[float] = []
+
+    class Pacer(RequestPacer):
+        async def wait(self) -> None:
+            rates.append(self.per_minute)
+
+    async def fake_get(path: str, params: dict[str, str], key: str, client: Any) -> Any:
+        usage.note_report(
+            "finnhub", key, [usage.ReportedLimit("minute", "requests", 900, 899, None)]
+        )
+        return {"symbol": params["symbol"]}
+
+    monkeypatch.setattr(screener_metrics, "RequestPacer", Pacer)
+    monkeypatch.setattr(screener_metrics, "finnhub_key", lambda: "paid-key")
+    monkeypatch.setattr(screener_metrics, "finnhub_get", fake_get)
+    monkeypatch.setattr(screener_metrics, "FINNHUB_WORKERS", 1)
+
+    found = await screener_metrics._paced_finnhub(["AAPL", "MSFT", "NVDA"], "quote", {}, dict)
+
+    assert len(found) == 3
+    assert rates == [51, 765, 765]
+
+
+def _opt_in_at(user: User, refresh_time: str, time_zone: str) -> None:
+    async def enable() -> None:
+        async with get_sessionmaker()() as session:
+            await storage.enable(
+                session,
+                user.id,
+                NightlyRefreshSettings(refresh_time=refresh_time, time_zone=time_zone),
+                ProviderKeys(finnhub=SecretStr(FINNHUB)),
+            )
+
+    asyncio.run(enable())
+
+
+@pytest.mark.usefixtures("encryption")
+def test_each_hourly_check_counts_the_other_refreshes_it_starts(user: User) -> None:
+    """Refreshes at 7:00 and 7:05 PM New York time start in the same check, at 7:07; one at
+    7:10 waits for the next. The user's own refresh is not counted among the others."""
+    _opt_in_at(user, "19:00", "America/New_York")
+    for email, at in [
+        ("a@example.invalid", "19:00"),
+        ("b@example.invalid", "19:05"),
+        ("c@example.invalid", "19:10"),
+    ]:
+        _opt_in_at(asyncio.run(make_user(email)), at, "America/New_York")
+    now = datetime(2026, 11, 11, 15, 0, tzinfo=timezone.utc)  # 10:00 AM in New York
+
+    async def slots() -> list[Any]:
+        async with get_sessionmaker()() as session:
+            return await storage.time_slots(session, user.id, now)
+
+    found = {slot.checks_at: slot.others for slot in asyncio.run(slots())}
+
+    assert len(found) == 24 and min(found) == datetime(2026, 11, 11, 15, 7, tzinfo=timezone.utc)
+    assert found[datetime(2026, 11, 12, 0, 7, tzinfo=timezone.utc)] == 2  # 7:07 PM EST
+    assert found[datetime(2026, 11, 12, 1, 7, tzinfo=timezone.utc)] == 1
+    assert sum(found.values()) == 3
+
+
+def test_the_check_minute_matches_the_deploy_schedule() -> None:
+    """The minute the slots assume is the one Cloud Scheduler calls at."""
+    script = open("deploy/cloud-run.sh").read()
+    assert (
+        f'NIGHTLY_SCHEDULE="${{NIGHTLY_SCHEDULE-{storage.NIGHTLY_CHECK_MINUTE} * * * *}}"' in script
+    )

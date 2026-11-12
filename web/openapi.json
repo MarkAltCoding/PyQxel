@@ -8143,6 +8143,14 @@
             "description": "Local HH:MM it starts at.",
             "title": "Refresh Time"
           },
+          "time_slots": {
+            "description": "The next 24 hourly checks, soonest first, with how many other users' refreshes each will start, to choose a time that shares the server with others.",
+            "items": {
+              "$ref": "#/components/schemas/NightlyTimeSlot"
+            },
+            "title": "Time Slots",
+            "type": "array"
+          },
           "time_zone": {
             "anyOf": [
               {
@@ -8289,6 +8297,29 @@
           "started_at"
         ],
         "title": "NightlyRun",
+        "type": "object"
+      },
+      "NightlyTimeSlot": {
+        "description": "One of the server's hourly checks for due refreshes, and how many other users'\nrefreshes it will start. Refreshes started by the same check run side by side and\nsplit the server's time, so each costs less.",
+        "properties": {
+          "checks_at": {
+            "description": "When the check runs; it starts every refresh whose time has come since the check an hour before.",
+            "format": "date-time",
+            "title": "Checks At",
+            "type": "string"
+          },
+          "others": {
+            "description": "Other users' refreshes, on and paid for, that this check will start.",
+            "minimum": 0.0,
+            "title": "Others",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "checks_at",
+          "others"
+        ],
+        "title": "NightlyTimeSlot",
         "type": "object"
       },
       "OHLCVBar": {

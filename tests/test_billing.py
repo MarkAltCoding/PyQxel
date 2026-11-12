@@ -157,10 +157,28 @@ def test_a_user_who_never_paid_is_charged_nothing(user: User) -> None:
 
 
 def test_a_run_costs_its_share_of_the_jobs_time() -> None:
-    # One vCPU and 1 GiB for an hour: 3,600 x ($0.000018 + $0.000002) = 7.2 cents, and a
-    # third of that when three refreshes share the job.
-    assert nightly_job.run_cost_micros(3600, 1) == 72_000
-    assert nightly_job.run_cost_micros(3600, 3) == 24_000
+    # One vCPU and 1 GiB for an hour: 3,600 x ($0.000018 + $0.000002) = 7.2 cents.
+    assert nightly_job.run_cost_micros(3600) == 72_000
+
+
+def test_the_job_clock_splits_each_moment_among_the_refreshes_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Three refreshes start together; two finish after 10 seconds and the last after 70.
+    The first 10 seconds are split three ways, and the last 60 are the last one's alone,
+    so the job's whole 70 seconds are paid for."""
+    now = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: now[0])
+    clock = nightly_job.JobClock()
+    short, other, long = clock.start(), clock.start(), clock.start()
+    now[0] = 10.0
+    first, second = clock.stop(short), clock.stop(other)
+    now[0] = 70.0
+    last = clock.stop(long)
+
+    assert first == pytest.approx(10 / 3) and second == pytest.approx(10 / 3)
+    assert last == pytest.approx(10 / 3 + 60)
+    assert first + second + last == pytest.approx(70)
 
 
 # --- Which refreshes may run ---------------------------------------------------------
