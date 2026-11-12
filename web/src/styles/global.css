@@ -504,7 +504,8 @@ main {
   min-width: 0;
 }
 
-.field > span {
+.field > span,
+.field > label {
   color: var(--text-secondary);
   font-size: 0.8rem;
   font-weight: 500;
@@ -540,6 +541,32 @@ select {
 
 input[type='number'] {
   font-variant-numeric: tabular-nums;
+}
+
+/* A number and its unit side by side, such as a horizon in months or years. */
+.field-pair {
+  display: flex;
+  gap: 6px;
+}
+
+/* A dollar amount: the sign sits inside the field, before the number. */
+.money-input {
+  position: relative;
+  display: flex;
+}
+
+.money-input > span {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.money-input input {
+  width: 100%;
+  padding-left: 22px;
 }
 
 input:disabled,

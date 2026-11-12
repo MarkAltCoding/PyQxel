@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { readAiStream, type AiProgress } from '../api/aiStream'
 import {
@@ -84,6 +84,14 @@ const ROUND_KEY = 'pyqxel.roundShares'
 
 type Risk = NonNullable<InvestorProfile['risk_tolerance']> | 'unset'
 
+/** Whether a horizon is typed in months, for money needed within a year or two, or years. */
+type HorizonUnit = 'months' | 'years'
+
+/** A horizon in years, as the review takes it: 6 months is 0.5. */
+function inYears(amount: number, unit: HorizonUnit): number {
+  return unit === 'years' ? amount : Math.round((amount / 12) * 10_000) / 10_000
+}
+
 const RISKS: { value: Risk; label: string }[] = [
   { value: 'unset', label: 'Not set' },
   { value: 'conservative', label: 'Conservative' },
@@ -129,6 +137,8 @@ export function PortfolioReviewCard({
   const [months, setMonths] = useState(12)
   const [risk, setRisk] = useState<Risk>('unset')
   const [horizon, setHorizon] = useState('')
+  const [horizonUnit, setHorizonUnit] = useState<HorizonUnit>('years')
+  const idBase = useId()
   const [cash, setCash] = useState('')
   const [notes, setNotes] = useState('')
   // Most brokers trade fractions of a share now; the choice is remembered in this browser.
@@ -147,7 +157,7 @@ export function PortfolioReviewCard({
 
   const profile = (): InvestorProfile => ({
     risk_tolerance: risk === 'unset' ? null : risk,
-    horizon_years: horizon.trim() ? Number(horizon) : null,
+    horizon_years: horizon.trim() ? inYears(Number(horizon), horizonUnit) : null,
     cash_to_invest: cash.trim() ? Number(cash) : 0,
     notes: notes.trim() || null,
     fractional_shares: fractional,
@@ -275,19 +285,41 @@ export function PortfolioReviewCard({
         <summary>Tailor the plan to your goals (optional)</summary>
         <div className="filter-row" style={{ marginTop: 10, alignItems: 'flex-end' }}>
           <Segmented label="Risk tolerance" value={risk} options={RISKS} onChange={setRisk} />
-          <label className="field" style={{ width: 140 }}>
-            <span>Horizon (years)</span>
-            <input
-              type="number"
-              min={0}
-              max={60}
-              value={horizon}
-              onChange={(e) => setHorizon(e.target.value)}
-            />
-          </label>
+          <div className="field">
+            <label htmlFor={`${idBase}-horizon`}>Horizon</label>
+            <div className="field-pair">
+              <input
+                id={`${idBase}-horizon`}
+                type="number"
+                min={0}
+                max={horizonUnit === 'years' ? 60 : 720}
+                style={{ width: 80 }}
+                value={horizon}
+                onChange={(e) => setHorizon(e.target.value)}
+              />
+              <select
+                aria-label="Horizon unit"
+                value={horizonUnit}
+                onChange={(e) => setHorizonUnit(e.target.value as HorizonUnit)}
+              >
+                <option value="months">months</option>
+                <option value="years">years</option>
+              </select>
+            </div>
+          </div>
           <label className="field" style={{ width: 160 }}>
             <span>New cash to invest</span>
-            <input type="number" min={0} value={cash} onChange={(e) => setCash(e.target.value)} />
+            <span className="money-input">
+              <span aria-hidden="true">$</span>
+              <input
+                type="number"
+                min={0}
+                step="any"
+                aria-label="New cash to invest, in dollars"
+                value={cash}
+                onChange={(e) => setCash(e.target.value)}
+              />
+            </span>
           </label>
           <label className="field" style={{ flex: 1, minWidth: 220 }}>
             <span>Anything else</span>

@@ -135,6 +135,28 @@ describe('PortfolioReviewCard', () => {
     ])
   })
 
+  it('sends a horizon in months as a fraction of a year, and new cash in dollars', async () => {
+    const posted: { profile: Record<string, unknown> }[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      if (init?.method === 'POST') {
+        posted.push(JSON.parse(String(init.body)))
+        const result = { ...review('Short horizon.'), cached: false }
+        return new Response(`event: result\ndata: ${JSON.stringify(result)}\n\n`)
+      }
+      return new Response(JSON.stringify(review('Concentrated in technology.')))
+    })
+    renderCard({ hasHoldings: true, stale: false })
+    await screen.findByText('Concentrated in technology.')
+
+    await userEvent.type(screen.getByLabelText('Horizon'), '6')
+    await userEvent.selectOptions(screen.getByLabelText('Horizon unit'), 'months')
+    await userEvent.type(screen.getByLabelText('New cash to invest, in dollars'), '1500')
+    await userEvent.click(screen.getByRole('button', { name: 'Write a new review' }))
+
+    await screen.findByText('Short horizon.')
+    expect(posted[0]?.profile).toMatchObject({ horizon_years: 0.5, cash_to_invest: 1500 })
+  })
+
   it('reviews both portfolios together when chosen, and keeps that review apart', async () => {
     const posted: Record<string, unknown>[] = []
     const read: string[] = []

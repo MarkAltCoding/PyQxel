@@ -6021,13 +6021,13 @@
               {
                 "maximum": 60.0,
                 "minimum": 0.0,
-                "type": "integer"
+                "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Years until the money is needed.",
+            "description": "Years until the money is needed; a fraction for a horizon in months, such as 0.5 for six months.",
             "title": "Horizon Years"
           },
           "notes": {

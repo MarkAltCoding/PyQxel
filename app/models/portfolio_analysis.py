@@ -15,8 +15,13 @@ class InvestorProfile(BaseModel):
     """What the review should tailor its plan to; every field is optional."""
 
     risk_tolerance: Literal["conservative", "moderate", "aggressive"] | None = None
-    horizon_years: int | None = Field(
-        default=None, ge=0, le=60, description="Years until the money is needed."
+    horizon_years: float | None = Field(
+        default=None,
+        ge=0,
+        le=60,
+        allow_inf_nan=False,
+        description="Years until the money is needed; a fraction for a horizon in months, "
+        "such as 0.5 for six months.",
     )
     cash_to_invest: float = Field(
         default=0.0,

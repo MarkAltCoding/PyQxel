@@ -4953,7 +4953,7 @@ export interface components {
       fractional_shares?: boolean
       /**
        * Horizon Years
-       * @description Years until the money is needed.
+       * @description Years until the money is needed; a fraction for a horizon in months, such as 0.5 for six months.
        */
       horizon_years?: number | null
       /**
