@@ -211,9 +211,18 @@ class InvestmentThesis(BaseModel):
     """A data-grounded investment thesis."""
 
     headline: str = Field(description="One-sentence thesis.")
-    stance: Literal["bullish", "neutral", "bearish"]
-    conviction: Literal["low", "medium", "high"]
-    summary: str = Field(description="Two or three paragraphs developing the thesis.")
+    stance: Literal["bullish", "neutral", "bearish"] = Field(
+        description="Where the most important evidence points; neutral only when it truly "
+        "conflicts or is too thin to judge, not for mixed lesser signals."
+    )
+    conviction: Literal["low", "medium", "high"] = Field(
+        description="How firmly the most important evidence agrees, and how complete the "
+        "data is."
+    )
+    summary: str = Field(
+        description="Two or three paragraphs developing the thesis, naming the one or two "
+        "factors that decided the stance."
+    )
     supporting_points: list[str] = Field(description="Evidence for the stance, citing figures.")
     counterpoints: list[str] = Field(description="Evidence against the stance.")
     what_would_change_the_view: list[str] = Field(

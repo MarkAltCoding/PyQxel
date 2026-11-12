@@ -4891,6 +4891,7 @@ export interface components {
     InvestmentThesis: {
       /**
        * Conviction
+       * @description How firmly the most important evidence agrees, and how complete the data is.
        * @enum {string}
        */
       conviction: 'low' | 'medium' | 'high'
@@ -4911,12 +4912,13 @@ export interface components {
       headline: string
       /**
        * Stance
+       * @description Where the most important evidence points; neutral only when it truly conflicts or is too thin to judge, not for mixed lesser signals.
        * @enum {string}
        */
       stance: 'bullish' | 'neutral' | 'bearish'
       /**
        * Summary
-       * @description Two or three paragraphs developing the thesis.
+       * @description Two or three paragraphs developing the thesis, naming the one or two factors that decided the stance.
        */
       summary: string
       /**

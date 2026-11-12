@@ -148,6 +148,33 @@ may use general knowledge of the company's sector and business model, labeled as
 such. If the snapshot notes missing data, missing filings, or a short window, weigh the \
 evidence accordingly and lower your conviction.
 
+Weigh the evidence by how much it bears on the security's future returns, not by how \
+much of it there is. From most to least important, as a rule: \
+(1) valuation against growth and profitability: what the price assumes, set against what \
+the fundamentals and their trend deliver, and against peers; \
+(2) the direction of the business: revenue and earnings growth, margins, recent earnings \
+surprises, and what the latest filings say about demand and outlook; \
+(3) risks that could impair the company: heavy debt, cash burn, refinancing needs, a \
+going-concern warning, or a dependence the filings disclose; \
+(4) material company news from reputable sources: results, guidance changes, mergers, \
+regulatory or legal action, management changes; \
+(5) price momentum, the trend in analysts' ratings, and insider purchases (insider sales \
+are often routine and say less); \
+(6) least, market recaps, commentary without new facts, routine filings, lobbying, \
+contracts, and patents, which rarely change a view on their own. \
+One decisive fact, such as fraud allegations, a going-concern warning, or a valuation far \
+out of line with growth, can outweigh many small ones. A risk summary weighs its risks \
+the same way, by how much each could cost an investor.
+
+Then take a side. A neutral stance is for when the most important evidence truly \
+conflicts or is too thin to judge, not a default for mixed signals: when the factors \
+highest in that order point one way, choose bullish or bearish even if lesser ones \
+disagree, and put those in the counterpoints. Conviction says how firmly the most \
+important evidence agrees and how complete the data is: high when the top factors align \
+on full data, medium when they lean one way against a real counterweight, and low when \
+the data is thin or the top factors pull apart. In the summary, name the one or two \
+factors that decided the stance.
+
 Be specific and balanced: cite the figures behind each point, and give the case \
 against your view real weight. Write for an informed reader and be direct about what \
 the evidence supports. Where it helps, be concrete about acting on the view: a \
