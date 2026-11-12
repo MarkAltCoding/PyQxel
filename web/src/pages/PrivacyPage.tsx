@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react'
-import { LegalFooter } from '../components/LegalSection'
+import { ContactLink, LegalFooter } from '../components/LegalSection'
 
 const UPDATED = 'November 6, 2026'
-const CONTACT = 'https://github.com/MarkAltCoding'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -167,12 +166,9 @@ export function PrivacyPage() {
             undone. It also ends any subscription at the end of its period, billing the refreshes up
             to then, and refunds the credit you have left to the card that paid for it; Stripe keeps
             its own records of payments, as the law requires. To delete only the stored keys, turn
-            the nightly refresh off. If you can no longer sign in, contact me through{' '}
-            <a href={CONTACT} target="_blank" rel="noopener noreferrer">
-              GitHub
-            </a>{' '}
-            and I will delete it for you. Removing PyQxel’s access in your GitHub or Google settings
-            stops it signing you in, but does not by itself delete your account.
+            the nightly refresh off. If you can no longer sign in, email <ContactLink /> and I will
+            delete it for you. Removing PyQxel’s access in your GitHub or Google settings stops it
+            signing you in, but does not by itself delete your account.
           </p>
         </Section>
 

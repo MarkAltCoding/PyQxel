@@ -18,10 +18,10 @@ export function RefundPage() {
 
       <LegalSection title="Unused credit">
         <p>
-          Prepaid credit you have not used is refundable at any time. Ask through <ContactLink />{' '}
-          and it will be refunded to the card that paid for it. Deleting your account in Settings
-          refunds it automatically. Stripe does not return its processing fee on a refunded payment,
-          so the refund is the credit left, which never included that fee.
+          Prepaid credit you have not used is refundable at any time. Email <ContactLink /> and it
+          will be refunded to the card that paid for it. Deleting your account in Settings refunds
+          it automatically. Stripe does not return its processing fee on a refunded payment, so the
+          refund is the credit left, which never included that fee.
         </p>
       </LegalSection>
 
@@ -47,10 +47,10 @@ export function RefundPage() {
 
       <LegalSection title="How to ask, and how long it takes">
         <p>
-          Reach me through <ContactLink />, with the email address your account uses and the date of
-          the payment. Refunds are made within a few days of the request, and banks usually show
-          them 5 to 10 business days after that. Please ask before disputing a payment with your
-          bank: a dispute costs a $15 fee, which is charged to your account.
+          Email <ContactLink />, with the email address your account uses and the date of the
+          payment. Refunds are made within a few days of the request, and banks usually show them 5
+          to 10 business days after that. Please ask before disputing a payment with your bank: a
+          dispute costs a $15 fee, which is charged to your account.
         </p>
       </LegalSection>
 

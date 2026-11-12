@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { useAuth } from '../auth/useAuth'
 
 /** Where to reach PyQxel's owner about the account, payments, or these pages. */
-const CONTACT = 'https://github.com/MarkAltCoding'
+const SUPPORT_EMAIL = 'pyqxel.app@gmail.com'
 
 /** One titled section of a policy page: the privacy policy, terms, or refund policy. */
 export function LegalSection({ title, children }: { title: string; children: ReactNode }) {
@@ -15,10 +15,10 @@ export function LegalSection({ title, children }: { title: string; children: Rea
   )
 }
 
-/** A link to the owner's contact page, which opens outside PyQxel. */
-export function ContactLink({ children = 'GitHub' }: { children?: ReactNode }) {
+/** PyQxel's support email address, as a link that starts an email to it. */
+export function ContactLink({ children = SUPPORT_EMAIL }: { children?: ReactNode }) {
   return (
-    <a href={CONTACT} target="_blank" rel="noopener noreferrer">
+    <a href={`mailto:${SUPPORT_EMAIL}`} target="_blank" rel="noopener noreferrer">
       {children}
     </a>
   )
@@ -29,7 +29,7 @@ export function LegalFooter() {
   const { apiKey } = useAuth()
   return (
     <p className="disclaimer">
-      Questions? Reach me through <ContactLink />.{' '}
+      Questions? Email <ContactLink />.{' '}
       {apiKey ? <Link to="/">Back to PyQxel</Link> : <Link to="/signin">Sign in</Link>}
     </p>
   )
