@@ -37,6 +37,12 @@ class InvestorProfile(BaseModel):
         "order is sized to the exact fraction its target needs; otherwise orders are in "
         "whole shares, and in fractions only where whole shares cannot carry them out.",
     )
+    round_shares: bool = Field(
+        default=True,
+        description="With fractional shares, leave each holding at whole shares or a round "
+        "fraction such as 3.5, rather than 3.438, where that keeps it within a quarter of a "
+        "percent of the portfolio's value of its target.",
+    )
 
 
 MIN_HISTORY_MONTHS: int = 12

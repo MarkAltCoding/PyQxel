@@ -876,6 +876,11 @@ const entries = {
     good: 'The busiest hour is usually the cheapest. The default, 7:00 PM Eastern Time, is the likeliest to be shared, but not a sure one.',
     note: 'Not guaranteed: sharing lasts only while the others run, so a long refresh beside short ones still pays for most of its own time, and other users can change their times or turn theirs off.',
   },
+  roundShares: {
+    title: 'Whole shares or round fractions',
+    what: 'Ticked, the plan leaves each holding at a whole number of shares, or a round fraction such as 3.5 or 2.25, instead of an exact amount like 3.438, whenever that keeps it within a quarter of a percent of the portfolio’s value of its target ($25 of a $10,000 portfolio). It tries whole shares first, then halves, quarters, tenths, and hundredths. A holding already that close to its target gets no order.',
+    note: 'Rounding a buy up never spends more cash than the plan has. Unticked, every order is sized to the exact fraction its target needs.',
+  },
   fractionalBroker: {
     title: 'Fractional shares',
     what: 'Many brokers, such as Fidelity, Schwab, and Robinhood, let you buy and sell part of a share, like 2.5 shares, or $100 of a $400 stock. Ticked, the plan sizes every order to the exact fraction (to four decimal places) that reaches its target weight. Unticked, it uses whole shares, and fractions only where whole shares cannot work, such as selling a holding of 0.3 shares.',

@@ -78,6 +78,7 @@ const shareCount = (shares: number) =>
   shares.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 4 })
 
 const FRACTIONAL_KEY = 'pyqxel.fractionalShares'
+const ROUND_KEY = 'pyqxel.roundShares'
 
 type Risk = NonNullable<InvestorProfile['risk_tolerance']> | 'unset'
 
@@ -130,6 +131,7 @@ export function PortfolioReviewCard({
   const [notes, setNotes] = useState('')
   // Most brokers trade fractions of a share now; the choice is remembered in this browser.
   const [fractional, setFractional] = useState(() => readStored(FRACTIONAL_KEY) !== 'off')
+  const [roundShares, setRoundShares] = useState(() => readStored(ROUND_KEY) !== 'off')
   const [progress, setProgress] = useState<AiProgress | null>(null)
   const [error, setError] = useState<unknown>(null)
   const abort = useRef<AbortController | null>(null)
@@ -147,6 +149,7 @@ export function PortfolioReviewCard({
     cash_to_invest: cash.trim() ? Number(cash) : 0,
     notes: notes.trim() || null,
     fractional_shares: fractional,
+    round_shares: roundShares,
   })
 
   // Outside the app: the prompt's data is kept so the pasted answer is saved with it.
@@ -308,6 +311,22 @@ export function PortfolioReviewCard({
             </label>
             <InfoTip topic="fractionalBroker" />
           </span>
+          {fractional && (
+            <span className="heading-with-info">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={roundShares}
+                  onChange={(e) => {
+                    setRoundShares(e.target.checked)
+                    writeStored(ROUND_KEY, e.target.checked ? null : 'off')
+                  }}
+                />
+                Prefer whole shares or round fractions, like 3.5
+              </label>
+              <InfoTip topic="roundShares" />
+            </span>
+          )}
         </div>
       </details>
 

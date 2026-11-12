@@ -6058,6 +6058,12 @@
               }
             ],
             "title": "Risk Tolerance"
+          },
+          "round_shares": {
+            "default": true,
+            "description": "With fractional shares, leave each holding at whole shares or a round fraction such as 3.5, rather than 3.438, where that keeps it within a quarter of a percent of the portfolio's value of its target.",
+            "title": "Round Shares",
+            "type": "boolean"
           }
         },
         "title": "InvestorProfile",
@@ -15000,7 +15006,8 @@
                   "portfolio": 1,
                   "profile": {
                     "cash_to_invest": 0.0,
-                    "fractional_shares": true
+                    "fractional_shares": true,
+                    "round_shares": true
                   },
                   "refresh": false
                 }
@@ -15093,7 +15100,8 @@
                   "portfolio": 1,
                   "profile": {
                     "cash_to_invest": 0.0,
-                    "fractional_shares": true
+                    "fractional_shares": true,
+                    "round_shares": true
                   },
                   "refresh": false
                 }
@@ -15144,7 +15152,8 @@
                   "portfolio": 1,
                   "profile": {
                     "cash_to_invest": 0.0,
-                    "fractional_shares": true
+                    "fractional_shares": true,
+                    "round_shares": true
                   },
                   "refresh": false
                 }
@@ -16636,7 +16645,7 @@
     },
     "/api/v1/stocks/{symbol}/metrics": {
       "get": {
-        "description": "Return ``symbol``'s key metrics and peers, from Finnhub's basic financials.\n\nThe metrics cover the 52-week range and returns, beta, and trading volume; valuation\nmultiples, including a forward P/E on analysts' estimates; the dividend yield, payout\nand growth; margins and returns on capital; growth; and liquidity and leverage, as\nFinnhub computes them from its own data, so they can differ slightly from the\nfundamentals built from SEC filings. Ratios are decimals and totals are in units.\n``peers`` lists companies Finnhub places in the same industry.\n\nFetched on your own Finnhub key (``X-Finnhub-Key``), whose free plan\ncovers US listings, and reused for six hours. Returns 403 without a valid Finnhub key,\n402 when your plan does not cover the company, 404 when Finnhub has no metrics for it,\nand 502 when Finnhub fails.",
+        "description": "Return ``symbol``'s key metrics and peers, from Finnhub's basic financials.\n\nThe metrics cover the 52-week range and returns, beta, and trading volume; valuation\nmultiples, including a forward P/E on analysts' estimates; the dividend yield, payout\nand growth; margins and returns on capital; growth; and liquidity and leverage, as\nFinnhub computes them from its own data, so they can differ slightly from the\nfundamentals built from SEC filings. Ratios are decimals and totals are in units.\n``peers`` lists companies Finnhub places in the same industry. For a foreign\ncompany's US listing, which Finnhub describes by its home listing abroad, the 52-week\nrange is worked out from the US listing's own daily prices instead, without its dates.\n\nFetched on your own Finnhub key (``X-Finnhub-Key``), whose free plan\ncovers US listings, and reused for six hours. Returns 403 without a valid Finnhub key,\n402 when your plan does not cover the company, 404 when Finnhub has no metrics for it,\nand 502 when Finnhub fails.",
         "operationId": "get_metrics_api_v1_stocks__symbol__metrics_get",
         "parameters": [
           {

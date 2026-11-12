@@ -129,6 +129,7 @@ describe('PortfolioReviewCard', () => {
           cash_to_invest: 0,
           notes: null,
           fractional_shares: true,
+          round_shares: true,
         },
       },
     ])

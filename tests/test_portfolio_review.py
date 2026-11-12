@@ -22,7 +22,7 @@ from app.models.portfolio_analysis import PortfolioContext, PortfolioReview, Tar
 from app.models.research import AnalysisDelta, RiskFactor
 from app.models.stock import TickerInfo
 from app.stats.portfolio_risk import portfolio_stats, ranked_pairs
-from app.stats.rebalance import Target, plan_trades
+from app.stats.rebalance import Target, plan_trades, tidy_shares
 from tests.test_api import _sse_events
 
 client = TestClient(app)
@@ -229,6 +229,42 @@ def test_a_broker_that_trades_fractions_gets_exact_orders() -> None:
     assert plan.cash_after >= 0
     assert any("Fractional orders (AAPL, VXUS)" in note for note in plan.notes)
     assert any("Fractional limit orders (VXUS)" in note for note in plan.notes)
+
+
+def test_round_shares_leave_tidy_holdings_near_their_targets() -> None:
+    """Holdings land on whole shares or round fractions within a quarter of a percent of the
+    portfolio of their targets; one already that close gets no order, and a buy rounds up
+    only as far as the cash goes."""
+    holdings = {"AAPL": (10.0, 200.0), "XOM": (3.438, 100.0), "MSFT": (0.3, 50.0)}
+    targets = {
+        "AAPL": Target(0.3, "market", None, ""),
+        "XOM": Target(0.2, "market", None, ""),
+        "MSFT": Target(0.05, "market", None, ""),
+        "VXUS": Target(0.45, "market", None, ""),
+    }
+
+    plan = plan_trades(holdings, targets, {"VXUS": 70.0}, cash=1_000.0, fractional=True, tidy=True)
+
+    after = {symbol: shares for symbol, (shares, _) in holdings.items()}
+    for trade in plan.trades:
+        after[trade.symbol] = after.get(trade.symbol, 0.0) + (
+            (trade.shares or 0.0) if trade.action == "buy" else -(trade.shares or 0.0)
+        )
+    assert {s: round(n, 4) for s, n in after.items()} == {
+        "AAPL": 5.0,
+        "XOM": 6.75,
+        "MSFT": 3.5,
+        "VXUS": 21.5,
+    }
+    assert plan.cash_after >= 0
+
+
+def test_tidy_shares_prefer_the_coarsest_round_number_close_enough() -> None:
+    assert tidy_shares(3.438, 300.0, slack=25.0, most=10.0) == 3.5
+    assert tidy_shares(1.002, 300.0, slack=25.0, most=10.0) == 1.0
+    assert tidy_shares(3.438, 300.0, slack=5.0, most=10.0) == 3.44
+    # Not past what may be bought: 3.5 is out of reach, so a round number below it.
+    assert tidy_shares(3.438, 300.0, slack=25.0, most=3.44) == 3.4
 
 
 def test_without_fractions_orders_stay_in_whole_shares() -> None:

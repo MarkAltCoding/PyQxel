@@ -1686,7 +1686,9 @@ export interface paths {
      *     and growth; margins and returns on capital; growth; and liquidity and leverage, as
      *     Finnhub computes them from its own data, so they can differ slightly from the
      *     fundamentals built from SEC filings. Ratios are decimals and totals are in units.
-     *     ``peers`` lists companies Finnhub places in the same industry.
+     *     ``peers`` lists companies Finnhub places in the same industry. For a foreign
+     *     company's US listing, which Finnhub describes by its home listing abroad, the 52-week
+     *     range is worked out from the US listing's own daily prices instead, without its dates.
      *
      *     Fetched on your own Finnhub key (``X-Finnhub-Key``), whose free plan
      *     covers US listings, and reused for six hours. Returns 403 without a valid Finnhub key,
@@ -4961,6 +4963,12 @@ export interface components {
       notes?: string | null
       /** Risk Tolerance */
       risk_tolerance?: ('conservative' | 'moderate' | 'aggressive') | null
+      /**
+       * Round Shares
+       * @description With fractional shares, leave each holding at whole shares or a round fraction such as 3.5, rather than 3.438, where that keeps it within a quarter of a percent of the portfolio's value of its target.
+       * @default true
+       */
+      round_shares?: boolean
     }
     /**
      * IpoEvent

@@ -17,6 +17,14 @@ MIN_TRADE_VALUE: float = 1.0
 SHARE_DECIMALS: int = 4
 """Decimals a fractional share count is given to, as brokers that trade fractions take."""
 
+TIDY_STEPS: tuple[float, ...] = (1.0, 0.5, 0.25, 0.1, 0.01, 10**-SHARE_DECIMALS)
+"""Share counts an order may be rounded to when tidy ones are preferred, coarsest first:
+whole shares, halves, quarters, tenths, hundredths, and the exact fraction."""
+
+TIDY_SLACK: float = 0.0025
+"""How far, as a share of the portfolio's value, a tidy order may leave a position from
+its target: a quarter of a percent, $25 of a $10,000 portfolio."""
+
 FRACTIONAL_NOTE: str = (
     "Fractional orders ({symbols}): not every broker trades fractions of every security, "
     "and many take them only as market orders. Stop and trailing-stop orders are not "
@@ -95,12 +103,26 @@ def normalized(targets: dict[str, Target], holdings: dict[str, float]) -> dict[s
     }
 
 
+def tidy_shares(ideal: float, price: float, slack: float, most: float) -> float:
+    """The tidiest share count near ``ideal``: the first of :data:`TIDY_STEPS` whose
+    nearest multiple, or the one below it, is worth within ``slack`` of ``ideal`` and no
+    more than ``most`` shares. So 3.438 becomes 3.5, and 1.002 becomes 1, when that is
+    close enough; otherwise the exact fraction, rounded down. It may be zero."""
+    for step in TIDY_STEPS:
+        for multiple in (round(ideal / step), math.floor(ideal / step)):
+            shares = round(float(multiple) * step, SHARE_DECIMALS)
+            if 0 <= shares <= most + 1e-9 and abs(shares - ideal) * price <= slack:
+                return shares
+    return float(math.floor(min(ideal, most) * 10**SHARE_DECIMALS) / 10**SHARE_DECIMALS)
+
+
 def plan_trades(
     holdings: dict[str, tuple[float, float]],
     targets: dict[str, Target],
     prices: dict[str, float | None],
     cash: float = 0.0,
     fractional: bool = False,
+    tidy: bool = False,
 ) -> Plan:
     """Size the orders that take ``holdings`` and ``cash`` to ``targets``.
 
@@ -111,6 +133,11 @@ def plan_trades(
         cash: New cash to invest.
         fractional: Whether the broker trades fractions of a share, so every order is
             sized to the fraction its target needs, to :data:`SHARE_DECIMALS` places.
+        tidy: With ``fractional``, leave each holding at a whole number of shares or a
+            round fraction such as 3.5 where that is within :data:`TIDY_SLACK` of the
+            portfolio's value of its target (:func:`tidy_shares`), and send no order for
+            one already that close. A buy is rounded up only as far as the cash left after
+            the sells and the buys before it allows.
 
     Returns:
         Sells first, then buys. Buys round down so the plan never spends more than it
@@ -128,13 +155,22 @@ def plan_trades(
     notes: list[str] = []
     sells: list[Trade] = []
     buys: list[Trade] = []
-    spent = 0.0
-    for symbol, target in weights.items():
+    spent = raised = 0.0
+
+    def gap(item: tuple[str, Target]) -> float:
+        """How far the symbol's value is below its target: negative for a sale."""
+        symbol, target = item
+        held_shares, held_price = holdings.get(symbol, (0.0, prices.get(symbol) or 0.0))
+        price = held_price if symbol in holdings else prices.get(symbol)
+        return target.weight * total - held_shares * (price or 0.0)
+
+    # Sales first, so a tidy buy knows the cash they raise.
+    for symbol, target in sorted(weights.items(), key=lambda item: gap(item) >= 0):
         if symbol == CASH or (target.keep and symbol in holdings):
             continue
         held_shares, held_price = holdings.get(symbol, (0.0, prices.get(symbol) or 0.0))
         price = held_price if symbol in holdings else prices.get(symbol)
-        difference = target.weight * total - held_shares * (price or 0.0)
+        difference = gap((symbol, target))
         if abs(difference) < MIN_TRADE_VALUE:
             continue
         if price is None or price <= 0:
@@ -148,13 +184,34 @@ def plan_trades(
         ideal = abs(difference) / price
         # The smallest amount an order can be: a whole share, or a ten-thousandth of one.
         unit = 10**SHARE_DECIMALS if fractional else 1
+        slack = TIDY_SLACK * total
         if difference < 0:
             action = "sell"
             nearest = round(ideal * unit) / unit
-            shares = held_shares if target.weight == 0 else min(held_shares, nearest)
+            if target.weight == 0:
+                shares = held_shares
+            elif fractional and tidy:
+                # The holding left is what is tidied: 10 shares less 2.5 leaves 7.5.
+                left = tidy_shares(held_shares - ideal, price, slack, held_shares)
+                shares = round(held_shares - left, SHARE_DECIMALS)
+                if shares <= 0:
+                    continue  # Already within reach of its target.
+            else:
+                shares = min(held_shares, nearest)
         else:
             action = "buy"
-            shares = math.floor(ideal * unit) / unit
+            if fractional and tidy:
+                # The holding after the buy is tidied, rounding up only as far as the cash
+                # left goes; rounding down is always allowed.
+                affordable = max(cash + raised - spent, 0.0) / price
+                after = tidy_shares(
+                    held_shares + ideal, price, slack, held_shares + max(affordable, ideal)
+                )
+                shares = round(after - held_shares, SHARE_DECIMALS)
+                if shares <= 0:
+                    continue
+            else:
+                shares = math.floor(ideal * unit) / unit
         if shares <= 0:
             # Whole shares round this trade away; a fraction of a share carries it out.
             factor = 10**SHARE_DECIMALS
@@ -179,10 +236,10 @@ def plan_trades(
         )
         if action == "sell":
             sells.append(trade)
+            raised += trade.value
         else:
             buys.append(trade)
             spent += trade.value
-    raised = math.fsum(trade.value for trade in sells)
     invested = math.fsum(shares * price for shares, price in holdings.values())
     cash_after = cash + raised - spent
     if invested + cash > 0 and cash_after < -MIN_TRADE_VALUE:

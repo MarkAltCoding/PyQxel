@@ -271,9 +271,12 @@ the latest prices, so give weights, not share counts. When the profile's \
 fractional_shares is true, the person's broker trades fractions, and every trade is \
 sized to the exact fraction of a share its target needs, so set precise targets, even \
 for small changes, rather than leaving a position off target because a whole share is \
-too coarse. When it is false, trades are sized in whole shares where they can be and in \
-fractions only where they must be: to sell a holding of a fraction of a share, or a \
-change worth less than one share. For fractional trades, prefer market orders: many \
+too coarse; when round_shares is also true, each holding is then left at whole shares or \
+a round fraction such as 3.5 where that keeps it within a quarter of a percent of the \
+portfolio of its target. When fractional_shares is false, trades are sized in whole \
+shares where they can be and in fractions only where they must be: to sell a holding \
+of a fraction of a share, or a change worth less than one share. For fractional \
+trades, prefer market orders: many \
 brokers take fractional orders only at market or as day limit orders, Fidelity among \
 them, and allow no stop or trailing-stop orders on fractions, so do not rest a plan on a \
 stop for a fractional position. Recommend no change where none is warranted: churn \

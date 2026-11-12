@@ -1490,6 +1490,7 @@ async def _plan(context: PortfolioContext, report: PortfolioReview) -> Rebalance
         prices,
         context.profile.cash_to_invest + cash_held,
         fractional=context.profile.fractional_shares,
+        tidy=context.profile.round_shares,
     )
     notes = list(plan.notes)
     if unpriced:
