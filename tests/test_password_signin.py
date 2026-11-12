@@ -10,6 +10,7 @@ import asyncio
 import smtplib
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -19,6 +20,7 @@ from pydantic import SecretStr
 from sqlalchemy import func, select, update
 
 from app.api.v1.endpoints import password_signin
+from app.core import rate_limit
 from app.core.config import Settings
 from app.core.email import Email, email_sender, site_url
 from app.core.passwords import password_problem, verify_password
@@ -359,11 +361,19 @@ def test_replacing_a_password_signs_out_what_the_old_one_signed_in(
     assert _sign_in(client, "reset@example.com", "a brand new long password").status_code == 200
 
 
+def _hold_the_limiters_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep every attempt in one of the rate limiter's windows, which start on the clock:
+    hashing a password is slow, so a test's attempts could otherwise straddle a window's
+    start and be counted in two."""
+    monkeypatch.setattr(rate_limit, "time", SimpleNamespace(time=lambda: 1_000_000.0))
+
+
 def test_password_attempts_on_one_account_are_limited_across_addresses(
     client: TestClient, mail: FakeSender, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Guessing from many addresses is no faster: after ten tries in 15 minutes the
     account refuses even the right password until the window passes."""
+    _hold_the_limiters_clock(monkeypatch)
     _make_account(client, mail, "guarded@example.com")
     for attempt in range(password_signin.ATTEMPTS_PER_ACCOUNT):
         _address(monkeypatch, f"203.0.113.{attempt}")
@@ -379,8 +389,9 @@ def test_password_attempts_on_one_account_are_limited_across_addresses(
 
 
 def test_password_attempts_from_one_address_are_limited(
-    client: TestClient, mail: FakeSender
+    client: TestClient, mail: FakeSender, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _hold_the_limiters_clock(monkeypatch)
     for attempt in range(password_signin.ATTEMPTS_PER_ADDRESS):
         assert _sign_in(client, f"person{attempt}@example.com").status_code == 401
     assert _sign_in(client, "one-more@example.com").status_code == 429
