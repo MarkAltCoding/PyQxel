@@ -1038,10 +1038,55 @@ def test_index_funds_and_the_sec_write_a_company_alike() -> None:
         ("Charles Schwab Corp. (The)", "SCHWAB CHARLES CORP"),
         ("NXP Semiconductors NV", "NXP Semiconductors N.V."),
         ("CRH plc", "CRH PUBLIC LTD CO"),
+        ("DR Horton, Inc.", "HORTON D R INC /DE/"),
+        ("JB Hunt Transport Services, Inc.", "HUNT J B TRANSPORT SERVICES INC"),
+        ("WR Berkley Corp.", "BERKLEY W R CORP"),
+        ("US Bancorp", "US BANCORP \\DE\\"),
+        ("US Bancorp", "US BANCORP DE"),
+        ("The J.M. Smucker Co.", "SMUCKER J M CO"),
     ]
     for filed, listed in pairs:
         assert set(name_keys(filed)) & set(name_keys(listed)), (filed, listed)
     assert not set(name_keys("Apple Inc.")) & set(name_keys("Applied Materials Inc"))
+    # Only a run of single letters is joined, and a state code only ends a longer name.
+    assert name_keys("GE C X") == ("gecx", "cx ge")
+    assert name_keys("Bank OZK DE")[0] == "bankozk" and name_keys("Kraft DE")[0] == "kraftde"
+
+
+@pytest.mark.asyncio
+async def test_a_renamed_index_company_is_found_by_its_name_at_the_sec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fund that still writes a company's old or new name matches the SEC's listing."""
+    from app.data import index_members as members
+    from app.data.fund_filings import FundFiling, FiledHolding
+
+    stocks = [
+        FiledHolding(name="GE Aerospace", weight=0.01, asset_class="Stocks"),
+        FiledHolding(name="Equity Residential", weight=0.01, asset_class="Stocks"),
+    ]
+    filing = FundFiling(
+        series_id="S000004310",
+        series_name="iShares Core S&P 500 ETF",
+        as_of=date(2026, 6, 30),
+        holdings_count=2,
+        asset_mix={"Stocks": 1.0},
+        top_holdings=stocks,
+        stocks=stocks,
+    )
+
+    async def fetch(symbol: str) -> FundFiling:
+        return filing
+
+    monkeypatch.setattr(members, "fetch_fund_filing", fetch)
+    listings = [
+        Listing(symbol="GE", cik=1, name="GENERAL ELECTRIC CO", exchange="NYSE"),
+        Listing(symbol="VMRK", cik=2, name="VIVMARK RESIDENTIAL", exchange="NYSE"),
+    ]
+
+    found = await members.index_members("sp500", listings)
+
+    assert found.classes == {1: 1, 2: 1}
 
 
 def test_each_price_history_key_fetches_up_to_its_own_limit(

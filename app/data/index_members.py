@@ -49,14 +49,52 @@ ENDINGS: frozenset[str] = frozenset(
 """Words that say what kind of company it is, not which, so they are left out."""
 
 
+US_STATES: frozenset[str] = frozenset(
+    {
+        "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id", "il", "in",
+        "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms", "mo", "mt", "ne", "nv",
+        "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri", "sc", "sd", "tn",
+        "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy",
+    }
+)  # fmt: skip
+"""Two-letter state codes, which EDGAR may end a name with when its slashes are gone, as
+in "US BANCORP DE"."""
+
+RENAMED: dict[str, str] = {
+    "geaerospace": "generalelectric",
+    "franklinresources": "franklintempleton",
+    "equityresidential": "vivmarkresidential",
+    "paramountskydance": "skydance",
+}
+"""Companies a fund's filing names differently from EDGAR, by :func:`name_keys`' first key:
+the filing's name, then EDGAR's. GE Aerospace is still General Electric there; Franklin
+Resources became Franklin Templeton, Equity Residential became Vivmark Residential when
+it merged with AvalonBay in August 2026, and Paramount Skydance became Skydance when it
+took over Warner Bros. Discovery. :func:`index_members` logs the names it could not
+match, so a new one can be added here."""
+
+
 def name_keys(name: str) -> tuple[str, str]:
     """Two ways of writing a company's name that match however a filing or EDGAR spells
     it: its words run together (``exxonmobil`` for both "ExxonMobil" and "Exxon Mobil"),
-    and its words in alphabetical order ("Charles Schwab" and "SCHWAB CHARLES")."""
-    plain = name.split("/")[0].lower()
+    and its words in alphabetical order ("Charles Schwab" and "SCHWAB CHARLES").
+
+    Initials written apart are joined ("HORTON D R" and "DR Horton" both give ``dr``), and
+    a state code EDGAR ends a name with is dropped ("US BANCORP DE")."""
+    plain = re.split(r"[/\\]", name)[0].lower()
     plain = re.sub(r"['’.]", "", plain)
     words = [word for word in re.split(r"[^a-z0-9]+", plain) if word and word not in ENDINGS]
-    return "".join(words), " ".join(sorted(words))
+    joined: list[str] = []
+    initials = False  # Whether the last word kept is a run of single letters.
+    for word in words:
+        if len(word) == 1 and initials:
+            joined[-1] += word  # "j b" becomes "jb".
+            continue
+        joined.append(word)
+        initials = len(word) == 1
+    if len(joined) > 2 and joined[-1] in US_STATES:
+        joined.pop()
+    return "".join(joined), " ".join(sorted(joined))
 
 
 @dataclass(frozen=True)
@@ -85,7 +123,7 @@ async def index_members(index: Index, listings: Iterable[Listing]) -> IndexMembe
     missed: list[str] = []
     for holding in filing.stocks:
         joined, ordered = name_keys(holding.name)
-        found = by_key.get(joined) or by_key.get(ordered)
+        found = by_key.get(joined) or by_key.get(ordered) or by_key.get(RENAMED.get(joined, ""))
         if found:
             # Two companies written alike are both taken, which is rare; leaving out a
             # member would be worse than one company too many.
