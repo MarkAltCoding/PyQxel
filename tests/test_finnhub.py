@@ -625,6 +625,34 @@ def test_metrics_route(user: object, monkeypatch: pytest.MonkeyPatch) -> None:
     assert refused.status_code == 402
 
 
+def test_a_us_listings_52_week_range_comes_from_its_own_prices(
+    user: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without Finnhub's range, as for an ADR described by its home listing, the range is
+    the US listing's own, in dollars per ADR."""
+    import pandas as pd
+
+    from app.api.v1.endpoints import metrics as metrics_route
+    from app.models.metrics import CompanyMetrics, KeyMetrics
+
+    async def fake(symbol: str) -> CompanyMetrics:
+        return CompanyMetrics(symbol=symbol, metrics=KeyMetrics(pe_ttm=23.3), peers=[])
+
+    async def history(symbol: str, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
+        days = pd.date_range("2026-01-02", periods=3, freq="B")
+        return pd.DataFrame(
+            {"High": [310.0, 330.0, 320.0], "Low": [290.0, 300.0, 305.0], "Close": [300, 320, 318]},
+            index=days,
+        )
+
+    monkeypatch.setattr(metrics_route, "fetch_company_metrics", fake)
+    monkeypatch.setattr(metrics_route, "fetch_price_history", history)
+
+    metrics = client.get("/api/v1/stocks/TSM/metrics").json()["metrics"]
+
+    assert (metrics["week_52_low"], metrics["week_52_high"]) == (290.0, 330.0)
+
+
 def test_search_adds_finnhub_matches_after_the_universe(
     user: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
