@@ -1109,5 +1109,7 @@ def test_one_keys_price_histories_are_fetched_several_at_once(
 
     found = asyncio.run(screener_metrics.fetch_histories(symbols, date(2026, 1, 1), {"eodhd": 15}))
 
-    assert started == symbols[:15] and sorted(found) == symbols[:15]
+    # The first 15, largest first, are the ones tried; a few milliseconds' pacing may let
+    # one start just before the one claimed ahead of it.
+    assert sorted(started) == symbols[:15] and sorted(found) == symbols[:15]
     assert 1 < most <= screener_metrics.HISTORY_WORKERS

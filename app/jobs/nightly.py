@@ -26,8 +26,9 @@ Each run refreshes every user whose chosen time has come since their last refres
    Vantage, cheapest first), each key up to the number the user chose for it, or until
    its plan stops answering for the night, several at once under the key's pace a
    minute (:data:`app.data.screener_metrics.HISTORY_PER_MINUTE`). The requests sent on
-   each key are recorded with the run. Those stocks get the price-history columns: one-month return, 12-1
-   momentum, volatility, drawdown, and Carhart factor betas. The rest keep Finnhub's stand-ins (see
+   each key are recorded with the run. Those stocks get the price-history columns:
+   one-month return, 12-1 momentum, volatility, drawdown, and Carhart factor betas. The
+   rest keep Finnhub's stand-ins (see
    :func:`app.stats.screening.user_screen_metrics`), and those whose price is unknown
    take a Finnhub quote.
 4. Adds the ETFs listed on US exchanges. Once every :data:`ETF_SCAN_DAYS` days it checks
