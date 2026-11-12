@@ -4,7 +4,8 @@ Three sources are combined, every one the user can reach:
 
 * **Alpha Vantage's** ``ETF_PROFILE``, which its free plan answers (tested November 5,
   2026) for one of its 25 requests a day, reused for a day: the expense ratio, yield,
-  turnover, inception, leverage, sector weights, and current holdings with tickers.
+  turnover, inception, leverage, sector weights, and current holdings with tickers. It
+  answers nothing for mutual funds (an empty object for VFIAX and FXAIX, November 11).
 * **The SEC's N-PORT filings** (:mod:`app.data.fund_filings`), public and needing no key:
   every holding of a mutual fund or ETF as of the latest published quarter end, the mix of
   stocks, bonds, and cash, and a bond fund's coupon, maturity, and issuers.
