@@ -21,7 +21,8 @@ export function RefundPage() {
           Prepaid credit you have not used is refundable at any time. Email <ContactLink /> and it
           will be refunded to the card that paid for it. Deleting your account in Settings refunds
           it automatically. Stripe does not return its processing fee on a refunded payment, so the
-          refund is the credit left, which never included that fee.
+          refund is the credit left, which never included that fee, plus any sales tax or VAT you
+          paid on it.
         </p>
       </LegalSection>
 

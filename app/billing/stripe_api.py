@@ -15,6 +15,12 @@ The catalog (two products, the meter, a price per interval, and the customer por
 settings) is made once per Stripe account by ``python -m app.jobs.billing setup``, and
 found again here by fixed IDs and lookup keys.
 
+Sales tax and VAT are Stripe Tax's: once the account's tax settings are active
+(:func:`collects_tax`), Checkout asks for a billing address and adds the tax due there on
+top of the price, in the places where PyQxel is registered to collect it, which are set in
+Stripe's Dashboard. The tax is never credit, and Stripe's fees on it are the user's
+(:mod:`app.billing.fees`).
+
 Webhook events are applied by :func:`handle_event`, idempotently, since Stripe may send
 one more than once: credit for a paid top-up, the subscription's state, a refunded or
 disputed top-up taken back out of the credit, and an early fraud warning on a top-up
@@ -22,6 +28,8 @@ refunded before it can become a dispute.
 """
 
 import logging
+import math
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from functools import cache
@@ -54,6 +62,16 @@ PRICE_KEYS: dict[BillingInterval, str] = {
 """Each interval's metered price, by lookup key."""
 CENTS_PER_MICRO: Decimal = Decimal("0.0001")
 """What one reported micro (a millionth of a dollar) is billed, in cents."""
+TAX_CODE: str = "txcd_10103000"
+"""Stripe's product tax code for what PyQxel sells, credit and usage alike: Software as a
+Service (SaaS), Personal Use, from Stripe's list of tax codes. Credit is taxed when it is
+bought, as a prepayment for the same service."""
+EXCLUSIVE: Any = "exclusive"
+"""Tax is added on top of each price, so a price stays what the refreshes cost."""
+TAX_CHECK_SECONDS: float = 3600
+"""How long the answer to whether Stripe Tax is on is kept before asking Stripe again."""
+NOT_COLLECTING: str = "not_collecting"
+"""The reason Stripe gives for no tax where PyQxel is not registered to collect it."""
 PORTAL_TAG: str = "pyqxel"
 """The metadata key that marks the customer portal configuration PyQxel made."""
 
@@ -129,13 +147,16 @@ def client() -> stripe.StripeClient:
 
 
 async def _product(product_id: str, name: str, description: str) -> None:
-    """Make product ``product_id`` unless it exists."""
+    """Make product ``product_id`` unless it exists, and give it PyQxel's tax code."""
     try:
-        await client().v1.products.retrieve_async(product_id)
+        product = await client().v1.products.retrieve_async(product_id)
     except stripe.InvalidRequestError:
         await client().v1.products.create_async(
-            {"id": product_id, "name": name, "description": description}
+            {"id": product_id, "name": name, "description": description, "tax_code": TAX_CODE}
         )
+        return
+    if _id(product.to_dict().get("tax_code")) is None:
+        await client().v1.products.update_async(product_id, {"tax_code": TAX_CODE})
 
 
 async def _meter() -> str:
@@ -177,6 +198,10 @@ async def setup_catalog(public_url: str | None) -> dict[str, str]:
         {"lookup_keys": list(PRICE_KEYS.values()), "active": True, "limit": 10}
     )
     found = {price.lookup_key: price.id for price in existing.data}
+    for price in existing.data:
+        if price.tax_behavior in (None, "unspecified"):
+            # Stripe lets a price's tax behavior be set once, if it never was.
+            await client().v1.prices.update_async(price.id, {"tax_behavior": EXCLUSIVE})
     for interval, key in PRICE_KEYS.items():
         if key not in found:
             price = await client().v1.prices.create_async(
@@ -185,6 +210,7 @@ async def setup_catalog(public_url: str | None) -> dict[str, str]:
                     "product": USAGE_PRODUCT,
                     "lookup_key": key,
                     "unit_amount_decimal": CENTS_PER_MICRO,
+                    "tax_behavior": EXCLUSIVE,
                     "recurring": {"interval": interval, "usage_type": "metered", "meter": meter},
                     "nickname": f"Usage, billed each {interval}",
                 }
@@ -263,6 +289,82 @@ async def _portal_configuration() -> str | None:
     return _cached().get(PORTAL_TAG)
 
 
+# --- Tax -----------------------------------------------------------------------------
+
+
+@cache
+def _tax_checked() -> dict[str, tuple[float, bool]]:
+    """When Stripe was last asked whether its tax settings are active, and its answer."""
+    return {}
+
+
+async def collects_tax() -> bool:
+    """Whether Stripe Tax is set up on the account (its tax settings are active), so
+    Checkout should collect tax. Asked at most once an hour; a key not allowed to read
+    the settings, or Stripe not answering, counts as no, so payments still work.
+
+    Stripe Tax collects only where a registration is added in the Dashboard, so this being
+    true does not by itself charge tax anywhere."""
+    checked = _tax_checked().get("tax")
+    if checked is not None and time.monotonic() - checked[0] < TAX_CHECK_SECONDS:
+        return checked[1]
+    try:
+        settings = await client().v1.tax.settings.retrieve_async()
+        active = settings.status == "active"
+    except stripe.StripeError as exc:
+        logger.warning("Stripe Tax's settings could not be read; tax is off: %s", exc)
+        active = False
+    _tax_checked()["tax"] = (time.monotonic(), active)
+    return active
+
+
+async def _tax_params() -> Any:
+    """What a Checkout Session needs to collect tax, or nothing while Stripe Tax is off.
+
+    The billing address is asked for every time and saved to the customer, since US tax
+    needs a full address; a business abroad can give its tax ID, so it is not charged
+    VAT that it accounts for itself."""
+    if not await collects_tax():
+        return {}
+    return {
+        "automatic_tax": {"enabled": True},
+        "billing_address_collection": "required",
+        "customer_update": {"address": "auto", "name": "auto"},
+        "tax_id_collection": {"enabled": True},
+    }
+
+
+def _tax_of(document: Any) -> tuple[int, bool]:
+    """The tax on a Checkout Session's line items or an invoice, in cents, and whether any
+    of it is in a place where PyQxel collects tax, where Stripe Tax keeps its fee."""
+    taxes = document.get("total_taxes")
+    if taxes is None:
+        items = (document.get("line_items") or {}).get("data") or []
+        taxes = [tax for item in items for tax in item.get("taxes") or []]
+    cents = sum(int(tax.get("amount") or 0) for tax in taxes)
+    registered = any(tax.get("taxability_reason") != NOT_COLLECTING for tax in taxes)
+    return cents, registered
+
+
+async def _top_up_tax(checkout_id: str) -> tuple[int, int]:
+    """A top-up's whole payment and the tax in it, in cents, from its Checkout Session."""
+    try:
+        checkout = (await client().v1.checkout.sessions.retrieve_async(checkout_id)).to_dict()
+    except stripe.StripeError as exc:
+        logger.warning("Checkout Session %s could not be read: %s", checkout_id, exc)
+        return 0, 0
+    tax = int((checkout.get("total_details") or {}).get("amount_tax") or 0)
+    return int(checkout.get("amount_total") or 0), tax
+
+
+def _without_tax(cents: int, total: int, tax: int) -> int:
+    """The share of ``cents`` refunded from a payment of ``total`` that was not tax, in
+    micros: Stripe splits a refund between price and tax in proportion."""
+    if total <= 0 or tax <= 0:
+        return cents * billing.MICROS_PER_CENT
+    return cents * billing.MICROS_PER_CENT * (total - tax) // total
+
+
 # --- Customers and Checkout ----------------------------------------------------------
 
 
@@ -289,55 +391,66 @@ async def top_up_link(account: BillingAccountRecord, cents: int, return_url: str
         "at cost. A card issued outside the US costs Stripe 1.5% more, which is taken from "
         "the credit."
     )
-    checkout = await client().v1.checkout.sessions.create_async(
-        {
-            "mode": "payment",
-            "customer": account.stripe_customer_id,
-            "line_items": [
-                {
-                    "quantity": 1,
-                    "price_data": {
-                        "currency": "usd",
-                        "product": CREDIT_PRODUCT,
-                        "unit_amount": charged,
-                    },
-                }
-            ],
-            "custom_text": {"submit": {"message": message}},
-            "excluded_payment_method_types": EXCLUDED,
-            "adaptive_pricing": DOLLARS_ONLY,
-            "success_url": f"{return_url}?billing=paid#billing",
-            "cancel_url": f"{return_url}#billing",
-            "integration_identifier": TOP_UP_FLOW,
-            "managed_payments": NOT_MANAGED,
-        }
-    )
+    tax = await _tax_params()
+    if tax:
+        message += (
+            " Sales tax or VAT, where PyQxel collects it, is added for your billing address; "
+            "Stripe's card fee on the tax, and Stripe Tax's 0.5% of the payment, come out of "
+            "the credit."
+        )
+    params: Any = {
+        "mode": "payment",
+        "customer": account.stripe_customer_id,
+        "line_items": [
+            {
+                "quantity": 1,
+                "price_data": {
+                    "currency": "usd",
+                    "product": CREDIT_PRODUCT,
+                    "unit_amount": charged,
+                    "tax_behavior": EXCLUSIVE,
+                },
+            }
+        ],
+        "custom_text": {"submit": {"message": message}},
+        "excluded_payment_method_types": EXCLUDED,
+        "adaptive_pricing": DOLLARS_ONLY,
+        "success_url": f"{return_url}?billing=paid#billing",
+        "cancel_url": f"{return_url}#billing",
+        "integration_identifier": TOP_UP_FLOW,
+        "managed_payments": NOT_MANAGED,
+        **tax,
+    }
+    checkout = await client().v1.checkout.sessions.create_async(params)
     return _url(checkout.url)
 
 
 async def subscribe_link(
     account: BillingAccountRecord, interval: BillingInterval, return_url: str
 ) -> str:
-    """A Checkout page that starts a usage subscription billed each ``interval``."""
-    checkout = await client().v1.checkout.sessions.create_async(
-        {
-            "mode": "subscription",
-            "customer": account.stripe_customer_id,
-            "line_items": [{"price": await _price(interval)}],
-            "custom_text": {
-                "submit": {
-                    "message": "Each bill is what your refreshes cost, plus Stripe's "
-                    "processing fees on that bill, at cost."
-                }
-            },
-            "excluded_payment_method_types": EXCLUDED,
-            "adaptive_pricing": DOLLARS_ONLY,
-            "success_url": f"{return_url}?billing=subscribed#billing",
-            "cancel_url": f"{return_url}#billing",
-            "integration_identifier": SUBSCRIBE_FLOW,
-            "managed_payments": NOT_MANAGED,
-        }
+    """A Checkout page that starts a usage subscription billed each ``interval``, with
+    tax on each bill once Stripe Tax is on."""
+    tax = await _tax_params()
+    submit = (
+        "Each bill is what your refreshes cost, plus Stripe's processing fees on that bill, "
+        "at cost."
     )
+    if tax:
+        submit += " Sales tax or VAT, where PyQxel collects it, is added for your billing address."
+    params: Any = {
+        "mode": "subscription",
+        "customer": account.stripe_customer_id,
+        "line_items": [{"price": await _price(interval)}],
+        "custom_text": {"submit": {"message": submit}},
+        "excluded_payment_method_types": EXCLUDED,
+        "adaptive_pricing": DOLLARS_ONLY,
+        "success_url": f"{return_url}?billing=subscribed#billing",
+        "cancel_url": f"{return_url}#billing",
+        "integration_identifier": SUBSCRIBE_FLOW,
+        "managed_payments": NOT_MANAGED,
+        **tax,
+    }
+    checkout = await client().v1.checkout.sessions.create_async(params)
     return _url(checkout.url)
 
 
@@ -397,9 +510,14 @@ async def refund_unused_credit(session: AsyncSession, account: BillingAccountRec
         returned = await _taken_back(session, top_up.payment_intent, billing.REFUND)
         returned += await _taken_back(session, top_up.payment_intent, billing.DISPUTE)
         refundable = (top_up.credit_micros - returned) // billing.MICROS_PER_CENT
-        amount = min(cents_left, refundable)
-        if amount <= 0:
+        credit = min(cents_left, refundable)
+        if credit <= 0:
             continue
+        amount = credit
+        total, tax = (0, 0) if top_up.stripe_ref is None else await _top_up_tax(top_up.stripe_ref)
+        if tax > 0:
+            # The tax paid on the credit is refunded with it, as Stripe splits a refund.
+            amount = min(math.ceil(credit * total / (total - tax)), total)
         try:
             await client().v1.refunds.create_async(
                 {
@@ -412,7 +530,7 @@ async def refund_unused_credit(session: AsyncSession, account: BillingAccountRec
         except stripe.StripeError as exc:
             logger.warning("Top-up %s was not refunded: %s", top_up.payment_intent, exc)
             continue
-        cents_left -= amount
+        cents_left -= credit
         refunded += amount
     return refunded
 
@@ -523,11 +641,13 @@ async def _checkout_paid(session: AsyncSession, checkout: Any) -> None:
         logger.warning("Checkout Session %s names no PyQxel customer.", checkout.get("id"))
         return
     cents = int(checkout.get("amount_total") or 0)
+    tax = int((checkout.get("total_details") or {}).get("amount_tax") or 0)
     added = await billing.add_credit(
         session,
         account,
-        # The user paid Stripe's fee on top; what is left is their credit.
-        fees.credit_micros(cents),
+        # The user paid Stripe's fee on top, and any tax goes to the tax authority; what is
+        # left is their credit.
+        fees.credit_micros(cents) - tax * billing.MICROS_PER_CENT,
         stripe_ref=str(checkout.get("id")),
         payment_intent=_id(checkout.get("payment_intent")),
     )
@@ -544,6 +664,30 @@ async def _checkout_paid(session: AsyncSession, checkout: Any) -> None:
             kind=billing.FEE,
             stripe_ref=f"abroad-{checkout.get('id')}",
         )
+    if (checkout.get("automatic_tax") or {}).get("enabled") and await _registered_checkout(
+        str(checkout.get("id"))
+    ):
+        await billing.charge_usage(
+            session,
+            account.user_id,
+            fees.tax_fee_micros(cents),
+            None,
+            kind=billing.FEE,
+            stripe_ref=f"tax-{checkout.get('id')}",
+        )
+
+
+async def _registered_checkout(checkout_id: str) -> bool:
+    """Whether a paid Checkout Session was taxed where PyQxel collects tax, so Stripe Tax
+    kept its fee; one that cannot be read counts as taxed, so it costs PyQxel nothing."""
+    try:
+        checkout = await client().v1.checkout.sessions.retrieve_async(
+            checkout_id, {"expand": ["line_items.data.taxes"]}
+        )
+    except stripe.StripeError as exc:
+        logger.warning("Checkout Session %s's tax could not be read: %s", checkout_id, exc)
+        return True
+    return _tax_of(checkout.to_dict())[1]
 
 
 async def _paid_card_country(payment_intent: str | None) -> str | None:
@@ -600,7 +744,15 @@ async def _invoice_created(invoice: Any) -> None:
         logger.warning(
             "The card on %s could not be read; it pays the extra: %s", subscription_id, exc
         )
-    fee = fees.invoice_fee_cents(int(invoice.get("amount_due") or 0), fees.is_domestic(country))
+    due = int(invoice.get("amount_due") or 0)
+    tax, registered = _tax_of(invoice) if invoice.get("total_taxes") else (0, False)
+    untaxed = int(invoice.get("total_excluding_tax") or 0)
+    fee = fees.invoice_fee_cents(
+        due,
+        fees.is_domestic(country),
+        tax_rate=tax / untaxed if untaxed > 0 else 0.0,
+        taxed=registered,
+    )
     if fee <= 0:
         return
     await client().v1.invoice_items.create_async(
@@ -610,6 +762,9 @@ async def _invoice_created(invoice: Any) -> None:
             "amount": fee,
             "currency": "usd",
             "description": FEE_LINE,
+            # Fees passed on are part of the price, taxed like the rest of the bill.
+            "tax_code": TAX_CODE,
+            "tax_behavior": EXCLUSIVE,
         },
         {"idempotency_key": f"pyqxel-fee-{invoice.get('id')}"},
     )
@@ -661,11 +816,20 @@ async def _taken_back(session: AsyncSession, payment_intent: str, kind: str) -> 
 
 async def _refunded(session: AsyncSession, charge: Any, event_id: str) -> None:
     """Take a refunded top-up's money back out of the credit: what has been refunded in
-    all, less what earlier refunds took."""
+    all, less its tax, which was never credit, less what earlier refunds took."""
     payment_intent = _id(charge.get("payment_intent"))
     if payment_intent is None:
         return
-    refunded = int(charge.get("amount_refunded") or 0) * billing.MICROS_PER_CENT
+    top_up = await session.scalar(
+        select(BillingEntryRecord).where(
+            BillingEntryRecord.payment_intent == payment_intent,
+            BillingEntryRecord.kind == billing.TOP_UP,
+        )
+    )
+    if top_up is None:
+        return  # A subscription bill's refund changes no credit.
+    total, tax = (0, 0) if top_up.stripe_ref is None else await _top_up_tax(top_up.stripe_ref)
+    refunded = _without_tax(int(charge.get("amount_refunded") or 0), total, tax)
     owed = refunded - await _taken_back(session, payment_intent, billing.REFUND)
     if owed > 0:
         await billing.take_back_credit(

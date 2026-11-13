@@ -38,8 +38,14 @@ MICROS = billing.MICROS_PER_DOLLAR
 class FakeStripe:
     """The Stripe calls billing makes on webhook events, recorded instead of sent."""
 
-    def __init__(self, card_country: str | None, customer: str = CUSTOMER) -> None:
+    def __init__(
+        self,
+        card_country: str | None,
+        customer: str = CUSTOMER,
+        sessions: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
         self.items: list[dict[str, Any]] = []
+        self.sessions = sessions or {}
         self.card_country = card_country
         self.customer = customer
         payment_method = None if card_country is None else {"card": {"country": card_country}}
@@ -57,6 +63,10 @@ class FakeStripe:
         async def retrieve_charge(charge_id: str) -> Any:
             return SimpleNamespace(to_dict=lambda: charge)
 
+        async def retrieve_session(session_id: str, params: Any = None) -> Any:
+            found = self.sessions.get(session_id, {})
+            return SimpleNamespace(to_dict=lambda: found)
+
         # Webhook signatures are checked as Stripe's own client checks them.
         self.construct_event = stripe.Webhook.construct_event
         self.v1 = SimpleNamespace(
@@ -64,6 +74,7 @@ class FakeStripe:
             invoice_items=SimpleNamespace(create_async=create_item),
             payment_intents=SimpleNamespace(retrieve_async=retrieve_intent),
             charges=SimpleNamespace(retrieve_async=retrieve_charge),
+            checkout=SimpleNamespace(sessions=SimpleNamespace(retrieve_async=retrieve_session)),
         )
 
 
@@ -583,6 +594,7 @@ def test_deleting_the_account_ends_billing_and_refunds_credit(
             subscriptions=SimpleNamespace(update_async=update_async),
             refunds=SimpleNamespace(create_async=refund_async),
             billing=SimpleNamespace(meter_events=SimpleNamespace(create_async=report_async)),
+            checkout=FakeStripe("US").v1.checkout,
         )
     )
     monkeypatch.setattr(stripe_api, "client", lambda: fake)
@@ -606,3 +618,100 @@ def test_recent_usage_counts_only_the_last_30_days(user: User) -> None:
 
     assert _run(since(-30)) == (1000, 1)
     assert _run(since(1)) == (0, 0)
+
+
+# --- Sales tax -----------------------------------------------------------------------
+
+
+def _taxed_session(cents: int, tax: int, reason: str = "standard_rated") -> dict[str, Any]:
+    """A paid top-up of ``cents`` with ``tax`` added on top by Stripe Tax."""
+    return {
+        **_top_up_session(cents + tax),
+        "amount_subtotal": cents,
+        "automatic_tax": {"enabled": True, "status": "complete"},
+        "total_details": {"amount_tax": tax},
+        "line_items": {"data": [{"taxes": [{"amount": tax, "taxability_reason": reason}]}]},
+    }
+
+
+@pytest.mark.usefixtures("billed")
+@pytest.mark.parametrize(
+    ("reason", "credit"),
+    # $10.00 plus 80 cents of tax: the card fee is 30 cents plus 2.9% of $10.80 (61 cents),
+    # the tax is not credit, and Stripe Tax keeps 0.5% of $10.80 where PyQxel collects.
+    [("standard_rated", 10_800_000 - 613_200 - 800_000 - 54_000), ("not_collecting", None)],
+)
+def test_tax_and_stripe_taxs_fee_are_never_credit(
+    user: User, monkeypatch: pytest.MonkeyPatch, reason: str, credit: int | None
+) -> None:
+    tax = 80 if reason != "not_collecting" else 0
+    checkout = _taxed_session(1000, tax, reason)
+    monkeypatch.setattr(stripe_api, "client", lambda: FakeStripe("US", sessions={"cs_1": checkout}))
+    _make_account(user)
+
+    _send("checkout.session.completed", checkout)
+
+    account = _run(_account(user.id))
+    # Not registered there: no tax and no Stripe Tax fee, as before tax was on.
+    assert account is not None and account.credit_micros == (credit or 9_410_000)
+
+
+@pytest.mark.usefixtures("billed")
+def test_a_refund_takes_back_only_the_credit_not_the_tax(
+    user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = _taxed_session(2000, 200)
+    monkeypatch.setattr(stripe_api, "client", lambda: FakeStripe("US", sessions={"cs_1": checkout}))
+    _make_account(user)
+    _send("checkout.session.completed", checkout)
+    before = _run(_account(user.id))
+    assert before is not None
+
+    # $11 of the $22 refunded: a tenth of it, $1.00, was tax.
+    refund = {"id": "ch_1", "object": "charge", "payment_intent": "pi_1", "amount_refunded": 1100}
+    _send("charge.refunded", refund, "evt_r1")
+
+    after = _run(_account(user.id))
+    assert after is not None and before.credit_micros - after.credit_micros == 10_000_000
+
+
+def test_a_taxed_bill_carries_fees_on_its_tax_and_stripe_taxs_share() -> None:
+    # $10.00 of usage with 8% tax: the bill grows by the fee line and its own tax.
+    fee = stripe_fees.invoice_fee_cents(1080, True, tax_rate=0.08, taxed=True)
+    paid = 1080 + fee * 1.08
+    assert fee >= 30 + paid * 0.041 > fee - 1.1
+    assert stripe_fees.invoice_fee_cents(1000, True) < fee
+
+
+@pytest.mark.usefixtures("billed")
+def test_checkout_collects_tax_only_once_stripe_tax_is_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    status = {"value": "pending"}
+    made: list[dict[str, Any]] = []
+
+    async def settings() -> Any:
+        return SimpleNamespace(status=status["value"])
+
+    async def create(params: dict[str, Any]) -> Any:
+        made.append(params)
+        return SimpleNamespace(url="https://checkout.stripe.com/c/pay/cs")
+
+    fake = SimpleNamespace(
+        v1=SimpleNamespace(
+            tax=SimpleNamespace(settings=SimpleNamespace(retrieve_async=settings)),
+            checkout=SimpleNamespace(sessions=SimpleNamespace(create_async=create)),
+        )
+    )
+    monkeypatch.setattr(stripe_api, "client", lambda: fake)
+    account = BillingAccountRecord(user_id="u", stripe_customer_id=CUSTOMER, credit_micros=0)
+
+    stripe_api._tax_checked().clear()
+    _run(stripe_api.top_up_link(account, 1000, "https://example.invalid/settings"))
+    status["value"] = "active"
+    stripe_api._tax_checked().clear()
+    _run(stripe_api.top_up_link(account, 1000, "https://example.invalid/settings"))
+    stripe_api._tax_checked().clear()
+
+    assert "automatic_tax" not in made[0]
+    assert made[1]["automatic_tax"] == {"enabled": True}
+    assert made[1]["customer_update"] == {"address": "auto", "name": "auto"}
+    assert made[1]["line_items"][0]["price_data"]["tax_behavior"] == "exclusive"

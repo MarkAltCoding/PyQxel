@@ -25,6 +25,8 @@ BILLING_FEE_RATE: float = 0.007
 """Stripe Billing's share of each subscription bill, on top of the card fee."""
 INTERNATIONAL_FEE_RATE: float = 0.015
 """What Stripe adds on a card issued outside the US."""
+TAX_FEE_RATE: float = 0.005
+"""Stripe Tax's share of each payment made where PyQxel is registered to collect tax."""
 DISPUTE_FEE_CENTS: int = 1500
 """What Stripe charges, and keeps, when a cardholder disputes a payment with their bank."""
 MIN_CHARGE_CENTS: int = 50

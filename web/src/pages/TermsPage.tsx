@@ -81,6 +81,11 @@ export function TermsPage() {
             With neither credit nor a subscription, your refresh pauses until you add one; nothing
             else changes.
           </li>
+          <li>
+            <strong>Taxes:</strong> where PyQxel is registered to collect sales tax or VAT, Stripe
+            adds it to the price, based on the billing address you give on Stripe’s page, and the
+            fees Stripe charges on the tax are passed on like its other fees.
+          </li>
         </ul>
         <p>
           Payments are processed by Stripe under its own terms; PyQxel never sees your card. If

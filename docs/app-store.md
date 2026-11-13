@@ -125,7 +125,7 @@ tracking, and every type below is linked to the user and used only for App Funct
 | Other Data | Provider API keys, stored encrypted only for users who turn on the nightly screener refresh. |
 
 Not collected: name, location, contacts, browsing history, usage data, diagnostics.
-Card details go to Stripe on the website, never to PyQxel or the app. Requests reach Google Cloud's access logs, which keep IP addresses for 30 days
+Card details and the billing address go to Stripe on the website, never to PyQxel or the app. Requests reach Google Cloud's access logs, which keep IP addresses for 30 days
 for security. Apple counts that as not collected because it is not linked to the user
 or kept beyond security purposes, but recheck the definition when submitting.
 

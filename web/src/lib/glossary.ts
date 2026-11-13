@@ -939,12 +939,12 @@ const entries = {
   billingTopUp: {
     title: 'Add credit',
     what: 'Buy any amount of credit from $5 to $500 on Stripe’s secure checkout page; it appears within seconds. You pay Stripe’s processing fee on top, so $10 of credit costs $10.61. Refreshes use the credit before any subscription is billed.',
-    note: 'A card issued outside the US costs Stripe 1.5% more; that is taken from the credit after paying, since the checkout page cannot know the card’s country first. Unused credit is refunded to your card if you delete your account.',
+    note: 'A card issued outside the US costs Stripe 1.5% more; that is taken from the credit after paying, since the checkout page cannot know the card’s country first. Sales tax or VAT is added on top where PyQxel is registered to collect it, based on your billing address; it goes to the government, so it is never credit, and Stripe’s fees on it (its card fee, and 0.5% for working out the tax) come out of the credit. Unused credit is refunded to your card if you delete your account, with the tax paid on it.',
     good: '$10 to $20 suits most refresh choices. Stripe’s fee is 30 cents plus 2.9% of each payment, about 6% on $10 and 4% on $20, so larger top-ups pay less in fees.',
   },
   billingSubscription: {
     title: 'Subscription',
-    what: 'Stripe bills your card at the end of each week, month, or year for what your refreshes cost in that period, after any credit is used. You choose how often; the amount is whatever your refreshes cost, not a fixed price. Each bill includes Stripe’s fees on it: 30 cents plus 3.6%, and 1.5% more on a card issued outside the US.',
+    what: 'Stripe bills your card at the end of each week, month, or year for what your refreshes cost in that period, after any credit is used. You choose how often; the amount is whatever your refreshes cost, not a fixed price. Each bill includes Stripe’s fees on it: 30 cents plus 3.6%, and 1.5% more on a card issued outside the US. Where PyQxel collects sales tax or VAT, it is added to the bill, and Stripe’s fees include 0.5% more for working out the tax.',
     good: 'Yearly or monthly: the 30-cent part of the fee is a large share of a small weekly bill.',
     note: 'Stripe charges nothing under 50 cents; a smaller bill is added to the next one. If a payment fails, Stripe retries it and your refresh pauses until it is paid. Cancel any time on Stripe’s billing page: the subscription ends at the end of the period, billing the refreshes up to then.',
   },

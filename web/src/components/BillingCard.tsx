@@ -216,7 +216,8 @@ function TopUp({ status }: { status: BillingStatus }) {
         {money(status.max_top_up_cents / 100, 'USD', 0)}. You pay Stripe’s processing fee on top:{' '}
         {money(fee / 100)} on this payment, {percent(fee / charged)} of it, so a larger top-up pays
         less in fees for the same credit. A card issued outside the US costs Stripe{' '}
-        {percent(status.international_fee_rate)} more, which is taken from the credit.
+        {percent(status.international_fee_rate)} more, which is taken from the credit. Sales tax or
+        VAT is added where PyQxel collects it, for the billing address you give Stripe.
       </p>
       <div>
         <button
@@ -260,7 +261,8 @@ function SubscriptionChoice({ status }: { status: BillingStatus }) {
         month, or year, after any credit you have is used. Each bill includes Stripe’s fees on it,{' '}
         {status.card_fee_cents} cents plus {percent(status.card_fee_rate + status.billing_fee_rate)}
         , so billing less often pays less in fees. Stripe charges nothing under{' '}
-        {money(status.min_charge_cents / 100)}: a smaller bill waits until the next one.
+        {money(status.min_charge_cents / 100)}: a smaller bill waits until the next one. Sales tax
+        or VAT is added where PyQxel collects it.
       </p>
       {bills.length > 0 ? (
         <ul className="stack" style={{ gap: 4, margin: 0, paddingLeft: 18 }}>

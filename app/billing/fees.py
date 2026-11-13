@@ -24,6 +24,7 @@ from app.models.billing import (
     CARD_FEE_RATE,
     INTERNATIONAL_FEE_RATE,
     MIN_CHARGE_CENTS,
+    TAX_FEE_RATE,
 )
 
 MICROS_PER_CENT: int = 10_000
@@ -55,17 +56,29 @@ def international_micros(paid_cents: int) -> int:
     return round(paid_cents * INTERNATIONAL_FEE_RATE * MICROS_PER_CENT)
 
 
+def tax_fee_micros(paid_cents: int) -> int:
+    """Stripe Tax's fee on a payment of ``paid_cents`` made where PyQxel collects tax."""
+    return round(paid_cents * TAX_FEE_RATE * MICROS_PER_CENT)
+
+
 def is_domestic(country: str | None) -> bool:
     """Whether a card issued in ``country`` pays only the US fee. A card whose country is
     unknown pays the extra too, so no payment costs PyQxel's owner anything."""
     return country == "US"
 
 
-def invoice_fee_cents(due_cents: int, domestic: bool) -> int:
+def invoice_fee_cents(
+    due_cents: int, domestic: bool, tax_rate: float = 0.0, taxed: bool = False
+) -> int:
     """The fee line to add to a subscription bill of ``due_cents`` so that the user pays
     every fee on it: the smallest amount at least Stripe's fees on the bill with that line
-    included. Nothing for a bill too small for Stripe to charge, which waits for the next."""
+    included. Nothing for a bill too small for Stripe to charge, which waits for the next.
+
+    ``tax_rate`` is the share of tax the bill already carries, which the fee line is taxed
+    at too, so the bill grows by the line and its tax. ``taxed`` says the bill is made where
+    PyQxel collects tax, so Stripe Tax's share is a fee on it as well."""
     if due_cents < MIN_CHARGE_CENTS:
         return 0
     rate = CARD_FEE_RATE + BILLING_FEE_RATE + (0 if domestic else INTERNATIONAL_FEE_RATE)
-    return math.ceil((CARD_FEE_CENTS + due_cents * rate) / (1 - rate))
+    rate += TAX_FEE_RATE if taxed else 0
+    return math.ceil((CARD_FEE_CENTS + due_cents * rate) / (1 - rate * (1 + tax_rate)))

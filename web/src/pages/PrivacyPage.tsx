@@ -128,7 +128,9 @@ export function PrivacyPage() {
             </li>
             <li>
               Payments for the nightly refresh go through Stripe, which receives your email address,
-              your payment details, and what you pay, under Stripe’s privacy policy.
+              your payment details, your billing address (to work out sales tax or VAT), any tax ID
+              you give, and what you pay, under Stripe’s privacy policy. PyQxel does not keep your
+              address.
             </li>
             <li>
               The symbols you look up are sent to market data providers with your own keys: Tiingo,
