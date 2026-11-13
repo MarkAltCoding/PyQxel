@@ -86,6 +86,13 @@ export function TermsPage() {
             adds it to the price, based on the billing address you give on Stripe’s page, and the
             fees Stripe charges on the tax are passed on like its other fees.
           </li>
+          <li>
+            <strong>Where you can pay from:</strong> PyQxel does not take payments from the European
+            Union or the United Kingdom, since it is not registered to collect their VAT. Your card
+            is only held when you buy credit, and charged once Stripe confirms the payment; a
+            payment whose billing address or card is from there is released instead, so nothing is
+            charged, and a subscription started from there ends before it bills.
+          </li>
         </ul>
         <p>
           Payments are processed by Stripe under its own terms; PyQxel never sees your card. If

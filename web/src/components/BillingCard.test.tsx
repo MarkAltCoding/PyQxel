@@ -109,6 +109,17 @@ describe('BillingCard', () => {
 
     expect(await screen.findByText(/your credit appears here/i)).toBeInTheDocument()
   })
+
+  it('explains a payment from the EU turned away, and offers no other', async () => {
+    answer({ closed_country: 'DE' })
+    renderCard('/settings?billing=paid')
+
+    expect(
+      await screen.findByText(/your payment from germany was turned away/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/your credit appears here/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /of credit/i })).not.toBeInTheDocument()
+  })
 })
 
 describe('periodBills', () => {

@@ -29,6 +29,15 @@ TAX_FEE_RATE: float = 0.005
 """Stripe Tax's share of each payment made where PyQxel is registered to collect tax."""
 DISPUTE_FEE_CENTS: int = 1500
 """What Stripe charges, and keeps, when a cardholder disputes a payment with their bank."""
+CLOSED_COUNTRIES: frozenset[str] = frozenset(
+    # The European Union's 27 members, then Monaco, in France's VAT area, and the United
+    # Kingdom with the Isle of Man, in its VAT area.
+    "AT BE BG CY CZ DE DK EE ES FI FR GR HR HU IE IT LT LU LV MT NL PL PT RO SE SI SK "
+    "MC GB IM".split()
+)
+"""Where PyQxel does not take payments: the European Union and the United Kingdom tax a
+digital service sold to someone living there from the first sale, with no threshold for a
+seller based abroad, and PyQxel is not registered for their VAT."""
 MIN_CHARGE_CENTS: int = 50
 """The least Stripe charges a card; a smaller bill waits for the next one."""
 
@@ -101,6 +110,12 @@ class BillingStatus(BaseModel):
     )
     min_charge_cents: int = Field(
         description="The least Stripe charges a card, in cents; a smaller bill carries over."
+    )
+    closed_country: str | None = Field(
+        default=None,
+        description="The country (ISO code, in the European Union or the United Kingdom) "
+        "whose payment was turned away, since PyQxel does not collect VAT there; this "
+        "account cannot buy credit or subscribe while it is set.",
     )
 
 

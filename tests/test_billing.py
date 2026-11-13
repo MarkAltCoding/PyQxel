@@ -46,6 +46,11 @@ class FakeStripe:
     ) -> None:
         self.items: list[dict[str, Any]] = []
         self.sessions = sessions or {}
+        # A top-up's card is held until billing captures or releases it.
+        self.intent_status = "requires_capture"
+        self.captured: list[str] = []
+        self.released: list[str] = []
+        self.ended: list[str] = []
         self.card_country = card_country
         self.customer = customer
         payment_method = None if card_country is None else {"card": {"country": card_country}}
@@ -58,7 +63,19 @@ class FakeStripe:
             self.items.append(params)
 
         async def retrieve_intent(payment_intent: str, params: Any) -> Any:
-            return SimpleNamespace(to_dict=lambda: {"latest_charge": charge})
+            intent = {"status": self.intent_status, "latest_charge": charge}
+            return SimpleNamespace(to_dict=lambda: intent)
+
+        async def capture_intent(payment_intent: str, options: Any = None) -> None:
+            self.captured.append(payment_intent)
+            self.intent_status = "succeeded"
+
+        async def cancel_intent(payment_intent: str) -> None:
+            self.released.append(payment_intent)
+            self.intent_status = "canceled"
+
+        async def cancel_subscription(subscription_id: str) -> None:
+            self.ended.append(subscription_id)
 
         async def retrieve_charge(charge_id: str) -> Any:
             return SimpleNamespace(to_dict=lambda: charge)
@@ -70,9 +87,15 @@ class FakeStripe:
         # Webhook signatures are checked as Stripe's own client checks them.
         self.construct_event = stripe.Webhook.construct_event
         self.v1 = SimpleNamespace(
-            subscriptions=SimpleNamespace(retrieve_async=retrieve_subscription),
+            subscriptions=SimpleNamespace(
+                retrieve_async=retrieve_subscription, cancel_async=cancel_subscription
+            ),
             invoice_items=SimpleNamespace(create_async=create_item),
-            payment_intents=SimpleNamespace(retrieve_async=retrieve_intent),
+            payment_intents=SimpleNamespace(
+                retrieve_async=retrieve_intent,
+                capture_async=capture_intent,
+                cancel_async=cancel_intent,
+            ),
             charges=SimpleNamespace(retrieve_async=retrieve_charge),
             checkout=SimpleNamespace(sessions=SimpleNamespace(retrieve_async=retrieve_session)),
         )
@@ -317,13 +340,19 @@ def test_a_paid_top_up_adds_credit_once(user: User) -> None:
 
 
 @pytest.mark.usefixtures("billed")
-def test_a_top_up_still_unpaid_adds_nothing_until_it_is_paid(user: User) -> None:
+def test_a_top_up_still_unpaid_adds_nothing_until_it_is_paid(
+    user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeStripe("US")
+    fake.intent_status = "processing"
+    monkeypatch.setattr(stripe_api, "client", lambda: fake)
     _make_account(user)
     unpaid = {**_top_up_session(), "payment_status": "unpaid"}
 
     _send("checkout.session.completed", unpaid)
     assert (account := _run(_account(user.id))) is not None and account.credit_micros == 0
 
+    fake.intent_status = "succeeded"
     _send("checkout.session.async_payment_succeeded", _top_up_session(), "evt_2")
     assert (account := _run(_account(user.id))) is not None and account.credit_micros == 9_410_000
 
@@ -713,5 +742,69 @@ def test_checkout_collects_tax_only_once_stripe_tax_is_on(monkeypatch: pytest.Mo
 
     assert "automatic_tax" not in made[0]
     assert made[1]["automatic_tax"] == {"enabled": True}
-    assert made[1]["customer_update"] == {"address": "auto", "name": "auto"}
+    assert made[1]["customer_update"] == {"address": "auto"}
+    assert made[1]["payment_intent_data"] == {"capture_method": "manual"}
     assert made[1]["line_items"][0]["price_data"]["tax_behavior"] == "exclusive"
+
+
+# --- Where PyQxel sells ---------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("billed")
+@pytest.mark.parametrize(
+    ("address", "card", "closed"),
+    [("US", "US", None), ("DE", "US", "DE"), ("US", "GB", "GB"), (None, "FR", "FR")],
+)
+def test_a_top_up_from_the_eu_or_uk_is_released_not_charged(
+    user: User,
+    monkeypatch: pytest.MonkeyPatch,
+    address: str | None,
+    card: str,
+    closed: str | None,
+) -> None:
+    fake = FakeStripe(card)
+    monkeypatch.setattr(stripe_api, "client", lambda: fake)
+    _make_account(user)
+    checkout = {**_top_up_session(1000), "customer_details": {"address": {"country": address}}}
+
+    _send("checkout.session.completed", checkout)
+    # Stripe sends it again: the released payment stays released, and adds nothing.
+    _send("checkout.session.completed", checkout, "evt_2")
+
+    account = _run(_account(user.id))
+    assert account is not None and account.closed_country == closed
+    if closed is None:
+        assert fake.captured == ["pi_1"] and fake.released == []
+        assert account.credit_micros == 9_410_000
+    else:
+        assert fake.captured == [] and fake.released == ["pi_1"]
+        assert account.credit_micros == 0
+        assert (
+            client.post("/api/v1/me/billing/top-up", json={"amount_cents": 1000}).status_code == 403
+        )
+        assert client.get("/api/v1/me/billing").json()["closed_country"] == closed
+
+
+@pytest.mark.usefixtures("billed")
+@pytest.mark.parametrize(("card", "ended"), [("US", []), ("IE", ["sub_1"])])
+def test_a_subscription_from_the_eu_or_uk_ends_before_it_bills(
+    user: User, monkeypatch: pytest.MonkeyPatch, card: str, ended: list[str]
+) -> None:
+    fake = FakeStripe(card)
+    monkeypatch.setattr(stripe_api, "client", lambda: fake)
+    _make_account(user)
+    checkout = {
+        "id": "cs_9",
+        "object": "checkout.session",
+        "mode": "subscription",
+        "status": "complete",
+        "customer": CUSTOMER,
+        "subscription": "sub_1",
+        "customer_details": {"address": {"country": "US"}},
+    }
+
+    _send("checkout.session.completed", checkout)
+
+    assert fake.ended == ended
+    account = _run(_account(user.id))
+    assert account is not None and account.closed_country == ("IE" if ended else None)

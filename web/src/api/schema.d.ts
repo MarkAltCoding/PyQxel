@@ -693,7 +693,9 @@ export interface paths {
      * @description A Stripe Checkout page that starts a subscription billing your refreshes' cost each
      *     week, month, or year, after any credit you have is used.
      *
-     *     Returns 404 when this server does not bill, 409 when you already have a subscription
+     *     Returns 403 when an earlier payment came from the European Union or the United Kingdom,
+     *     where PyQxel does not take payments, 404 when this server does not bill, 409 when you
+     *     already have a subscription
      *     (change or cancel it in the billing portal), 502 when Stripe cannot be reached, and
      *     503 when the database is unavailable.
      */
@@ -719,7 +721,9 @@ export interface paths {
      *     Stripe's fee on top so the credit is the amount asked for. The credit is added when
      *     Stripe reports the payment, usually within seconds.
      *
-     *     Returns 404 when this server does not bill, 422 for an amount out of range, 502 when
+     *     Returns 403 when an earlier payment came from the European Union or the United Kingdom,
+     *     where PyQxel does not take payments, 404 when this server does not bill, 422 for an
+     *     amount out of range, 502 when
      *     Stripe cannot be reached, and 503 when the database is unavailable.
      */
     post: operations['buy_credit_api_v1_me_billing_top_up_post']
@@ -2913,6 +2917,11 @@ export interface components {
        * @description Stripe's share of each card payment (0.029 = 2.9%).
        */
       card_fee_rate: number
+      /**
+       * Closed Country
+       * @description The country (ISO code, in the European Union or the United Kingdom) whose payment was turned away, since PyQxel does not collect VAT there; this account cannot buy credit or subscribe while it is set.
+       */
+      closed_country?: string | null
       /**
        * Credit Usd
        * @description Prepaid credit left, in dollars; below zero when refreshes ran past it with no subscription, which the next top-up repays.

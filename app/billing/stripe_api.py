@@ -44,7 +44,7 @@ from app.core.config import get_settings
 from app.billing import fees
 from app.db import billing
 from app.db.tables import BillingAccountRecord, BillingEntryRecord
-from app.models.billing import DISPUTE_FEE_CENTS, BillingInterval
+from app.models.billing import CLOSED_COUNTRIES, DISPUTE_FEE_CENTS, BillingInterval
 
 logger = logging.getLogger(__name__)
 
@@ -322,15 +322,13 @@ async def _tax_params() -> Any:
     """What a Checkout Session needs to collect tax, or nothing while Stripe Tax is off.
 
     The billing address is asked for every time and saved to the customer, since US tax
-    needs a full address; a business abroad can give its tax ID, so it is not charged
-    VAT that it accounts for itself."""
+    needs a full address."""
     if not await collects_tax():
         return {}
     return {
         "automatic_tax": {"enabled": True},
         "billing_address_collection": "required",
-        "customer_update": {"address": "auto", "name": "auto"},
-        "tax_id_collection": {"enabled": True},
+        "customer_update": {"address": "auto"},
     }
 
 
@@ -389,7 +387,7 @@ async def top_up_link(account: BillingAccountRecord, cents: int, return_url: str
         f"${cents / 100:,.2f} goes to your PyQxel credit; the other "
         f"${(charged - cents) / 100:,.2f} is Stripe's processing fee, which PyQxel passes on "
         "at cost. A card issued outside the US costs Stripe 1.5% more, which is taken from "
-        "the credit."
+        "the credit. Payments from the EU and the UK are not accepted."
     )
     tax = await _tax_params()
     if tax:
@@ -417,6 +415,8 @@ async def top_up_link(account: BillingAccountRecord, cents: int, return_url: str
         "adaptive_pricing": DOLLARS_ONLY,
         "success_url": f"{return_url}?billing=paid#billing",
         "cancel_url": f"{return_url}#billing",
+        # Held, then taken once the webhook sees where it came from (_checkout_paid).
+        "payment_intent_data": {"capture_method": "manual"},
         "integration_identifier": TOP_UP_FLOW,
         "managed_payments": NOT_MANAGED,
         **tax,
@@ -433,7 +433,7 @@ async def subscribe_link(
     tax = await _tax_params()
     submit = (
         "Each bill is what your refreshes cost, plus Stripe's processing fees on that bill, "
-        "at cost."
+        "at cost. Payments from the EU and the UK are not accepted."
     )
     if tax:
         submit += " Sales tax or VAT, where PyQxel collects it, is added for your billing address."
@@ -631,15 +631,52 @@ async def handle_event(session: AsyncSession, event: stripe.Event) -> None:
 
 
 async def _checkout_paid(session: AsyncSession, checkout: Any) -> None:
-    """Add a paid top-up's credit. A subscription's Checkout needs nothing here: its
+    """Add a paid top-up's credit, or turn away a payment from where PyQxel does not sell
+    (:func:`_closed_country`).
+
+    A top-up's card is only held when Checkout completes (``capture_method: manual``), and
+    taken here once the payment's billing address and card are known to be from where
+    PyQxel sells; one from elsewhere is released, which costs nothing, as a refund would
+    not. A subscription's Checkout is checked the same way; its own
     ``customer.subscription.created`` event records it."""
-    if checkout.get("mode") != "payment" or checkout.get("payment_status") == "unpaid":
+    if checkout.get("mode") == "subscription":
+        await _subscription_checkout(session, checkout)
+        return
+    if checkout.get("mode") != "payment":
         return
     customer = _id(checkout.get("customer"))
     account = None if customer is None else await billing.account_for_customer(session, customer)
     if account is None:
         logger.warning("Checkout Session %s names no PyQxel customer.", checkout.get("id"))
         return
+    payment_intent = _id(checkout.get("payment_intent"))
+    if payment_intent is None:
+        return
+    # A failure here reaches Stripe as an error, so it sends the event again.
+    intent = (
+        await client().v1.payment_intents.retrieve_async(
+            payment_intent, {"expand": ["latest_charge"]}
+        )
+    ).to_dict()
+    charge = intent.get("latest_charge")
+    charge = charge if isinstance(charge, dict) else {}
+    card_country = _card_country(charge.get("payment_method_details"))
+    if intent.get("status") == "requires_capture":
+        closed = _closed_country(
+            _address_country(checkout.get("customer_details")),
+            _address_country(charge.get("billing_details")),
+            card_country,
+        )
+        if closed is not None:
+            await client().v1.payment_intents.cancel_async(payment_intent)
+            await billing.close_account(session, account, closed)
+            logger.info("User %s's top-up from %s was turned away.", account.user_id, closed)
+            return
+        await client().v1.payment_intents.capture_async(
+            payment_intent, options={"idempotency_key": f"pyqxel-capture-{payment_intent}"}
+        )
+    elif intent.get("status") != "succeeded":
+        return  # Still processing, or released.
     cents = int(checkout.get("amount_total") or 0)
     tax = int((checkout.get("total_details") or {}).get("amount_tax") or 0)
     added = await billing.add_credit(
@@ -649,12 +686,12 @@ async def _checkout_paid(session: AsyncSession, checkout: Any) -> None:
         # left is their credit.
         fees.credit_micros(cents) - tax * billing.MICROS_PER_CENT,
         stripe_ref=str(checkout.get("id")),
-        payment_intent=_id(checkout.get("payment_intent")),
+        payment_intent=payment_intent,
     )
     if not added:
         return
     logger.info("User %s paid $%.2f for credit.", account.user_id, cents / 100)
-    if not fees.is_domestic(await _paid_card_country(_id(checkout.get("payment_intent")))):
+    if not fees.is_domestic(card_country):
         # Stripe's checkout priced the credit for a US card before the card was known.
         await billing.charge_usage(
             session,
@@ -677,6 +714,49 @@ async def _checkout_paid(session: AsyncSession, checkout: Any) -> None:
         )
 
 
+async def _subscription_checkout(session: AsyncSession, checkout: Any) -> None:
+    """End at once a subscription just started from where PyQxel does not sell. It has
+    billed nothing yet, since usage is billed at the end of each period."""
+    customer = _id(checkout.get("customer"))
+    subscription_id = _id(checkout.get("subscription"))
+    account = None if customer is None else await billing.account_for_customer(session, customer)
+    if account is None or subscription_id is None:
+        return
+    subscription = (
+        await client().v1.subscriptions.retrieve_async(
+            subscription_id, {"expand": ["default_payment_method"]}
+        )
+    ).to_dict()
+    method = subscription.get("default_payment_method")
+    method = method if isinstance(method, dict) else {}
+    closed = _closed_country(
+        _address_country(checkout.get("customer_details")),
+        _address_country(method.get("billing_details")),
+        _card_country(method),
+    )
+    if closed is None:
+        return
+    await client().v1.subscriptions.cancel_async(subscription_id)
+    await billing.close_account(session, account, closed)
+    logger.info("User %s's subscription from %s was turned away.", account.user_id, closed)
+
+
+def _address_country(details: Any) -> str | None:
+    """The country of the address in a Checkout Session's customer details or a payment's
+    billing details, or ``None`` when none was given."""
+    if not isinstance(details, dict):
+        return None
+    country = (details.get("address") or {}).get("country")
+    return str(country) if country else None
+
+
+def _closed_country(*countries: str | None) -> str | None:
+    """The first of a payment's countries (its billing address, its card's) where PyQxel
+    does not take payments (:data:`app.models.billing.CLOSED_COUNTRIES`), or ``None``.
+    Every one is checked, since the EU and UK place a sale by any of them."""
+    return next((country for country in countries if country in CLOSED_COUNTRIES), None)
+
+
 async def _registered_checkout(checkout_id: str) -> bool:
     """Whether a paid Checkout Session was taxed where PyQxel collects tax, so Stripe Tax
     kept its fee; one that cannot be read counts as taxed, so it costs PyQxel nothing."""
@@ -688,24 +768,6 @@ async def _registered_checkout(checkout_id: str) -> bool:
         logger.warning("Checkout Session %s's tax could not be read: %s", checkout_id, exc)
         return True
     return _tax_of(checkout.to_dict())[1]
-
-
-async def _paid_card_country(payment_intent: str | None) -> str | None:
-    """The country that issued the card a payment was made with, or ``None`` when it
-    cannot be read, which is charged as if the card were from abroad."""
-    if payment_intent is None:
-        return None
-    try:
-        intent = await client().v1.payment_intents.retrieve_async(
-            payment_intent, {"expand": ["latest_charge"]}
-        )
-    except stripe.StripeError as exc:
-        logger.warning("Payment %s's card could not be read: %s", payment_intent, exc)
-        return None
-    charge = intent.to_dict().get("latest_charge")
-    if not isinstance(charge, dict):
-        return None
-    return _card_country(charge.get("payment_method_details"))
 
 
 def _card_country(payment_method: Any) -> str | None:

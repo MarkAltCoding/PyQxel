@@ -603,6 +603,9 @@ class BillingAccountRecord(Base):
     )
     subscription_cancels: Mapped[bool] = mapped_column(Boolean, default=False)
     """Whether the subscription ends when the current period does."""
+    closed_country: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    """The country, in the European Union or the United Kingdom, a payment of this
+    account's came from and was turned away for; set, it cannot pay again."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

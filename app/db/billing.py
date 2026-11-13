@@ -247,6 +247,14 @@ async def set_subscription(
     await session.commit()
 
 
+async def close_account(session: AsyncSession, account: BillingAccountRecord, country: str) -> None:
+    """Record that ``account`` paid from ``country``, where PyQxel does not take payments,
+    so it is not offered another."""
+    account.closed_country = country
+    account.updated_at = datetime.now(timezone.utc)
+    await session.commit()
+
+
 async def charge_usage(
     session: AsyncSession,
     user_id: str,

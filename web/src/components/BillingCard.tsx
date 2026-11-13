@@ -17,6 +17,7 @@ import {
 } from '../lib/billing'
 import { dateTime, money, percent } from '../lib/format'
 import { InfoTip } from './InfoTip'
+import { ContactLink } from './LegalSection'
 import { ErrorNotice, Notice } from './Notice'
 import { PresetOrCustom } from './PresetOrCustom'
 import { Segmented } from './Segmented'
@@ -27,6 +28,15 @@ const AWAIT_PAYMENT_MS = 60_000
 
 /** Money with tenths of a cent when it is under a dollar, since a night's refresh can
  * cost less than a cent. */
+/** A country's English name from its ISO code, or the code if the browser has no name. */
+function countryName(code: string): string {
+  try {
+    return new Intl.DisplayNames(['en-US'], { type: 'region' }).of(code) ?? code
+  } catch {
+    return code
+  }
+}
+
 function smallMoney(dollars: number): string {
   return money(dollars, 'USD', Math.abs(dollars) > 0 && Math.abs(dollars) < 1 ? 3 : 2)
 }
@@ -86,11 +96,21 @@ export function BillingCard() {
           cloud server for minutes or hours each night. You pay what your refreshes cost that
           server, with nothing added, from prepaid credit or a subscription that bills what they
           cost each week, month, or year. Payments go through Stripe, whose processing fee on each
-          payment you also pay, at cost; PyQxel never sees your card.
+          payment you also pay, at cost; PyQxel never sees your card. Payments from the European
+          Union and the United Kingdom are not accepted, since PyQxel is not registered to collect
+          their VAT.
         </p>
       </div>
 
-      {returned === 'paid' && (
+      {data.closed_country && (
+        <Notice tone="warning">
+          Your payment from {countryName(data.closed_country)} was turned away: the hold on your
+          card was released, so nothing was charged. PyQxel cannot take payments from the European
+          Union or the United Kingdom, since it is not registered to collect their VAT. If you live
+          elsewhere, email <ContactLink />.
+        </Notice>
+      )}
+      {returned === 'paid' && !data.closed_country && (
         <Notice>
           Thank you. Your credit appears here within a few seconds of Stripe confirming the payment.{' '}
           <button type="button" className="link-button" onClick={clearReturn}>
@@ -127,7 +147,7 @@ export function BillingCard() {
           , signed in with the same account.
         </Notice>
       )}
-      {place === 'here' && (
+      {place === 'here' && !data.closed_country && (
         <>
           <TopUp status={data} />
           <SubscriptionChoice status={data} />

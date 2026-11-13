@@ -29,7 +29,8 @@ async def stripe_event(
     """Apply one event from Stripe.
 
     Answers 404 on a server that does not bill, 400 unless Stripe's signature proves the
-    event came from it, and 503 when the database is down, so Stripe sends it again later.
+    event came from it, and 503 when the database is down or a call back to Stripe fails,
+    so Stripe sends it again later.
     """
     if not stripe_api.billing_enabled():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not Found")
@@ -48,4 +49,8 @@ async def stripe_event(
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "The database cannot be written."
         ) from exc
+    except stripe.StripeError as exc:
+        # A top-up's card is held until this event is applied; Stripe sends it again.
+        logger.warning("Stripe event %s was not applied: Stripe failed: %s", event.id, exc)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Stripe failed.") from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)

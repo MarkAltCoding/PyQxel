@@ -132,12 +132,25 @@ async def read_billing(user: CurrentUser, session: Session) -> BillingStatus:
         international_fee_rate=INTERNATIONAL_FEE_RATE,
         dispute_fee_cents=DISPUTE_FEE_CENTS,
         min_charge_cents=MIN_CHARGE_CENTS,
+        closed_country=account.closed_country if account else None,
     )
 
 
 async def _account(session: AsyncSession, user: CurrentUser) -> BillingAccountRecord:
-    """The user's billing account, with a Stripe customer made the first time."""
-    return await stripe_api.account_of(session, user.id, user.email)
+    """The user's billing account, with a Stripe customer made the first time.
+
+    Raises:
+        HTTPException: 403 when a payment of the account's came from the European Union or
+            the United Kingdom, where PyQxel does not take payments.
+    """
+    account = await stripe_api.account_of(session, user.id, user.email)
+    if account.closed_country is not None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "PyQxel cannot take payments from the European Union or the United Kingdom, "
+            "since it is not registered to collect their VAT.",
+        )
+    return account
 
 
 @router.post("/top-up", response_model=CheckoutLink, summary="Buy credit")
@@ -151,7 +164,9 @@ async def buy_credit(
     Stripe's fee on top so the credit is the amount asked for. The credit is added when
     Stripe reports the payment, usually within seconds.
 
-    Returns 404 when this server does not bill, 422 for an amount out of range, 502 when
+    Returns 403 when an earlier payment came from the European Union or the United Kingdom,
+    where PyQxel does not take payments, 404 when this server does not bill, 422 for an
+    amount out of range, 502 when
     Stripe cannot be reached, and 503 when the database is unavailable.
     """
     _require_billing()
@@ -176,7 +191,9 @@ async def subscribe(
     """A Stripe Checkout page that starts a subscription billing your refreshes' cost each
     week, month, or year, after any credit you have is used.
 
-    Returns 404 when this server does not bill, 409 when you already have a subscription
+    Returns 403 when an earlier payment came from the European Union or the United Kingdom,
+    where PyQxel does not take payments, 404 when this server does not bill, 409 when you
+    already have a subscription
     (change or cancel it in the billing portal), 502 when Stripe cannot be reached, and
     503 when the database is unavailable.
     """

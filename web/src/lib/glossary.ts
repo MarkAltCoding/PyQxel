@@ -939,7 +939,7 @@ const entries = {
   billingTopUp: {
     title: 'Add credit',
     what: 'Buy any amount of credit from $5 to $500 on Stripe’s secure checkout page; it appears within seconds. You pay Stripe’s processing fee on top, so $10 of credit costs $10.61. Refreshes use the credit before any subscription is billed.',
-    note: 'A card issued outside the US costs Stripe 1.5% more; that is taken from the credit after paying, since the checkout page cannot know the card’s country first. Sales tax or VAT is added on top where PyQxel is registered to collect it, based on your billing address; it goes to the government, so it is never credit, and Stripe’s fees on it (its card fee, and 0.5% for working out the tax) come out of the credit. Unused credit is refunded to your card if you delete your account, with the tax paid on it.',
+    note: 'A card issued outside the US costs Stripe 1.5% more; that is taken from the credit after paying, since the checkout page cannot know the card’s country first. Sales tax or VAT is added on top where PyQxel is registered to collect it, based on your billing address; it goes to the government, so it is never credit, and Stripe’s fees on it (its card fee, and 0.5% for working out the tax) come out of the credit. Unused credit is refunded to your card if you delete your account, with the tax paid on it. PyQxel does not take payments from the European Union or the United Kingdom: such a payment is released from your card uncharged.',
     good: '$10 to $20 suits most refresh choices. Stripe’s fee is 30 cents plus 2.9% of each payment, about 6% on $10 and 4% on $20, so larger top-ups pay less in fees.',
   },
   billingSubscription: {
