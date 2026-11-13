@@ -2040,6 +2040,18 @@
             "title": "Card Fee Rate",
             "type": "number"
           },
+          "closed_country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The country (ISO code, in the European Union or the United Kingdom) whose payment was turned away, since PyQxel does not collect VAT there; this account cannot buy credit or subscribe while it is set.",
+            "title": "Closed Country"
+          },
           "credit_usd": {
             "description": "Prepaid credit left, in dollars; below zero when refreshes ran past it with no subscription, which the next top-up repays.",
             "title": "Credit Usd",
@@ -14602,7 +14614,7 @@
     },
     "/api/v1/me/billing/subscription": {
       "post": {
-        "description": "A Stripe Checkout page that starts a subscription billing your refreshes' cost each\nweek, month, or year, after any credit you have is used.\n\nReturns 404 when this server does not bill, 409 when you already have a subscription\n(change or cancel it in the billing portal), 502 when Stripe cannot be reached, and\n503 when the database is unavailable.",
+        "description": "A Stripe Checkout page that starts a subscription billing your refreshes' cost each\nweek, month, or year, after any credit you have is used.\n\nReturns 403 when an earlier payment came from the European Union or the United Kingdom,\nwhere PyQxel does not take payments, 404 when this server does not bill, 409 when you\nalready have a subscription\n(change or cancel it in the billing portal), 502 when Stripe cannot be reached, and\n503 when the database is unavailable.",
         "operationId": "subscribe_api_v1_me_billing_subscription_post",
         "parameters": [
           {
@@ -14662,7 +14674,7 @@
     },
     "/api/v1/me/billing/top-up": {
       "post": {
-        "description": "A Stripe Checkout page that buys ``amount_cents`` of credit, from $5 to $500, charging\nStripe's fee on top so the credit is the amount asked for. The credit is added when\nStripe reports the payment, usually within seconds.\n\nReturns 404 when this server does not bill, 422 for an amount out of range, 502 when\nStripe cannot be reached, and 503 when the database is unavailable.",
+        "description": "A Stripe Checkout page that buys ``amount_cents`` of credit, from $5 to $500, charging\nStripe's fee on top so the credit is the amount asked for. The credit is added when\nStripe reports the payment, usually within seconds.\n\nReturns 403 when an earlier payment came from the European Union or the United Kingdom,\nwhere PyQxel does not take payments, 404 when this server does not bill, 422 for an\namount out of range, 502 when\nStripe cannot be reached, and 503 when the database is unavailable.",
         "operationId": "buy_credit_api_v1_me_billing_top_up_post",
         "parameters": [
           {
