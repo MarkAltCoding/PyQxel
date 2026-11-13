@@ -392,7 +392,10 @@ async def screen(
 ) -> ScreenResponse:
     """Return the page of stocks in ``universe`` (the shared one by default) matching
     ``request``, in its sort order. A screen of the S&P 500 needs ``index_classes``, the
-    share classes of each company in it (CIK -> count)."""
+    share classes of each company in it (CIK -> count).
+
+    Results are counted, ranked, and paged by company, so a page of 50 holds 50
+    companies, with the matching share classes of each together under one rank."""
     universe = universe or await shared_universe(session)
     table = universe.table
 
@@ -430,30 +433,43 @@ async def screen(
         if condition.max is not None:
             query = query.where(field <= condition.max)
 
-    total = await session.scalar(select(func.count()).select_from(query.subquery()))
     order = _column(request.sort.field, table)
     # A negative P/E is a loss, not a bargain: losses follow every profitable company.
     pe = column("pe_ratio")
     losses_last = case((pe.is_(None), 2), (pe < 0, 1), else_=0)
-    records = await session.scalars(
-        query.order_by(
+    matches = await session.execute(
+        query.with_only_columns(column("symbol"), column("cik")).order_by(
             *([losses_last] if request.sort.field == "pe_ratio" else []),
             (order.desc() if request.sort.descending else order.asc()).nulls_last(),
             column("symbol"),
         )
-        .limit(request.limit)
-        .offset(request.offset)
     )
+    # A company's share classes, such as Alphabet's GOOGL and GOOG, are one result: the
+    # company takes the place of its first class in the order, and its other classes
+    # follow it there, sharing its rank.
+    companies: dict[int | str, list[str]] = {}
+    for symbol, cik in matches:
+        companies.setdefault(symbol if cik is None else cik, []).append(symbol)
+    page = list(companies.values())[request.offset : request.offset + request.limit]
+    wanted = [symbol for classes in page for symbol in classes]
+    found = {
+        getattr(record, "symbol"): record
+        for record in await session.scalars(
+            select(table).where(universe.rows, column("symbol").in_(wanted))
+        )
+    }
     items = [
         RankedStock(
-            **ScreenedStock.model_validate(record, from_attributes=True).model_dump(),
+            **ScreenedStock.model_validate(found[symbol], from_attributes=True).model_dump(),
             rank=request.offset + position + 1,
         )
-        for position, record in enumerate(records)
+        for position, classes in enumerate(page)
+        for symbol in classes
+        if symbol in found
     ]
     return ScreenResponse(
         items=items,
-        total=total or 0,
+        total=len(companies),
         limit=request.limit,
         offset=request.offset,
         refreshed_at=universe.refreshed_at,
@@ -542,7 +558,15 @@ async def peer_group(session: AsyncSession, symbol: str) -> PeerGroup | None:
         # An ETF is no company, so it has no peers among companies.
         return None
     universe_size = await session.scalar(select(func.count()).select_from(ScreenerStockRecord))
-    others = ScreenerStockRecord.symbol != symbol
+    # The stock's other share classes are the same company, not a peer.
+    others = (
+        ScreenerStockRecord.symbol != symbol
+        if stock.cik is None
+        else and_(
+            ScreenerStockRecord.symbol != symbol,
+            or_(ScreenerStockRecord.cik.is_(None), ScreenerStockRecord.cik != stock.cik),
+        )
+    )
 
     kind: PeerGroupKind = "universe"
     name = "screened universe"

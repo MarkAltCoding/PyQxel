@@ -216,7 +216,8 @@ def _score(
             continue
         scored.append((stock, metrics))
     ranks = market_cap_ranks(
-        {stock.listing.symbol: metrics.market_cap or 0.0 for stock, metrics in scored}
+        {stock.listing.symbol: metrics.market_cap or 0.0 for stock, metrics in scored},
+        {stock.listing.symbol: stock.listing.cik for stock, _ in scored},
     )
     universe: list[ScreenedStock] = []
     for stock, metrics in scored:

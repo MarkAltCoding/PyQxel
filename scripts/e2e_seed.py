@@ -44,11 +44,13 @@ def stock(symbol: str, rank: int, exchange: str, **metrics: Any) -> ScreenedStoc
 
 UNIVERSE = [
     stock("ALFA", 1, "Nasdaq", sector="Technology"),
+    stock("ALFB", 1, "Nasdaq", name="Alfa Example Inc.", avg_dollar_volume=1e8),
     stock("BRAVO", 2, "NYSE", sector="Finance", pe_ratio=8.0),
     stock("CHARL", 3, "Nasdaq", sector="Health Care", pe_ratio=40.0),
     stock("DELTA", 4, "NYSE", sector="Energy"),
 ]
-"""Two stocks on Nasdaq and two on the NYSE, largest first."""
+"""Two companies on Nasdaq, the first in two share classes (ALFA and ALFB), and two on
+the NYSE, largest first."""
 
 
 async def seed(key_file: Path) -> None:

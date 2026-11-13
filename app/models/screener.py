@@ -173,7 +173,10 @@ class ScreenedStock(ScreenMetrics):
     )
     market_cap_source: MarketCapSource
     market_cap_rank: int | None = Field(
-        default=None, ge=1, description="Rank by market cap in the universe; null for an ETF."
+        default=None,
+        ge=1,
+        description="Rank by market cap in the universe, counting a company once: its share "
+        "classes, such as GOOGL and GOOG, share its rank. Null for an ETF.",
     )
     fundamentals_period_end: date | None = Field(
         default=None, description="End of the latest period the financial ratios use."
@@ -181,9 +184,13 @@ class ScreenedStock(ScreenMetrics):
 
 
 class RankedStock(ScreenedStock):
-    """A stock matching a screen, with its position in the sorted results."""
+    """A stock matching a screen, with its company's position in the sorted results."""
 
-    rank: int = Field(ge=1, description="Position in the sorted results, across pages.")
+    rank: int = Field(
+        ge=1,
+        description="Its company's position in the sorted results, across pages. A "
+        "company's share classes, such as GOOGL and GOOG, come together and share a rank.",
+    )
 
 
 class ScreenFilter(BaseModel):
@@ -234,15 +241,24 @@ class ScreenRequest(BaseModel):
     )
     filters: list[ScreenFilter] = Field(default_factory=list, max_length=len(get_args(ScreenField)))
     sort: ScreenSort = Field(default_factory=ScreenSort)
-    limit: int = Field(default=50, ge=1, le=500)
-    offset: int = Field(default=0, ge=0)
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description="Companies on a page, each with its matching share classes.",
+    )
+    offset: int = Field(default=0, ge=0, description="Companies to skip.")
 
 
 class ScreenResponse(BaseModel):
-    """One page of stocks matching a screen."""
+    """One page of stocks matching a screen, a company's share classes together."""
 
     items: list[RankedStock]
-    total: int = Field(ge=0, description="Stocks matching the screen, on any page.")
+    total: int = Field(
+        ge=0,
+        description="Companies matching the screen, on any page, counting a company's "
+        "share classes once.",
+    )
     limit: int
     offset: int
     refreshed_at: datetime | None = Field(

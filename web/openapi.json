@@ -10493,7 +10493,7 @@
         "type": "object"
       },
       "RankedStock": {
-        "description": "A stock matching a screen, with its position in the sorted results.",
+        "description": "A stock matching a screen, with its company's position in the sorted results.",
         "properties": {
           "asset_type": {
             "default": "stock",
@@ -10678,7 +10678,7 @@
                 "type": "null"
               }
             ],
-            "description": "Rank by market cap in the universe; null for an ETF.",
+            "description": "Rank by market cap in the universe, counting a company once: its share classes, such as GOOGL and GOOG, share its rank. Null for an ETF.",
             "title": "Market Cap Rank"
           },
           "market_cap_source": {
@@ -10768,7 +10768,7 @@
             "title": "Price To Sales"
           },
           "rank": {
-            "description": "Position in the sorted results, across pages.",
+            "description": "Its company's position in the sorted results, across pages. A company's share classes, such as GOOGL and GOOG, come together and share a rank.",
             "minimum": 1.0,
             "title": "Rank",
             "type": "integer"
@@ -11351,6 +11351,7 @@
           },
           "limit": {
             "default": 50,
+            "description": "Companies on a page, each with its matching share classes.",
             "maximum": 500.0,
             "minimum": 1.0,
             "title": "Limit",
@@ -11358,6 +11359,7 @@
           },
           "offset": {
             "default": 0,
+            "description": "Companies to skip.",
             "minimum": 0.0,
             "title": "Offset",
             "type": "integer"
@@ -11392,7 +11394,7 @@
         "type": "object"
       },
       "ScreenResponse": {
-        "description": "One page of stocks matching a screen.",
+        "description": "One page of stocks matching a screen, a company's share classes together.",
         "properties": {
           "items": {
             "items": {
@@ -11429,7 +11431,7 @@
             "title": "Refreshed At"
           },
           "total": {
-            "description": "Stocks matching the screen, on any page.",
+            "description": "Companies matching the screen, on any page, counting a company's share classes once.",
             "minimum": 0.0,
             "title": "Total",
             "type": "integer"

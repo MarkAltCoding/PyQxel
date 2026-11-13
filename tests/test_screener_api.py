@@ -142,6 +142,36 @@ def test_factor_ranking_sorts_by_beta_with_paging() -> None:
     assert first["total"] == 4
 
 
+def test_a_companys_share_classes_come_together_under_one_rank() -> None:
+    """A company's classes follow its first one in the order and share its rank; pages
+    and the total count companies, so a page of two holds both of a company's classes."""
+    _store(
+        [
+            _stock("BIG", 1, momentum_12_1=0.5),
+            _stock("ALPHA", 2, momentum_12_1=0.4),
+            _stock("ALPHB", 2, cik=2, momentum_12_1=0.0),
+            _stock("MID", 3, momentum_12_1=0.2),
+        ]
+    )
+
+    first = _screen(sort={"field": "momentum_12_1"}, limit=2)
+    second = _screen(sort={"field": "momentum_12_1"}, limit=2, offset=2)
+
+    assert _symbols(first) == ["BIG", "ALPHA", "ALPHB"]
+    assert [item["rank"] for item in first["items"]] == [1, 2, 2]
+    assert _symbols(second) == ["MID"]
+    assert [item["rank"] for item in second["items"]] == [3]
+    assert first["total"] == 3
+
+
+def test_a_share_class_outside_the_filters_is_left_out() -> None:
+    _store([_stock("ALPHA", 1, pe_ratio=20.0), _stock("ALPHB", 1, cik=1, pe_ratio=40.0)])
+
+    result = _screen(filters=[{"field": "pe_ratio", "max": 30}])
+
+    assert _symbols(result) == ["ALPHA"] and result["total"] == 1
+
+
 def test_stocks_without_the_sort_field_come_last() -> None:
     _store(STOCKS + [_stock("NEW", 4)])
 

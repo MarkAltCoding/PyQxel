@@ -112,6 +112,20 @@ def test_market_cap_ranks_put_the_largest_first() -> None:
     assert market_cap_ranks({"S": 1.0, "L": 100.0, "M": 10.0}) == {"L": 1, "M": 2, "S": 3}
 
 
+def test_a_companys_share_classes_share_its_market_cap_rank() -> None:
+    """GOOGL and GOOG are one company: both take its rank, and the next company is next."""
+    caps = {"GOOGL": 2.0e12, "GOOG": 1.9e12, "AMZN": 1.8e12, "BIG": 3.0e12, "ETF": 0.0}
+    companies = {"GOOGL": 7, "GOOG": 7, "AMZN": 8, "BIG": 9, "ETF": None}
+
+    assert market_cap_ranks(caps, companies) == {
+        "BIG": 1,
+        "GOOGL": 2,
+        "GOOG": 2,
+        "AMZN": 3,
+        "ETF": 4,
+    }
+
+
 def test_foreign_statements_are_valued_in_dollars() -> None:
     """Statements in another currency are converted at its rate; without one, only the
     multiples comparing them with market cap are left out."""

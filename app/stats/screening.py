@@ -5,10 +5,10 @@ universe can be scored without further requests.
 """
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-import numpy as np
 import pandas as pd
 
 from app.models.factors import FactorName
@@ -312,8 +312,24 @@ def etf_screen_metrics(
     )
 
 
-def market_cap_ranks(market_caps: dict[str, float]) -> dict[str, int]:
-    """Rank symbols by market cap, largest first, from 1."""
-    order = np.argsort([-value for value in market_caps.values()], kind="stable")
-    symbols = list(market_caps)
-    return {symbols[position]: rank + 1 for rank, position in enumerate(order)}
+def market_cap_ranks(
+    market_caps: Mapping[str, float], companies: Mapping[str, int | None] | None = None
+) -> dict[str, int]:
+    """Rank symbols by market cap, largest first, from 1.
+
+    The share classes of one company, those with the same CIK in ``companies``, share
+    the rank of its largest class and count once, so Alphabet's GOOGL and GOOG are both
+    4th and the next company is 5th. A symbol without a CIK is a company of its own.
+    """
+    companies = companies or {}
+    largest: dict[int | str, float] = {}
+    for symbol, value in market_caps.items():
+        cik = companies.get(symbol)
+        key: int | str = symbol if cik is None else cik
+        largest[key] = max(largest.get(key, value), value)
+    order = sorted(largest, key=lambda key: -largest[key])
+    company_ranks = {key: rank + 1 for rank, key in enumerate(order)}
+    return {
+        symbol: company_ranks[symbol if (cik := companies.get(symbol)) is None else cik]
+        for symbol in market_caps
+    }

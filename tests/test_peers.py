@@ -138,3 +138,17 @@ def test_unknown_stock_has_no_peer_group() -> None:
     _store(_universe(MIN_PEERS, 0))
 
     assert _peer_group("NOPE") is None
+
+
+def test_a_stocks_other_share_classes_are_not_its_peers() -> None:
+    """GOOG is Alphabet as GOOGL is, so neither is compared with the other."""
+    stocks = _universe(MIN_PEERS, 0) + [
+        _stock("ME2", 1, industry="Semiconductors", sector="Technology")
+    ]
+    _store(stocks)
+
+    group = _peer_group("ME")
+
+    assert group is not None
+    assert {"ME", "ME2"}.isdisjoint(peer.symbol for peer in group.peers)
+    assert len(group.peers) == MIN_PEERS

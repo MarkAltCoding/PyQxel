@@ -337,7 +337,10 @@ def _score(
     today: date,
 ) -> list[ScreenedStock]:
     """Compute every stock's metrics (blocking)."""
-    ranks = market_cap_ranks({c.listing.symbol: caps[c.listing.symbol][0] for c in universe})
+    ranks = market_cap_ranks(
+        {c.listing.symbol: caps[c.listing.symbol][0] for c in universe},
+        {c.listing.symbol: c.listing.cik for c in universe},
+    )
     stocks: list[ScreenedStock] = []
     for candidate in universe:
         listing = candidate.listing

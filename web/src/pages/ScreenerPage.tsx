@@ -474,54 +474,83 @@ export function ScreenerPage() {
               </tr>
             </thead>
             <tbody>
-              {results.data?.items.map((stock: RankedStock) => (
-                <tr
-                  key={stock.symbol}
-                  className="clickable"
-                  onClick={() => navigate(`/stocks/${encodeURIComponent(stock.symbol)}`)}
-                >
-                  <td className="num muted">{stock.rank}</td>
-                  <td>
-                    <a
-                      href={`/stocks/${encodeURIComponent(stock.symbol)}`}
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        navigate(`/stocks/${encodeURIComponent(stock.symbol)}`)
-                      }}
-                    >
-                      {stock.symbol}
-                    </a>
-                  </td>
-                  <td style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {stock.name}
-                  </td>
-                  <td className="muted">
-                    {stock.asset_type === 'etf' ? (
-                      <span className="badge">ETF</span>
-                    ) : (
-                      (stock.sector ?? '—')
+              {results.data?.items.map((stock: RankedStock, index, items) => {
+                // A company's share classes, such as GOOGL and GOOG, come together with
+                // one rank: its number, name, and sector are shown once, beside them all.
+                const first = items[index - 1]?.rank !== stock.rank
+                const classes = first ? items.filter((item) => item.rank === stock.rank).length : 0
+                const open = () => navigate(`/stocks/${encodeURIComponent(stock.symbol)}`)
+                return (
+                  <tr
+                    key={stock.symbol}
+                    className={`clickable${first ? '' : ' share-class'}`}
+                    onClick={open}
+                  >
+                    {first && (
+                      <td className="num muted" rowSpan={classes}>
+                        {stock.rank}
+                      </td>
                     )}
-                  </td>
-                  {columns.map((field) => (
-                    <td key={field} className="num">
-                      {stock.asset_type === 'etf' && !ETF_FIELDS.has(field) ? (
-                        <span
-                          className="muted"
-                          title="Does not apply to an ETF, which is not a company"
-                        >
-                          n/a
-                        </span>
-                      ) : (
-                        show(field, stock[field])
-                      )}
+                    <td className="symbol">
+                      <a
+                        href={`/stocks/${encodeURIComponent(stock.symbol)}`}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          open()
+                        }}
+                      >
+                        {stock.symbol}
+                      </a>
                     </td>
-                  ))}
-                </tr>
-              ))}
+                    {first && (
+                      <td
+                        rowSpan={classes}
+                        style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      >
+                        {stock.name}
+                      </td>
+                    )}
+                    {first && (
+                      <td className="muted" rowSpan={classes}>
+                        {stock.asset_type === 'etf' ? (
+                          <span className="badge">ETF</span>
+                        ) : (
+                          (stock.sector ?? '—')
+                        )}
+                      </td>
+                    )}
+                    {columns.map((field) => (
+                      <td key={field} className="num">
+                        {stock.asset_type === 'etf' && !ETF_FIELDS.has(field) ? (
+                          <span
+                            className="muted"
+                            title="Does not apply to an ETF, which is not a company"
+                          >
+                            n/a
+                          </span>
+                        ) : (
+                          show(field, stock[field])
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
+        {results.data?.items.some(
+          (stock, index, items) => items[index - 1]?.rank === stock.rank,
+        ) && (
+          <p className="disclaimer heading-with-info" style={{ marginTop: 12 }}>
+            <span>
+              Symbols that share a number are share classes of one company, such as Alphabet&apos;s
+              GOOGL and GOOG, counted as one match.
+            </span>
+            <InfoTip topic="shareClasses" />
+          </p>
+        )}
         {results.data?.items.some((stock) => stock.asset_type === 'etf') && (
           <p className="disclaimer heading-with-info" style={{ marginTop: 12 }}>
             <span>

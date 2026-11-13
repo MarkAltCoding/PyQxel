@@ -782,6 +782,12 @@ table.data tbody tr.clickable:hover {
   background: var(--surface-sunken);
 }
 
+/* A company's share classes share one number and name (cells spanning their rows): the
+   line between the classes is lighter than the one between companies. */
+table.data tbody tr:has(+ tr.share-class) td:not([rowspan]) {
+  border-bottom-style: dashed;
+}
+
 table.data th button.sort {
   all: unset;
   cursor: pointer;

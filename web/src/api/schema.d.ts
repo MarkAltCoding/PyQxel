@@ -7184,7 +7184,7 @@ export interface components {
     }
     /**
      * RankedStock
-     * @description A stock matching a screen, with its position in the sorted results.
+     * @description A stock matching a screen, with its company's position in the sorted results.
      */
     RankedStock: {
       /**
@@ -7259,7 +7259,7 @@ export interface components {
       market_cap?: number | null
       /**
        * Market Cap Rank
-       * @description Rank by market cap in the universe; null for an ETF.
+       * @description Rank by market cap in the universe, counting a company once: its share classes, such as GOOGL and GOOG, share its rank. Null for an ETF.
        */
       market_cap_rank?: number | null
       /**
@@ -7294,7 +7294,7 @@ export interface components {
       price_to_sales?: number | null
       /**
        * Rank
-       * @description Position in the sorted results, across pages.
+       * @description Its company's position in the sorted results, across pages. A company's share classes, such as GOOGL and GOOG, come together and share a rank.
        */
       rank: number
       /**
@@ -7630,11 +7630,13 @@ export interface components {
       industries?: string[]
       /**
        * Limit
+       * @description Companies on a page, each with its matching share classes.
        * @default 50
        */
       limit?: number
       /**
        * Offset
+       * @description Companies to skip.
        * @default 0
        */
       offset?: number
@@ -7653,7 +7655,7 @@ export interface components {
     }
     /**
      * ScreenResponse
-     * @description One page of stocks matching a screen.
+     * @description One page of stocks matching a screen, a company's share classes together.
      */
     ScreenResponse: {
       /** Items */
@@ -7675,7 +7677,7 @@ export interface components {
       refreshed_at?: string | null
       /**
        * Total
-       * @description Stocks matching the screen, on any page.
+       * @description Companies matching the screen, on any page, counting a company's share classes once.
        */
       total: number
     }

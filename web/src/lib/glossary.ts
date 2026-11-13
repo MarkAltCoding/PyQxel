@@ -29,6 +29,11 @@ const entries = {
     what: 'The total value of all the company’s shares: share price times shares outstanding.',
     note: 'Large caps are roughly above $10 billion, mid caps $2–10 billion, small caps below $2 billion. Smaller companies tend to swing more in price.',
   },
+  shareClasses: {
+    title: 'Share classes',
+    what: 'Some companies sell more than one kind of share, each under its own symbol: Alphabet’s GOOGL shares carry a vote and its GOOG shares do not. Both are a slice of the same company, with the same business, earnings, and market cap, so the screener lists them together under one number and counts the company once.',
+    note: 'The classes’ prices usually move almost together. Where they differ, it is mostly in voting rights and in how much of each trades a day: the most traded class is usually the cheapest to buy and sell.',
+  },
   notForFunds: {
     title: 'Does not apply to funds',
     what: 'An ETF or mutual fund holds many companies instead of running a business, so a single company’s figures, such as its market cap, sector, earnings, margins, or valuation ratios, have no value for it. A fund is judged instead by what it holds and what it costs: its net assets, expense ratio, and holdings.',

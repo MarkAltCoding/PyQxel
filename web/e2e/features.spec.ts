@@ -17,12 +17,16 @@ test('the screener narrows to Nasdaq and sorts by a column', async ({ page }, in
   )
   await page.goto('/screener')
   const universe = page.getByLabel('Universe')
-  const symbols = page.locator('#matches table.data tbody tr td:nth-child(2)')
+  const symbols = page.locator('#matches table.data tbody tr td.symbol')
+  const ranks = page.locator('#matches table.data tbody tr td:first-child.num')
 
-  await expect(symbols).toHaveText(['ALFA', 'BRAVO', 'CHARL', 'DELTA'])
+  // ALFA and ALFB are share classes of one company: together, under one number and name.
+  await expect(symbols).toHaveText(['ALFA', 'ALFB', 'BRAVO', 'CHARL', 'DELTA'])
+  await expect(ranks).toHaveText(['1', '2', '3', '4'])
+  await expect(page.getByRole('cell', { name: 'Alfa Example Inc.' })).toHaveCount(1)
 
   await universe.selectOption('nasdaq')
-  await expect(symbols).toHaveText(['ALFA', 'CHARL'])
+  await expect(symbols).toHaveText(['ALFA', 'ALFB', 'CHARL'])
 
   await universe.selectOption('all')
   await page.getByRole('button', { name: 'P/E', exact: true }).click()
