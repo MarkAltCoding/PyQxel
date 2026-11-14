@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { configureClient } from '../api/client'
 import { getAccount, renewSignIn, revokeSignIn } from '../api/endpoints'
 import { clearProviderKeys } from '../lib/providerKeys'
+import { stopSavedState } from '../lib/savedState'
 import { readStored, writeStored } from '../lib/storage'
 import { AuthContext } from './useAuth'
 
@@ -19,8 +20,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return stored
   })
 
-  /** Drops the key from this browser, as when the API no longer accepts it. */
+  /** Drops the key from this browser, as when the API no longer accepts it. What was
+   * entered here stays, for when the same person signs in again. */
   const forget = useCallback(() => {
+    void stopSavedState(false)
     writeStored(STORAGE_KEY, null)
     configureClient(null)
     setApiKey(null)
@@ -28,13 +31,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient])
 
   const signOut = useCallback(() => {
-    // Best effort: signing out of this browser does not wait on the server.
-    if (apiKey) revokeSignIn(apiKey).catch(() => {})
-    // Provider keys stay through an expired sign-in, but not past signing out, so the
-    // next person to use this browser cannot spend them.
-    clearProviderKeys()
-    forget()
-  }, [apiKey, forget])
+    // What was entered here is saved to the account one last time, while the key still
+    // works, and then removed from this browser with the provider keys, so the next
+    // person to use it neither sees nor spends them. Signing in again brings it back.
+    void stopSavedState(true).finally(() => {
+      // Best effort: signing out of this browser does not wait on the server.
+      if (apiKey) revokeSignIn(apiKey).catch(() => {})
+      clearProviderKeys()
+      writeStored(STORAGE_KEY, null)
+      configureClient(null)
+      setApiKey(null)
+      queryClient.clear()
+    })
+  }, [apiKey, queryClient])
 
   // A sign-in key lasts 30 days, so someone who keeps using PyQxel is kept signed in by
   // trading it for a new one: on opening, every few hours while open, and on coming

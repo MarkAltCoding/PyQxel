@@ -6,6 +6,7 @@ import { BacktestPage } from './pages/BacktestPage'
 import { HomePage } from './pages/HomePage'
 import { MarketsPage } from './pages/MarketsPage'
 import { NotFoundPage } from './pages/NotFoundPage'
+import { PicksPage } from './pages/PicksPage'
 import { PortfolioPage } from './pages/PortfolioPage'
 import { PrivacyPage } from './pages/PrivacyPage'
 import { RefundPage } from './pages/RefundPage'
@@ -47,6 +48,7 @@ export const routes = [
           { path: '/portfolio', element: <PortfolioPage /> },
           { path: '/backtest', element: <BacktestPage /> },
           { path: '/screener', element: <ScreenerPage /> },
+          { path: '/screener/picks', element: <PicksPage /> },
           { path: '/settings', element: <SettingsPage /> },
           { path: '*', element: <NotFoundPage /> },
         ],

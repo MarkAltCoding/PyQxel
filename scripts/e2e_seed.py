@@ -9,14 +9,24 @@ server, with ``DATABASE_URL`` pointing at that database.
 
 import asyncio
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from app.db.holdings import replace_holdings
+from app.db.picks import save_picks
 from app.db.screener import finish_run, replace_universe, start_run
 from app.db.session import close_database, get_sessionmaker, init_db
 from app.db.users import create_api_key, create_user
+from app.models.picks import (
+    Horizon,
+    Pick,
+    PicksContext,
+    PicksProfile,
+    PicksReport,
+    PicksResponse,
+    PicksUniverse,
+)
 from app.models.portfolio import HoldingShares
 from app.models.screener import ScreenedStock
 
@@ -53,8 +63,54 @@ UNIVERSE = [
 the NYSE, largest first."""
 
 
+def picks() -> PicksResponse:
+    """A list of Claude's picks as the app stores one, so the pages that show picks have
+    some without calling Claude: two from the universe, and a fund outside it."""
+
+    def pick(symbol: str, kind: str, weight: float) -> Pick:
+        return Pick(
+            symbol=symbol,
+            name=f"{symbol.title()} Example Inc.",
+            kind=kind,  # type: ignore[arg-type]
+            conviction="medium",
+            weight=weight,
+            thesis=f"{symbol} is cheap for its growth.",
+            risk="Its growth could slow.",
+            entry="Buy at market.",
+            exit="Look again at the end of the period.",
+        )
+
+    profile = PicksProfile(horizon=Horizon(months=6), risk_tolerance="moderate", amount=10_000)
+    picked = [pick("BRAVO", "stock", 0.5), pick("CHARL", "stock", 0.3), pick("BNDX", "etf", 0.2)]
+    return PicksResponse(
+        report=PicksReport(
+            headline="Cheap growth, with a bond fund to steady it.",
+            market_view="Leadership is narrow.",
+            approach="Weighted by conviction for a six-month hold.",
+            picks=picked,
+            passed_over=["ALFA: priced for more than it delivers."],
+            considerations=["Short-term gains are taxed as income."],
+            data_limitations=["No news."],
+        ),
+        securities=[stock for stock in UNIVERSE if stock.symbol in ("BRAVO", "CHARL")],
+        context=PicksContext(
+            profile=profile,
+            horizon=profile.horizon.label,
+            horizon_weeks=round(profile.horizon.total_weeks, 1),
+            today=date(2026, 11, 10),
+            universe=PicksUniverse(
+                securities=len(UNIVERSE), own=False, prices_as_of=date(2026, 11, 10), has_etfs=False
+            ),
+            candidates=[],
+        ),
+        model="claude-opus-5-5",
+        generated_at=datetime(2026, 11, 10, 12, tzinfo=timezone.utc),
+    )
+
+
 async def seed(key_file: Path) -> None:
-    """Create the account, its portfolio, and the shared universe; write the key."""
+    """Create the account, its portfolio, a list of Claude's picks, and the shared
+    universe; write the key."""
     await init_db()
     async with get_sessionmaker()() as session:
         user = await create_user(session, EMAIL)
@@ -65,6 +121,7 @@ async def seed(key_file: Path) -> None:
             [HoldingShares(symbol="ALFA", shares=3.5), HoldingShares(symbol="BRAVO", shares=10)],
         )
         await replace_universe(session, UNIVERSE)
+        await save_picks(session, user.id, "seeded", picks(), "claude-opus-5-5", "medium")
         run_id = await start_run(session)
         await finish_run(
             session, run_id, stocks=len(UNIVERSE), prices_as_of=date(2026, 11, 10), licensed=True

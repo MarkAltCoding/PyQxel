@@ -568,6 +568,17 @@
               }
             ],
             "description": "A GARCH(1,1) fit to the last five years of daily returns, whatever the analysis period, and its volatility forecast; null when it could not be fit."
+          },
+          "web_research": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WebResearch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a web search made for this report found, each fact with its sources; null when the web was not searched."
           }
         },
         "required": [
@@ -701,6 +712,12 @@
             "default": false,
             "description": "Write a new report even if a recent one for the same options is cached.",
             "title": "Refresh",
+            "type": "boolean"
+          },
+          "web_search": {
+            "default": false,
+            "description": "Let Claude search the web first, for what the app's data cannot show. Every fact it brings back is listed with its source. Anthropic bills each search to your key, on top of the tokens, and a report that searches the web is always written anew.",
+            "title": "Web Search",
             "type": "boolean"
           }
         },
@@ -5516,7 +5533,7 @@
           },
           "portfolio": {
             "default": 1,
-            "maximum": 2.0,
+            "maximum": 5.0,
             "minimum": 1.0,
             "title": "Portfolio",
             "type": "integer"
@@ -5712,6 +5729,34 @@
           }
         },
         "title": "HoldingsUpdate",
+        "type": "object"
+      },
+      "Horizon": {
+        "description": "How long the picks are to be held: any mix of years, months, and weeks, from one\nweek up.",
+        "properties": {
+          "months": {
+            "default": 0,
+            "maximum": 720.0,
+            "minimum": 0.0,
+            "title": "Months",
+            "type": "integer"
+          },
+          "weeks": {
+            "default": 0,
+            "maximum": 3180.0,
+            "minimum": 0.0,
+            "title": "Weeks",
+            "type": "integer"
+          },
+          "years": {
+            "default": 0,
+            "maximum": 60.0,
+            "minimum": 0.0,
+            "title": "Years",
+            "type": "integer"
+          }
+        },
+        "title": "Horizon",
         "type": "object"
       },
       "InformationCoefficient": {
@@ -8979,6 +9024,926 @@
         "title": "PerformanceMetrics",
         "type": "object"
       },
+      "Pick": {
+        "description": "One security Claude would buy and hold for the period.",
+        "properties": {
+          "conviction": {
+            "description": "How firmly the evidence supports this pick for this period.",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Conviction",
+            "type": "string"
+          },
+          "entry": {
+            "description": "How to buy it: the order type, and at once or in steps, in a sentence.",
+            "title": "Entry",
+            "type": "string"
+          },
+          "exit": {
+            "description": "When to sell or look again: at the end of the period, and on what earlier sign, in a sentence.",
+            "title": "Exit",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "stock",
+              "etf"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "The company's or fund's name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "risk": {
+            "description": "The main risk, and what would prove the pick wrong.",
+            "title": "Risk",
+            "type": "string"
+          },
+          "symbol": {
+            "description": "Ticker, as in the candidates table.",
+            "title": "Symbol",
+            "type": "string"
+          },
+          "thesis": {
+            "description": "Why this pick, for this period and profile, citing the figures behind it.",
+            "title": "Thesis",
+            "type": "string"
+          },
+          "weight": {
+            "description": "Its share of the money invested, as a decimal; weights sum to 1.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "symbol",
+          "name",
+          "kind",
+          "conviction",
+          "weight",
+          "thesis",
+          "risk",
+          "entry",
+          "exit"
+        ],
+        "title": "Pick",
+        "type": "object"
+      },
+      "PickCandidate": {
+        "description": "A security the screener offered Claude, with the measures it led on.",
+        "properties": {
+          "asset_type": {
+            "default": "stock",
+            "enum": [
+              "stock",
+              "etf"
+            ],
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "avg_dollar_volume": {
+            "description": "Average close times volume over the last three months.",
+            "title": "Avg Dollar Volume",
+            "type": "number"
+          },
+          "beta_market": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carhart Mkt-RF beta.",
+            "title": "Beta Market"
+          },
+          "beta_momentum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carhart Mom beta.",
+            "title": "Beta Momentum"
+          },
+          "beta_size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carhart SMB beta.",
+            "title": "Beta Size"
+          },
+          "beta_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carhart HML beta.",
+            "title": "Beta Value"
+          },
+          "earnings_growth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "TTM net income, year on year; null after a loss.",
+            "title": "Earnings Growth"
+          },
+          "ev_to_ebitda": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ev To Ebitda"
+          },
+          "factor_r_squared": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of return variance the four factors explain.",
+            "title": "Factor R Squared"
+          },
+          "fcf_yield": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fcf Yield"
+          },
+          "gross_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Margin"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "lenses": {
+            "description": "The measures this security led the screener on, such as 12-month momentum or free cash flow yield.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Lenses",
+            "type": "array"
+          },
+          "market_cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for an ETF, which is not a company.",
+            "title": "Market Cap"
+          },
+          "max_drawdown": {
+            "anyOf": [
+              {
+                "maximum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Largest peak-to-trough decline over a year.",
+            "title": "Max Drawdown"
+          },
+          "momentum_12_1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return from 12 months to 1 month ago, skipping the latest month as momentum strategies do.",
+            "title": "Momentum 12 1"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "net_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Margin"
+          },
+          "operating_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operating Margin"
+          },
+          "pe_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pe Ratio"
+          },
+          "price": {
+            "description": "Latest adjusted close.",
+            "title": "Price",
+            "type": "number"
+          },
+          "price_to_sales": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price To Sales"
+          },
+          "return_1m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return over 21 trading days.",
+            "title": "Return 1M"
+          },
+          "return_6m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return over 126 trading days.",
+            "title": "Return 6M"
+          },
+          "return_on_equity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return On Equity"
+          },
+          "revenue_growth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "TTM revenue, year on year.",
+            "title": "Revenue Growth"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "volatility": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Annualized volatility of daily returns over a year.",
+            "title": "Volatility"
+          }
+        },
+        "required": [
+          "price",
+          "avg_dollar_volume",
+          "symbol",
+          "name",
+          "lenses"
+        ],
+        "title": "PickCandidate",
+        "type": "object"
+      },
+      "PicksContext": {
+        "description": "The data a list of picks is written from. All of it is sent to Claude, the\ncandidates as a table.",
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/PickCandidate"
+            },
+            "maxItems": 400,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "horizon": {
+            "description": "The holding period in words.",
+            "title": "Horizon",
+            "type": "string"
+          },
+          "horizon_weeks": {
+            "description": "The holding period in weeks.",
+            "exclusiveMinimum": 0.0,
+            "title": "Horizon Weeks",
+            "type": "number"
+          },
+          "market": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MarketContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The market backdrop: upcoming FOMC meetings, market holidays, major companies' earnings reports, and IPOs, and the newest market headlines."
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anything missing from the data.",
+            "title": "Notice"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/PicksProfile"
+          },
+          "today": {
+            "format": "date",
+            "title": "Today",
+            "type": "string"
+          },
+          "universe": {
+            "$ref": "#/components/schemas/PicksUniverse"
+          },
+          "web_research": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WebResearch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a web search made for these picks found, each fact with its sources; null when the web was not searched."
+          }
+        },
+        "required": [
+          "profile",
+          "horizon",
+          "horizon_weeks",
+          "today",
+          "universe",
+          "candidates"
+        ],
+        "title": "PicksContext",
+        "type": "object"
+      },
+      "PicksForReview": {
+        "description": "The account's latest Claude's picks, given to a portfolio review as candidates for\nnew investments.",
+        "properties": {
+          "approach": {
+            "title": "Approach",
+            "type": "string"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "horizon": {
+            "description": "The holding period they were made for, in words.",
+            "title": "Horizon",
+            "type": "string"
+          },
+          "market_view": {
+            "title": "Market View",
+            "type": "string"
+          },
+          "picks": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewedPick"
+            },
+            "title": "Picks",
+            "type": "array"
+          },
+          "prices_as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Date of the screener's closes the picks were made from.",
+            "title": "Prices As Of"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/PicksProfile",
+            "description": "What the picks were tailored to."
+          }
+        },
+        "required": [
+          "generated_at",
+          "profile",
+          "horizon",
+          "headline",
+          "market_view",
+          "approach",
+          "picks"
+        ],
+        "title": "PicksForReview",
+        "type": "object"
+      },
+      "PicksImport": {
+        "description": "An answer Claude wrote outside the app to an exported Claude's picks prompt.",
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/PicksContext",
+            "description": "The context the export returned."
+          },
+          "request": {
+            "$ref": "#/components/schemas/PicksRequest",
+            "description": "The options the prompt was exported with."
+          },
+          "response": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Response",
+            "type": "string"
+          }
+        },
+        "required": [
+          "context",
+          "response"
+        ],
+        "title": "PicksImport",
+        "type": "object"
+      },
+      "PicksList": {
+        "description": "An account's stored lists of picks, newest first.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PicksSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "PicksList",
+        "type": "object"
+      },
+      "PicksProfile": {
+        "description": "What the picks are tailored to. Only the holding period is required.",
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Money to invest in the picks, in dollars; each pick's share of it is then given in dollars too.",
+            "title": "Amount"
+          },
+          "asset_types": {
+            "description": "Pick only stocks, only ETFs, or either when empty.",
+            "items": {
+              "enum": [
+                "stock",
+                "etf"
+              ],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "title": "Asset Types",
+            "type": "array"
+          },
+          "horizon": {
+            "$ref": "#/components/schemas/Horizon",
+            "description": "How long the picks are to be held, from one week up."
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anything else to take into account, e.g. sectors to favor or avoid, dividends wanted, or securities already held.",
+            "title": "Notes"
+          },
+          "risk_tolerance": {
+            "anyOf": [
+              {
+                "enum": [
+                  "conservative",
+                  "moderate",
+                  "aggressive"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Tolerance"
+          }
+        },
+        "title": "PicksProfile",
+        "type": "object"
+      },
+      "PicksPromptExport": {
+        "description": "A Claude's picks prompt and the data it holds; send ``context`` back with the answer.",
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/PicksContext"
+          },
+          "filename": {
+            "description": "A name to save the prompt under.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "Markdown to paste into one message to Claude.",
+            "title": "Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt",
+          "filename",
+          "context"
+        ],
+        "title": "PicksPromptExport",
+        "type": "object"
+      },
+      "PicksReport": {
+        "description": "Claude's picks for a holding period, ranked, with how they were chosen.",
+        "properties": {
+          "approach": {
+            "description": "A paragraph on how the picks were chosen for this period and risk tolerance, the assumptions made, and what the picks have in common.",
+            "title": "Approach",
+            "type": "string"
+          },
+          "considerations": {
+            "description": "What to weigh before buying: taxes, trading costs, timing, concentration, and what would change the picks.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Considerations",
+            "type": "array"
+          },
+          "data_limitations": {
+            "description": "What the provided data cannot show.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Data Limitations",
+            "type": "array"
+          },
+          "headline": {
+            "description": "One sentence naming the idea behind the picks.",
+            "title": "Headline",
+            "type": "string"
+          },
+          "market_view": {
+            "description": "A paragraph or two on how the market looks for this holding period, from the candidates and the market block.",
+            "title": "Market View",
+            "type": "string"
+          },
+          "passed_over": {
+            "description": "Candidates a reader might have expected, each with why it was left out.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Passed Over",
+            "type": "array"
+          },
+          "picks": {
+            "description": "Five to ten picks, best first; weights sum to 1.",
+            "items": {
+              "$ref": "#/components/schemas/Pick"
+            },
+            "title": "Picks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "headline",
+          "market_view",
+          "approach",
+          "picks",
+          "passed_over",
+          "considerations",
+          "data_limitations"
+        ],
+        "title": "PicksReport",
+        "type": "object"
+      },
+      "PicksRequest": {
+        "description": "Options for a list of Claude's picks.",
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/PicksProfile"
+          },
+          "refresh": {
+            "default": false,
+            "description": "Pick anew even when picks for the same profile and screener data are recent enough to reuse.",
+            "title": "Refresh",
+            "type": "boolean"
+          },
+          "web_search": {
+            "default": false,
+            "description": "Let Claude search the web first, for news and the backdrop the screener cannot show. Every fact it brings back is listed with its source. Anthropic bills each search to your key, on top of the tokens.",
+            "title": "Web Search",
+            "type": "boolean"
+          }
+        },
+        "title": "PicksRequest",
+        "type": "object"
+      },
+      "PicksResponse": {
+        "description": "A list of Claude's picks together with the data it was written from.",
+        "properties": {
+          "cached": {
+            "default": false,
+            "description": "Whether these picks were made earlier, at ``generated_at``, and reused.",
+            "title": "Cached",
+            "type": "boolean"
+          },
+          "context": {
+            "$ref": "#/components/schemas/PicksContext"
+          },
+          "disclaimer": {
+            "default": "Generated by an AI model (Claude), not a licensed financial adviser, from the screener's historical figures and what you told it. No pick is a promise: any of them can lose money, and shorter holding periods are the least predictable. Check prices and news before buying; the decision and its risk are yours.",
+            "title": "Disclaimer",
+            "type": "string"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID of the stored picks; null if they could not be saved.",
+            "title": "Id"
+          },
+          "model": {
+            "description": "Claude model that made the picks.",
+            "title": "Model",
+            "type": "string"
+          },
+          "report": {
+            "$ref": "#/components/schemas/PicksReport"
+          },
+          "securities": {
+            "description": "The screener's figures for each pick when the picks were made, in the picks' order; a pick the screener does not hold is left out.",
+            "items": {
+              "$ref": "#/components/schemas/ScreenedStock"
+            },
+            "title": "Securities",
+            "type": "array"
+          }
+        },
+        "required": [
+          "report",
+          "context",
+          "model",
+          "generated_at"
+        ],
+        "title": "PicksResponse",
+        "type": "object"
+      },
+      "PicksSummary": {
+        "description": "A stored list of picks, without its reasons or data.",
+        "properties": {
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "horizon": {
+            "description": "The holding period in words.",
+            "title": "Horizon",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "risk_tolerance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Tolerance"
+          },
+          "symbols": {
+            "description": "The picks' tickers, best first.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbols",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "generated_at",
+          "horizon",
+          "model",
+          "headline",
+          "symbols"
+        ],
+        "title": "PicksSummary",
+        "type": "object"
+      },
+      "PicksUniverse": {
+        "description": "The screener the candidates were drawn from.",
+        "properties": {
+          "has_etfs": {
+            "description": "Whether the screener holds ETFs as well as stocks.",
+            "title": "Has Etfs",
+            "type": "boolean"
+          },
+          "own": {
+            "description": "Whether it is the person's own, built by their nightly refresh.",
+            "title": "Own",
+            "type": "boolean"
+          },
+          "prices_as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Date of the latest closes.",
+            "title": "Prices As Of"
+          },
+          "refreshed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refreshed At"
+          },
+          "securities": {
+            "description": "Securities in the screener.",
+            "minimum": 0.0,
+            "title": "Securities",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "securities",
+          "own",
+          "has_etfs"
+        ],
+        "title": "PicksUniverse",
+        "type": "object"
+      },
       "PlanChoice": {
         "description": "A plan the user can say their key is on.",
         "properties": {
@@ -9177,7 +10142,7 @@
           "portfolio": {
             "default": 1,
             "description": "Which saved portfolio to review.",
-            "maximum": 2.0,
+            "maximum": 5.0,
             "minimum": 1.0,
             "title": "Portfolio",
             "type": "integer"
@@ -9189,6 +10154,12 @@
             "default": false,
             "description": "Write a new review even when one for the same holdings and period is recent enough to reuse.",
             "title": "Refresh",
+            "type": "boolean"
+          },
+          "web_search": {
+            "default": false,
+            "description": "Let Claude search the web first, for news on the holdings and the backdrop, which the price statistics cannot show. Every fact it brings back is listed with its source. Anthropic bills each search to your key, on top of the tokens.",
+            "title": "Web Search",
             "type": "boolean"
           }
         },
@@ -9588,6 +10559,17 @@
             "title": "Accounts",
             "type": "array"
           },
+          "claude_picks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PicksForReview"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The account's latest Claude's picks, with the screener's figures for each when it was picked, as candidates for new investments; null when the account has none."
+          },
           "funds": {
             "description": "Each ETF or mutual fund among the holdings, largest first, with its largest holdings, mix of stocks, bonds, and cash, sectors, costs, and the figures weighted from the companies it holds, where they could be found.",
             "items": {
@@ -9612,7 +10594,7 @@
             "items": {
               "$ref": "#/components/schemas/AssetRisk"
             },
-            "maxItems": 80,
+            "maxItems": 200,
             "minItems": 1,
             "title": "Holdings",
             "type": "array"
@@ -9680,6 +10662,17 @@
             "exclusiveMinimum": 0.0,
             "title": "Total Value",
             "type": "number"
+          },
+          "web_research": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WebResearch"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a web search made for this review found, each fact with its sources; null when the web was not searched."
           }
         },
         "required": [
@@ -9965,7 +10958,7 @@
             "type": "string"
           },
           "portfolio": {
-            "maximum": 2.0,
+            "maximum": 5.0,
             "minimum": 1.0,
             "title": "Portfolio",
             "type": "integer"
@@ -11053,6 +12046,90 @@
         "title": "RenewedKey",
         "type": "object"
       },
+      "ReviewedPick": {
+        "description": "One of Claude's picks as a portfolio review is given it, with the screener's\nfigures for it when it was picked.",
+        "properties": {
+          "conviction": {
+            "description": "How firmly the evidence supports this pick for this period.",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Conviction",
+            "type": "string"
+          },
+          "entry": {
+            "description": "How to buy it: the order type, and at once or in steps, in a sentence.",
+            "title": "Entry",
+            "type": "string"
+          },
+          "exit": {
+            "description": "When to sell or look again: at the end of the period, and on what earlier sign, in a sentence.",
+            "title": "Exit",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "stock",
+              "etf"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScreenedStock"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The screener's figures for the pick at the time; null when the screener did not hold it."
+          },
+          "name": {
+            "description": "The company's or fund's name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "risk": {
+            "description": "The main risk, and what would prove the pick wrong.",
+            "title": "Risk",
+            "type": "string"
+          },
+          "symbol": {
+            "description": "Ticker, as in the candidates table.",
+            "title": "Symbol",
+            "type": "string"
+          },
+          "thesis": {
+            "description": "Why this pick, for this period and profile, citing the figures behind it.",
+            "title": "Thesis",
+            "type": "string"
+          },
+          "weight": {
+            "description": "Its share of the money invested, as a decimal; weights sum to 1.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "symbol",
+          "name",
+          "kind",
+          "conviction",
+          "weight",
+          "thesis",
+          "risk",
+          "entry",
+          "exit"
+        ],
+        "title": "ReviewedPick",
+        "type": "object"
+      },
       "RiskAdjustedMomentum": {
         "description": "Rank by the return from ``lookback`` to ``skip`` bars ago divided by the volatility\nof daily returns over the same bars, highest first: steady winners over erratic ones.",
         "properties": {
@@ -11255,6 +12332,58 @@
         "title": "Rsi",
         "type": "object"
       },
+      "SavedState": {
+        "description": "Everything the account has saved from the app, by name.",
+        "properties": {
+          "account": {
+            "description": "The account these belong to, so a browser can tell them from another account's left in it.",
+            "title": "Account",
+            "type": "string"
+          },
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Each saved value by its name.",
+            "title": "Items",
+            "type": "object"
+          }
+        },
+        "required": [
+          "account",
+          "items"
+        ],
+        "title": "SavedState",
+        "type": "object"
+      },
+      "SavedStateUpdate": {
+        "description": "Values to save or, with null, to forget; names not given are left as they are.",
+        "properties": {
+          "items": {
+            "maxProperties": 300,
+            "patternProperties": {
+              "^[A-Za-z0-9_.:-]{1,120}$": {
+                "anyOf": [
+                  {
+                    "maxLength": 200000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "title": "Items",
+            "type": "object"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SavedStateUpdate",
+        "type": "object"
+      },
       "ScreenFilter": {
         "description": "Keeps stocks whose ``field`` lies within the bounds; stocks without it are dropped.\n\nA P/E filter without ``min`` also drops losses (a negative P/E); a negative ``min``\nkeeps them.",
         "properties": {
@@ -11376,6 +12505,15 @@
           "sort": {
             "$ref": "#/components/schemas/ScreenSort"
           },
+          "symbols": {
+            "description": "Keep only these tickers, such as Claude's picks; every security when empty. Symbols the universe does not hold match nothing.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Symbols",
+            "type": "array"
+          },
           "universe": {
             "default": "all",
             "enum": [
@@ -11486,6 +12624,368 @@
           }
         },
         "title": "ScreenSort",
+        "type": "object"
+      },
+      "ScreenedStock": {
+        "description": "A stock in the screened universe and its metrics.",
+        "properties": {
+          "asset_type": {
+            "default": "stock",
+            "description": "A company's stock, or an ETF.",
+            "enum": [
+              "stock",
+              "etf"
+            ],
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "avg_dollar_volume": {
+            "description": "Average close times volume over the last three months.",
+            "title": "Avg Dollar Volume",
+            "type": "number"
+          },
+          "beta_market": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carhart Mkt-RF beta.",
+            "title": "Beta Market"
+          },
+          "beta_momentum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carhart Mom beta.",
+            "title": "Beta Momentum"
+          },
+          "beta_size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carhart SMB beta.",
+            "title": "Beta Size"
+          },
+          "beta_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carhart HML beta.",
+            "title": "Beta Value"
+          },
+          "cik": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The SEC registrant behind a stock; null for an ETF.",
+            "title": "Cik"
+          },
+          "earnings_growth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "TTM net income, year on year; null after a loss.",
+            "title": "Earnings Growth"
+          },
+          "ev_to_ebitda": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ev To Ebitda"
+          },
+          "exchange": {
+            "title": "Exchange",
+            "type": "string"
+          },
+          "factor_r_squared": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of return variance the four factors explain.",
+            "title": "Factor R Squared"
+          },
+          "fcf_yield": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fcf Yield"
+          },
+          "fundamentals_period_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "End of the latest period the financial ratios use.",
+            "title": "Fundamentals Period End"
+          },
+          "gross_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Margin"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Industry, as Financial Modeling Prep classifies it.",
+            "title": "Industry"
+          },
+          "market_cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for an ETF, which is not a company.",
+            "title": "Market Cap"
+          },
+          "market_cap_rank": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rank by market cap in the universe, counting a company once: its share classes, such as GOOGL and GOOG, share its rank. Null for an ETF.",
+            "title": "Market Cap Rank"
+          },
+          "market_cap_source": {
+            "enum": [
+              "provider",
+              "sec_shares"
+            ],
+            "title": "Market Cap Source",
+            "type": "string"
+          },
+          "max_drawdown": {
+            "anyOf": [
+              {
+                "maximum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Largest peak-to-trough decline over a year.",
+            "title": "Max Drawdown"
+          },
+          "momentum_12_1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return from 12 months to 1 month ago, skipping the latest month as momentum strategies do.",
+            "title": "Momentum 12 1"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "net_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Margin"
+          },
+          "operating_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operating Margin"
+          },
+          "pe_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pe Ratio"
+          },
+          "price": {
+            "description": "Latest adjusted close.",
+            "title": "Price",
+            "type": "number"
+          },
+          "price_to_sales": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price To Sales"
+          },
+          "return_1m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return over 21 trading days.",
+            "title": "Return 1M"
+          },
+          "return_6m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return over 126 trading days.",
+            "title": "Return 6M"
+          },
+          "return_on_equity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return On Equity"
+          },
+          "revenue_growth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "TTM revenue, year on year.",
+            "title": "Revenue Growth"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sector, as Financial Modeling Prep classifies it.",
+            "title": "Sector"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "volatility": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Annualized volatility of daily returns over a year.",
+            "title": "Volatility"
+          }
+        },
+        "required": [
+          "price",
+          "avg_dollar_volume",
+          "symbol",
+          "name",
+          "exchange",
+          "market_cap_source"
+        ],
+        "title": "ScreenedStock",
         "type": "object"
       },
       "SearchMatch": {
@@ -13371,6 +14871,114 @@
         },
         "title": "VolatilityTargeting",
         "type": "object"
+      },
+      "WebFinding": {
+        "description": "One fact found on the web, and the pages that state it.",
+        "properties": {
+          "id": {
+            "description": "Its number, which a report cites as [id].",
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "sources": {
+            "description": "The pages it came from.",
+            "items": {
+              "$ref": "#/components/schemas/WebSource"
+            },
+            "minItems": 1,
+            "title": "Sources",
+            "type": "array"
+          },
+          "text": {
+            "description": "The fact, as Claude stated it from the pages.",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "sources"
+        ],
+        "title": "WebFinding",
+        "type": "object"
+      },
+      "WebResearch": {
+        "description": "What a web search made for one report found. Only statements the search tied to a\npage are kept, so every finding has a source.",
+        "properties": {
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/WebFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "queries": {
+            "description": "What was searched for.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Queries",
+            "type": "array"
+          },
+          "searched_at": {
+            "format": "date-time",
+            "title": "Searched At",
+            "type": "string"
+          },
+          "searches": {
+            "default": 0,
+            "description": "Searches made, each billed by Anthropic.",
+            "minimum": 0.0,
+            "title": "Searches",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "searched_at"
+        ],
+        "title": "WebResearch",
+        "type": "object"
+      },
+      "WebSource": {
+        "description": "A web page a finding came from, as the search returned it.",
+        "properties": {
+          "cited_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The passage of the page the finding rests on, up to 150 characters.",
+            "title": "Cited Text"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The page's title.",
+            "title": "Title"
+          },
+          "url": {
+            "description": "The page's address.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "WebSource",
+        "type": "object"
       }
     }
   },
@@ -14947,20 +16555,443 @@
         ]
       }
     },
+    "/api/v1/me/saved": {
+      "get": {
+        "description": "Return everything the app has saved for your account, by name: strategy drafts,\nscreens, the answers you gave for reviews and picks, and display choices. Returns 503\nwhen the database is unavailable.",
+        "operationId": "read_saved_state_api_v1_me_saved_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "What you have entered in the app",
+        "tags": [
+          "account"
+        ]
+      },
+      "put": {
+        "description": "Save each named value, replacing what was there, and forget those sent as null;\nnames not sent are left as they are. Returns everything then saved.\n\nReturns 413 when the account would hold more than it may, 422 for a name that is not\nallowed, such as one naming a key or sign-in, which are never saved to the account,\nand 503 when the database is unavailable.",
+        "operationId": "store_saved_state_api_v1_me_saved_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedStateUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save what you entered in the app",
+        "tags": [
+          "account"
+        ]
+      }
+    },
+    "/api/v1/picks": {
+      "get": {
+        "description": "Return your stored lists of picks, newest first, each with its tickers but not its\nreasons. Reading them costs nothing. Returns 503 when the database is unavailable.",
+        "operationId": "read_picks_list_api_v1_picks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PicksList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Your stored lists of Claude's picks",
+        "tags": [
+          "picks"
+        ]
+      },
+      "post": {
+        "description": "Have Claude pick the securities to buy now and hold for ``profile.horizon``.\n\nThe candidates are the leaders of your screener (your own, when your nightly refresh\nhas built one, else the shared one) on market cap, momentum, recent returns, free\ncash flow yield, P/E, growth, return on equity, margins, and low volatility, and its\nmost traded ETFs, each at least $5 million traded a day. Claude ranks five to ten of\nthem for the holding period, risk tolerance, amount, and notes given, with a weight,\nreasons, risk, and how to buy and when to sell for each. With ``web_search``, Claude\nsearches the web first, and every fact it brings back is in\n``context.web_research`` with its sources. All the data is in ``context``, and the\nscreener's figures for each pick in ``securities``.\n\nIt is written with, and billed to, your own Anthropic key (the ``X-Anthropic-Key``\nheader), within your AI limits, and stored under your account. Picks for the same\nprofile and screener data within ``ANALYSIS_CACHE_TTL_SECONDS`` are returned again\nwith ``cached`` set and no charge, unless ``refresh`` is true.\n\nReturns 403 without a valid Anthropic key, 422 when the screener holds nothing to pick\nfrom or the model declines, 429 beyond your AI limits, 502 when Claude's answer cannot\nbe used, and 503 when you have no screener yet, the database is unavailable, or\nAnthropic rate limits your account.",
+        "operationId": "create_picks_api_v1_picks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PicksRequest",
+                "default": {
+                  "profile": {
+                    "asset_types": [],
+                    "horizon": {
+                      "months": 0,
+                      "weeks": 0,
+                      "years": 1
+                    }
+                  },
+                  "refresh": false,
+                  "web_search": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PicksResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Claude's picks for a holding period",
+        "tags": [
+          "picks"
+        ]
+      }
+    },
+    "/api/v1/picks/import": {
+      "post": {
+        "description": "Check Claude's answer to an exported prompt and store it as your latest picks.\n\nThey are marked as pasted and never reused in place of new picks. Returns 422 when the\nanswer does not match the picks' format or holds too few usable picks, and 503 when\nthe database is unavailable.",
+        "operationId": "import_picks_api_v1_picks_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PicksImport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PicksResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save picks Claude made outside the app",
+        "tags": [
+          "picks"
+        ]
+      }
+    },
+    "/api/v1/picks/latest": {
+      "get": {
+        "description": "Return your newest stored picks, whatever they were made for, so they can be shown\nagain without a charge. Returns 404 when you have none, and 503 when the database is\nunavailable.",
+        "operationId": "read_latest_picks_api_v1_picks_latest_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PicksResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Your latest Claude's picks",
+        "tags": [
+          "picks"
+        ]
+      }
+    },
+    "/api/v1/picks/prompt": {
+      "post": {
+        "description": "Return exactly what a list of picks would send Claude, as one Markdown document.\n\nNo Anthropic key is needed and nothing counts against your AI limits; the web is not\nsearched. Paste ``prompt`` into Claude, then send its answer to ``/picks/import`` with\nthe ``context`` returned here. Fails as ``/picks`` does when there is nothing to pick\nfrom.",
+        "operationId": "export_picks_prompt_api_v1_picks_prompt_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PicksRequest",
+                "default": {
+                  "profile": {
+                    "asset_types": [],
+                    "horizon": {
+                      "months": 0,
+                      "weeks": 0,
+                      "years": 1
+                    }
+                  },
+                  "refresh": false,
+                  "web_search": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PicksPromptExport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The picks prompt, to paste into Claude outside the app",
+        "tags": [
+          "picks"
+        ]
+      }
+    },
+    "/api/v1/picks/stream": {
+      "post": {
+        "description": "Stream the picks of ``create_picks`` as Claude makes them.\n\nThe same failures return the same statuses before the stream opens. Then it sends\n``context`` (the :class:`PicksContext`), ``thinking`` and ``report`` fragments,\n``search`` (a :class:`WebSearchQuery`) for each web search when ``web_search`` is on,\n``fallback`` when a model declines part-way and another continues, and ``result`` (the\n:class:`PicksResponse`) or ``error``, as the stock analysis stream does. Reused picks\nare sent as ``context`` then ``result`` alone.",
+        "operationId": "stream_picks_events_api_v1_picks_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PicksRequest",
+                "default": {
+                  "profile": {
+                    "asset_types": [],
+                    "horizon": {
+                      "months": 0,
+                      "weeks": 0,
+                      "years": 1
+                    }
+                  },
+                  "refresh": false,
+                  "web_search": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Claude's picks as Server-Sent Events",
+        "tags": [
+          "picks"
+        ]
+      }
+    },
+    "/api/v1/picks/{picks_id}": {
+      "delete": {
+        "description": "Delete one of your stored lists of picks.\n\nReturns 404 for unknown IDs and other accounts' picks, and 503 when the database is\nunavailable.",
+        "operationId": "remove_picks_api_v1_picks__picks_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "picks_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Picks Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete a stored list of picks",
+        "tags": [
+          "picks"
+        ]
+      },
+      "get": {
+        "description": "Return one of your stored lists of picks with the data it was made from.\n\nReturns 404 for unknown IDs and other accounts' picks, and 503 when the database is\nunavailable.",
+        "operationId": "read_picks_api_v1_picks__picks_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "picks_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Picks Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PicksResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "A stored list of picks in full",
+        "tags": [
+          "picks"
+        ]
+      }
+    },
     "/api/v1/portfolio/analysis": {
       "get": {
         "description": "Return your newest stored review of ``portfolio``, or with ``combined`` of every\nportfolio together, whatever it was written for, so it can be shown again without a\ncharge. Returns 404 when you have none.",
         "operationId": "read_portfolio_review_api_v1_portfolio_analysis_get",
         "parameters": [
           {
-            "description": "Which of your saved portfolios: 1 or 2.",
+            "description": "Which of your saved portfolios, from 1 to 5.",
             "in": "query",
             "name": "portfolio",
             "required": false,
             "schema": {
               "default": 1,
-              "description": "Which of your saved portfolios: 1 or 2.",
-              "maximum": 2,
+              "description": "Which of your saved portfolios, from 1 to 5.",
+              "maximum": 5,
               "minimum": 1,
               "title": "Portfolio",
               "type": "integer"
@@ -15007,7 +17038,7 @@
         ]
       },
       "post": {
-        "description": "Have Claude review your saved portfolio's construction and risk.\n\nThe review is grounded in your holdings valued at the latest prices, their sectors,\nand statistics of today's weights over ``period`` of daily returns: each holding's\nreturn, volatility, drawdown, and share of the portfolio's risk, the portfolio's\nvolatility, drawdowns and diversification, and the most and least correlated pairs.\nAll of it is in ``context``.\n\nIt is written with, and billed to, your own Anthropic key (the ``X-Anthropic-Key``\nheader), within your AI limits, and stored under your account. A review of the same\nholdings and period within ``ANALYSIS_CACHE_TTL_SECONDS`` is returned again with\n``cached`` set and no charge, unless ``refresh`` is true.\n\nReturns 403 without a valid Anthropic key, 422 with no saved holdings, a window too\nshort, or when the model declines, 429 beyond your AI limits, 502 when a provider\nfails, and 503 when Anthropic rate limits your account.",
+        "description": "Have Claude review your saved portfolio's construction and risk.\n\nThe review is grounded in your holdings valued at the latest prices, their sectors,\nand statistics of today's weights over ``period`` of daily returns: each holding's\nreturn, volatility, drawdown, and share of the portfolio's risk, the portfolio's\nvolatility, drawdowns and diversification, and the most and least correlated pairs.\nYour latest Claude's picks, when you have any, are given to it as candidates for new\ninvestments, with the screener's figures for each (``context.claude_picks``). With\n``web_search``, Claude searches the web first, and every fact it brings back is in\n``context.web_research`` with its sources. All of it is in ``context``.\n\nIt is written with, and billed to, your own Anthropic key (the ``X-Anthropic-Key``\nheader), within your AI limits, and stored under your account. A review of the same\nholdings and period within ``ANALYSIS_CACHE_TTL_SECONDS`` is returned again with\n``cached`` set and no charge, unless ``refresh`` is true.\n\nReturns 403 without a valid Anthropic key, 422 with no saved holdings, a window too\nshort, or when the model declines, 429 beyond your AI limits, 502 when a provider\nfails, and 503 when Anthropic rate limits your account.",
         "operationId": "create_portfolio_review_api_v1_portfolio_analysis_post",
         "requestBody": {
           "content": {
@@ -15023,7 +17054,8 @@
                     "fractional_shares": true,
                     "round_shares": true
                   },
-                  "refresh": false
+                  "refresh": false,
+                  "web_search": false
                 }
               }
             }
@@ -15117,7 +17149,8 @@
                     "fractional_shares": true,
                     "round_shares": true
                   },
-                  "refresh": false
+                  "refresh": false,
+                  "web_search": false
                 }
               }
             }
@@ -15153,7 +17186,7 @@
     },
     "/api/v1/portfolio/analysis/stream": {
       "post": {
-        "description": "Stream the review of ``create_portfolio_review`` as Claude writes it.\n\nThe same failures return the same statuses before the stream opens. Then it sends\n``context`` (the :class:`PortfolioContext`), ``thinking``, and ``report`` fragments,\n``fallback`` when a model declines part-way and another continues, and ``result``\n(the :class:`PortfolioAnalysisResponse`) or ``error``, as the stock analysis stream\ndoes. A reused review is sent as ``context`` then ``result`` alone.",
+        "description": "Stream the review of ``create_portfolio_review`` as Claude writes it.\n\nThe same failures return the same statuses before the stream opens. Then it sends\n``context`` (the :class:`PortfolioContext`), ``thinking``, and ``report`` fragments,\n``search`` (a :class:`WebSearchQuery`) for each web search when ``web_search`` is on,\n``fallback`` when a model declines part-way and another continues, and ``result``\n(the :class:`PortfolioAnalysisResponse`) or ``error``, as the stock analysis stream\ndoes. A reused review is sent as ``context`` then ``result`` alone.",
         "operationId": "stream_portfolio_review_events_api_v1_portfolio_analysis_stream_post",
         "requestBody": {
           "content": {
@@ -15169,7 +17202,8 @@
                     "fractional_shares": true,
                     "round_shares": true
                   },
-                  "refresh": false
+                  "refresh": false,
+                  "web_search": false
                 }
               }
             }
@@ -15401,14 +17435,14 @@
         "operationId": "read_holdings_api_v1_portfolio_holdings_get",
         "parameters": [
           {
-            "description": "Which of your saved portfolios: 1 or 2.",
+            "description": "Which of your saved portfolios, from 1 to 5.",
             "in": "query",
             "name": "portfolio",
             "required": false,
             "schema": {
               "default": 1,
-              "description": "Which of your saved portfolios: 1 or 2.",
-              "maximum": 2,
+              "description": "Which of your saved portfolios, from 1 to 5.",
+              "maximum": 5,
               "minimum": 1,
               "title": "Portfolio",
               "type": "integer"
@@ -15459,14 +17493,14 @@
         "operationId": "store_holdings_api_v1_portfolio_holdings_put",
         "parameters": [
           {
-            "description": "Which of your saved portfolios: 1 or 2.",
+            "description": "Which of your saved portfolios, from 1 to 5.",
             "in": "query",
             "name": "portfolio",
             "required": false,
             "schema": {
               "default": 1,
-              "description": "Which of your saved portfolios: 1 or 2.",
-              "maximum": 2,
+              "description": "Which of your saved portfolios, from 1 to 5.",
+              "maximum": 5,
               "minimum": 1,
               "title": "Portfolio",
               "type": "integer"
@@ -15513,7 +17547,7 @@
     },
     "/api/v1/portfolio/portfolios": {
       "get": {
-        "description": "List both of the portfolios you can save, with their names and how many holdings\neach has; one never saved has none. Returns 503 when the database is unavailable.",
+        "description": "List the portfolios you can save, five of them, with their names and how many holdings\neach has; one never saved has none. Returns 503 when the database is unavailable.",
         "operationId": "read_portfolios_api_v1_portfolio_portfolios_get",
         "responses": {
           "200": {
@@ -15799,6 +17833,7 @@
                     "descending": true,
                     "field": "market_cap"
                   },
+                  "symbols": [],
                   "universe": "all"
                 }
               }
@@ -16008,7 +18043,7 @@
     },
     "/api/v1/stocks/{symbol}/analysis": {
       "post": {
-        "description": "Have Claude write an investment thesis or risk summary for ``symbol``.\n\nThe report is grounded in the ticker snapshot, return, volatility, and drawdown\nstatistics computed from daily adjusted closes over ``period``, factor exposures, a\nGARCH(1,1) volatility forecast fit to five years of daily returns, the stock's\nscreening metrics ranked among its industry or sector peers, the company's financial\nstatement figures and valuation multiples, the headlines and summaries of the last\ntwo weeks of news, analysts' ratings, earnings surprises, the next earnings date,\ninsiders' trades and sentiment, key metrics and peers, lobbying, federal contracts,\npatents, and recent SEC filings from Finnhub (with a Finnhub key stored), the market\nbackdrop of upcoming FOMC meetings (for every account) and, with a Finnhub key, major\nearnings reports, IPOs, holidays, and market headlines, and, unless\n``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K\nand any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of\nit cannot be fetched the report is written without it and ``context.notice`` says so.\n\nThe report is written with, and billed to, your own Anthropic key, sent in the\n``X-Anthropic-Key`` header, within the hourly and daily limits you set (``PUT\n/api/v1/me/limits``). Every report is stored under your account. Your report for the\nsame options, model, and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by\ndefault) is returned again with ``cached`` set and no charge, unless ``refresh`` is\ntrue. Identical requests that arrive together are written once.\n\nReturns 403 without a valid Anthropic key, 404 for unknown symbols, 422 when the\nwindow has too few bars or the model declines, 429 beyond your AI limits, 502 when a\nprovider fails, and 503 when Anthropic rate limits your account.",
+        "description": "Have Claude write an investment thesis or risk summary for ``symbol``.\n\nThe report is grounded in the ticker snapshot, return, volatility, and drawdown\nstatistics computed from daily adjusted closes over ``period``, factor exposures, a\nGARCH(1,1) volatility forecast fit to five years of daily returns, the stock's\nscreening metrics ranked among its industry or sector peers, the company's financial\nstatement figures and valuation multiples, the headlines and summaries of the last\ntwo weeks of news, analysts' ratings, earnings surprises, the next earnings date,\ninsiders' trades and sentiment, key metrics and peers, lobbying, federal contracts,\npatents, and recent SEC filings from Finnhub (with a Finnhub key stored), the market\nbackdrop of upcoming FOMC meetings (for every account) and, with a Finnhub key, major\nearnings reports, IPOs, holidays, and market headlines, and, unless\n``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K\nand any later 10-Q from SEC EDGAR. With ``web_search``, Claude searches the web first,\nand every fact it brings back is in ``context.web_research`` with its sources; such a\nreport is always written anew. All of it is described in ``context``. When any of\nit cannot be fetched the report is written without it and ``context.notice`` says so.\n\nThe report is written with, and billed to, your own Anthropic key, sent in the\n``X-Anthropic-Key`` header, within the hourly and daily limits you set (``PUT\n/api/v1/me/limits``). Every report is stored under your account. Your report for the\nsame options, model, and effort within ``ANALYSIS_CACHE_TTL_SECONDS`` (24 hours by\ndefault) is returned again with ``cached`` set and no charge, unless ``refresh`` is\ntrue. Identical requests that arrive together are written once.\n\nReturns 403 without a valid Anthropic key, 404 for unknown symbols, 422 when the\nwindow has too few bars or the model declines, 429 beyond your AI limits, 502 when a\nprovider fails, and 503 when Anthropic rate limits your account.",
         "operationId": "create_analysis_api_v1_stocks__symbol__analysis_post",
         "parameters": [
           {
@@ -16033,7 +18068,8 @@
                   "include_filings": true,
                   "kind": "thesis",
                   "period": "1y",
-                  "refresh": false
+                  "refresh": false,
+                  "web_search": false
                 }
               }
             }
@@ -16150,7 +18186,8 @@
                   "include_filings": true,
                   "kind": "thesis",
                   "period": "1y",
-                  "refresh": false
+                  "refresh": false,
+                  "web_search": false
                 }
               }
             }
@@ -16186,7 +18223,7 @@
     },
     "/api/v1/stocks/{symbol}/analysis/stream": {
       "post": {
-        "description": "Stream the analysis of ``create_analysis`` as Claude writes it.\n\nData is gathered first, so unknown symbols, short windows, and provider failures\nreturn the same 404, 422, and 502 statuses as the non-streaming route. Once the\nstream opens, it sends these events, each with a JSON ``data`` payload:\n\n* ``context``: the :class:`AnalysisContext` the report is written from.\n* ``thinking``: an :class:`AnalysisDelta` summarizing the model's reasoning.\n* ``report``: an :class:`AnalysisDelta` of report JSON; fragments concatenate to it.\n* ``fallback``: a :class:`ModelFallback`, when a model declines part-way and another\n  continues the report.\n* ``result``: the final :class:`AnalysisResponse`, with the validated report.\n* ``error``: an :class:`AnalysisStreamError` giving the status the non-streaming\n  route would have returned. Fragments already sent should then be discarded.\n\nThe stream ends after ``result`` or ``error``. Idle periods carry keep-alive comments.\nA reused report, as described for ``create_analysis``, is sent as ``context`` then\n``result`` alone.",
+        "description": "Stream the analysis of ``create_analysis`` as Claude writes it.\n\nData is gathered first, so unknown symbols, short windows, and provider failures\nreturn the same 404, 422, and 502 statuses as the non-streaming route. Once the\nstream opens, it sends these events, each with a JSON ``data`` payload:\n\n* ``context``: the :class:`AnalysisContext` the report is written from.\n* ``thinking``: an :class:`AnalysisDelta` summarizing the model's reasoning.\n* ``report``: an :class:`AnalysisDelta` of report JSON; fragments concatenate to it.\n* ``search``: a :class:`WebSearchQuery`, for each web search made when ``web_search``\n  is on, before the report is written.\n* ``fallback``: a :class:`ModelFallback`, when a model declines part-way and another\n  continues the report.\n* ``result``: the final :class:`AnalysisResponse`, with the validated report.\n* ``error``: an :class:`AnalysisStreamError` giving the status the non-streaming\n  route would have returned. Fragments already sent should then be discarded.\n\nThe stream ends after ``result`` or ``error``. Idle periods carry keep-alive comments.\nA reused report, as described for ``create_analysis``, is sent as ``context`` then\n``result`` alone.",
         "operationId": "stream_analysis_events_api_v1_stocks__symbol__analysis_stream_post",
         "parameters": [
           {
@@ -16211,7 +18248,8 @@
                   "include_filings": true,
                   "kind": "thesis",
                   "period": "1y",
-                  "refresh": false
+                  "refresh": false,
+                  "web_search": false
                 }
               }
             }

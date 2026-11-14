@@ -4,8 +4,8 @@ A personal investment-research web app: a FastAPI backend (`app/`, Python 3.14, 
 for GARCH) and a React + TypeScript frontend (`web/`, Vite) that FastAPI serves in
 production. Market data comes from Tiingo, FMP, EODHD, Finnhub, and Alpha Vantage on each
 user's own keys, cheapest first for each kind of data (`docs/data-sources.md`), with
-yfinance as a fallback. Claude writes stock reports, portfolio reviews, and
-strategy code. Custom strategies run in the browser (Pyodide for Python, Clang compiled
+yfinance as a fallback. Claude writes stock reports, portfolio reviews, its own picks
+from the screener, and strategy code, and can search the web for the reports. Custom strategies run in the browser (Pyodide for Python, Clang compiled
 to WebAssembly for C++). Only their positions go to the server, which scores them.
 
 `app/CLAUDE.md` and `web/CLAUDE.md` map each side module by module. Read the one for the
@@ -24,7 +24,7 @@ side you are changing before searching the code.
 | `app/db/` | SQLAlchemy async tables (`tables.py`), storage helpers, Alembic `migrations/` |
 | `app/jobs/` | CLIs: `users` (accounts, keys), `screener` (the shared screener's nightly refresh), `nightly` (each user's own screener, started by the service when one is due), `billing` (Stripe's catalog and webhook, usage reports), `openapi` |
 | `tests/` | pytest, offline: every provider is monkeypatched |
-| `web/src/pages/` | One component per route: Stock, Markets, Portfolio, Backtest, Screener, Settings |
+| `web/src/pages/` | One component per route: Stock, Markets, Portfolio, Backtest, Screener (with Claude's picks), Settings |
 | `web/src/runners/` | In-browser Python/C++ strategy runners (Web Workers) |
 | `web/src-tauri/` | The native app (Tauri 2): macOS now, iOS next, then Windows, Android, Linux |
 | `web/openapi.json`, `web/src/api/schema.d.ts` | Generated from the API; never edit by hand |

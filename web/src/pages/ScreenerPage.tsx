@@ -1,10 +1,18 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { getNightlyRefresh, getUniverseStatus, screen } from '../api/endpoints'
+import {
+  getLatestPicks,
+  getNightlyRefresh,
+  getPicks,
+  getUniverseStatus,
+  screen,
+} from '../api/endpoints'
 import type { RankedStock, ScreenField, ScreenFilter, ScreenRequest } from '../api/types'
 import { InfoTip } from '../components/InfoTip'
 import { ErrorNotice, Notice } from '../components/Notice'
+import { ScreenerTabs } from '../components/ScreenerTabs'
+import { LATEST_PICKS_KEY } from '../lib/picks'
 import type { InfoKey } from '../lib/glossary'
 import { compact, dateTime, money, number, percent, shortDate } from '../lib/format'
 import { NIGHTLY_QUERY_KEY } from '../lib/nightlyRefresh'
@@ -97,6 +105,9 @@ const ASSET_TYPES = [
   { value: 'etf', label: 'ETFs only' },
 ] as const
 
+/** The universe choice that keeps only the securities Claude picked. */
+const PICKS = 'picks'
+
 const UNIVERSES = [
   { value: 'sp500', label: 'S&P 500' },
   { value: 'nasdaq', label: 'Listed on Nasdaq' },
@@ -104,6 +115,7 @@ const UNIVERSES = [
   { value: 'large_cap', label: 'Large cap (top 500 stocks)' },
   { value: 'broad_market', label: 'Broad market (top 3,000 stocks)' },
   { value: 'liquid', label: 'Liquid ($5M+ a day)' },
+  { value: PICKS, label: 'Claude’s picks' },
 ] as const
 
 const BASE_COLUMNS: ScreenField[] = [
@@ -149,7 +161,8 @@ interface FilterRow {
 }
 
 interface Screen {
-  universe: NonNullable<ScreenRequest['universe']>
+  /** A part of the universe, or only the securities Claude picked. */
+  universe: NonNullable<ScreenRequest['universe']> | typeof PICKS
   sector: string
   /** Stocks, ETFs, or both when empty. */
   assetType: '' | 'stock' | 'etf'
@@ -179,7 +192,14 @@ function loadScreen(): Screen {
 
 export function ScreenerPage() {
   const navigate = useNavigate()
-  const [state, setState] = useState<Screen>(loadScreen)
+  // A link from Claude's picks (?picks=latest, or a stored list's ID) opens the screener
+  // on those picks alone.
+  const [params] = useSearchParams()
+  const linkedPicks = params.get('picks')
+  const [state, setState] = useState<Screen>(() =>
+    linkedPicks ? { ...loadScreen(), universe: PICKS, sector: '', filters: [] } : loadScreen(),
+  )
+  const picksId = linkedPicks && linkedPicks !== 'latest' ? linkedPicks : null
   const [page, setPage] = useState(0)
   const update = (next: Partial<Screen>) => {
     const merged = { ...state, ...next }
@@ -191,6 +211,13 @@ export function ScreenerPage() {
   const status = useQuery({ queryKey: ['universe-status'], queryFn: getUniverseStatus })
   const nightly = useQuery({ queryKey: NIGHTLY_QUERY_KEY, queryFn: getNightlyRefresh })
   const latestRun = nightly.data?.latest_run
+  const onlyPicks = state.universe === PICKS
+  const picks = useQuery({
+    queryKey: picksId ? ['picks', picksId] : LATEST_PICKS_KEY,
+    queryFn: () => (picksId ? getPicks(picksId) : getLatestPicks()),
+    enabled: onlyPicks,
+  })
+  const picked = picks.data?.report.picks.map((pick) => pick.symbol) ?? []
   const filters: ScreenFilter[] = state.filters
     .map((row) => ({
       field: row.field,
@@ -199,7 +226,9 @@ export function ScreenerPage() {
     }))
     .filter((row) => row.min !== null || row.max !== null)
   const request: ScreenRequest = {
-    universe: state.universe,
+    // Claude may pick from anywhere in the screener, so its picks are looked for in all of it.
+    universe: state.universe === PICKS ? 'all' : state.universe,
+    symbols: onlyPicks ? picked : [],
     sectors: state.sector ? [state.sector] : [],
     asset_types: state.assetType ? [state.assetType] : [],
     filters,
@@ -213,8 +242,10 @@ export function ScreenerPage() {
     queryKey: ['screen', request],
     queryFn: () => screen(request),
     placeholderData: keepPreviousData,
-    enabled: !empty,
+    enabled: !empty && (!onlyPicks || picked.length > 0),
   })
+  // Without picks there is nothing to list, whatever an earlier screen showed.
+  const shown = onlyPicks && picked.length === 0 ? undefined : results.data
 
   const columns = [
     ...BASE_COLUMNS,
@@ -222,7 +253,7 @@ export function ScreenerPage() {
       (field, index, all) => !BASE_COLUMNS.includes(field) && all.indexOf(field) === index,
     ),
   ]
-  const total = results.data?.total ?? 0
+  const total = shown?.total ?? 0
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const sortBy = (field: ScreenField) =>
     update(
@@ -243,6 +274,7 @@ export function ScreenerPage() {
             {status.data?.own && <InfoTip topic="nightlyRefresh" />}
           </div>
         </div>
+        <ScreenerTabs />
       </header>
 
       {status.data?.last_error && (
@@ -293,8 +325,12 @@ export function ScreenerPage() {
       <section id="screen" className="card stack" style={{ gap: 14 }}>
         <div className="filter-row">
           <label className="field">
-            <span>Universe</span>
+            <span className="heading-with-info">
+              Universe
+              <InfoTip topic="picksUniverse" />
+            </span>
             <select
+              aria-label="Universe"
               value={state.universe}
               onChange={(event) => update({ universe: event.target.value as Screen['universe'] })}
             >
@@ -417,6 +453,9 @@ export function ScreenerPage() {
             <div className="subtitle">
               Sorted by {FIELDS[state.sort].label.toLowerCase()},{' '}
               {state.descending ? 'highest' : 'lowest'} first · click a column to sort
+              {onlyPicks &&
+                picks.data &&
+                ` · the ${picked.length} securities Claude picked on ${shortDate(picks.data.generated_at)} to hold for ${picks.data.context.horizon}${total < picked.length ? `, of which ${total} ${total === 1 ? 'is' : 'are'} in the screener and pass these filters` : ''}`}
               {state.universe === 'sp500' &&
                 ' · S&P 500 companies as of the latest holdings report of IVV, a fund that tracks the index, so a company that joined in the last few months may be missing'}
             </div>
@@ -444,6 +483,13 @@ export function ScreenerPage() {
           </div>
         </div>
         {results.error !== null && !empty && <ErrorNotice error={results.error} />}
+        {picks.error !== null && onlyPicks && <ErrorNotice error={picks.error} />}
+        {onlyPicks && picks.data === null && (
+          <Notice>
+            Claude has not made any picks for you yet.{' '}
+            <Link to="/screener/picks">Get Claude’s picks</Link>, and they can be screened here.
+          </Notice>
+        )}
         <div className={`table-wrap${results.isPlaceholderData ? ' card-body refreshing' : ''}`}>
           <table className="data">
             <thead>
@@ -474,7 +520,7 @@ export function ScreenerPage() {
               </tr>
             </thead>
             <tbody>
-              {results.data?.items.map((stock: RankedStock, index, items) => {
+              {shown?.items.map((stock: RankedStock, index, items) => {
                 // A company's share classes, such as GOOGL and GOOG, come together with
                 // one rank: its number, name, and sector are shown once, beside them all.
                 const first = items[index - 1]?.rank !== stock.rank
@@ -540,9 +586,7 @@ export function ScreenerPage() {
             </tbody>
           </table>
         </div>
-        {results.data?.items.some(
-          (stock, index, items) => items[index - 1]?.rank === stock.rank,
-        ) && (
+        {shown?.items.some((stock, index, items) => items[index - 1]?.rank === stock.rank) && (
           <p className="disclaimer heading-with-info" style={{ marginTop: 12 }}>
             <span>
               Symbols that share a number are share classes of one company, such as Alphabet&apos;s
@@ -551,7 +595,7 @@ export function ScreenerPage() {
             <InfoTip topic="shareClasses" />
           </p>
         )}
-        {results.data?.items.some((stock) => stock.asset_type === 'etf') && (
+        {shown?.items.some((stock) => stock.asset_type === 'etf') && (
           <p className="disclaimer heading-with-info" style={{ marginTop: 12 }}>
             <span>
               n/a: a company&apos;s figure, such as market cap, P/E, margins, or growth, which an
@@ -561,7 +605,7 @@ export function ScreenerPage() {
             <InfoTip topic="notForFunds" />
           </p>
         )}
-        {results.data && results.data.items.length === 0 && (
+        {shown && shown.items.length === 0 && (
           <div className="empty">No stocks match these filters.</div>
         )}
         {!empty && (

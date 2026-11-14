@@ -334,6 +334,27 @@ and use the first one that covers the request. "Free" means the provider's free 
 | Daily prices for the whole screened universe | EODHD Historian ($19.99) |
 | Daily market caps for stocks outside the Dow 30 | Finnhub's free per-stock metrics give today's market cap; history needs a paid key |
 
+## Web search for Claude's reports
+
+Stock reports, portfolio reviews, and Claude's picks can let Claude search the web
+first ("Let Claude search the web"), for what no key here supplies: the latest news,
+guidance, analyst actions, and the economic backdrop. It is Anthropic's web search tool
+(`web_search_20250305`, `app/ai/web.py`), run on the user's own Anthropic key, so it
+follows the same rule as every other source: one user's key, one user's results.
+
+- **Cost:** $10 per 1,000 searches on top of the tokens, billed by Anthropic to the
+  user's key, and nothing for a search that fails. PyQxel allows up to
+  `WEB_SEARCH_MAX_USES` (6) a report, so a few cents in all; the checkbox says so.
+- **Plans:** every Anthropic API key, with no plan needed, unless the organization's
+  admin turned web search off in the Claude Console. Then the report is written without
+  it and says so (`WEB_FAILED_NOTICE`).
+- **Terms:** Anthropic requires showing the sources of what a search returns. Only
+  statements the API tied to a page are kept (`findings_in`), each listed under the
+  report with its links, and the report cites them by number. Results are kept with the
+  report, for its owner alone, like the rest of its data.
+- **Without an Anthropic key:** the report can still be taken to claude.ai ("Use Claude
+  outside the app"), which has its own web search; that prompt does not search.
+
 ## Notes and gaps
 
 - **FMP's free history covers a fixed sample of popular symbols.** The app's code comment

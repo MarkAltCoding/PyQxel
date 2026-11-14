@@ -805,6 +805,210 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/me/saved': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * What you have entered in the app
+     * @description Return everything the app has saved for your account, by name: strategy drafts,
+     *     screens, the answers you gave for reviews and picks, and display choices. Returns 503
+     *     when the database is unavailable.
+     */
+    get: operations['read_saved_state_api_v1_me_saved_get']
+    /**
+     * Save what you entered in the app
+     * @description Save each named value, replacing what was there, and forget those sent as null;
+     *     names not sent are left as they are. Returns everything then saved.
+     *
+     *     Returns 413 when the account would hold more than it may, 422 for a name that is not
+     *     allowed, such as one naming a key or sign-in, which are never saved to the account,
+     *     and 503 when the database is unavailable.
+     */
+    put: operations['store_saved_state_api_v1_me_saved_put']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/picks': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Your stored lists of Claude's picks
+     * @description Return your stored lists of picks, newest first, each with its tickers but not its
+     *     reasons. Reading them costs nothing. Returns 503 when the database is unavailable.
+     */
+    get: operations['read_picks_list_api_v1_picks_get']
+    put?: never
+    /**
+     * Claude's picks for a holding period
+     * @description Have Claude pick the securities to buy now and hold for ``profile.horizon``.
+     *
+     *     The candidates are the leaders of your screener (your own, when your nightly refresh
+     *     has built one, else the shared one) on market cap, momentum, recent returns, free
+     *     cash flow yield, P/E, growth, return on equity, margins, and low volatility, and its
+     *     most traded ETFs, each at least $5 million traded a day. Claude ranks five to ten of
+     *     them for the holding period, risk tolerance, amount, and notes given, with a weight,
+     *     reasons, risk, and how to buy and when to sell for each. With ``web_search``, Claude
+     *     searches the web first, and every fact it brings back is in
+     *     ``context.web_research`` with its sources. All the data is in ``context``, and the
+     *     screener's figures for each pick in ``securities``.
+     *
+     *     It is written with, and billed to, your own Anthropic key (the ``X-Anthropic-Key``
+     *     header), within your AI limits, and stored under your account. Picks for the same
+     *     profile and screener data within ``ANALYSIS_CACHE_TTL_SECONDS`` are returned again
+     *     with ``cached`` set and no charge, unless ``refresh`` is true.
+     *
+     *     Returns 403 without a valid Anthropic key, 422 when the screener holds nothing to pick
+     *     from or the model declines, 429 beyond your AI limits, 502 when Claude's answer cannot
+     *     be used, and 503 when you have no screener yet, the database is unavailable, or
+     *     Anthropic rate limits your account.
+     */
+    post: operations['create_picks_api_v1_picks_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/picks/import': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Save picks Claude made outside the app
+     * @description Check Claude's answer to an exported prompt and store it as your latest picks.
+     *
+     *     They are marked as pasted and never reused in place of new picks. Returns 422 when the
+     *     answer does not match the picks' format or holds too few usable picks, and 503 when
+     *     the database is unavailable.
+     */
+    post: operations['import_picks_api_v1_picks_import_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/picks/latest': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Your latest Claude's picks
+     * @description Return your newest stored picks, whatever they were made for, so they can be shown
+     *     again without a charge. Returns 404 when you have none, and 503 when the database is
+     *     unavailable.
+     */
+    get: operations['read_latest_picks_api_v1_picks_latest_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/picks/prompt': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * The picks prompt, to paste into Claude outside the app
+     * @description Return exactly what a list of picks would send Claude, as one Markdown document.
+     *
+     *     No Anthropic key is needed and nothing counts against your AI limits; the web is not
+     *     searched. Paste ``prompt`` into Claude, then send its answer to ``/picks/import`` with
+     *     the ``context`` returned here. Fails as ``/picks`` does when there is nothing to pick
+     *     from.
+     */
+    post: operations['export_picks_prompt_api_v1_picks_prompt_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/picks/stream': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Stream Claude's picks as Server-Sent Events
+     * @description Stream the picks of ``create_picks`` as Claude makes them.
+     *
+     *     The same failures return the same statuses before the stream opens. Then it sends
+     *     ``context`` (the :class:`PicksContext`), ``thinking`` and ``report`` fragments,
+     *     ``search`` (a :class:`WebSearchQuery`) for each web search when ``web_search`` is on,
+     *     ``fallback`` when a model declines part-way and another continues, and ``result`` (the
+     *     :class:`PicksResponse`) or ``error``, as the stock analysis stream does. Reused picks
+     *     are sent as ``context`` then ``result`` alone.
+     */
+    post: operations['stream_picks_events_api_v1_picks_stream_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/picks/{picks_id}': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * A stored list of picks in full
+     * @description Return one of your stored lists of picks with the data it was made from.
+     *
+     *     Returns 404 for unknown IDs and other accounts' picks, and 503 when the database is
+     *     unavailable.
+     */
+    get: operations['read_picks_api_v1_picks__picks_id__get']
+    put?: never
+    post?: never
+    /**
+     * Delete a stored list of picks
+     * @description Delete one of your stored lists of picks.
+     *
+     *     Returns 404 for unknown IDs and other accounts' picks, and 503 when the database is
+     *     unavailable.
+     */
+    delete: operations['remove_picks_api_v1_picks__picks_id__delete']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/portfolio/analysis': {
     parameters: {
       query?: never
@@ -828,7 +1032,10 @@ export interface paths {
      *     and statistics of today's weights over ``period`` of daily returns: each holding's
      *     return, volatility, drawdown, and share of the portfolio's risk, the portfolio's
      *     volatility, drawdowns and diversification, and the most and least correlated pairs.
-     *     All of it is in ``context``.
+     *     Your latest Claude's picks, when you have any, are given to it as candidates for new
+     *     investments, with the screener's figures for each (``context.claude_picks``). With
+     *     ``web_search``, Claude searches the web first, and every fact it brings back is in
+     *     ``context.web_research`` with its sources. All of it is in ``context``.
      *
      *     It is written with, and billed to, your own Anthropic key (the ``X-Anthropic-Key``
      *     header), within your AI limits, and stored under your account. A review of the same
@@ -909,6 +1116,7 @@ export interface paths {
      *
      *     The same failures return the same statuses before the stream opens. Then it sends
      *     ``context`` (the :class:`PortfolioContext`), ``thinking``, and ``report`` fragments,
+     *     ``search`` (a :class:`WebSearchQuery`) for each web search when ``web_search`` is on,
      *     ``fallback`` when a model declines part-way and another continues, and ``result``
      *     (the :class:`PortfolioAnalysisResponse`) or ``error``, as the stock analysis stream
      *     does. A reused review is sent as ``context`` then ``result`` alone.
@@ -1058,7 +1266,7 @@ export interface paths {
     }
     /**
      * Your saved portfolios
-     * @description List both of the portfolios you can save, with their names and how many holdings
+     * @description List the portfolios you can save, five of them, with their names and how many holdings
      *     each has; one never saved has none. Returns 503 when the database is unavailable.
      */
     get: operations['read_portfolios_api_v1_portfolio_portfolios_get']
@@ -1361,7 +1569,9 @@ export interface paths {
      *     backdrop of upcoming FOMC meetings (for every account) and, with a Finnhub key, major
      *     earnings reports, IPOs, holidays, and market headlines, and, unless
      *     ``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K
-     *     and any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of
+     *     and any later 10-Q from SEC EDGAR. With ``web_search``, Claude searches the web first,
+     *     and every fact it brings back is in ``context.web_research`` with its sources; such a
+     *     report is always written anew. All of it is described in ``context``. When any of
      *     it cannot be fetched the report is written without it and ``context.notice`` says so.
      *
      *     The report is written with, and billed to, your own Anthropic key, sent in the
@@ -1452,6 +1662,8 @@ export interface paths {
      *     * ``context``: the :class:`AnalysisContext` the report is written from.
      *     * ``thinking``: an :class:`AnalysisDelta` summarizing the model's reasoning.
      *     * ``report``: an :class:`AnalysisDelta` of report JSON; fragments concatenate to it.
+     *     * ``search``: a :class:`WebSearchQuery`, for each web search made when ``web_search``
+     *       is on, before the report is written.
      *     * ``fallback``: a :class:`ModelFallback`, when a model declines part-way and another
      *       continues the report.
      *     * ``result``: the final :class:`AnalysisResponse`, with the validated report.
@@ -2176,6 +2388,8 @@ export interface components {
       ticker: components['schemas']['TickerInfo']
       /** @description A GARCH(1,1) fit to the last five years of daily returns, whatever the analysis period, and its volatility forecast; null when it could not be fit. */
       volatility_forecast?: components['schemas']['GarchContext'] | null
+      /** @description What a web search made for this report found, each fact with its sources; null when the web was not searched. */
+      web_research?: components['schemas']['WebResearch'] | null
     }
     /**
      * AnalysisImport
@@ -2254,6 +2468,12 @@ export interface components {
        * @default false
        */
       refresh?: boolean
+      /**
+       * Web Search
+       * @description Let Claude search the web first, for what the app's data cannot show. Every fact it brings back is listed with its source. Anthropic bills each search to your key, on top of the tokens, and a report that searches the web is always written anew.
+       * @default false
+       */
+      web_search?: boolean
     }
     /**
      * AnalysisResponse
@@ -4771,6 +4991,28 @@ export interface components {
       name?: string | null
     }
     /**
+     * Horizon
+     * @description How long the picks are to be held: any mix of years, months, and weeks, from one
+     *     week up.
+     */
+    Horizon: {
+      /**
+       * Months
+       * @default 0
+       */
+      months?: number
+      /**
+       * Weeks
+       * @default 0
+       */
+      weeks?: number
+      /**
+       * Years
+       * @default 0
+       */
+      years?: number
+    }
+    /**
      * InformationCoefficient
      * @description How well the signal ranked the next period's returns: the Spearman correlation of
      *     each rebalance's ranking with the returns to the next rebalance.
@@ -6380,6 +6622,462 @@ export interface components {
       total_return: number
     }
     /**
+     * Pick
+     * @description One security Claude would buy and hold for the period.
+     */
+    Pick: {
+      /**
+       * Conviction
+       * @description How firmly the evidence supports this pick for this period.
+       * @enum {string}
+       */
+      conviction: 'low' | 'medium' | 'high'
+      /**
+       * Entry
+       * @description How to buy it: the order type, and at once or in steps, in a sentence.
+       */
+      entry: string
+      /**
+       * Exit
+       * @description When to sell or look again: at the end of the period, and on what earlier sign, in a sentence.
+       */
+      exit: string
+      /**
+       * Kind
+       * @enum {string}
+       */
+      kind: 'stock' | 'etf'
+      /**
+       * Name
+       * @description The company's or fund's name.
+       */
+      name: string
+      /**
+       * Risk
+       * @description The main risk, and what would prove the pick wrong.
+       */
+      risk: string
+      /**
+       * Symbol
+       * @description Ticker, as in the candidates table.
+       */
+      symbol: string
+      /**
+       * Thesis
+       * @description Why this pick, for this period and profile, citing the figures behind it.
+       */
+      thesis: string
+      /**
+       * Weight
+       * @description Its share of the money invested, as a decimal; weights sum to 1.
+       */
+      weight: number
+    }
+    /**
+     * PickCandidate
+     * @description A security the screener offered Claude, with the measures it led on.
+     */
+    PickCandidate: {
+      /**
+       * Asset Type
+       * @default stock
+       * @enum {string}
+       */
+      asset_type?: 'stock' | 'etf'
+      /**
+       * Avg Dollar Volume
+       * @description Average close times volume over the last three months.
+       */
+      avg_dollar_volume: number
+      /**
+       * Beta Market
+       * @description Carhart Mkt-RF beta.
+       */
+      beta_market?: number | null
+      /**
+       * Beta Momentum
+       * @description Carhart Mom beta.
+       */
+      beta_momentum?: number | null
+      /**
+       * Beta Size
+       * @description Carhart SMB beta.
+       */
+      beta_size?: number | null
+      /**
+       * Beta Value
+       * @description Carhart HML beta.
+       */
+      beta_value?: number | null
+      /**
+       * Earnings Growth
+       * @description TTM net income, year on year; null after a loss.
+       */
+      earnings_growth?: number | null
+      /** Ev To Ebitda */
+      ev_to_ebitda?: number | null
+      /**
+       * Factor R Squared
+       * @description Share of return variance the four factors explain.
+       */
+      factor_r_squared?: number | null
+      /** Fcf Yield */
+      fcf_yield?: number | null
+      /** Gross Margin */
+      gross_margin?: number | null
+      /** Industry */
+      industry?: string | null
+      /**
+       * Lenses
+       * @description The measures this security led the screener on, such as 12-month momentum or free cash flow yield.
+       */
+      lenses: string[]
+      /**
+       * Market Cap
+       * @description Null for an ETF, which is not a company.
+       */
+      market_cap?: number | null
+      /**
+       * Max Drawdown
+       * @description Largest peak-to-trough decline over a year.
+       */
+      max_drawdown?: number | null
+      /**
+       * Momentum 12 1
+       * @description Return from 12 months to 1 month ago, skipping the latest month as momentum strategies do.
+       */
+      momentum_12_1?: number | null
+      /** Name */
+      name: string
+      /** Net Margin */
+      net_margin?: number | null
+      /** Operating Margin */
+      operating_margin?: number | null
+      /** Pe Ratio */
+      pe_ratio?: number | null
+      /**
+       * Price
+       * @description Latest adjusted close.
+       */
+      price: number
+      /** Price To Sales */
+      price_to_sales?: number | null
+      /**
+       * Return 1M
+       * @description Return over 21 trading days.
+       */
+      return_1m?: number | null
+      /**
+       * Return 6M
+       * @description Return over 126 trading days.
+       */
+      return_6m?: number | null
+      /** Return On Equity */
+      return_on_equity?: number | null
+      /**
+       * Revenue Growth
+       * @description TTM revenue, year on year.
+       */
+      revenue_growth?: number | null
+      /** Sector */
+      sector?: string | null
+      /** Symbol */
+      symbol: string
+      /**
+       * Volatility
+       * @description Annualized volatility of daily returns over a year.
+       */
+      volatility?: number | null
+    }
+    /**
+     * PicksContext
+     * @description The data a list of picks is written from. All of it is sent to Claude, the
+     *     candidates as a table.
+     */
+    PicksContext: {
+      /** Candidates */
+      candidates: components['schemas']['PickCandidate'][]
+      /**
+       * Horizon
+       * @description The holding period in words.
+       */
+      horizon: string
+      /**
+       * Horizon Weeks
+       * @description The holding period in weeks.
+       */
+      horizon_weeks: number
+      /** @description The market backdrop: upcoming FOMC meetings, market holidays, major companies' earnings reports, and IPOs, and the newest market headlines. */
+      market?: components['schemas']['MarketContext'] | null
+      /**
+       * Notice
+       * @description Anything missing from the data.
+       */
+      notice?: string | null
+      profile: components['schemas']['PicksProfile']
+      /**
+       * Today
+       * Format: date
+       */
+      today: string
+      universe: components['schemas']['PicksUniverse']
+      /** @description What a web search made for these picks found, each fact with its sources; null when the web was not searched. */
+      web_research?: components['schemas']['WebResearch'] | null
+    }
+    /**
+     * PicksForReview
+     * @description The account's latest Claude's picks, given to a portfolio review as candidates for
+     *     new investments.
+     */
+    PicksForReview: {
+      /** Approach */
+      approach: string
+      /**
+       * Generated At
+       * Format: date-time
+       */
+      generated_at: string
+      /** Headline */
+      headline: string
+      /**
+       * Horizon
+       * @description The holding period they were made for, in words.
+       */
+      horizon: string
+      /** Market View */
+      market_view: string
+      /** Picks */
+      picks: components['schemas']['ReviewedPick'][]
+      /**
+       * Prices As Of
+       * @description Date of the screener's closes the picks were made from.
+       */
+      prices_as_of?: string | null
+      /** @description What the picks were tailored to. */
+      profile: components['schemas']['PicksProfile']
+    }
+    /**
+     * PicksImport
+     * @description An answer Claude wrote outside the app to an exported Claude's picks prompt.
+     */
+    PicksImport: {
+      /** @description The context the export returned. */
+      context: components['schemas']['PicksContext']
+      /** @description The options the prompt was exported with. */
+      request?: components['schemas']['PicksRequest']
+      /** Response */
+      response: string
+    }
+    /**
+     * PicksList
+     * @description An account's stored lists of picks, newest first.
+     */
+    PicksList: {
+      /** Items */
+      items: components['schemas']['PicksSummary'][]
+    }
+    /**
+     * PicksProfile
+     * @description What the picks are tailored to. Only the holding period is required.
+     */
+    PicksProfile: {
+      /**
+       * Amount
+       * @description Money to invest in the picks, in dollars; each pick's share of it is then given in dollars too.
+       */
+      amount?: number | null
+      /**
+       * Asset Types
+       * @description Pick only stocks, only ETFs, or either when empty.
+       */
+      asset_types?: ('stock' | 'etf')[]
+      /** @description How long the picks are to be held, from one week up. */
+      horizon?: components['schemas']['Horizon']
+      /**
+       * Notes
+       * @description Anything else to take into account, e.g. sectors to favor or avoid, dividends wanted, or securities already held.
+       */
+      notes?: string | null
+      /** Risk Tolerance */
+      risk_tolerance?: ('conservative' | 'moderate' | 'aggressive') | null
+    }
+    /**
+     * PicksPromptExport
+     * @description A Claude's picks prompt and the data it holds; send ``context`` back with the answer.
+     */
+    PicksPromptExport: {
+      context: components['schemas']['PicksContext']
+      /**
+       * Filename
+       * @description A name to save the prompt under.
+       */
+      filename: string
+      /**
+       * Prompt
+       * @description Markdown to paste into one message to Claude.
+       */
+      prompt: string
+    }
+    /**
+     * PicksReport
+     * @description Claude's picks for a holding period, ranked, with how they were chosen.
+     */
+    PicksReport: {
+      /**
+       * Approach
+       * @description A paragraph on how the picks were chosen for this period and risk tolerance, the assumptions made, and what the picks have in common.
+       */
+      approach: string
+      /**
+       * Considerations
+       * @description What to weigh before buying: taxes, trading costs, timing, concentration, and what would change the picks.
+       */
+      considerations: string[]
+      /**
+       * Data Limitations
+       * @description What the provided data cannot show.
+       */
+      data_limitations: string[]
+      /**
+       * Headline
+       * @description One sentence naming the idea behind the picks.
+       */
+      headline: string
+      /**
+       * Market View
+       * @description A paragraph or two on how the market looks for this holding period, from the candidates and the market block.
+       */
+      market_view: string
+      /**
+       * Passed Over
+       * @description Candidates a reader might have expected, each with why it was left out.
+       */
+      passed_over: string[]
+      /**
+       * Picks
+       * @description Five to ten picks, best first; weights sum to 1.
+       */
+      picks: components['schemas']['Pick'][]
+    }
+    /**
+     * PicksRequest
+     * @description Options for a list of Claude's picks.
+     */
+    PicksRequest: {
+      profile?: components['schemas']['PicksProfile']
+      /**
+       * Refresh
+       * @description Pick anew even when picks for the same profile and screener data are recent enough to reuse.
+       * @default false
+       */
+      refresh?: boolean
+      /**
+       * Web Search
+       * @description Let Claude search the web first, for news and the backdrop the screener cannot show. Every fact it brings back is listed with its source. Anthropic bills each search to your key, on top of the tokens.
+       * @default false
+       */
+      web_search?: boolean
+    }
+    /**
+     * PicksResponse
+     * @description A list of Claude's picks together with the data it was written from.
+     */
+    PicksResponse: {
+      /**
+       * Cached
+       * @description Whether these picks were made earlier, at ``generated_at``, and reused.
+       * @default false
+       */
+      cached?: boolean
+      context: components['schemas']['PicksContext']
+      /**
+       * Disclaimer
+       * @default Generated by an AI model (Claude), not a licensed financial adviser, from the screener's historical figures and what you told it. No pick is a promise: any of them can lose money, and shorter holding periods are the least predictable. Check prices and news before buying; the decision and its risk are yours.
+       */
+      disclaimer?: string
+      /**
+       * Generated At
+       * Format: date-time
+       */
+      generated_at: string
+      /**
+       * Id
+       * @description ID of the stored picks; null if they could not be saved.
+       */
+      id?: string | null
+      /**
+       * Model
+       * @description Claude model that made the picks.
+       */
+      model: string
+      report: components['schemas']['PicksReport']
+      /**
+       * Securities
+       * @description The screener's figures for each pick when the picks were made, in the picks' order; a pick the screener does not hold is left out.
+       */
+      securities?: components['schemas']['ScreenedStock'][]
+    }
+    /**
+     * PicksSummary
+     * @description A stored list of picks, without its reasons or data.
+     */
+    PicksSummary: {
+      /**
+       * Generated At
+       * Format: date-time
+       */
+      generated_at: string
+      /** Headline */
+      headline: string
+      /**
+       * Horizon
+       * @description The holding period in words.
+       */
+      horizon: string
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string
+      /** Model */
+      model: string
+      /** Risk Tolerance */
+      risk_tolerance?: string | null
+      /**
+       * Symbols
+       * @description The picks' tickers, best first.
+       */
+      symbols: string[]
+    }
+    /**
+     * PicksUniverse
+     * @description The screener the candidates were drawn from.
+     */
+    PicksUniverse: {
+      /**
+       * Has Etfs
+       * @description Whether the screener holds ETFs as well as stocks.
+       */
+      has_etfs: boolean
+      /**
+       * Own
+       * @description Whether it is the person's own, built by their nightly refresh.
+       */
+      own: boolean
+      /**
+       * Prices As Of
+       * @description Date of the latest closes.
+       */
+      prices_as_of?: string | null
+      /** Refreshed At */
+      refreshed_at?: string | null
+      /**
+       * Securities
+       * @description Securities in the screener.
+       */
+      securities: number
+    }
+    /**
      * PlanChoice
      * @description A plan the user can say their key is on.
      */
@@ -6511,6 +7209,12 @@ export interface components {
        * @default false
        */
       refresh?: boolean
+      /**
+       * Web Search
+       * @description Let Claude search the web first, for news on the holdings and the backdrop, which the price statistics cannot show. Every fact it brings back is listed with its source. Anthropic bills each search to your key, on top of the tokens.
+       * @default false
+       */
+      web_search?: boolean
     }
     /**
      * PortfolioAnalysisResponse
@@ -6685,6 +7389,8 @@ export interface components {
        * @description The accounts reviewed together as one portfolio, with their values; empty when one portfolio is reviewed. Weights are shares of all of them combined.
        */
       accounts?: components['schemas']['AccountValue'][]
+      /** @description The account's latest Claude's picks, with the screener's figures for each when it was picked, as candidates for new investments; null when the account has none. */
+      claude_picks?: components['schemas']['PicksForReview'] | null
       /**
        * Funds
        * @description Each ETF or mutual fund among the holdings, largest first, with its largest holdings, mix of stocks, bonds, and cash, sectors, costs, and the figures weighted from the companies it holds, where they could be found.
@@ -6730,6 +7436,8 @@ export interface components {
        * @description Value of the priced holdings, at latest prices.
        */
       total_value: number
+      /** @description What a web search made for this review found, each fact with its sources; null when the web was not searched. */
+      web_research?: components['schemas']['WebResearch'] | null
     }
     /**
      * PortfolioList
@@ -7427,6 +8135,61 @@ export interface components {
       key: string | null
     }
     /**
+     * ReviewedPick
+     * @description One of Claude's picks as a portfolio review is given it, with the screener's
+     *     figures for it when it was picked.
+     */
+    ReviewedPick: {
+      /**
+       * Conviction
+       * @description How firmly the evidence supports this pick for this period.
+       * @enum {string}
+       */
+      conviction: 'low' | 'medium' | 'high'
+      /**
+       * Entry
+       * @description How to buy it: the order type, and at once or in steps, in a sentence.
+       */
+      entry: string
+      /**
+       * Exit
+       * @description When to sell or look again: at the end of the period, and on what earlier sign, in a sentence.
+       */
+      exit: string
+      /**
+       * Kind
+       * @enum {string}
+       */
+      kind: 'stock' | 'etf'
+      /** @description The screener's figures for the pick at the time; null when the screener did not hold it. */
+      metrics?: components['schemas']['ScreenedStock'] | null
+      /**
+       * Name
+       * @description The company's or fund's name.
+       */
+      name: string
+      /**
+       * Risk
+       * @description The main risk, and what would prove the pick wrong.
+       */
+      risk: string
+      /**
+       * Symbol
+       * @description Ticker, as in the candidates table.
+       */
+      symbol: string
+      /**
+       * Thesis
+       * @description Why this pick, for this period and profile, citing the figures behind it.
+       */
+      thesis: string
+      /**
+       * Weight
+       * @description Its share of the money invested, as a decimal; weights sum to 1.
+       */
+      weight: number
+    }
+    /**
      * RiskAdjustedMomentum
      * @description Rank by the return from ``lookback`` to ``skip`` bars ago divided by the volatility
      *     of daily returns over the same bars, highest first: steady winners over erratic ones.
@@ -7571,6 +8334,34 @@ export interface components {
       type: 'rsi'
     }
     /**
+     * SavedState
+     * @description Everything the account has saved from the app, by name.
+     */
+    SavedState: {
+      /**
+       * Account
+       * @description The account these belong to, so a browser can tell them from another account's left in it.
+       */
+      account: string
+      /**
+       * Items
+       * @description Each saved value by its name.
+       */
+      items: {
+        [key: string]: string
+      }
+    }
+    /**
+     * SavedStateUpdate
+     * @description Values to save or, with null, to forget; names not given are left as they are.
+     */
+    SavedStateUpdate: {
+      /** Items */
+      items: {
+        [key: string]: string | null
+      }
+    }
+    /**
      * ScreenFilter
      * @description Keeps stocks whose ``field`` lies within the bounds; stocks without it are dropped.
      *
@@ -7647,6 +8438,11 @@ export interface components {
       sectors?: string[]
       sort?: components['schemas']['ScreenSort']
       /**
+       * Symbols
+       * @description Keep only these tickers, such as Claude's picks; every security when empty. Symbols the universe does not hold match nothing.
+       */
+      symbols?: string[]
+      /**
        * Universe
        * @default all
        * @enum {string}
@@ -7721,6 +8517,146 @@ export interface components {
         | 'beta_value'
         | 'beta_momentum'
         | 'factor_r_squared'
+    }
+    /**
+     * ScreenedStock
+     * @description A stock in the screened universe and its metrics.
+     */
+    ScreenedStock: {
+      /**
+       * Asset Type
+       * @description A company's stock, or an ETF.
+       * @default stock
+       * @enum {string}
+       */
+      asset_type?: 'stock' | 'etf'
+      /**
+       * Avg Dollar Volume
+       * @description Average close times volume over the last three months.
+       */
+      avg_dollar_volume: number
+      /**
+       * Beta Market
+       * @description Carhart Mkt-RF beta.
+       */
+      beta_market?: number | null
+      /**
+       * Beta Momentum
+       * @description Carhart Mom beta.
+       */
+      beta_momentum?: number | null
+      /**
+       * Beta Size
+       * @description Carhart SMB beta.
+       */
+      beta_size?: number | null
+      /**
+       * Beta Value
+       * @description Carhart HML beta.
+       */
+      beta_value?: number | null
+      /**
+       * Cik
+       * @description The SEC registrant behind a stock; null for an ETF.
+       */
+      cik?: number | null
+      /**
+       * Earnings Growth
+       * @description TTM net income, year on year; null after a loss.
+       */
+      earnings_growth?: number | null
+      /** Ev To Ebitda */
+      ev_to_ebitda?: number | null
+      /** Exchange */
+      exchange: string
+      /**
+       * Factor R Squared
+       * @description Share of return variance the four factors explain.
+       */
+      factor_r_squared?: number | null
+      /** Fcf Yield */
+      fcf_yield?: number | null
+      /**
+       * Fundamentals Period End
+       * @description End of the latest period the financial ratios use.
+       */
+      fundamentals_period_end?: string | null
+      /** Gross Margin */
+      gross_margin?: number | null
+      /**
+       * Industry
+       * @description Industry, as Financial Modeling Prep classifies it.
+       */
+      industry?: string | null
+      /**
+       * Market Cap
+       * @description Null for an ETF, which is not a company.
+       */
+      market_cap?: number | null
+      /**
+       * Market Cap Rank
+       * @description Rank by market cap in the universe, counting a company once: its share classes, such as GOOGL and GOOG, share its rank. Null for an ETF.
+       */
+      market_cap_rank?: number | null
+      /**
+       * Market Cap Source
+       * @enum {string}
+       */
+      market_cap_source: 'provider' | 'sec_shares'
+      /**
+       * Max Drawdown
+       * @description Largest peak-to-trough decline over a year.
+       */
+      max_drawdown?: number | null
+      /**
+       * Momentum 12 1
+       * @description Return from 12 months to 1 month ago, skipping the latest month as momentum strategies do.
+       */
+      momentum_12_1?: number | null
+      /** Name */
+      name: string
+      /** Net Margin */
+      net_margin?: number | null
+      /** Operating Margin */
+      operating_margin?: number | null
+      /** Pe Ratio */
+      pe_ratio?: number | null
+      /**
+       * Price
+       * @description Latest adjusted close.
+       */
+      price: number
+      /** Price To Sales */
+      price_to_sales?: number | null
+      /**
+       * Return 1M
+       * @description Return over 21 trading days.
+       */
+      return_1m?: number | null
+      /**
+       * Return 6M
+       * @description Return over 126 trading days.
+       */
+      return_6m?: number | null
+      /** Return On Equity */
+      return_on_equity?: number | null
+      /**
+       * Revenue Growth
+       * @description TTM revenue, year on year.
+       */
+      revenue_growth?: number | null
+      /**
+       * Sector
+       * @description Sector, as Financial Modeling Prep classifies it.
+       */
+      sector?: string | null
+      /** Symbol */
+      symbol: string
+      /**
+       * Volatility
+       * @description Annualized volatility of daily returns over a year.
+       */
+      volatility?: number | null
     }
     /**
      * SearchMatch
@@ -8679,6 +9615,73 @@ export interface components {
        * @default 20
        */
       window?: number
+    }
+    /**
+     * WebFinding
+     * @description One fact found on the web, and the pages that state it.
+     */
+    WebFinding: {
+      /**
+       * Id
+       * @description Its number, which a report cites as [id].
+       */
+      id: number
+      /**
+       * Sources
+       * @description The pages it came from.
+       */
+      sources: components['schemas']['WebSource'][]
+      /**
+       * Text
+       * @description The fact, as Claude stated it from the pages.
+       */
+      text: string
+    }
+    /**
+     * WebResearch
+     * @description What a web search made for one report found. Only statements the search tied to a
+     *     page are kept, so every finding has a source.
+     */
+    WebResearch: {
+      /** Findings */
+      findings?: components['schemas']['WebFinding'][]
+      /**
+       * Queries
+       * @description What was searched for.
+       */
+      queries?: string[]
+      /**
+       * Searched At
+       * Format: date-time
+       */
+      searched_at: string
+      /**
+       * Searches
+       * @description Searches made, each billed by Anthropic.
+       * @default 0
+       */
+      searches?: number
+    }
+    /**
+     * WebSource
+     * @description A web page a finding came from, as the search returned it.
+     */
+    WebSource: {
+      /**
+       * Cited Text
+       * @description The passage of the page the finding rests on, up to 150 characters.
+       */
+      cited_text?: string | null
+      /**
+       * Title
+       * @description The page's title.
+       */
+      title?: string | null
+      /**
+       * Url
+       * @description The page's address.
+       */
+      url: string
     }
   }
   responses: never
@@ -9740,10 +10743,306 @@ export interface operations {
       }
     }
   }
+  read_saved_state_api_v1_me_saved_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SavedState']
+        }
+      }
+    }
+  }
+  store_saved_state_api_v1_me_saved_put: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SavedStateUpdate']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SavedState']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_picks_list_api_v1_picks_get: {
+    parameters: {
+      query?: {
+        limit?: number
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PicksList']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  create_picks_api_v1_picks_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        'application/json': components['schemas']['PicksRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PicksResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  import_picks_api_v1_picks_import_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PicksImport']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PicksResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_latest_picks_api_v1_picks_latest_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PicksResponse']
+        }
+      }
+    }
+  }
+  export_picks_prompt_api_v1_picks_prompt_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        'application/json': components['schemas']['PicksRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PicksPromptExport']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  stream_picks_events_api_v1_picks_stream_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        'application/json': components['schemas']['PicksRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'text/event-stream': unknown
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_picks_api_v1_picks__picks_id__get: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        picks_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PicksResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  remove_picks_api_v1_picks__picks_id__delete: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        picks_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
   read_portfolio_review_api_v1_portfolio_analysis_get: {
     parameters: {
       query?: {
-        /** @description Which of your saved portfolios: 1 or 2. */
+        /** @description Which of your saved portfolios, from 1 to 5. */
         portfolio?: number
         /** @description The review of every portfolio together, not ``portfolio``. */
         combined?: boolean
@@ -10011,7 +11310,7 @@ export interface operations {
   read_holdings_api_v1_portfolio_holdings_get: {
     parameters: {
       query?: {
-        /** @description Which of your saved portfolios: 1 or 2. */
+        /** @description Which of your saved portfolios, from 1 to 5. */
         portfolio?: number
         /** @description Value the holdings at the latest prices, which asks your keys' providers; false for the saved symbols and shares alone, with no request. */
         priced?: boolean
@@ -10045,7 +11344,7 @@ export interface operations {
   store_holdings_api_v1_portfolio_holdings_put: {
     parameters: {
       query?: {
-        /** @description Which of your saved portfolios: 1 or 2. */
+        /** @description Which of your saved portfolios, from 1 to 5. */
         portfolio?: number
       }
       header?: never

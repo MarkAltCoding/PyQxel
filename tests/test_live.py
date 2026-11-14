@@ -358,6 +358,27 @@ def test_claude_analysis_with_filings(client: TestClient) -> None:
     assert body["context"]["factors"]["model"] == "carhart4"
 
 
+@pytest.mark.paid
+def test_claude_analysis_searches_the_web(client: TestClient) -> None:
+    """A report that searches the web brings back findings, each tied to a web page, and
+    is written from them.
+
+    Makes two billed requests and a few searches, roughly $0.10-$0.20.
+    """
+    response = client.post(
+        "/api/v1/stocks/AAPL/analysis",
+        json={"include_filings": False, "web_search": True},
+    )
+
+    assert response.status_code == 200, response.text
+    research = response.json()["context"]["web_research"]
+    assert research is not None and research["searches"] >= 1
+    assert research["findings"], "the search tied nothing to a page"
+    for finding in research["findings"]:
+        assert finding["sources"]
+        assert all(source["url"].startswith("http") for source in finding["sources"])
+
+
 @pytest.mark.asyncio
 async def test_quote_from_yfinance() -> None:
     """yfinance quotes a large cap with a price and a move since the previous close."""

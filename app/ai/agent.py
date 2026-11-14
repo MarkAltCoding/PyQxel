@@ -22,6 +22,7 @@ from pydantic import BaseModel, SecretStr, ValidationError
 
 from app.ai.prompts import SYSTEM_PROMPT, TASKS, render_filings
 from app.core.config import get_settings
+from app.core.text import listed
 from app.data import usage
 from app.models.research import (
     AnalysisContext,
@@ -150,6 +151,36 @@ def analysis_content(
         },
         {"type": "text", "text": request},
     ]
+
+
+def analysis_research_task(context: AnalysisContext, kind: AnalysisKind) -> str:
+    """What the web is searched for before a report on one security is written."""
+    ticker = context.ticker
+    name = f"{ticker.name} ({ticker.symbol})" if ticker.name else ticker.symbol
+    what = "an investment thesis" if kind == "thesis" else "a risk summary"
+    has = [
+        "daily prices and their statistics",
+        *(["financial statements and valuation multiples"] if context.fundamentals else []),
+        *(["its latest SEC annual and quarterly filings"] if context.filings else []),
+        *(["two weeks of news headlines"] if context.news else []),
+        *(
+            ["analysts' rating counts, earnings surprises, and insider trades"]
+            if context.signals
+            else []
+        ),
+        *(["a fund's holdings and costs"] if context.fund else []),
+    ]
+    sector = f" It is in {ticker.sector}." if ticker.sector else ""
+    return (
+        f"Today is {context.prices.end:%B %-d, %Y}. The report will be {what} for {name}."
+        f"{sector}\n\n"
+        f"The tool already has {listed(has)}. It lacks anything newer or outside these: the "
+        "latest results and guidance and how they were received, analysts' price targets and "
+        "estimate changes, deals, legal or regulatory action, management changes, product "
+        "and competitor news, and the outlook for its industry.\n\n"
+        f"Search for what bears most on {'owning' if kind == 'thesis' else 'the risks of owning'} "
+        "it over the next year."
+    )
 
 
 @contextmanager

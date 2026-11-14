@@ -21,6 +21,7 @@ import type {
 import { keepExport, keptExport } from '../lib/exportedPrompts'
 import { dateTime, percent, signedPercent, tone } from '../lib/format'
 import { useReportView } from '../lib/reportView'
+import { useWebSearchChoice } from '../lib/webSearch'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
 import { ExternalClaude } from './ExternalClaude'
 import { NoAnthropicKey } from './NoAnthropicKey'
@@ -44,6 +45,7 @@ import {
 import { Segmented } from './Segmented'
 import { Stat } from './Stat'
 import { InfoTip } from './InfoTip'
+import { AiProgressDetail, WebSearchOption, WebSources } from './WebSearch'
 
 const KINDS = [
   { value: 'thesis', label: 'Investment thesis' },
@@ -53,6 +55,8 @@ const KINDS = [
 interface Progress {
   thinking: string
   reportCharacters: number
+  /** What Claude has searched the web for so far. */
+  searches: string[]
 }
 
 /**
@@ -64,6 +68,7 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
   const [kind, setKind] = useState<AnalysisKind>('thesis')
   const [progress, setProgress] = useState<Progress | null>(null)
   const [streamError, setStreamError] = useState<unknown>(null)
+  const [webSearch, setWebSearch] = useWebSearchChoice()
   // Reports written in this visit, by kind; the panel is remounted for another symbol.
   const [writtenByKind, setWritten] = useState<Partial<Record<AnalysisKind, AnalysisResponse>>>({})
   const written = writtenByKind[kind] ?? null
@@ -91,11 +96,11 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
     const controller = new AbortController()
     abort.current = controller
     setStreamError(null)
-    setProgress({ thinking: '', reportCharacters: 0 })
+    setProgress({ thinking: '', reportCharacters: 0, searches: [] })
     try {
       const response = await streamAnalysis(
         symbol,
-        { kind, period: '1y', include_filings: true, refresh },
+        { kind, period: '1y', include_filings: true, web_search: webSearch, refresh },
         controller.signal,
       )
       for await (const event of readEvents(response)) {
@@ -107,6 +112,11 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
               (event.event === 'thinking'
                 ? { ...current, thinking: current.thinking + text }
                 : { ...current, reportCharacters: current.reportCharacters + text.length }),
+          )
+        } else if (event.event === 'search') {
+          const { query } = JSON.parse(event.data) as { query: string }
+          setProgress(
+            (current) => current && { ...current, searches: [...current.searches, query] },
           )
         } else if (event.event === 'result') {
           const result = JSON.parse(event.data) as AnalysisResponse
@@ -163,6 +173,7 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
         </div>
         <div className="filter-row">
           <Segmented label="Report kind" value={kind} options={KINDS} onChange={changeKind} />
+          <WebSearchOption checked={webSearch} onChange={setWebSearch} disabled={writing} />
           {writing ? (
             <button type="button" className="button" onClick={() => abort.current?.abort()}>
               Cancel
@@ -191,10 +202,18 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
             <span>
               {progress.reportCharacters > 0
                 ? `Writing the report (${progress.reportCharacters.toLocaleString()} characters)…`
-                : 'Gathering data and reasoning…'}
+                : webSearch
+                  ? 'Searching the web and reasoning…'
+                  : 'Gathering data and reasoning…'}
             </span>
           </div>
-          {progress.thinking && <div className="thinking">{progress.thinking}</div>}
+          <AiProgressDetail
+            progress={{
+              thinking: progress.thinking,
+              characters: progress.reportCharacters,
+              searches: progress.searches,
+            }}
+          />
         </div>
       ) : report ? (
         <Report response={report} />
@@ -228,6 +247,7 @@ function Report({ response }: { response: AnalysisResponse }) {
         ))}
       {risk &&
         (view === 'text' ? <TextRisk report={risk} /> : <Risk report={risk} prices={prices} />)}
+      <WebSources research={response.context.web_research} />
       <p className="disclaimer" style={{ marginTop: 16 }}>
         {response.model} · {dateTime(response.generated_at)}
         {response.cached && ' · reused, not billed again'} · {response.disclaimer}

@@ -22,7 +22,8 @@ colors.
 | --- | --- |
 | `StockPage` | `PriceChart`, `FactorChart`, `VolatilityChart`, `FundCard` (an ETF or mutual fund's costs, holdings, asset mix, bond figures, and the figures weighted from its companies, in place of a company's; a mutual fund has no news or metrics cards), `MetricsCard`, `SignalsCard`, `NewsCard` (paged by `Pager`), `AlternativeCard`, `AnalysisPanel` (AI report) |
 | `MarketsPage` | market news (paged), event calendar (`lib/calendar.ts`) |
-| `PortfolioPage` | `HoldingsTable` (2 portfolios, up to 40 holdings; sortable, two gain/loss windows and a 52-week range per holding from `lib/holdings.ts`, and an account total), late-listing cutoff, `SimulationCard` (`FanChart`), `CopulaCard` (`CopulaHeatmap`), `PortfolioReviewCard` (one portfolio, or both together) |
+| `PortfolioPage` | `HoldingsTable` (5 portfolios, up to 40 holdings, a holding at 0 shares dropped on Save; sortable, two gain/loss windows and a 52-week range per holding from `lib/holdings.ts`, and an account total), late-listing cutoff, `SimulationCard` (`FanChart`), `CopulaCard` (`CopulaHeatmap`), `PortfolioReviewCard` (one portfolio, or all together) |
+| `ScreenerPage`, `PicksPage` | Both under `/screener`, joined by `ScreenerTabs`. `PicksPage` (`/screener/picks`): the holding period in years, months, and weeks and the rest of the profile (`lib/picks.ts`), the latest or an earlier list of Claude's picks as `PickCard`s with the screener's figures, and "Show in the screener", which opens `ScreenerPage` with `?picks=` on its `picks` universe choice (a screen with `symbols`) |
 | `BacktestPage` | Single ticker (or two) (`mode` absent; a stock, ETF or fund): built-in rules or custom code, with "Also trade" for several symbols. Across tickers: `CrossSectionalBacktest` (rank by a signal), or the same component with `across` (code that trades every ticker it names, `lib/tickers.ts`) |
 | `ScreenerPage`, `SettingsPage`, `SignInPage`, `PrivacyPage` | Settings shows each key's plan usage (`KeyUsage`, `lib/usage.ts`; plan choices kept in the browser) and which pages ask before loading. Its `NightlyRefreshCard` opts in to the nightly refresh of the user's own screener (`lib/nightlyRefresh.ts`), with the keys it may use and each price-history key's own nightly limit (`PRICE_LIMIT_CHOICES`), what it rebuilds (a set ticks and locks the sets it holds, `SET_HOLDS`) (any of every US stock, every US ETF, Nasdaq, the S&P 500, the Nasdaq-100, and international stocks, plus tickers added with `SearchBox`), and what one refresh spends, and re-sends the keys after one changes. `BillingCard` pays for the refresh at cost (`lib/billing.ts`): credit bought on Stripe's Checkout, a weekly, monthly, or yearly usage subscription with what each would lose to fees, and the history; nothing shows on a server that does not bill, and the native app links to the website or, in an App Store build, offers no way to pay (`paymentPlace`). `SignInPage` also signs in with an email and password (`auth/PasswordSignIn`, in the page itself, the native app too), and `SetPasswordPage` (`/signin/password#token=…`) is where an emailed link chooses the password. In the native app, `SignInPage` signs in with GitHub or Google through the system browser (`auth/nativeSignIn.ts`); `auth/NativeSignInLinks` takes the `pyqxel://signin` link back to it |
 
@@ -35,16 +36,18 @@ without asking. Backtests that a plan cut short come back as 409 or `short_histo
 
 Each card has an id, so a link can end in `#id` (`lib/scrollToHash.ts` scrolls to it,
 even through signing in): Stock `price`, `factors`, `volatility`, `fund`, `news`, `signals`,
-`metrics`, `alternative-data`, `ai-report`; Portfolio `holdings`, `late-listings`,
+`metrics`, `alternative-data`, `ai-report`; Claude's picks `picks-form`, `picks`; Portfolio `holdings`, `late-listings`,
 `simulation`, `comovement`, `ai-review`; Markets `calendar`, `market-news`; Backtest
 `backtest-form` (or `ranking-form`), `strategy-code`, `result`, `performance`,
 `allocation`, `stocks`, `saved-backtests`; Screener `screen`, `matches`; Settings
 `key-coverage`, `data-coverage`, `provider-keys`, `plan-usage`, `nightly-refresh`, `billing`, `ai-limits`,
 `delete-account`. Give a new card one too (`ChartCard` takes `id`).
 
-AI reports (`AnalysisPanel`, `PortfolioReviewCard`) share `components/ReportParts.tsx`: a
-verdict with meters, tabs, and a Visual / Full text switch remembered by
-`lib/reportView.ts`.
+AI reports (`AnalysisPanel`, `PortfolioReviewCard`, `PicksPage`) share
+`components/ReportParts.tsx`: a verdict with meters, tabs, and a Visual / Full text switch
+remembered by `lib/reportView.ts`. Each offers `WebSearchOption` (remembered by
+`lib/webSearch.ts`), shows searches as they happen with `AiProgressDetail`, and lists what
+the web search found, with sources, in `WebSources`.
 
 ## Custom strategies in the browser
 
@@ -89,7 +92,10 @@ Web Worker that goes off the network once loaded (`runners/lockdown.ts`).
   desktop app and installs it (`lib/appUpdates.ts`); it shows nothing in a browser, on a
   phone, or until a newer release is published.
 - **Browser storage** only through `lib/storage.ts` (`readStored`/`writeStored`, which
-  never throw), under `pyqxel.*` keys. In the native app, `pyqxel.apiKey` and
+  never throw), under `pyqxel.*` keys. Every such key follows the account
+  (`lib/savedState.ts`: loaded by `RequireKey` before any page renders, each write sent to
+  `/me/saved` a moment later, removed from the browser on signing out) unless it is in
+  `LOCAL_ONLY`: add a key there if it is a secret, a sign-in, or truly this device's own. In the native app, `pyqxel.apiKey` and
   `pyqxel.providerKeys` go to secure storage instead (`lib/secureStorage.ts`, loaded before
   the first render; the Keychain on iOS, a private file on macOS, `src-tauri/src/secrets.rs`),
   whose header holds the app's threat model. `AuthContext` renews a sign-in key in use.

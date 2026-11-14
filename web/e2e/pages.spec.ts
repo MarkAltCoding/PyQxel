@@ -7,6 +7,7 @@ const PAGES = [
   { path: '/portfolio', heading: 'Portfolio' },
   { path: '/backtest', heading: 'Backtest' },
   { path: '/screener', heading: 'Screener' },
+  { path: '/screener/picks', heading: 'Claude’s picks' },
   { path: '/settings', heading: 'Settings' },
   { path: '/privacy', heading: 'Privacy policy' },
   { path: '/terms', heading: 'Terms of service' },

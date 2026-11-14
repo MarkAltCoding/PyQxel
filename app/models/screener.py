@@ -239,6 +239,12 @@ class ScreenRequest(BaseModel):
         description="Keep only stocks, only ETFs, or both when empty. A screen on a "
         "company's figures, such as P/E, keeps only stocks, since ETFs have none.",
     )
+    symbols: list[str] = Field(
+        default_factory=list,
+        max_length=100,
+        description="Keep only these tickers, such as Claude's picks; every security when "
+        "empty. Symbols the universe does not hold match nothing.",
+    )
     filters: list[ScreenFilter] = Field(default_factory=list, max_length=len(get_args(ScreenField)))
     sort: ScreenSort = Field(default_factory=ScreenSort)
     limit: int = Field(

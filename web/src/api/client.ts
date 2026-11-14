@@ -41,6 +41,8 @@ export interface RequestOptions {
   signal?: AbortSignal
   /** Overrides the configured key, e.g. to check a key before keeping it. */
   key?: string
+  /** Lets the request finish after the page is closed or left, as a last save does. */
+  keepalive?: boolean
 }
 
 export function buildUrl(path: string, query?: Query): string {
@@ -86,6 +88,7 @@ export async function send(path: string, options: RequestOptions = {}): Promise<
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
     signal: options.signal,
+    keepalive: options.keepalive,
   })
   if (!response.ok) {
     if (response.status === 401 && options.key === undefined) onUnauthorized?.()

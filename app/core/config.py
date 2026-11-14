@@ -281,6 +281,13 @@ class Settings(BaseSettings):
     nightly_job_memory_gib: float = Field(
         default=1.0, gt=0, description="The memory the nightly job runs with, in GiB."
     )
+    web_search_max_uses: int = Field(
+        default=6,
+        ge=1,
+        le=20,
+        description="Most web searches Claude may make for one report when the user asks "
+        "for the web to be searched; Anthropic bills each search to the user's key.",
+    )
     analysis_cache_ttl_seconds: float = Field(
         default=86_400.0,
         ge=0,

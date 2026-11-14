@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { readAiStream, type AiProgress } from '../api/aiStream'
+import { NO_PROGRESS, readAiStream, type AiProgress } from '../api/aiStream'
 import {
   exportPortfolioPrompt,
   getPortfolioReview,
@@ -16,10 +16,11 @@ import type {
   RebalancePlan,
   TargetPosition,
 } from '../api/types'
-import { dateTime, money, number, percent } from '../lib/format'
+import { dateTime, listed, money, number, percent } from '../lib/format'
 import { keepExport, keptExport } from '../lib/exportedPrompts'
 import { readStored, writeStored } from '../lib/storage'
 import { useReportView } from '../lib/reportView'
+import { useWebSearchChoice } from '../lib/webSearch'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
 import { ExternalClaude } from './ExternalClaude'
 import { NoAnthropicKey } from './NoAnthropicKey'
@@ -45,6 +46,8 @@ import { paragraphs } from '../lib/reportText'
 import { Segmented } from './Segmented'
 import { Stat } from './Stat'
 import { InfoTip } from './InfoTip'
+import { AiProgressDetail, WebSearchOption, WebSources } from './WebSearch'
+import { Link } from 'react-router'
 
 type Period = NonNullable<PortfolioAnalysisRequest['period']>
 
@@ -103,13 +106,57 @@ type Scope = 'one' | 'both'
 
 const SCOPES: { value: Scope; label: string }[] = [
   { value: 'one', label: 'This portfolio' },
-  { value: 'both', label: 'Both together' },
+  { value: 'both', label: 'All together' },
 ]
 
 const SCOPE_KEY = 'pyqxel.reviewScope'
 
+/** What the person last told the review about themselves, kept with their account so it
+ * need not be typed again. */
+const PROFILE_KEY = 'pyqxel.reviewProfile'
+
+interface KeptProfile {
+  months: number
+  risk: Risk
+  horizon: string
+  horizonUnit: HorizonUnit
+  cash: string
+  notes: string
+}
+
+const NO_PROFILE: KeptProfile = {
+  months: 12,
+  risk: 'unset',
+  horizon: '',
+  horizonUnit: 'years',
+  cash: '',
+  notes: '',
+}
+
+function keptProfile(): KeptProfile {
+  try {
+    const kept = JSON.parse(readStored(PROFILE_KEY) ?? 'null') as Partial<KeptProfile> | null
+    if (!kept || typeof kept !== 'object') return NO_PROFILE
+    return {
+      months:
+        Number.isInteger(kept.months) &&
+        kept.months! >= MIN_HISTORY_MONTHS &&
+        kept.months! <= MAX_HISTORY_MONTHS
+          ? kept.months!
+          : NO_PROFILE.months,
+      risk: RISKS.some((risk) => risk.value === kept.risk) ? kept.risk! : NO_PROFILE.risk,
+      horizon: typeof kept.horizon === 'string' ? kept.horizon : '',
+      horizonUnit: kept.horizonUnit === 'months' ? 'months' : 'years',
+      cash: typeof kept.cash === 'string' ? kept.cash : '',
+      notes: typeof kept.notes === 'string' ? kept.notes : '',
+    }
+  } catch {
+    return NO_PROFILE
+  }
+}
+
 /**
- * Claude's review of the saved portfolio, or of both together: the latest one stored, and
+ * Claude's review of the saved portfolio, or of every one together: the latest one stored, and
  * writing a new one, billed to the account's own Anthropic key, so one is only written
  * when asked for.
  */
@@ -122,7 +169,7 @@ export function PortfolioReviewCard({
   /** Which saved portfolio to review. */
   portfolio: number
   hasHoldings: boolean
-  /** Whether every portfolio has saved holdings, so they can be reviewed together. */
+  /** Whether two or more portfolios have saved holdings, so they can be reviewed together. */
   canCombine?: boolean
   stale: boolean
 }) {
@@ -131,16 +178,24 @@ export function PortfolioReviewCard({
     readStored(SCOPE_KEY) === 'both' ? 'both' : 'one',
   )
   const combined = canCombine && scope === 'both'
-  // Reviews are stored per portfolio, and the review of both together apart from either.
+  // Reviews are stored per portfolio, and the review of all together apart from any one.
   const reviewKey = ['portfolio-review', combined ? 'all' : portfolio]
   const exportKey = combined ? 'portfolio-all' : `portfolio-${portfolio}`
-  const [months, setMonths] = useState(12)
-  const [risk, setRisk] = useState<Risk>('unset')
-  const [horizon, setHorizon] = useState('')
-  const [horizonUnit, setHorizonUnit] = useState<HorizonUnit>('years')
+  const [kept, setKept] = useState(keptProfile)
+  const { months, risk, horizon, horizonUnit, cash, notes } = kept
+  const keep = (next: Partial<KeptProfile>) => {
+    const merged = { ...kept, ...next }
+    setKept(merged)
+    writeStored(PROFILE_KEY, JSON.stringify(merged))
+  }
+  const setMonths = (value: number) => keep({ months: value })
+  const setRisk = (value: Risk) => keep({ risk: value })
+  const setHorizon = (value: string) => keep({ horizon: value })
+  const setHorizonUnit = (value: HorizonUnit) => keep({ horizonUnit: value })
+  const setCash = (value: string) => keep({ cash: value })
+  const setNotes = (value: string) => keep({ notes: value })
   const idBase = useId()
-  const [cash, setCash] = useState('')
-  const [notes, setNotes] = useState('')
+  const [webSearch, setWebSearch] = useWebSearchChoice()
   // Most brokers trade fractions of a share now; the choice is remembered in this browser.
   const [fractional, setFractional] = useState(() => readStored(FRACTIONAL_KEY) !== 'off')
   const [roundShares, setRoundShares] = useState(() => readStored(ROUND_KEY) !== 'off')
@@ -188,7 +243,7 @@ export function PortfolioReviewCard({
     const controller = new AbortController()
     abort.current = controller
     setError(null)
-    setProgress({ thinking: '', characters: 0 })
+    setProgress(NO_PROGRESS)
     try {
       const response = await streamPortfolioReview(
         {
@@ -196,6 +251,7 @@ export function PortfolioReviewCard({
           combined,
           ...historyRequest(months),
           profile: profile(),
+          web_search: webSearch,
           refresh:
             review !== null && (review.history_months ?? PERIOD_MONTHS[review.period]) === months,
         },
@@ -222,8 +278,9 @@ export function PortfolioReviewCard({
             <InfoTip topic="portfolioReview" />
           </div>
           <div className="subtitle">
-            Written by Claude from your saved holdings: where the risk comes from, how well the
-            holdings diversify one another, and a specific plan with the orders to carry it out.
+            Written by Claude from your saved holdings and your latest{' '}
+            <Link to="/screener/picks">Claude’s picks</Link>: where the risk comes from, how well
+            the holdings diversify one another, and a specific plan with the orders to carry it out.
             Billed to your Anthropic key.
           </div>
         </div>
@@ -274,13 +331,16 @@ export function PortfolioReviewCard({
               {review
                 ? 'Write a new review'
                 : combined
-                  ? 'Review both together'
+                  ? 'Review all together'
                   : 'Review my portfolio'}
             </button>
           )}
         </div>
       </div>
 
+      <div style={{ marginBottom: 4 }}>
+        <WebSearchOption checked={webSearch} onChange={setWebSearch} disabled={writing} />
+      </div>
       <details style={{ marginBottom: 12 }}>
         <summary>Tailor the plan to your goals (optional)</summary>
         <div className="filter-row" style={{ marginTop: 10, alignItems: 'flex-end' }}>
@@ -375,10 +435,12 @@ export function PortfolioReviewCard({
             <span>
               {progress.characters > 0
                 ? `Writing the review (${progress.characters.toLocaleString()} characters)…`
-                : 'Measuring the portfolio and reasoning…'}
+                : webSearch
+                  ? 'Measuring the portfolio, searching the web, and reasoning…'
+                  : 'Measuring the portfolio and reasoning…'}
             </span>
           </div>
-          {progress.thinking && <div className="thinking">{progress.thinking}</div>}
+          <AiProgressDetail progress={progress} />
         </div>
       ) : review ? (
         <Review response={review} />
@@ -414,9 +476,12 @@ function Review({ response }: { response: PortfolioAnalysisResponse }) {
     <article className="report">
       <ReportViewToggle view={view} onChange={setView} />
       {view === 'text' ? <TextReview response={response} /> : <VisualReview response={response} />}
+      <WebSources research={response.context.web_research} />
       <p className="disclaimer" style={{ marginTop: 16 }}>
         {(response.context.accounts?.length ?? 0) > 1 &&
-          `Covers ${response.context.accounts!.map((a) => `${a.account} (${money(a.value, 'USD', 0)})`).join(' and ')} together · `}
+          `Covers ${listed(response.context.accounts!.map((a) => `${a.account} (${money(a.value, 'USD', 0)})`))} together · `}
+        {response.context.claude_picks &&
+          `Given your Claude’s picks of ${dateTime(response.context.claude_picks.generated_at)} for ${response.context.claude_picks.horizon} · `}
         {response.model} · {dateTime(response.generated_at)} · {historyLabel(response)} of price
         history
         {response.cached && ' · reused, not billed again'} · {response.disclaimer}

@@ -12,11 +12,11 @@ from app.models.stock import SYMBOL_PATTERN
 MAX_SYMBOLS: int = 40
 """Most symbols one request may name; each is a separate price download."""
 
-MAX_PORTFOLIOS: int = 2
+MAX_PORTFOLIOS: int = 5
 """Portfolios an account may save, numbered from 1."""
 
 PortfolioNumber = Annotated[int, Field(ge=1, le=MAX_PORTFOLIOS)]
-"""Which of the account's saved portfolios: 1 or 2."""
+"""Which of the account's saved portfolios, from 1 to :data:`MAX_PORTFOLIOS`."""
 
 MAX_PORTFOLIO_NAME: int = 40
 """Longest name a saved portfolio may be given."""

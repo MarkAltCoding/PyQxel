@@ -39,6 +39,7 @@ def _slot_key(user_id: str, symbol: str, request: AnalysisRequest) -> tuple[obje
         request.kind,
         request.period,
         request.include_filings,
+        request.web_search,
         settings.anthropic_model,
         settings.anthropic_effort,
     )
@@ -49,10 +50,11 @@ async def cached_analysis(
 ) -> AnalysisResponse | None:
     """Return ``user_id``'s recent report for the same request, or ``None`` if there is none.
 
-    Requests with ``refresh`` set, and settings with a zero TTL, never reuse a report.
+    Requests with ``refresh`` set or that search the web, whose point is what is new, and
+    settings with a zero TTL, never reuse a report.
     """
     settings = get_settings()
-    if request.refresh or settings.analysis_cache_ttl_seconds == 0:
+    if request.refresh or request.web_search or settings.analysis_cache_ttl_seconds == 0:
         return None
     since = datetime.now(timezone.utc) - timedelta(seconds=settings.analysis_cache_ttl_seconds)
     try:

@@ -13,9 +13,11 @@ from app.api.v1.endpoints import (
     markets,
     metrics,
     news,
+    picks,
     portfolio,
     quotes,
     research,
+    saved,
     screener,
     search,
     signals,
@@ -26,6 +28,7 @@ from app.api.v1.endpoints import (
 api_router = APIRouter()
 api_router.include_router(account.router, prefix="/me", tags=["account"])
 api_router.include_router(billing.router, prefix="/me/billing", tags=["billing"])
+api_router.include_router(saved.router, prefix="/me/saved", tags=["account"])
 api_router.include_router(stocks.router, prefix="/stocks", tags=["stocks"])
 api_router.include_router(research.router, prefix="/stocks", tags=["research"])
 api_router.include_router(research.results_router, prefix="/analyses", tags=["research"])
@@ -40,6 +43,7 @@ api_router.include_router(markets.router, prefix="/markets", tags=["markets"])
 api_router.include_router(backtest.results_router, prefix="/backtests", tags=["backtest"])
 api_router.include_router(assistant.router, prefix="/backtests/assistant", tags=["backtest"])
 api_router.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
+api_router.include_router(picks.router, prefix="/picks", tags=["picks"])
 api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(screener.router, prefix="/screener", tags=["screener"])
 api_router.include_router(quotes.router, prefix="/ws", tags=["quotes"])

@@ -299,6 +299,53 @@ class PortfolioAnalysisRecord(Base):
     result: Mapped[dict[str, Any]] = mapped_column(JSON)
 
 
+class PicksRecord(Base):
+    """One list of Claude's picks made for an account.
+
+    ``request_key`` fingerprints the profile and the screener data they were made from, so
+    picks are reused only while both are unchanged. The full response is kept as JSON in
+    ``result``, and the picks' tickers in ``symbols``, best first, for lists.
+    """
+
+    __tablename__ = "claude_picks"
+    __table_args__ = (Index("ix_claude_picks_user_created_at", "user_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    request_key: Mapped[str] = mapped_column(String(64))
+    requested_model: Mapped[str] = mapped_column(String(64))
+    effort: Mapped[str] = mapped_column(String(16))
+    model: Mapped[str] = mapped_column(String(64))
+    horizon: Mapped[str] = mapped_column(String(80))
+    """The holding period in words."""
+    risk_tolerance: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    headline: Mapped[str] = mapped_column(Text)
+    symbols: Mapped[list[str]] = mapped_column(JSON)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+
+class SavedStateRecord(Base):
+    """One thing an account entered or chose in the app that is not a secret, kept so it
+    follows the account to every browser and device and through every update: a strategy
+    draft, a screen's filters, the answers given for a review, a display choice.
+
+    The app names each by ``key`` and stores its value as text; the server does not read
+    it. Provider keys and sign-in keys are never stored here.
+    """
+
+    __tablename__ = "saved_state"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class AssistantRequestRecord(Base):
     """One answer the strategy coding assistant wrote, kept only to count against the
     account's AI limits; the conversation itself is never stored."""

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
-import { readAiStream, type AiProgress } from '../api/aiStream'
+import { NO_PROGRESS, readAiStream, type AiProgress } from '../api/aiStream'
 import { exportAssistantPrompt, importAssistantReply, streamAssistant } from '../api/endpoints'
 import type {
   AssistantReply,
@@ -130,7 +130,7 @@ export function StrategyAssistant({
     setTurns((current) => [...current, { role: 'user', text }])
     setMessage('')
     setError(null)
-    setProgress({ thinking: '', characters: 0 })
+    setProgress(NO_PROGRESS)
     try {
       const response = await streamAssistant(request, controller.signal)
       const { reply } = await readAiStream<AssistantResponse>(response, setProgress)

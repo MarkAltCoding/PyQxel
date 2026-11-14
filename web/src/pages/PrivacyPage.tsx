@@ -64,9 +64,16 @@ export function PrivacyPage() {
           <ul>
             <li>
               What you save: your portfolio holdings, backtests (with the code of custom
-              strategies), simulations, AI research reports, and AI reviews of your portfolio,
-              including answers you paste from Claude outside the app. Only your account can see
-              them.
+              strategies), simulations, AI research reports, AI reviews of your portfolio, and
+              Claude’s picks, including answers you paste from Claude outside the app, and what
+              those reports found on the web when you let Claude search it. Only your account can
+              see them.
+            </li>
+            <li>
+              What you enter and choose in the app, so it is there on every device and after every
+              update: the strategy code you are writing, your screens, the goals you give for a
+              review or for Claude’s picks, and choices such as your theme and which pages load
+              without asking. Your keys are never among them.
             </li>
             <li>
               Counts of your recent AI requests, to apply the limits you set. Your conversations
@@ -142,8 +149,10 @@ export function PrivacyPage() {
             <li>
               When you use an AI feature, what it needs is sent to Anthropic with your own key,
               under Anthropic’s terms: a company’s data for a research report, your holdings, their
-              statistics, and the goals you enter for a portfolio review, and your strategy code,
-              its last run’s output, and your questions for the coding assistant.
+              statistics, and the goals you enter for a portfolio review, the screener’s figures and
+              the goals you enter for Claude’s picks, and your strategy code, its last run’s output,
+              and your questions for the coding assistant. When you let Claude search the web,
+              Anthropic runs the searches, on queries Claude writes from that same data.
             </li>
           </ul>
           <p>
@@ -154,10 +163,10 @@ export function PrivacyPage() {
 
         <Section title="In your browser">
           <p>
-            Your browser keeps your API key if you choose to stay signed in, your theme, the
-            strategy code you are writing, which plan each of your keys is on, and which pages you
-            chose to load without asking first. That stays on your device; signing out removes the
-            key.
+            Your browser keeps your API key if you choose to stay signed in, your provider keys, and
+            a copy of what you enter and choose in the app, which is also saved with your account as
+            described above. Signing out removes all of it from the browser; signing in again brings
+            back what your account holds.
           </p>
         </Section>
 

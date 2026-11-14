@@ -47,6 +47,12 @@ import type {
   PortfolioList,
   MarketSignals,
   NewsResponse,
+  PicksImport,
+  PicksList,
+  PicksPromptExport,
+  PicksRequest,
+  PicksResponse,
+  SavedState,
   PortfolioAnalysisRequest,
   PortfolioAnalysisResponse,
   PortfolioPromptExport,
@@ -275,3 +281,29 @@ export const fitCopula = (symbols: string[], period: string, maxHistoryCut: numb
 export const screen = (body: ScreenRequest) =>
   api<ScreenResponse>(`${V1}/screener`, { method: 'POST', body })
 export const getUniverseStatus = () => api<UniverseStatus>(`${V1}/screener/status`)
+
+/** The account's newest Claude's picks, or null when it has none yet. */
+export const getLatestPicks = async (): Promise<PicksResponse | null> => {
+  try {
+    return await api<PicksResponse>(`${V1}/picks/latest`)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null
+    throw error
+  }
+}
+/** The account's stored lists of picks, newest first, without their reasons. */
+export const listPicks = () => api<PicksList>(`${V1}/picks`, { query: { limit: 20 } })
+export const getPicks = (id: string) => api<PicksResponse>(`${V1}/picks/${id}`)
+export const deletePicks = (id: string) => api<void>(`${V1}/picks/${id}`, { method: 'DELETE' })
+export const streamPicks = (body: PicksRequest, signal: AbortSignal) =>
+  send(`${V1}/picks/stream`, { method: 'POST', body, signal })
+export const exportPicksPrompt = (body: PicksRequest) =>
+  api<PicksPromptExport>(`${V1}/picks/prompt`, { method: 'POST', body })
+export const importPicks = (body: PicksImport) =>
+  api<PicksResponse>(`${V1}/picks/import`, { method: 'POST', body })
+
+/** Everything the app has saved to the account: drafts, screens, answers, and choices. */
+export const getSavedState = () => api<SavedState>(`${V1}/me/saved`)
+/** Saves each named value to the account, and forgets those given as null. */
+export const putSavedState = (items: Record<string, string | null>, keepalive = false) =>
+  api<SavedState>(`${V1}/me/saved`, { method: 'PUT', body: { items }, keepalive })

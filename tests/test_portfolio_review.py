@@ -644,3 +644,60 @@ def test_a_holding_with_little_history_is_still_reviewed(
     assert context.portfolio.covered_weight == pytest.approx(4000 / 6000)
     assert context.left_out == ["NEW"]
     assert context.notice is not None and "still reviewed" in context.notice
+
+
+def test_every_saved_portfolio_is_reviewed_together(market: list[PortfolioContext]) -> None:
+    """A combined review covers each of the five portfolios that has holdings."""
+    for number, holding in ((1, "AAPL"), (3, "MSFT"), (5, "XOM")):
+        client.put(
+            "/api/v1/portfolio/holdings",
+            params={"portfolio": number},
+            json={"holdings": [{"symbol": holding, "shares": 10}]},
+        )
+
+    response = client.post("/api/v1/portfolio/analysis", json={"combined": True})
+
+    assert response.status_code == 200, response.text
+    assert [a.account for a in market[0].accounts] == ["Portfolio 1", "Portfolio 3", "Portfolio 5"]
+    assert {h.symbol for h in market[0].holdings} == {"AAPL", "MSFT", "XOM"}
+
+
+def test_a_review_that_searches_the_web_is_written_from_its_findings(
+    market: list[PortfolioContext], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.ai import web
+    from app.models.web import WebSearchQuery
+    from tests.test_web_research import RESEARCH
+
+    tasks: list[str] = []
+
+    async def found(task: str, *, client: Any) -> AsyncIterator[object]:
+        tasks.append(task)
+        yield WebSearchQuery(query="apple news")
+        yield RESEARCH
+
+    async def stream(context: PortfolioContext, *, client: Any) -> AsyncIterator[object]:
+        market.append(context)
+        yield Written(output=REVIEW, model="claude-opus-5-5")
+
+    monkeypatch.setattr(web, "stream_web_research", found)
+    monkeypatch.setattr(portfolio, "stream_portfolio_review", stream)
+    _save({"AAPL": 10, "XOM": 20})
+
+    plain = client.post("/api/v1/portfolio/analysis", json={}).json()
+    searched = client.post("/api/v1/portfolio/analysis", json={"web_search": True}).json()
+    events = _sse_events(
+        client.post(
+            "/api/v1/portfolio/analysis/stream", json={"web_search": True, "refresh": True}
+        ).text
+    )
+
+    assert plain["context"]["web_research"] is None
+    assert searched["cached"] is False, "a review with the web is not the one without it"
+    assert searched["context"]["web_research"]["findings"][0]["sources"][0]["url"] == (
+        "https://www.reuters.com/a"
+    )
+    assert market[1].web_research == RESEARCH
+    assert "AAPL" in tasks[0] and "XOM" in tasks[0]
+    assert [name for name, _ in events] == ["context", "search", "result"]
+    assert market[2].web_research == RESEARCH

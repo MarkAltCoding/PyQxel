@@ -36,6 +36,8 @@ from app.db.tables import (
     HoldingRecord,
     IdentityRecord,
     NightlyRefreshRecord,
+    PicksRecord,
+    SavedStateRecord,
     StoredHistoryRecord,
     PortfolioAnalysisRecord,
     PortfolioRecord,
@@ -500,7 +502,8 @@ a new one cannot be forgotten."""
 
 def _give_data(user: User) -> None:
     """Give ``user`` a sign-in identity, a sign-in waiting for the app, a holding, a
-    portfolio review, an assistant answer, and a nightly refresh with a run and a stock,
+    portfolio review, a list of Claude's picks, a saved value, an assistant answer, and a
+    nightly refresh with a run and a stock,
     beside the rows tests make."""
 
     async def add() -> None:
@@ -538,6 +541,24 @@ def _give_data(user: User) -> None:
                 AssistantRequestRecord(
                     id=f"answer-{user.id}", user_id=user.id, created_at=now, model="m"
                 )
+            )
+            session.add(
+                PicksRecord(
+                    id=f"picks-{user.id}",
+                    user_id=user.id,
+                    created_at=now,
+                    request_key="k",
+                    requested_model="m",
+                    effort="medium",
+                    model="m",
+                    horizon="1 year",
+                    headline="h",
+                    symbols=["SPY"],
+                    result={},
+                )
+            )
+            session.add(
+                SavedStateRecord(user_id=user.id, key="pyqxel.screen", value="{}", updated_at=now)
             )
             session.add(
                 NightlyRefreshRecord(
@@ -667,6 +688,8 @@ def test_deleting_an_account_removes_everything_it_holds(
         "backtests": 1,
         "analyses": 0,
         "portfolio_analyses": 1,
+        "claude_picks": 1,
+        "saved_state": 1,
         "assistant_requests": 1,
         "simulations": 0,
         "nightly_refreshes": 1,

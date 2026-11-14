@@ -8,6 +8,7 @@ was written from.
 from pydantic import BaseModel, Field
 
 from app.ai.external import MAX_RESPONSE_LENGTH
+from app.models.picks import PicksContext, PicksRequest
 from app.models.portfolio_analysis import PortfolioAnalysisRequest, PortfolioContext
 from app.models.research import AnalysisContext, AnalysisRequest
 
@@ -31,6 +32,12 @@ class PortfolioPromptExport(PromptExport):
     context: PortfolioContext
 
 
+class PicksPromptExport(PromptExport):
+    """A Claude's picks prompt and the data it holds; send ``context`` back with the answer."""
+
+    context: PicksContext
+
+
 class AnalysisImport(BaseModel):
     """An answer Claude wrote outside the app to an exported stock analysis prompt."""
 
@@ -47,6 +54,16 @@ class PortfolioReviewImport(BaseModel):
         description="The options the prompt was exported with.",
     )
     context: PortfolioContext = Field(description="The context the export returned.")
+    response: str = Field(min_length=1, max_length=MAX_RESPONSE_LENGTH)
+
+
+class PicksImport(BaseModel):
+    """An answer Claude wrote outside the app to an exported Claude's picks prompt."""
+
+    request: PicksRequest = Field(
+        default_factory=PicksRequest, description="The options the prompt was exported with."
+    )
+    context: PicksContext = Field(description="The context the export returned.")
     response: str = Field(min_length=1, max_length=MAX_RESPONSE_LENGTH)
 
 

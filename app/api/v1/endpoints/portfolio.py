@@ -21,8 +21,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.agent import AIRateLimitError, AnalysisError, Written, anthropic_client
 from app.ai.external import PASTED_MODEL, ExternalResponseError, parse_response, render_prompt
-from app.ai.portfolio import review_messages, stream_portfolio_review, write_portfolio_review
+from app.ai.portfolio import (
+    review_messages,
+    review_research_task,
+    stream_portfolio_review,
+    write_portfolio_review,
+)
 from app.ai.prompts import PORTFOLIO_SYSTEM_PROMPT
+from app.ai.web import add_web_research, with_web_research
 from app.api.auth import CurrentUser
 from app.api.v1.endpoints.research import ai_error, anthropic_key, check_ai_limits
 from app.core.config import get_settings
@@ -39,6 +45,7 @@ from app.data.fetcher import (
     fetch_ticker_info,
 )
 from app.data.panel import MAX_CONCURRENT_DOWNLOADS, fetch_close_panel
+from app.db.picks import latest_picks
 from app.db.holdings import get_holdings, get_portfolio_name, list_portfolios, replace_holdings
 from app.db.portfolio_analyses import (
     find_recent_portfolio_analysis,
@@ -85,6 +92,7 @@ from app.models.backtest import (
 )
 from app.models.external import PortfolioPromptExport, PortfolioReviewImport
 from app.models.factors import RISK_FREE
+from app.models.picks import PicksForReview, PicksResponse, ReviewedPick
 from app.models.portfolio_analysis import (
     AccountShares,
     AccountValue,
@@ -101,6 +109,7 @@ from app.models.portfolio_analysis import (
     TargetPosition,
 )
 from app.models.research import AnalysisDelta, AnalysisStreamError
+from app.models.web import WebSearchQuery
 from app.models.simulation import SimulationList, SimulationRequest, SimulationResponse
 from app.models.stock import SYMBOL_PATTERN, FundProfile, TickerInfo
 from app.stats.backtest import cash_returns, run_portfolio_backtest, strategy_for
@@ -125,7 +134,8 @@ router = APIRouter()
 Session = Annotated[AsyncSession, Depends(get_session)]
 
 PortfolioQuery = Annotated[
-    PortfolioNumber, Query(description="Which of your saved portfolios: 1 or 2.")
+    PortfolioNumber,
+    Query(description=f"Which of your saved portfolios, from 1 to {MAX_PORTFOLIOS}."),
 ]
 
 MAX_CONCURRENT_SIMULATIONS: int = 2
@@ -750,7 +760,7 @@ async def _value_holdings(
 
 @router.get("/portfolios", response_model=PortfolioList, summary="Your saved portfolios")
 async def read_portfolios(session: Session, user: CurrentUser) -> PortfolioList:
-    """List both of the portfolios you can save, with their names and how many holdings
+    """List the portfolios you can save, five of them, with their names and how many holdings
     each has; one never saved has none. Returns 503 when the database is unavailable."""
     try:
         return PortfolioList(portfolios=await list_portfolios(session, user.id))
@@ -1288,12 +1298,40 @@ async def _portfolio_context(
     )
 
 
-def _review_key(covered: ReviewHoldings, request: PortfolioAnalysisRequest) -> str:
-    """Fingerprint the holdings, which account holds what, and what the review was asked to
-    tailor to and cover."""
+def picks_for_review(picks: PicksResponse | None) -> PicksForReview | None:
+    """The account's latest Claude's picks as a review is given them: each pick with the
+    screener's figures for it when it was picked."""
+    if picks is None:
+        return None
+    figures = {stock.symbol: stock for stock in picks.securities}
+    return PicksForReview(
+        generated_at=picks.generated_at,
+        profile=picks.context.profile,
+        horizon=picks.context.horizon,
+        prices_as_of=picks.context.universe.prices_as_of,
+        headline=picks.report.headline,
+        market_view=picks.report.market_view,
+        approach=picks.report.approach,
+        picks=[
+            ReviewedPick(**pick.model_dump(), metrics=figures.get(pick.symbol))
+            for pick in picks.report.picks
+        ],
+    )
+
+
+def _review_key(
+    covered: ReviewHoldings, request: PortfolioAnalysisRequest, picks: PicksResponse | None = None
+) -> str:
+    """Fingerprint the holdings, which account holds what, what the review was asked to
+    tailor to and cover, and the Claude's picks it is given."""
     months = "" if request.history_months is None else f"|{request.history_months}mo"
     split = "".join(f"|{name}=" + holdings_key(held) for name, held in covered.accounts)
-    return holdings_key(covered.holdings, request.profile.model_dump_json() + months + split)
+    # Added only when present, so reviews stored before either existed are still reused.
+    web = "|web" if request.web_search else ""
+    picked = "" if picks is None else f"|picks={picks.id or picks.generated_at.isoformat()}"
+    return holdings_key(
+        covered.holdings, request.profile.model_dump_json() + months + split + web + picked
+    )
 
 
 def _window_label(request: PortfolioAnalysisRequest) -> str:
@@ -1313,15 +1351,20 @@ class PreparedReview:
     cached: PortfolioAnalysisResponse | None = None
 
     def response(
-        self, report: PortfolioReview, model: str, plan: RebalancePlan | None
+        self,
+        context: PortfolioContext,
+        report: PortfolioReview,
+        model: str,
+        plan: RebalancePlan | None,
     ) -> PortfolioAnalysisResponse:
-        assert self.context is not None
+        """Wrap a finished review with ``context``, the data it was written from, which
+        holds the web findings when the web was searched."""
         return PortfolioAnalysisResponse(
             period=self.request.window,
             history_months=self.request.history_months,
             report=report,
             plan=plan,
-            context=self.context,
+            context=context,
             model=model,
             generated_at=datetime.now(timezone.utc),
         )
@@ -1339,7 +1382,8 @@ async def prepare_portfolio_review(
         async with get_sessionmaker()() as session:
             covered = await _review_holdings(session, user.id, request)
             holdings = covered.holdings
-            key = _review_key(covered, request)
+            picks = await latest_picks(session, user.id)
+            key = _review_key(covered, request, picks)
             cached = None
             if holdings and not request.refresh and settings.analysis_cache_ttl_seconds > 0:
                 cached = await find_recent_portfolio_analysis(
@@ -1372,6 +1416,7 @@ async def prepare_portfolio_review(
     context = await _portfolio_context(
         holdings, request.window, request.profile, request.history_months, covered.accounts
     )
+    context = context.model_copy(update={"claude_picks": picks_for_review(picks)})
     return PreparedReview(
         user_id=user.id, request=request, key=key, context=context, api_key=api_key
     )
@@ -1542,7 +1587,10 @@ async def create_portfolio_review(prepared: PreparedPortfolioReview) -> Portfoli
     and statistics of today's weights over ``period`` of daily returns: each holding's
     return, volatility, drawdown, and share of the portfolio's risk, the portfolio's
     volatility, drawdowns and diversification, and the most and least correlated pairs.
-    All of it is in ``context``.
+    Your latest Claude's picks, when you have any, are given to it as candidates for new
+    investments, with the screener's figures for each (``context.claude_picks``). With
+    ``web_search``, Claude searches the web first, and every fact it brings back is in
+    ``context.web_research`` with its sources. All of it is in ``context``.
 
     It is written with, and billed to, your own Anthropic key (the ``X-Anthropic-Key``
     header), within your AI limits, and stored under your account. A review of the same
@@ -1556,14 +1604,19 @@ async def create_portfolio_review(prepared: PreparedPortfolioReview) -> Portfoli
     if prepared.cached is not None:
         return prepared.cached
     assert prepared.api_key is not None and prepared.context is not None
+    context = prepared.context
     try:
         async with anthropic_client(prepared.api_key) as client:
-            report, model = await write_portfolio_review(prepared.context, client=client)
+            if prepared.request.web_search:
+                context = await add_web_research(
+                    context, review_research_task(context), client=client
+                )
+            report, model = await write_portfolio_review(context, client=client)
     except AnalysisError as exc:
         raise ai_error(exc) from exc
-    report = settle_review(prepared.context, report)
-    plan = await _plan(prepared.context, report)
-    return await _remember(prepared, prepared.response(report, model, plan))
+    report = settle_review(context, report)
+    plan = await _plan(context, report)
+    return await _remember(prepared, prepared.response(context, report, model, plan))
 
 
 @router.post(
@@ -1578,6 +1631,7 @@ async def stream_portfolio_review_events(
 
     The same failures return the same statuses before the stream opens. Then it sends
     ``context`` (the :class:`PortfolioContext`), ``thinking``, and ``report`` fragments,
+    ``search`` (a :class:`WebSearchQuery`) for each web search when ``web_search`` is on,
     ``fallback`` when a model declines part-way and another continues, and ``result``
     (the :class:`PortfolioAnalysisResponse`) or ``error``, as the stock analysis stream
     does. A reused review is sent as ``context`` then ``result`` alone.
@@ -1587,15 +1641,26 @@ async def stream_portfolio_review_events(
         yield ServerSentEvent(event="result", data=prepared.cached)
         return
     assert prepared.api_key is not None and prepared.context is not None
-    yield ServerSentEvent(event="context", data=prepared.context)
+    context = prepared.context
+    yield ServerSentEvent(event="context", data=context)
     try:
         async with anthropic_client(prepared.api_key) as client:
-            async for item in stream_portfolio_review(prepared.context, client=client):
+            if prepared.request.web_search:
+                async for found in with_web_research(
+                    context, review_research_task(context), client=client
+                ):
+                    if isinstance(found, AnalysisDelta):
+                        yield ServerSentEvent(event=found.channel, data=found)
+                    elif isinstance(found, WebSearchQuery):
+                        yield ServerSentEvent(event="search", data=found)
+                    else:
+                        context = found
+            async for item in stream_portfolio_review(context, client=client):
                 if isinstance(item, Written):
-                    report = settle_review(prepared.context, item.output)
-                    plan = await _plan(prepared.context, report)
+                    report = settle_review(context, item.output)
+                    plan = await _plan(context, report)
                     response = await _remember(
-                        prepared, prepared.response(report, item.model, plan)
+                        prepared, prepared.response(context, report, item.model, plan)
                     )
                     yield ServerSentEvent(event="result", data=response)
                 elif isinstance(item, AnalysisDelta):
@@ -1676,6 +1741,10 @@ async def export_portfolio_prompt(
     ``context`` returned here.
     """
     covered = await _saved_holdings(session, user.id, request)
+    try:
+        picks = await latest_picks(session, user.id)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
     context = await _portfolio_context(
         covered.holdings,
         request.window,
@@ -1683,6 +1752,7 @@ async def export_portfolio_prompt(
         request.history_months,
         covered.accounts,
     )
+    context = context.model_copy(update={"claude_picks": picks_for_review(picks)})
     return PortfolioPromptExport(
         prompt=render_prompt(PORTFOLIO_SYSTEM_PROMPT, review_messages(context), PortfolioReview),
         filename=f"pyqxel-portfolio-review-{_window_label(request)}-prompt.md",
@@ -1726,7 +1796,7 @@ async def import_portfolio_review(
         return await save_portfolio_analysis(
             session,
             user.id,
-            _review_key(covered, body.request),
+            _review_key(covered, body.request, await latest_picks(session, user.id)),
             response,
             PASTED_MODEL,
             PASTED_MODEL,

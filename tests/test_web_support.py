@@ -231,6 +231,9 @@ def test_two_portfolios_are_saved_and_named_apart(priced: None) -> None:
         "portfolios": [
             {"portfolio": 1, "name": "Portfolio 1", "holdings": 1},
             {"portfolio": 2, "name": "Retirement", "holdings": 2},
+            {"portfolio": 3, "name": "Portfolio 3", "holdings": 0},
+            {"portfolio": 4, "name": "Portfolio 4", "holdings": 0},
+            {"portfolio": 5, "name": "Portfolio 5", "holdings": 0},
         ]
     }
     client.put("/api/v1/portfolio/holdings", params={"portfolio": 2}, json={"holdings": []})
@@ -239,11 +242,20 @@ def test_two_portfolios_are_saved_and_named_apart(priced: None) -> None:
     )
 
 
-def test_there_are_only_two_portfolios(priced: None) -> None:
-    """Portfolio numbers outside 1 and 2 are rejected."""
-    for number in (0, 3):
+def test_there_are_five_portfolios(priced: None) -> None:
+    """Portfolios 1 to 5 can each be saved; numbers outside them are rejected."""
+    for number in (0, 6):
         response = client.get("/api/v1/portfolio/holdings", params={"portfolio": number})
         assert response.status_code == 422
+    saved = client.put(
+        "/api/v1/portfolio/holdings",
+        params={"portfolio": 5},
+        json={"holdings": [{"symbol": "MSFT", "shares": 2}], "name": "Kids"},
+    )
+    assert saved.status_code == 200, saved.text
+    fifth = client.get("/api/v1/portfolio/holdings", params={"portfolio": 5}).json()
+    assert fifth["name"] == "Kids"
+    assert [(h["symbol"], h["shares"]) for h in fifth["holdings"]] == [("MSFT", 2)]
 
 
 def test_a_money_market_fund_is_cash_at_a_dollar(priced: None) -> None:

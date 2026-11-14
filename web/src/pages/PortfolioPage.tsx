@@ -35,7 +35,7 @@ import { agree } from '../lib/usage'
 const MAX_HOLDINGS = 40
 
 /** Portfolios an account may save, as the API allows. */
-const PORTFOLIOS = ['1', '2'] as const
+const PORTFOLIOS = ['1', '2', '3', '4', '5'] as const
 type PortfolioNumber = (typeof PORTFOLIOS)[number]
 
 const PORTFOLIO_KEY = 'pyqxel.portfolio'
@@ -111,6 +111,11 @@ const COPULA_PERIODS = [
   { value: '5y', label: '5Y' },
 ] as const
 
+/** Whether a typed share count can be saved: a number, zero or more. Zero removes the
+ * holding when the portfolio is saved; blank is a count not yet entered. */
+const validShares = (shares: string): boolean =>
+  shares.trim() !== '' && Number.isFinite(Number(shares)) && Number(shares) >= 0
+
 const toRows = (data: HoldingsResponse | undefined): Row[] =>
   (data?.holdings ?? []).map((holding) => ({
     symbol: holding.symbol,
@@ -160,7 +165,10 @@ export function PortfolioPage() {
     mutationFn: () =>
       saveHoldings(
         portfolio,
-        rows.map((row) => ({ symbol: row.symbol, shares: Number(row.shares) })),
+        // A holding set to zero shares is one the person no longer holds: saving drops it.
+        rows
+          .map((row) => ({ symbol: row.symbol, shares: Number(row.shares) }))
+          .filter((holding) => holding.shares > 0),
         name.trim() && name.trim() !== savedName ? name.trim() : undefined,
       ),
     onSuccess: (data) => {
@@ -181,7 +189,8 @@ export function PortfolioPage() {
       delete next[selected]
       return next
     })
-  const invalid = rows.some((row) => !(Number(row.shares) > 0)) || !name.trim()
+  const invalid = rows.some((row) => !validShares(row.shares)) || !name.trim()
+  const dropped = rows.filter((row) => validShares(row.shares) && Number(row.shares) === 0)
 
   const priced = (loaded?.holdings ?? []).filter(
     (holding) => holding.weight !== null && holding.weight !== undefined && holding.weight > 0,
@@ -198,7 +207,7 @@ export function PortfolioPage() {
         <div>
           <h1>Portfolio</h1>
           <div className="subtitle">
-            Your holdings, how they could fare, and how they move together. Save up to two
+            Your holdings, how they could fare, and how they move together. Save up to five
             portfolios.
           </div>
         </div>
@@ -290,6 +299,8 @@ export function PortfolioPage() {
               <span className="muted">
                 {rows.length} of {MAX_HOLDINGS} holdings
                 {dirty ? ' · Enter share counts, then save.' : ''}
+                {dropped.length > 0 &&
+                  ` Saving removes ${listed(dropped.map((row) => row.symbol))}, set to 0 shares.`}
               </span>
             </div>
             {loaded?.notice && !dirty && (
@@ -343,10 +354,7 @@ export function PortfolioPage() {
             key={`review-${portfolio}`}
             portfolio={portfolio}
             hasHoldings={priced.length > 0}
-            canCombine={
-              (portfolios.data?.portfolios.length ?? 0) > 1 &&
-              (portfolios.data?.portfolios.every((p) => p.holdings > 0) ?? false)
-            }
+            canCombine={(portfolios.data?.portfolios.filter((p) => p.holdings > 0).length ?? 0) > 1}
             stale={dirty || holdings.isPlaceholderData}
           />
         </>

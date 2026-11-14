@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.agent import (
     analysis_content,
+    analysis_research_task,
     anthropic_client,
     AINotConfiguredError,
     AIRateLimitError,
@@ -40,6 +41,7 @@ from app.ai.agent import (
 from app.ai.cache import analysis_slot, cached_analysis, remember_analysis
 from app.ai.external import PASTED_MODEL, ExternalResponseError, parse_response, render_prompt
 from app.ai.prompts import SYSTEM_PROMPT
+from app.ai.web import add_web_research, with_web_research
 from app.api.auth import CurrentUser
 from app.core.credentials import current_provider_keys
 from app.api.v1.endpoints.fundamentals import (
@@ -108,6 +110,7 @@ from app.models.research import (
     RiskSummary,
 )
 from app.models.screener import PeerComparison
+from app.models.web import WebSearchQuery
 from app.models.stock import SYMBOL_PATTERN, FundProfile, TickerInfo
 from app.models.factors import FactorContext, FactorModel
 from app.models.volatility import GarchContext
@@ -419,13 +422,19 @@ class PreparedAnalysis:
     cached: AnalysisResponse | None = None
     """A recent report for the same request, which makes asking Claude unnecessary."""
 
-    def response(self, report: InvestmentThesis | RiskSummary, model: str) -> AnalysisResponse:
-        """Wrap a finished report with the data it was written from."""
+    def response(
+        self,
+        report: InvestmentThesis | RiskSummary,
+        model: str,
+        context: AnalysisContext | None = None,
+    ) -> AnalysisResponse:
+        """Wrap a finished report with the data it was written from: ``context`` when
+        given, which holds the web findings when the web was searched."""
         return AnalysisResponse(
             symbol=self.symbol,
             kind=self.request.kind,
             report=report,
-            context=self.context,
+            context=context or self.context,
             model=model,
             generated_at=datetime.now(timezone.utc),
         )
@@ -666,7 +675,9 @@ async def create_analysis(prepared: Prepared) -> AnalysisResponse:
     backdrop of upcoming FOMC meetings (for every account) and, with a Finnhub key, major
     earnings reports, IPOs, holidays, and market headlines, and, unless
     ``include_filings`` is false, the Risk Factors and MD&A sections of the latest 10-K
-    and any later 10-Q from SEC EDGAR. All of it is described in ``context``. When any of
+    and any later 10-Q from SEC EDGAR. With ``web_search``, Claude searches the web first,
+    and every fact it brings back is in ``context.web_research`` with its sources; such a
+    report is always written anew. All of it is described in ``context``. When any of
     it cannot be fetched the report is written without it and ``context.notice`` says so.
 
     The report is written with, and billed to, your own Anthropic key, sent in the
@@ -687,15 +698,22 @@ async def create_analysis(prepared: Prepared) -> AnalysisResponse:
         if cached is not None:
             return cached
         assert prepared.api_key is not None
+        context = prepared.context
         try:
             async with anthropic_client(prepared.api_key) as client:
+                if prepared.request.web_search:
+                    context = await add_web_research(
+                        context,
+                        analysis_research_task(context, prepared.request.kind),
+                        client=client,
+                    )
                 report, model = await write_analysis(
-                    prepared.context, prepared.request.kind, prepared.filings, client=client
+                    context, prepared.request.kind, prepared.filings, client=client
                 )
         except AnalysisError as exc:
             raise ai_error(exc) from exc
         return await remember_analysis(
-            prepared.user_id, prepared.request, prepared.response(report, model)
+            prepared.user_id, prepared.request, prepared.response(report, model, context)
         )
 
 
@@ -714,6 +732,8 @@ async def stream_analysis_events(prepared: Prepared) -> AsyncIterator[ServerSent
     * ``context``: the :class:`AnalysisContext` the report is written from.
     * ``thinking``: an :class:`AnalysisDelta` summarizing the model's reasoning.
     * ``report``: an :class:`AnalysisDelta` of report JSON; fragments concatenate to it.
+    * ``search``: a :class:`WebSearchQuery`, for each web search made when ``web_search``
+      is on, before the report is written.
     * ``fallback``: a :class:`ModelFallback`, when a model declines part-way and another
       continues the report.
     * ``result``: the final :class:`AnalysisResponse`, with the validated report.
@@ -733,17 +753,30 @@ async def stream_analysis_events(prepared: Prepared) -> AsyncIterator[ServerSent
             yield ServerSentEvent(event="result", data=cached)
             return
         assert prepared.api_key is not None
-        yield ServerSentEvent(event="context", data=prepared.context)
+        context = prepared.context
+        yield ServerSentEvent(event="context", data=context)
         try:
             async with anthropic_client(prepared.api_key) as client:
+                if prepared.request.web_search:
+                    async for found in with_web_research(
+                        context,
+                        analysis_research_task(context, prepared.request.kind),
+                        client=client,
+                    ):
+                        if isinstance(found, AnalysisDelta):
+                            yield ServerSentEvent(event=found.channel, data=found)
+                        elif isinstance(found, WebSearchQuery):
+                            yield ServerSentEvent(event="search", data=found)
+                        else:
+                            context = found
                 async for item in stream_analysis(
-                    prepared.context, prepared.request.kind, prepared.filings, client=client
+                    context, prepared.request.kind, prepared.filings, client=client
                 ):
                     if isinstance(item, WrittenReport):
                         response = await remember_analysis(
                             prepared.user_id,
                             prepared.request,
-                            prepared.response(item.report, item.model),
+                            prepared.response(item.report, item.model, context),
                         )
                         yield ServerSentEvent(event="result", data=response)
                     elif isinstance(item, AnalysisDelta):

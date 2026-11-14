@@ -685,7 +685,7 @@ const entries = {
     note: 'Cash counts as no gain. Holdings without a gain or loss (too new, or no prices) are left out of the totals’ gains.',
   },
   combinedReview: {
-    title: 'Review both portfolios together',
+    title: 'Review all your portfolios together',
     what: 'One review of all your saved portfolios as a single, overall portfolio, such as a brokerage account and a Roth IRA together. Claude sees which account holds what, and says which account each change belongs in, with taxes in mind.',
     good: 'Cheaper than reviewing each one, and better advice: overlap and gaps across accounts show up only when they are seen together.',
     note: 'Say what each account is (taxable, Roth IRA, 401(k)…) in its name or in “Anything else”, so the plan can account for taxes.',
@@ -790,9 +790,67 @@ const entries = {
     what: 'Claude reads the stock’s prices, statistics, financial statements, filings and news, and writes an investment thesis or risk summary citing those figures.',
     note: 'An AI’s reading of data, not advice: check the figures it cites and what it says it could not see.',
   },
+  webSearch: {
+    title: 'Let Claude search the web',
+    what: 'Before writing, Claude searches the web for what PyQxel’s own data cannot show: the latest results and guidance, analyst actions, deals, legal or regulatory news, and the economic backdrop. Every fact it brings back is listed under the report with the pages it came from, and the report cites it by number, such as [3].',
+    good: 'Worth it when recent news matters: a stock around its earnings, a portfolio after a market move, or picks for a short holding period.',
+    note: 'It costs a little more, billed by Anthropic to your key: about 1 cent per search, with up to six searches, plus the tokens to read the results, typically a few cents in all. It also takes a minute or so longer. A report that searches the web is always written anew, never reused.',
+  },
+  webSources: {
+    title: 'From the web',
+    what: 'The facts Claude found by searching the web for this report, each with the page or pages it came from. Only statements the search tied to a page are kept, so nothing from the web is here, or in the report, without a source you can open.',
+    good: 'A fact reported by several established outlets, a company’s own release, or a regulator.',
+    bad: 'A single aggregator, forum, or promotional page: treat what only it says as unconfirmed.',
+    note: 'Web pages can be wrong or out of date, and Claude’s one-sentence statement of a page can lose detail. Open the source before acting on a fact that matters.',
+  },
+  claudesPicks: {
+    title: 'Claude’s picks',
+    what: 'The securities Claude would buy now and hold for the period you choose. It starts from your screener: the leaders on market cap, momentum, recent returns, free cash flow yield, P/E, growth, return on equity, margins, and low volatility, and the most traded ETFs, each trading at least $5 million a day. From those candidates it picks five to ten for your holding period and risk tolerance, ranks them, and says how much of each to buy, why, how to buy it, and when to sell.',
+    good: 'Use the picks as a shortlist to research: open each one’s page, read its report, and check the news before buying.',
+    bad: 'Buying a list unread, or expecting a short-term pick to work: over a few weeks any stock is close to a coin toss.',
+    note: 'An AI’s reading of historical figures, not a licensed adviser’s advice or a forecast. Claude is asked to take a view rather than default to index funds, so the picks can be concentrated and volatile; a broad fund appears only when Claude judges it the best answer for your profile.',
+  },
+  picksHorizon: {
+    title: 'Holding period',
+    what: 'How long you would hold the picks before selling or looking again: any mix of years, months, and weeks, from one week to sixty years. It changes what Claude looks for. Over weeks to a few months, momentum, volatility, and upcoming events such as earnings and Federal Reserve meetings matter most. Over years, what a business earns, how fast it grows, and the price you pay matter most.',
+    good: 'A period that matches when you will need the money. Longer periods are more predictable.',
+    bad: 'A few weeks: prices over so short a time are mostly noise, so expect some picks to lose money whatever the reasoning.',
+  },
+  picksRisk: {
+    title: 'Risk tolerance',
+    what: 'How large a swing in value you could sit through without selling. Conservative leans to steadier companies, more diversification, and room for broad or bond funds. Moderate is a mix. Aggressive lets Claude concentrate and pick volatile, faster-growing, or smaller companies. Left unset, Claude assumes moderate and says so.',
+    note: 'Higher risk means larger possible losses as well as gains, not a higher return.',
+  },
+  pickConviction: {
+    title: 'Conviction',
+    what: 'How firmly the screener’s figures support this pick for your holding period: high when the measures that matter most agree, medium when they lean one way against a real counterweight, and low when the case is thinner.',
+    note: 'Conviction is Claude’s judgment of the evidence, not a probability of profit. High-conviction picks lose money too.',
+  },
+  pickWeight: {
+    title: 'Share of the money',
+    what: 'How much of the amount you invest in these picks Claude would put in this one. The shares add up to 100%. With an amount entered, it is also shown in dollars.',
+    good: 'Larger shares for higher conviction and steadier securities, smaller for volatile ones.',
+    bad: 'Most of the money in one or two volatile stocks: a single bad result can then undo the rest.',
+    note: 'These are shares of the money for the picks alone, not of your whole portfolio. A portfolio review weighs them against what you already hold.',
+  },
+  pickCandidates: {
+    title: 'Candidates',
+    what: 'The securities Claude chose from: the leaders of the screener on each of about a dozen measures, such as momentum, free cash flow yield, growth, and low volatility, taken together. A security has to trade at least $5 million a day and, for a company, be worth at least $300 million, so every pick is easy to buy and sell.',
+    note: 'The picks can only be as current and as complete as the screener: its prices are as of the date shown, and company figures come from filings that can be months old.',
+  },
+  pickOutsideScreener: {
+    title: 'Not in your screener',
+    what: 'Claude may pick a security the screener does not hold, such as a bond fund or a broad market fund, when it is clearly a better fit for your profile than any candidate. The screener has no figures for it, and it will not appear when you screen for Claude’s picks.',
+    note: 'Look it up by its ticker to see its price, costs, and holdings before buying.',
+  },
+  picksUniverse: {
+    title: 'Universe',
+    what: 'Which part of the screener to search: an index or size group, everything, or only Claude’s picks. Choosing Claude’s picks lists the securities Claude last picked for you, so you can compare them side by side on any metric and narrow them with the filters.',
+    note: 'A pick the screener does not hold, such as a fund outside it, is not listed.',
+  },
   portfolioReview: {
     title: 'AI portfolio review',
-    what: 'Claude reviews your saved holdings (where the risk comes from and how well they diversify) and recommends specific changes, which the app turns into exact orders.',
+    what: 'Claude reviews your saved holdings (where the risk comes from and how well they diversify) and recommends specific changes, which the app turns into exact orders. When you have Claude’s picks, the review is given the latest ones, with the screener’s figures for each, as candidates for anything it suggests adding.',
     note: 'An AI’s recommendation from past prices, not a licensed adviser’s; check taxes, costs, and prices before trading.',
   },
   reviewHistory: {

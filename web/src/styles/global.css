@@ -671,6 +671,34 @@ select:disabled {
   box-shadow: 0 0 0 1px var(--border);
 }
 
+/* ── Pages within a tab: links styled as a segmented control ── */
+.subtabs {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 2px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-small);
+}
+
+.subtabs a {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.subtabs a.active {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
 /* ── Search ── */
 .search {
   position: relative;
@@ -1970,6 +1998,214 @@ li code {
 }
 
 /* ── Claude outside the app ── */
+/* ── What Claude found on the web, and the choice to search it ── */
+.web-search-option .checkbox {
+  height: auto;
+  min-height: 36px;
+}
+
+.web-searches {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.web-searches li + li {
+  margin-top: 2px;
+}
+
+.web-sources {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.report .web-findings {
+  margin: 8px 0 0;
+  padding-left: 28px;
+}
+
+.web-findings li {
+  overflow-wrap: anywhere;
+}
+
+.web-findings li + li {
+  margin-top: 8px;
+}
+
+.web-finding-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 2px;
+  font-size: 0.85rem;
+}
+
+/* ── Claude's picks ── */
+.horizon-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.horizon-fields legend {
+  padding: 0;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.horizon-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.horizon-part input {
+  width: 64px;
+}
+
+.field-problem {
+  margin: 8px 0 0;
+  color: var(--critical);
+  font-size: 0.85rem;
+}
+
+.picks-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.report .pick-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report .pick-list > li + li {
+  margin-top: 0;
+}
+
+.pick-card {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.pick-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pick-rank {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.pick-name {
+  display: flex;
+  flex: 1 1 160px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.pick-symbol {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.pick-weight {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: 0.9rem;
+}
+
+.pick-weight-bar {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-sunken);
+}
+
+.pick-weight-bar span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 3px;
+  background: var(--series-1);
+}
+
+.pick-thesis {
+  margin: 10px 0 0;
+}
+
+.pick-plan {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+}
+
+.pick-plan > div {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px;
+}
+
+.pick-plan dt {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.pick-plan dd {
+  margin: 0;
+}
+
+.report .pick-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 12px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.report .pick-figures li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.report .pick-figures strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
 .external-claude {
   margin-top: 12px;
   padding-top: 10px;
@@ -2219,6 +2455,10 @@ li code {
   .segmented button {
     height: 40px;
     padding: 0 12px;
+  }
+
+  .subtabs a {
+    height: 40px;
   }
 
   .report-tablist [role='tab'] {
@@ -2500,4 +2740,8 @@ main [id] {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
+}
+
+.pick-card > .disclaimer {
+  margin: 10px 0 0;
 }

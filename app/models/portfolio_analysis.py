@@ -6,9 +6,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.models.picks import PicksForReview
 from app.models.portfolio import MAX_PORTFOLIOS, MAX_SYMBOLS, PortfolioNumber, PortfolioPeriod
 from app.models.research import RiskFactor
 from app.models.stock import FundProfile
+from app.models.web import WebResearch
 
 
 class InvestorProfile(BaseModel):
@@ -79,6 +81,13 @@ class PortfolioAnalysisRequest(BaseModel):
         ge=MIN_HISTORY_MONTHS,
         le=MAX_HISTORY_MONTHS,
         description="A custom window of daily returns, in months, used instead of ``period``.",
+    )
+    web_search: bool = Field(
+        default=False,
+        description="Let Claude search the web first, for news on the holdings and the "
+        "backdrop, which the price statistics cannot show. Every fact it brings back is "
+        "listed with its source. Anthropic bills each search to your key, on top of the "
+        "tokens.",
     )
     refresh: bool = Field(
         default=False,
@@ -246,6 +255,17 @@ class PortfolioContext(BaseModel):
         description="Each ETF or mutual fund among the holdings, largest first, with its "
         "largest holdings, mix of stocks, bonds, and cash, sectors, costs, and the figures "
         "weighted from the companies it holds, where they could be found.",
+    )
+    claude_picks: PicksForReview | None = Field(
+        default=None,
+        description="The account's latest Claude's picks, with the screener's figures for "
+        "each when it was picked, as candidates for new investments; null when the account "
+        "has none.",
+    )
+    web_research: WebResearch | None = Field(
+        default=None,
+        description="What a web search made for this review found, each fact with its "
+        "sources; null when the web was not searched.",
     )
     portfolio: PortfolioRiskStats
     most_correlated: list[PairCorrelation] = Field(default_factory=list)

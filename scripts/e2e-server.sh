@@ -22,6 +22,9 @@ mkdir -p "$data"
 export DATABASE_URL="sqlite+aiosqlite:///$data/e2e.db"
 export YFINANCE_FALLBACK=false
 export EMAIL_TO_CONSOLE=true
+# Every test signs in as the one seeded account, which loads far more pages a minute than
+# a person does.
+export RATE_LIMIT_PER_MINUTE=3000
 
 PYTHONPATH="$PWD" "$python" scripts/e2e_seed.py "$data/api-key"
 exec "$python" -m uvicorn app.main:app --host 127.0.0.1 --port "${E2E_PORT:-8765}"

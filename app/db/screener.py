@@ -417,6 +417,10 @@ async def screen(
         query = query.where(column("avg_dollar_volume") >= LIQUID_DOLLAR_VOLUME)
     if request.asset_types:
         query = query.where(column("asset_type").in_(request.asset_types))
+    if request.symbols:
+        query = query.where(
+            column("symbol").in_(sorted({symbol.strip().upper() for symbol in request.symbols}))
+        )
     if request.sectors:
         query = query.where(column("sector").in_(request.sectors))
     if request.industries:
@@ -475,6 +479,32 @@ async def screen(
         refreshed_at=universe.refreshed_at,
         own=universe.own,
     )
+
+
+async def universe_stocks(
+    session: AsyncSession, universe: Universe, symbols: Iterable[str]
+) -> dict[str, ScreenedStock]:
+    """The stocks of ``universe`` among ``symbols``, by symbol; those it does not hold are
+    left out."""
+    wanted = sorted({symbol.strip().upper() for symbol in symbols})
+    if not wanted:
+        return {}
+    table = universe.table
+    symbol: InstrumentedAttribute[Any] = getattr(table, "symbol")
+    records = await session.scalars(select(table).where(universe.rows, symbol.in_(wanted)))
+    stocks = [ScreenedStock.model_validate(record, from_attributes=True) for record in records]
+    return {stock.symbol: stock for stock in stocks}
+
+
+async def universe_counts(session: AsyncSession, universe: Universe) -> tuple[int, int]:
+    """How many securities ``universe`` holds, and how many of them are ETFs."""
+    table = universe.table
+    kind: InstrumentedAttribute[Any] = getattr(table, "asset_type")
+    total = await session.scalar(select(func.count()).select_from(table).where(universe.rows))
+    etfs = await session.scalar(
+        select(func.count()).select_from(table).where(universe.rows, kind == "etf")
+    )
+    return total or 0, etfs or 0
 
 
 def _like_pattern(text: str) -> str:

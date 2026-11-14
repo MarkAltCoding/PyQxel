@@ -122,6 +122,7 @@ describe('PortfolioReviewCard', () => {
         portfolio: 2,
         combined: false,
         period: '1y',
+        web_search: false,
         refresh: true,
         profile: {
           risk_tolerance: null,
@@ -181,8 +182,8 @@ describe('PortfolioReviewCard', () => {
     })
     renderCard({ hasHoldings: true, stale: false, canCombine: true })
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Both together' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Review both together' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'All together' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Review all together' }))
 
     expect(await screen.findByText('One household portfolio.')).toBeInTheDocument()
     expect(
@@ -239,7 +240,7 @@ describe('PortfolioReviewCard', () => {
     )
     renderCard({ hasHoldings: true, stale: false })
     expect(await screen.findByText('No review yet.')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Both together' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'All together' })).toBeNull()
   })
 
   it('saves a review pasted from Claude outside the app with its exported data', async () => {

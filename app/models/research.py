@@ -20,6 +20,7 @@ from app.models.signals import SignalsContext
 from app.models.screener import PeerComparison
 from app.models.stock import FundProfile, HistoryCoverage, TickerInfo
 from app.models.volatility import GarchContext, VolatilityPeriod
+from app.models.web import WebResearch
 
 AnalysisKind = Literal["thesis", "risk"]
 """Report types: an investment thesis, or a risk summary."""
@@ -56,6 +57,13 @@ class AnalysisRequest(BaseModel):
         default=True,
         description="Also give Claude the Risk Factors and MD&A sections of the latest "
         "10-K and any 10-Q filed since, from SEC EDGAR.",
+    )
+    web_search: bool = Field(
+        default=False,
+        description="Let Claude search the web first, for what the app's data cannot show. "
+        "Every fact it brings back is listed with its source. Anthropic bills each search "
+        "to your key, on top of the tokens, and a report that searches the web is always "
+        "written anew.",
     )
     refresh: bool = Field(
         default=False,
@@ -201,6 +209,11 @@ class AnalysisContext(BaseModel):
         default=None,
         description="The market backdrop: upcoming FOMC meetings, market holidays, major "
         "companies' earnings reports, and IPOs, and the newest market headlines.",
+    )
+    web_research: WebResearch | None = Field(
+        default=None,
+        description="What a web search made for this report found, each fact with its "
+        "sources; null when the web was not searched.",
     )
     notice: str | None = Field(
         default=None, description="Explains which part of the window has no data, if any."

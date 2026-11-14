@@ -296,7 +296,14 @@ export function HoldingsTable({
                     aria-label={`Shares of ${row.symbol}`}
                     style={{ width: 84, textAlign: 'right' }}
                     value={row.shares}
-                    aria-invalid={!(Number(row.shares) > 0)}
+                    aria-invalid={
+                      row.shares.trim() === '' || !(Number(row.shares) >= 0) ? true : undefined
+                    }
+                    title={
+                      row.shares.trim() !== '' && Number(row.shares) === 0
+                        ? `0 shares: saving removes ${row.symbol}`
+                        : undefined
+                    }
                     onChange={(event) => onShares(row.symbol, event.target.value)}
                   />
                 </td>
