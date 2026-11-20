@@ -81,6 +81,199 @@
         "title": "Account",
         "type": "object"
       },
+      "AccountGoals": {
+        "description": "What one portfolio's own plan is tailored to, in a ``separate`` review of several.\nA goal left null is the shared profile's.",
+        "properties": {
+          "cash_available": {
+            "default": 0.0,
+            "description": "Cash already in this account that may be traded with, in dollars, besides any money-market fund it holds.",
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Cash Available",
+            "type": "number"
+          },
+          "horizon_years": {
+            "anyOf": [
+              {
+                "maximum": 60.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Years until it is needed.",
+            "title": "Horizon Years"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "portfolio": {
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Portfolio",
+            "type": "integer"
+          },
+          "risk_tolerance": {
+            "anyOf": [
+              {
+                "enum": [
+                  "conservative",
+                  "moderate",
+                  "aggressive"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Tolerance"
+          }
+        },
+        "required": [
+          "portfolio"
+        ],
+        "title": "AccountGoals",
+        "type": "object"
+      },
+      "AccountOrders": {
+        "description": "The orders that carry out one account's own plan.",
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RebalancePlan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "portfolio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Portfolio"
+          }
+        },
+        "required": [
+          "account"
+        ],
+        "title": "AccountOrders",
+        "type": "object"
+      },
+      "AccountPlan": {
+        "description": "One account's own plan, in a review of several accounts each with its own.",
+        "properties": {
+          "account": {
+            "description": "The account's name, exactly as in the snapshot.",
+            "title": "Account",
+            "type": "string"
+          },
+          "headline": {
+            "description": "One sentence on this account and its plan.",
+            "title": "Headline",
+            "type": "string"
+          },
+          "new_cash": {
+            "description": "How much of the profile's new cash to invest goes into this account, in dollars; the accounts' shares sum to at most that cash, and none exceeds the account's contribution_room when one is given.",
+            "minimum": 0.0,
+            "title": "New Cash",
+            "type": "number"
+          },
+          "plan_summary": {
+            "description": "This account's plan in a paragraph: what to change and why, how it fits the other accounts, and what it is tailored to.",
+            "title": "Plan Summary",
+            "type": "string"
+          },
+          "target_allocation": {
+            "description": "Every holding of this account and any new investment in it with its target weight within the account; a holding to sell entirely gets 0. Weights sum to 1.",
+            "items": {
+              "$ref": "#/components/schemas/TargetPosition"
+            },
+            "title": "Target Allocation",
+            "type": "array"
+          }
+        },
+        "required": [
+          "account",
+          "headline",
+          "plan_summary",
+          "new_cash",
+          "target_allocation"
+        ],
+        "title": "AccountPlan",
+        "type": "object"
+      },
+      "AccountSettings": {
+        "description": "What kind of account a saved portfolio is, and how much more may go into it.",
+        "properties": {
+          "account_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "taxable",
+                  "traditional_ira",
+                  "roth_ira",
+                  "rollover_ira",
+                  "sep_ira",
+                  "simple_ira",
+                  "traditional_401k",
+                  "roth_401k",
+                  "403b",
+                  "457b",
+                  "solo_401k",
+                  "hsa",
+                  "529",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What kind of account it is; null when not said.",
+            "title": "Account Type"
+          },
+          "contribution_room": {
+            "anyOf": [
+              {
+                "maximum": 10000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The most new money that may still be put into it this tax year, in dollars, as the person works it out: the year's limit, less what they have put in, and no more than they earned. Null when not said or not capped.",
+            "title": "Contribution Room"
+          }
+        },
+        "title": "AccountSettings",
+        "type": "object"
+      },
       "AccountShares": {
         "description": "How many shares of a holding one account holds, in a review of several accounts.",
         "properties": {
@@ -103,18 +296,135 @@
         "type": "object"
       },
       "AccountValue": {
-        "description": "One of the accounts reviewed together, with its value at the latest prices.",
+        "description": "One of the accounts reviewed, with its value at the latest prices, what kind of\naccount it is, and, in a ``separate`` review, its own goals and cash.",
         "properties": {
           "account": {
             "description": "The account's name, as the person saved it.",
             "title": "Account",
             "type": "string"
           },
+          "account_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "taxable",
+                  "traditional_ira",
+                  "roth_ira",
+                  "rollover_ira",
+                  "sep_ira",
+                  "simple_ira",
+                  "traditional_401k",
+                  "roth_401k",
+                  "403b",
+                  "457b",
+                  "solo_401k",
+                  "hsa",
+                  "529",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What kind of account it is; null when not said.",
+            "title": "Account Type"
+          },
+          "account_type_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Type Name"
+          },
+          "cash_available": {
+            "default": 0.0,
+            "description": "Cash in it to trade with, besides money-market funds.",
+            "title": "Cash Available",
+            "type": "number"
+          },
+          "contribution_room": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The most new money that may still go into it this tax year, in dollars, as the person entered it; null when not said.",
+            "title": "Contribution Room"
+          },
           "holdings": {
             "description": "How many holdings it has.",
             "minimum": 0.0,
             "title": "Holdings",
             "type": "integer"
+          },
+          "horizon_years": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its own horizon; null to use the profile's.",
+            "title": "Horizon Years"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the person said about it.",
+            "title": "Notes"
+          },
+          "portfolio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which saved portfolio it is.",
+            "title": "Portfolio"
+          },
+          "risk_tolerance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its own risk tolerance; null to use the profile's.",
+            "title": "Risk Tolerance"
+          },
+          "tax_treatment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How its gains are taxed, in a few words.",
+            "title": "Tax Treatment"
           },
           "value": {
             "minimum": 0.0,
@@ -2377,6 +2687,109 @@
           "peers"
         ],
         "title": "CompanyMetrics",
+        "type": "object"
+      },
+      "ContributionLimit": {
+        "description": "One kind of account's yearly contribution limit for one tax year.",
+        "properties": {
+          "account": {
+            "description": "The kinds of account it applies to.",
+            "title": "Account",
+            "type": "string"
+          },
+          "catch_up_50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What those aged 50 or over may add on top.",
+            "title": "Catch Up 50"
+          },
+          "catch_up_60_63": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What those aged 60 to 63 may add instead of the age-50 catch-up.",
+            "title": "Catch Up 60 63"
+          },
+          "limit": {
+            "description": "The yearly limit, in dollars.",
+            "title": "Limit",
+            "type": "number"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "account",
+          "limit"
+        ],
+        "title": "ContributionLimit",
+        "type": "object"
+      },
+      "ContributionLimits": {
+        "description": "The yearly contribution limits that apply now, with how current they are.",
+        "properties": {
+          "as_of": {
+            "description": "The day the figures were last checked against the IRS.",
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "current": {
+            "$ref": "#/components/schemas/LimitYear",
+            "description": "The limits of this tax year."
+          },
+          "next": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LimitYear"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Next year's limits, once the IRS has published them."
+          },
+          "notes": {
+            "description": "How the limits work and how they usually change from year to year.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "outdated": {
+            "description": "Whether this year is later than the newest year PyQxel has figures for, so the figures shown are an earlier year's and likely too low.",
+            "title": "Outdated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "as_of",
+          "current",
+          "outdated",
+          "notes"
+        ],
+        "title": "ContributionLimits",
         "type": "object"
       },
       "CopulaFitResponse": {
@@ -6848,6 +7261,71 @@
         "title": "LeftOutHolding",
         "type": "object"
       },
+      "LimitYear": {
+        "description": "The contribution limits of one tax year, as the IRS published them.",
+        "properties": {
+          "limits": {
+            "items": {
+              "$ref": "#/components/schemas/ContributionLimit"
+            },
+            "title": "Limits",
+            "type": "array"
+          },
+          "roth_ira_phase_out_joint": {
+            "description": "The same for a married couple filing jointly.",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Roth Ira Phase Out Joint",
+            "type": "array"
+          },
+          "roth_ira_phase_out_single": {
+            "description": "Modified adjusted gross income over which a single filer's Roth IRA contribution shrinks, and at which it reaches nothing.",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Roth Ira Phase Out Single",
+            "type": "array"
+          },
+          "source": {
+            "description": "Where the figures come from.",
+            "title": "Source",
+            "type": "string"
+          },
+          "source_url": {
+            "title": "Source Url",
+            "type": "string"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "limits",
+          "roth_ira_phase_out_single",
+          "roth_ira_phase_out_joint",
+          "source",
+          "source_url"
+        ],
+        "title": "LimitYear",
+        "type": "object"
+      },
       "LinkAddress": {
         "description": "The address a working link was sent to.",
         "properties": {
@@ -10591,13 +11069,26 @@
         "type": "object"
       },
       "PortfolioAnalysisRequest": {
-        "description": "Options for a review of one of the saved portfolios.",
+        "description": "Options for a review of one of the saved portfolios, or of several at once.",
         "properties": {
-          "combined": {
-            "default": false,
-            "description": "Review every saved portfolio together, as one, in place of ``portfolio``: one review of the whole picture, telling Claude which account holds what.",
-            "title": "Combined",
-            "type": "boolean"
+          "accounts": {
+            "description": "In a ``separate`` review: each portfolio's own goals, where they differ from ``profile``'s, and the cash in it to trade with. ``profile``'s ``cash_to_invest`` is then new money any of them may draw on.",
+            "items": {
+              "$ref": "#/components/schemas/AccountGoals"
+            },
+            "maxItems": 5,
+            "title": "Accounts",
+            "type": "array"
+          },
+          "group_mode": {
+            "default": "combined",
+            "description": "With ``portfolios``: review them as one large portfolio (``combined``), or each with its own plan and orders, with the others in mind (``separate``).",
+            "enum": [
+              "combined",
+              "separate"
+            ],
+            "title": "Group Mode",
+            "type": "string"
           },
           "history_months": {
             "anyOf": [
@@ -10633,6 +11124,17 @@
             "title": "Portfolio",
             "type": "integer"
           },
+          "portfolios": {
+            "description": "Review these saved portfolios at once, in place of ``portfolio``: two to five of them, each named once. Empty for one portfolio's review.",
+            "items": {
+              "maximum": 5.0,
+              "minimum": 1.0,
+              "type": "integer"
+            },
+            "maxItems": 5,
+            "title": "Portfolios",
+            "type": "array"
+          },
           "profile": {
             "$ref": "#/components/schemas/InvestorProfile"
           },
@@ -10655,6 +11157,14 @@
       "PortfolioAnalysisResponse": {
         "description": "A portfolio review together with the data it was written from.",
         "properties": {
+          "account_orders": {
+            "description": "In a review giving each account its own plan: the orders for each.",
+            "items": {
+              "$ref": "#/components/schemas/AccountOrders"
+            },
+            "title": "Account Orders",
+            "type": "array"
+          },
           "cached": {
             "default": false,
             "description": "Whether this review was written earlier, at ``generated_at``, and reused.",
@@ -10673,6 +11183,22 @@
             "format": "date-time",
             "title": "Generated At",
             "type": "string"
+          },
+          "group_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "combined",
+                  "separate"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How they were reviewed together, if they were.",
+            "title": "Group Mode"
           },
           "history_months": {
             "anyOf": [
@@ -10724,6 +11250,14 @@
               }
             ],
             "description": "Orders computed from the review's target allocation."
+          },
+          "portfolios": {
+            "description": "The portfolios reviewed together; empty for one portfolio's review.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Portfolios",
+            "type": "array"
           },
           "report": {
             "$ref": "#/components/schemas/PortfolioReview"
@@ -11056,6 +11590,17 @@
             ],
             "description": "The account's latest Claude's picks, with the screener's figures for each when it was picked, as candidates for new investments; null when the account has none."
           },
+          "contribution_limits": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContributionLimits"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The IRS's yearly contribution limits, given when an account reviewed is one they cap."
+          },
           "deal_headlines": {
             "description": "The newest headlines on mergers and acquisitions.",
             "items": {
@@ -11071,6 +11616,22 @@
             },
             "title": "Funds",
             "type": "array"
+          },
+          "group_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "combined",
+                  "separate"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For several accounts: reviewed as one (``combined``) or each with its own plan (``separate``); null for one portfolio's review.",
+            "title": "Group Mode"
           },
           "history_months": {
             "anyOf": [
@@ -11261,6 +11822,14 @@
       "PortfolioReview": {
         "description": "Claude's data-grounded review of a portfolio, with a concrete plan to act on.",
         "properties": {
+          "account_plans": {
+            "description": "When the snapshot's group_mode is separate: one plan for each account, in the snapshot's order. Empty otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/AccountPlan"
+            },
+            "title": "Account Plans",
+            "type": "array"
+          },
           "considerations": {
             "description": "Trade-offs of the plan and alternatives worth weighing: taxes, trading costs, timing, and what would change the recommendation.",
             "items": {
@@ -11328,7 +11897,7 @@
             "type": "string"
           },
           "target_allocation": {
-            "description": "Every current holding and any new investment with its target weight; a holding to sell entirely gets 0. Weights sum to 1.",
+            "description": "Every current holding and any new investment with its target weight; a holding to sell entirely gets 0. Weights sum to 1. Empty when the review gives each account its own plan in account_plans.",
             "items": {
               "$ref": "#/components/schemas/TargetPosition"
             },
@@ -11476,8 +12045,50 @@
         "type": "object"
       },
       "PortfolioSummary": {
-        "description": "One of the account's portfolio slots, without prices.",
+        "description": "One of the account's portfolio slots, without prices, and what kind of account it is.",
         "properties": {
+          "account_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "taxable",
+                  "traditional_ira",
+                  "roth_ira",
+                  "rollover_ira",
+                  "sep_ira",
+                  "simple_ira",
+                  "traditional_401k",
+                  "roth_401k",
+                  "403b",
+                  "457b",
+                  "solo_401k",
+                  "hsa",
+                  "529",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What kind of account it is; null when not said.",
+            "title": "Account Type"
+          },
+          "contribution_room": {
+            "anyOf": [
+              {
+                "maximum": 10000000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The most new money that may still be put into it this tax year, in dollars, as the person works it out: the year's limit, less what they have put in, and no more than they earned. Null when not said or not capped.",
+            "title": "Contribution Room"
+          },
           "holdings": {
             "description": "How many holdings it has saved.",
             "minimum": 0.0,
@@ -18382,9 +18993,67 @@
         ]
       }
     },
+    "/api/v1/portfolio/account": {
+      "put": {
+        "description": "Save what kind of account ``portfolio`` is, such as a Roth IRA, and how much more\nmay be put into it this tax year. Every review of it is told both. Returns 503 when\nthe database is unavailable.",
+        "operationId": "write_account_settings_api_v1_portfolio_account_put",
+        "parameters": [
+          {
+            "description": "Which of your saved portfolios, from 1 to 5.",
+            "in": "query",
+            "name": "portfolio",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "Which of your saved portfolios, from 1 to 5.",
+              "maximum": 5,
+              "minimum": 1,
+              "title": "Portfolio",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Say what kind of account a portfolio is",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
     "/api/v1/portfolio/analysis": {
       "get": {
-        "description": "Return your newest stored review of ``portfolio``, or with ``combined`` of every\nportfolio together, whatever it was written for, so it can be shown again without a\ncharge. Returns 404 when you have none.",
+        "description": "Return your newest stored review of ``portfolio``, or of ``portfolios`` together as\n``mode`` says, whatever it was written for, so it can be shown again without a charge.\nA portfolio's newest review may be one of several portfolios each given its own plan\n(``separate``), which it was one of. Returns 404 when you have none.",
         "operationId": "read_portfolio_review_api_v1_portfolio_analysis_get",
         "parameters": [
           {
@@ -18402,15 +19071,36 @@
             }
           },
           {
-            "description": "The review of every portfolio together, not ``portfolio``.",
+            "description": "The review of these portfolios together, not ``portfolio``.",
             "in": "query",
-            "name": "combined",
+            "name": "portfolios",
             "required": false,
             "schema": {
-              "default": false,
-              "description": "The review of every portfolio together, not ``portfolio``.",
-              "title": "Combined",
-              "type": "boolean"
+              "default": [],
+              "description": "The review of these portfolios together, not ``portfolio``.",
+              "items": {
+                "maximum": 5,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "title": "Portfolios",
+              "type": "array"
+            }
+          },
+          {
+            "description": "How ``portfolios`` were reviewed together.",
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "default": "combined",
+              "description": "How ``portfolios`` were reviewed together.",
+              "enum": [
+                "combined",
+                "separate"
+              ],
+              "title": "Mode",
+              "type": "string"
             }
           }
         ],
@@ -18450,9 +19140,11 @@
               "schema": {
                 "$ref": "#/components/schemas/PortfolioAnalysisRequest",
                 "default": {
-                  "combined": false,
+                  "accounts": [],
+                  "group_mode": "combined",
                   "period": "1y",
                   "portfolio": 1,
+                  "portfolios": [],
                   "profile": {
                     "cash_to_invest": 0.0,
                     "fractional_shares": true,
@@ -18545,9 +19237,11 @@
               "schema": {
                 "$ref": "#/components/schemas/PortfolioAnalysisRequest",
                 "default": {
-                  "combined": false,
+                  "accounts": [],
+                  "group_mode": "combined",
                   "period": "1y",
                   "portfolio": 1,
+                  "portfolios": [],
                   "profile": {
                     "cash_to_invest": 0.0,
                     "fractional_shares": true,
@@ -18598,9 +19292,11 @@
               "schema": {
                 "$ref": "#/components/schemas/PortfolioAnalysisRequest",
                 "default": {
-                  "combined": false,
+                  "accounts": [],
+                  "group_mode": "combined",
                   "period": "1y",
                   "portfolio": 1,
+                  "portfolios": [],
                   "profile": {
                     "cash_to_invest": 0.0,
                     "fractional_shares": true,
@@ -18786,6 +19482,28 @@
           }
         },
         "summary": "Each holding's gain or loss over a window",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/v1/portfolio/contribution-limits": {
+      "get": {
+        "description": "Return this tax year's contribution limits for IRAs, employer plans, and HSAs, and\nnext year's once the IRS has published them, from the IRS's notices. No provider\npublishes them as data, so ``outdated`` says when they are older than this year.",
+        "operationId": "read_contribution_limits_api_v1_portfolio_contribution_limits_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContributionLimits"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "The IRS's yearly contribution limits",
         "tags": [
           "portfolio"
         ]

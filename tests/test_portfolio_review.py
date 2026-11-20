@@ -20,7 +20,12 @@ from app.data.panel import ClosePanel
 from app.db.session import get_sessionmaker
 from app.db.users import User, ai_usage, create_api_key
 from app.main import app
-from app.models.portfolio_analysis import PortfolioContext, PortfolioReview, TargetPosition
+from app.models.portfolio_analysis import (
+    AccountPlan,
+    PortfolioContext,
+    PortfolioReview,
+    TargetPosition,
+)
 from app.models.research import AnalysisDelta, RiskFactor
 from app.models.stock import TickerInfo
 from app.stats.portfolio_risk import portfolio_stats, ranked_pairs
@@ -428,9 +433,10 @@ def test_both_portfolios_are_reviewed_together_with_their_accounts(
     client.put("/api/v1/portfolio/holdings", params={"portfolio": 1}, json=brokerage)
     client.put("/api/v1/portfolio/holdings", params={"portfolio": 2}, json=roth)
 
-    body = client.post("/api/v1/portfolio/analysis", json={"combined": True}).json()
-    again = client.post("/api/v1/portfolio/analysis", json={"combined": True}).json()
-    latest = client.get("/api/v1/portfolio/analysis", params={"combined": True}).json()
+    both = {"portfolios": [1, 2]}
+    body = client.post("/api/v1/portfolio/analysis", json=both).json()
+    again = client.post("/api/v1/portfolio/analysis", json=both).json()
+    latest = client.get("/api/v1/portfolio/analysis", params=both).json()
     first_alone = client.get("/api/v1/portfolio/analysis", params={"portfolio": 1})
 
     context = market[0]
@@ -449,7 +455,7 @@ def test_both_portfolios_are_reviewed_together_with_their_accounts(
 
     roth["holdings"][1]["shares"] = 25
     client.put("/api/v1/portfolio/holdings", params={"portfolio": 2}, json=roth)
-    changed = client.post("/api/v1/portfolio/analysis", json={"combined": True}).json()
+    changed = client.post("/api/v1/portfolio/analysis", json=both).json()
     assert changed["cached"] is False, "a change to either account is a new review"
 
 
@@ -461,7 +467,7 @@ def test_the_combined_prompt_names_each_account(market: list[PortfolioContext]) 
         json={"name": "Roth IRA", "holdings": [{"symbol": "XOM", "shares": 20}]},
     )
 
-    exported = client.post("/api/v1/portfolio/analysis/prompt", json={"combined": True}).json()
+    exported = client.post("/api/v1/portfolio/analysis/prompt", json={"portfolios": [1, 2]}).json()
 
     assert '"account": "Roth IRA"' in exported["prompt"]
     assert "Roth IRA" in exported["prompt"] and "several of their accounts" in exported["prompt"]
@@ -654,8 +660,8 @@ def test_a_holding_with_little_history_is_still_reviewed(
     assert context.notice is not None and "still reviewed" in context.notice
 
 
-def test_every_saved_portfolio_is_reviewed_together(market: list[PortfolioContext]) -> None:
-    """A combined review covers each of the five portfolios that has holdings."""
+def test_the_portfolios_chosen_are_reviewed_together(market: list[PortfolioContext]) -> None:
+    """A review of several covers exactly the portfolios chosen, from two to five."""
     for number, holding in ((1, "AAPL"), (3, "MSFT"), (5, "XOM")):
         client.put(
             "/api/v1/portfolio/holdings",
@@ -663,11 +669,176 @@ def test_every_saved_portfolio_is_reviewed_together(market: list[PortfolioContex
             json={"holdings": [{"symbol": holding, "shares": 10}]},
         )
 
-    response = client.post("/api/v1/portfolio/analysis", json={"combined": True})
+    response = client.post("/api/v1/portfolio/analysis", json={"portfolios": [5, 1]})
+    alone = client.post("/api/v1/portfolio/analysis", json={"portfolios": [3]})
+    twice = client.post("/api/v1/portfolio/analysis", json={"portfolios": [3, 3]})
 
     assert response.status_code == 200, response.text
-    assert [a.account for a in market[0].accounts] == ["Portfolio 1", "Portfolio 3", "Portfolio 5"]
-    assert {h.symbol for h in market[0].holdings} == {"AAPL", "MSFT", "XOM"}
+    assert [a.account for a in market[0].accounts] == ["Portfolio 1", "Portfolio 5"]
+    assert {h.symbol for h in market[0].holdings} == {"AAPL", "XOM"}
+    assert market[0].group_mode == "combined"
+    assert response.json()["portfolios"] == [1, 5]
+    assert alone.status_code == twice.status_code == 422
+
+
+SEPARATE = REVIEW.model_copy(
+    update={
+        "target_allocation": [],
+        "account_plans": [
+            AccountPlan(
+                account="Brokerage",
+                headline="Trim Apple.",
+                plan_summary="Sell some Apple; keep Microsoft.",
+                new_cash=900.0,
+                target_allocation=[
+                    TargetPosition(
+                        symbol="AAPL", target_weight=0.4, order_type="market", rationale="Trim."
+                    ),
+                    TargetPosition(
+                        symbol="MSFT",
+                        keep=True,
+                        target_weight=0.5,
+                        order_type="market",
+                        rationale="Keep.",
+                    ),
+                    TargetPosition(
+                        symbol="VXUS", target_weight=0.1, order_type="market", rationale="Add."
+                    ),
+                ],
+            ),
+            AccountPlan(
+                account="Roth IRA",
+                headline="Hold the growth here.",
+                plan_summary="Put the new money into Apple.",
+                new_cash=900.0,
+                target_allocation=[
+                    TargetPosition(
+                        symbol="XOM", target_weight=0.5, order_type="market", rationale="Hold."
+                    ),
+                    TargetPosition(
+                        symbol="AAPL", target_weight=0.5, order_type="market", rationale="Grow."
+                    ),
+                ],
+            ),
+            AccountPlan(
+                account="Not an account",
+                headline="x",
+                plan_summary="x",
+                new_cash=5.0,
+                target_allocation=[],
+            ),
+        ],
+    }
+)
+
+
+def test_separate_accounts_each_get_their_own_plan_and_orders(
+    market: list[PortfolioContext], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client.put(
+        "/api/v1/portfolio/holdings",
+        params={"portfolio": 1},
+        json={
+            "name": "Brokerage",
+            "holdings": [{"symbol": "AAPL", "shares": 10}, {"symbol": "MSFT", "shares": 5}],
+        },
+    )
+    client.put(
+        "/api/v1/portfolio/holdings",
+        params={"portfolio": 2},
+        json={"name": "Roth IRA", "holdings": [{"symbol": "XOM", "shares": 20}]},
+    )
+    saved = client.put(
+        "/api/v1/portfolio/account",
+        params={"portfolio": 2},
+        json={"account_type": "roth_ira", "contribution_room": 100},
+    )
+
+    async def write(context: PortfolioContext, *, client: Any) -> tuple[PortfolioReview, str]:
+        market.append(context)
+        return SEPARATE, "claude-opus-5-5"
+
+    monkeypatch.setattr(portfolio, "write_portfolio_review", write)
+    request = {
+        "portfolios": [1, 2],
+        "group_mode": "separate",
+        "profile": {"cash_to_invest": 1000, "risk_tolerance": "moderate"},
+        "accounts": [
+            {"portfolio": 1, "cash_available": 250},
+            {"portfolio": 2, "risk_tolerance": "aggressive", "horizon_years": 30},
+        ],
+    }
+    body = client.post("/api/v1/portfolio/analysis", json=request).json()
+    first = client.get("/api/v1/portfolio/analysis", params={"portfolio": 1}).json()
+    combined = client.get(
+        "/api/v1/portfolio/analysis", params={"portfolios": [1, 2], "mode": "combined"}
+    )
+
+    assert saved.json()["account_type"] == "roth_ira" and saved.json()["name"] == "Roth IRA"
+    context = market[0]
+    assert context.group_mode == "separate"
+    brokerage, roth = context.accounts
+    assert brokerage.cash_available == 250 and brokerage.risk_tolerance is None
+    assert roth.account_type == "roth_ira" and roth.contribution_room == 100
+    assert roth.risk_tolerance == "aggressive" and roth.horizon_years == 30
+    assert roth.tax_treatment is not None and "tax-free" in roth.tax_treatment
+    assert context.contribution_limits is not None, "a Roth IRA is capped"
+    plans = body["report"]["account_plans"]
+    assert [p["account"] for p in plans] == ["Brokerage", "Roth IRA"], "the unknown one is dropped"
+    assert plans[1]["new_cash"] == 100, "held to the Roth IRA's room"
+    assert plans[0]["new_cash"] == 900
+    assert body["plan"] is None and body["report"]["target_allocation"] == []
+    orders = {o["account"]: o["plan"] for o in body["account_orders"]}
+    # The brokerage has $4,000 of stock, $250 of cash, and $900 of new cash.
+    assert orders["Brokerage"]["total_value"] == pytest.approx(5150)
+    assert {t["symbol"] for t in orders["Brokerage"]["trades"]} == {"AAPL", "VXUS"}
+    assert any("Place these orders in Brokerage" in n for n in orders["Brokerage"]["notes"])
+    # The Roth IRA: $2,000 of XOM and $100 of new cash, half of it to go into Apple.
+    apple = next(t for t in orders["Roth IRA"]["trades"] if t["symbol"] == "AAPL")
+    assert apple["action"] == "buy" and apple["price"] == 200.0
+    assert first["id"] == body["id"], "a separate review is each member's latest"
+    assert combined.status_code == 404
+
+
+def test_account_settings_are_saved_and_listed(market: list[PortfolioContext]) -> None:
+    _save({"AAPL": 10})
+    client.put("/api/v1/portfolio/account", params={"portfolio": 1}, json={"account_type": "hsa"})
+    renamed = client.put(
+        "/api/v1/portfolio/holdings",
+        params={"portfolio": 1},
+        json={"name": "Health", "holdings": [{"symbol": "AAPL", "shares": 10}]},
+    )
+    listed = client.get("/api/v1/portfolio/portfolios").json()["portfolios"]
+    bad = client.put(
+        "/api/v1/portfolio/account", params={"portfolio": 1}, json={"account_type": "piggy"}
+    )
+
+    assert renamed.status_code == 200
+    assert (listed[0]["name"], listed[0]["account_type"]) == ("Health", "hsa"), "renaming keeps it"
+    assert listed[1]["account_type"] is None
+    assert bad.status_code == 422
+
+    client.post("/api/v1/portfolio/analysis", json={})
+    one = market[0].accounts
+    assert len(one) == 1 and one[0].account_type_name == "Health savings account (HSA)"
+
+
+def test_the_contribution_limits_say_when_they_may_be_outdated() -> None:
+    from datetime import date
+
+    from app.data.contribution_limits import contribution_limits
+
+    now = contribution_limits(date(2026, 11, 19))
+    later = contribution_limits(date(2029, 3, 1))
+
+    assert now.current.year == 2026 and now.next is not None and now.next.year == 2027
+    ira = now.current.limits[0]
+    assert (ira.limit, ira.catch_up_50) == (7_500, 1_100)
+    assert not now.outdated
+    assert later.outdated and later.current.year == 2027 and later.next is None
+    assert "likely higher" in later.notes[0]
+    response = client.get("/api/v1/portfolio/contribution-limits")
+    assert response.status_code == 200 and response.json()["current"]["limits"]
 
 
 def test_a_review_that_searches_the_web_is_written_from_its_findings(

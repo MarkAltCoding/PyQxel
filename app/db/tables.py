@@ -244,7 +244,8 @@ class SimulationRecord(Base):
 
 
 class PortfolioRecord(Base):
-    """The name an account gave one of its saved portfolios; unnamed ones have no row."""
+    """The name an account gave one of its saved portfolios, and what kind of account it
+    is; portfolios with neither have no row."""
 
     __tablename__ = "portfolios"
 
@@ -254,6 +255,10 @@ class PortfolioRecord(Base):
     portfolio: Mapped[int] = mapped_column(Integer, primary_key=True)
     """Which of the account's portfolios, from 1."""
     name: Mapped[str] = mapped_column(String(40))
+    account_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    """What kind of account it is, such as ``roth_ira``; null when not said."""
+    contribution_room: Mapped[float | None] = mapped_column(Float, nullable=True)
+    """How much more may be put into it this tax year, in dollars; null when not said."""
 
 
 class HoldingRecord(Base):
@@ -289,7 +294,12 @@ class PortfolioAnalysisRecord(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     portfolio: Mapped[int] = mapped_column(Integer, server_default="1")
-    """Which of the account's portfolios it reviews."""
+    """Which of the account's portfolios it reviews; 0 for a review of several."""
+    group_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    """For a review of several portfolios, ``combined`` (as one) or ``separate`` (each with
+    its own plan); null for one portfolio's, and for a review of all stored before groups."""
+    group_members: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    """The portfolios a review of several covers, as ``,1,3,``."""
     period: Mapped[str] = mapped_column(String(8))
     holdings_key: Mapped[str] = mapped_column(String(64))
     requested_model: Mapped[str] = mapped_column(String(64))

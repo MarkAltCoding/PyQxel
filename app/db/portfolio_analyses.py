@@ -1,10 +1,11 @@
 """Storage of AI-written portfolio reviews, and of the coding assistant's answer count."""
 
 import hashlib
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.tables import AssistantRequestRecord, PortfolioAnalysisRecord
@@ -19,6 +20,20 @@ def holdings_key(holdings: list[HoldingShares], profile: str = "") -> str:
     return hashlib.sha256(f"{text}|{profile}".encode()).hexdigest()
 
 
+@dataclass(frozen=True)
+class ReviewGroup:
+    """Which portfolios a review of several covers, and how it reviewed them."""
+
+    mode: str
+    """``combined`` or ``separate``."""
+    members: list[int]
+
+    @property
+    def key(self) -> str:
+        """The members as stored: ``,1,3,``, so one can be matched as ``,3,``."""
+        return "," + ",".join(str(number) for number in sorted(self.members)) + ","
+
+
 def _response(record: PortfolioAnalysisRecord) -> PortfolioAnalysisResponse:
     return PortfolioAnalysisResponse.model_validate({**record.result, "id": record.id})
 
@@ -31,9 +46,10 @@ async def save_portfolio_analysis(
     requested_model: str,
     effort: str,
     portfolio: int = 1,
+    group: ReviewGroup | None = None,
 ) -> PortfolioAnalysisResponse:
     """Store ``response``, written for the holdings ``key`` of ``user_id``'s
-    ``portfolio``; return it with its ID.
+    ``portfolio``, or of the portfolios ``group`` names; return it with its ID.
 
     Raises:
         sqlalchemy.exc.SQLAlchemyError: If the database cannot be written.
@@ -45,6 +61,8 @@ async def save_portfolio_analysis(
             user_id=user_id,
             created_at=saved.generated_at,
             portfolio=portfolio,
+            group_mode=None if group is None else group.mode,
+            group_members=None if group is None else group.key,
             period=saved.period,
             holdings_key=key,
             requested_model=requested_model,
@@ -88,15 +106,27 @@ async def find_recent_portfolio_analysis(
 
 
 async def latest_portfolio_analysis(
-    session: AsyncSession, user_id: str, portfolio: int = 1
+    session: AsyncSession, user_id: str, portfolio: int = 1, group: ReviewGroup | None = None
 ) -> PortfolioAnalysisResponse | None:
-    """The account's newest review of ``portfolio``, whatever it was written for."""
+    """The account's newest review of ``portfolio``, whatever it was written for, or of
+    the portfolios ``group`` names, reviewed as it says. A portfolio's newest review may be
+    one of several portfolios that gave each its own plan (``separate``)."""
+    if group is not None:
+        which = and_(
+            PortfolioAnalysisRecord.group_mode == group.mode,
+            PortfolioAnalysisRecord.group_members == group.key,
+        )
+    else:
+        which = or_(
+            PortfolioAnalysisRecord.portfolio == portfolio,
+            and_(
+                PortfolioAnalysisRecord.group_mode == "separate",
+                PortfolioAnalysisRecord.group_members.contains(f",{portfolio},"),
+            ),
+        )
     record = await session.scalar(
         select(PortfolioAnalysisRecord)
-        .where(
-            PortfolioAnalysisRecord.user_id == user_id,
-            PortfolioAnalysisRecord.portfolio == portfolio,
-        )
+        .where(PortfolioAnalysisRecord.user_id == user_id, which)
         .order_by(PortfolioAnalysisRecord.created_at.desc())
         .limit(1)
     )

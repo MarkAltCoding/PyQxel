@@ -7,6 +7,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints, model_validator
 
+from app.models.accounts import AccountSettings
 from app.models.stock import SYMBOL_PATTERN
 
 MAX_SYMBOLS: int = 40
@@ -347,8 +348,8 @@ class HoldingRangesResponse(BaseModel):
     ranges: list[HoldingRange]
 
 
-class PortfolioSummary(BaseModel):
-    """One of the account's portfolio slots, without prices."""
+class PortfolioSummary(AccountSettings):
+    """One of the account's portfolio slots, without prices, and what kind of account it is."""
 
     portfolio: PortfolioNumber
     name: str

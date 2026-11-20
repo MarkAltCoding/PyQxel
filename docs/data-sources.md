@@ -359,6 +359,18 @@ follows the same rule as every other source: one user's key, one user's results.
   to name the publisher and date of anything it finds, since there are no numbered
   findings outside the app.
 
+## Retirement account contribution limits
+
+The yearly limits for IRAs, employer plans, SIMPLE and SEP IRAs, and HSAs
+(`app/data/contribution_limits.py`) come from the IRS's own documents: Notice 2026-66 and
+news release IR-2026-136 for 2027 (published November 12, 2026, restating the 2026
+figures), and Revenue Procedure 2026-24 for 2027's HSA limits. No provider here (Tiingo,
+FMP, EODHD, Finnhub, Alpha Vantage) and no IRS service publishes them as data to fetch,
+so they are entered by hand: add the next year each October or November, when the IRS
+announces it (HSA limits come in the spring), and update `CHECKED_ON`. Once the calendar
+year passes the newest year there, `contribution_limits()` sets `outdated` and the app
+warns that the figures are likely too low.
+
 ## What Claude's picks are given, and what it costs
 
 Each list of picks is made from data that is nearly all on hand already:

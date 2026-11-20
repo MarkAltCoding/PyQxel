@@ -60,12 +60,28 @@ const review = (headline: string) => ({
   disclaimer: 'Not investment advice.',
 })
 
-function renderCard(props: { hasHoldings: boolean; stale: boolean; canCombine?: boolean }) {
+const PORTFOLIOS = [
+  { portfolio: 1, name: 'Brokerage', holdings: 3, account_type: 'taxable' },
+  { portfolio: 2, name: 'Roth IRA', holdings: 2, account_type: 'roth_ira', contribution_room: 100 },
+  { portfolio: 3, name: 'HSA', holdings: 1 },
+  { portfolio: 4, name: 'Portfolio 4', holdings: 0 },
+] as const
+
+function renderCard(props: {
+  hasHoldings: boolean
+  stale: boolean
+  portfolios?: readonly (typeof PORTFOLIOS)[number][]
+}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <PortfolioReviewCard portfolio={2} {...props} />
+        <PortfolioReviewCard
+          portfolio={2}
+          hasHoldings={props.hasHoldings}
+          stale={props.stale}
+          portfolios={props.portfolios?.map((p) => ({ ...p }))}
+        />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -120,7 +136,6 @@ describe('PortfolioReviewCard', () => {
     expect(posted).toEqual([
       {
         portfolio: 2,
-        combined: false,
         period: '1y',
         web_search: true,
         refresh: true,
@@ -158,7 +173,7 @@ describe('PortfolioReviewCard', () => {
     expect(posted[0]?.profile).toMatchObject({ horizon_years: 0.5, cash_to_invest: 1500 })
   })
 
-  it('reviews both portfolios together when chosen, and keeps that review apart', async () => {
+  it('reviews the portfolios chosen as one, keeping that review apart', async () => {
     const posted: Record<string, unknown>[] = []
     const read: string[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -167,6 +182,8 @@ describe('PortfolioReviewCard', () => {
         const result = {
           ...review('One household portfolio.'),
           cached: false,
+          group_mode: 'combined',
+          portfolios: [1, 2],
           context: {
             ...review('').context,
             accounts: [
@@ -180,17 +197,114 @@ describe('PortfolioReviewCard', () => {
       read.push(String(input))
       return new Response(JSON.stringify({ detail: 'No portfolio review yet.' }), { status: 404 })
     })
-    renderCard({ hasHoldings: true, stale: false, canCombine: true })
+    renderCard({ hasHoldings: true, stale: false, portfolios: PORTFOLIOS })
 
-    await userEvent.click(await screen.findByRole('button', { name: 'All together' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Review all together' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Several together' }))
+    // Every portfolio with holdings starts chosen; the empty one is not offered.
+    expect(screen.queryByRole('checkbox', { name: /Portfolio 4/ })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('checkbox', { name: /HSA/ }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Review them together' }))
 
     expect(await screen.findByText('One household portfolio.')).toBeInTheDocument()
     expect(
-      screen.getByText(/Covers Brokerage \(\$6,000\) and Roth IRA \(\$4,000\) together/),
+      screen.getByText(/Covers Brokerage \(\$6,000\) and Roth IRA \(\$4,000\) together, as one/),
     ).toBeInTheDocument()
-    expect(posted[0]).toMatchObject({ combined: true })
-    expect(read.at(-1)).toContain('combined=true')
+    expect(posted[0]).toMatchObject({ portfolios: [1, 2], group_mode: 'combined', accounts: [] })
+    expect(posted[0]).not.toHaveProperty('portfolio')
+    expect(read.at(-1)).toContain('portfolios=1&portfolios=2&mode=combined')
+  })
+
+  it('gives each account its own goals and cash, with new cash entered once', async () => {
+    const posted: Record<string, unknown>[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (init?.method === 'POST') {
+        posted.push(JSON.parse(String(init.body)))
+        const base = review('Two plans.')
+        const result = {
+          ...base,
+          cached: false,
+          group_mode: 'separate',
+          portfolios: [1, 2],
+          plan: null,
+          report: {
+            ...base.report,
+            target_allocation: [],
+            account_plans: [
+              {
+                account: 'Roth IRA',
+                headline: 'Grow it here.',
+                plan_summary: 'Buy the fund.',
+                new_cash: 100,
+                target_allocation: [
+                  { symbol: 'VXUS', target_weight: 1, order_type: 'market', rationale: 'Add.' },
+                ],
+              },
+            ],
+          },
+          account_orders: [{ account: 'Roth IRA', portfolio: 2, plan: base.plan }],
+          context: {
+            ...base.context,
+            accounts: [
+              { account: 'Roth IRA', value: 4000, holdings: 2, account_type_name: 'Roth IRA' },
+            ],
+          },
+        }
+        return new Response(`event: result\ndata: ${JSON.stringify(result)}\n\n`)
+      }
+      if (String(input).includes('contribution-limits')) {
+        return new Response(
+          JSON.stringify({
+            as_of: '2026-11-19',
+            outdated: false,
+            current: {
+              year: 2026,
+              limits: [{ account: 'Traditional and Roth IRAs', limit: 7500, catch_up_50: 1100 }],
+              roth_ira_phase_out_single: [153000, 168000],
+              roth_ira_phase_out_joint: [242000, 252000],
+              source: 'IRS',
+              source_url: 'https://www.irs.gov/',
+            },
+            next: null,
+            notes: ['The limits rise with inflation.'],
+          }),
+        )
+      }
+      return new Response(JSON.stringify({ detail: 'No portfolio review yet.' }), { status: 404 })
+    })
+    renderCard({ hasHoldings: true, stale: false, portfolios: PORTFOLIOS })
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Several together' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: /HSA/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Each with its own plan' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Goals for each account' }))
+    await userEvent.click(screen.getByText('Tailor the plan to your goals (optional)'))
+
+    expect(screen.queryByRole('group', { name: 'Risk tolerance' })).not.toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('New cash to invest, in dollars'), '500')
+    await userEvent.type(screen.getByLabelText('Cash in Brokerage to trade, in dollars'), '250')
+    await userEvent.click(
+      within(screen.getByRole('group', { name: 'Risk tolerance for Roth IRA' })).getByRole(
+        'button',
+        { name: 'Aggressive' },
+      ),
+    )
+    await userEvent.type(screen.getByLabelText('Horizon for Roth IRA'), '30')
+    expect(screen.getByText(/\$100 room left/)).toBeInTheDocument()
+    expect(await screen.findByText(/Yearly contribution limits \(2026\)/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Review them together' }))
+
+    await userEvent.click(await screen.findByRole('tab', { name: /Plans/ }))
+    expect(await screen.findByText('Grow it here.')).toBeInTheDocument()
+    expect(screen.getByText('Deposit $100 of the new cash here')).toBeInTheDocument()
+    expect(posted[0]).toMatchObject({
+      portfolios: [1, 2],
+      group_mode: 'separate',
+      profile: { cash_to_invest: 500 },
+      accounts: [
+        { portfolio: 1, cash_available: 250, risk_tolerance: null },
+        { portfolio: 2, cash_available: 0, risk_tolerance: 'aggressive', horizon_years: 30 },
+      ],
+    })
   })
 
   it('shows cash as Cash or its fund, never the ticker CASH, and holds as holds', async () => {

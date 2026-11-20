@@ -92,6 +92,56 @@ test('a holding set to 0 shares is removed when the portfolio is saved', async (
   await openPortfolio(page, 1)
 })
 
+test('a portfolio is set as a Roth IRA, and several are reviewed each with its own plan', async ({
+  page,
+}) => {
+  await page.goto('/portfolio')
+  const load = page.getByRole('button', { name: 'Load', exact: true })
+  if (await load.isVisible().catch(() => false)) await load.click()
+
+  // A second portfolio with a holding, so there are several to review together.
+  await openPortfolio(page, 4)
+  await page.getByRole('combobox', { name: 'Add a holding' }).fill('CHARL')
+  await page.getByRole('option', { name: /CHARL/ }).first().click()
+  await page.getByLabel('Shares of CHARL').fill('1')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+
+  const type = page.getByRole('combobox', { name: 'Account type' })
+  await type.selectOption('roth_ira')
+  const room = page.getByLabel('Room left to contribute this year, in dollars')
+  await expect(room).toBeVisible()
+  await room.fill('100')
+  await room.blur()
+  const holdings = page.locator('#holdings')
+  await holdings.getByText(/Yearly contribution limits/).click()
+  await expect(holdings.getByText(/These limits are for the 2026 and 2027 tax years/)).toBeVisible()
+  await page.reload()
+  if (await load.isVisible().catch(() => false)) await load.click()
+  await expect(page.getByRole('combobox', { name: 'Account type' })).toHaveValue('roth_ira')
+  await expect(page.getByLabel('Room left to contribute this year, in dollars')).toHaveValue('100')
+
+  const review = page.locator('#ai-review')
+  await review.getByRole('button', { name: 'Several together', exact: true }).click()
+  await expect(review.getByRole('checkbox', { name: /Portfolio 1/ })).toBeChecked()
+  await expect(review.getByRole('checkbox', { name: /Portfolio 4 · Roth IRA/ })).toBeChecked()
+  await review.getByRole('button', { name: 'Each with its own plan', exact: true }).click()
+  await review.getByRole('button', { name: 'Goals for each account', exact: true }).click()
+  await review.getByText('Tailor the plan to your goals (optional)').click()
+  await expect(review.getByLabel('Cash in Portfolio 1 to trade, in dollars')).toBeVisible()
+  await expect(review.getByLabel('Horizon for Portfolio 4')).toBeVisible()
+  await expect(review.getByText(/\$100 room left/)).toBeVisible()
+  await expect(review.getByLabel('New cash to invest, in dollars')).toHaveCount(1)
+
+  // Left as the other tests expect it.
+  await review.getByRole('button', { name: 'This portfolio' }).click()
+  await page.getByRole('combobox', { name: 'Account type' }).selectOption('')
+  await page.getByRole('button', { name: 'Remove CHARL' }).click()
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+  await openPortfolio(page, 1)
+})
+
 test('Claude’s picks are shown, and the screener can list them alone', async ({ page }, info) => {
   test.skip(info.project.name === 'phone', 'The results table is checked at desktop width.')
   await page.goto('/screener/picks')

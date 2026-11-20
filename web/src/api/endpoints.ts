@@ -2,6 +2,10 @@
 import { api, ApiError, send } from './client'
 import type {
   Account,
+  AccountSettings,
+  ContributionLimits,
+  GroupMode,
+  PortfolioSummary,
   AppSignInKey,
   LinkAddress,
   RenewedKey,
@@ -236,21 +240,27 @@ export const getHoldingRanges = (symbols: string[]) =>
   api<HoldingRangesResponse>(`${V1}/portfolio/ranges`, {
     query: { symbols: symbols.join(',') },
   })
-/** The latest stored review of a portfolio, or of every one together when `combined`, or
- * null when there is none yet. */
+/** The latest stored review of a portfolio, or of several together when `group` names
+ * them and how they were reviewed, or null when there is none yet. */
 export const getPortfolioReview = async (
   portfolio: number,
-  combined = false,
+  group?: { portfolios: number[]; mode: GroupMode },
 ): Promise<PortfolioAnalysisResponse | null> => {
   try {
     return await api<PortfolioAnalysisResponse>(`${V1}/portfolio/analysis`, {
-      query: { portfolio, combined },
+      query: group ? { portfolios: group.portfolios.map(String), mode: group.mode } : { portfolio },
     })
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null
     throw error
   }
 }
+/** Says what kind of account a portfolio is, and how much more may go into it. */
+export const saveAccountSettings = (portfolio: number, body: AccountSettings) =>
+  api<PortfolioSummary>(`${V1}/portfolio/account`, { method: 'PUT', query: { portfolio }, body })
+/** The IRS's yearly contribution limits for this tax year, and the next once published. */
+export const getContributionLimits = () =>
+  api<ContributionLimits>(`${V1}/portfolio/contribution-limits`)
 export const streamPortfolioReview = (body: PortfolioAnalysisRequest, signal: AbortSignal) =>
   send(`${V1}/portfolio/analysis/stream`, { method: 'POST', body, signal })
 export const exportPortfolioPrompt = (body: PortfolioAnalysisRequest) =>

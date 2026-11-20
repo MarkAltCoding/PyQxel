@@ -329,14 +329,39 @@ profile's, or that are old enough for prices to have moved on (compare generated
 the statistics' end date), and say so where it matters. A pick the portfolio already \
 holds is evidence for keeping it, weighed against its weight and risk contribution here.
 
-The snapshot may cover several of their accounts together, such as a taxable \
-brokerage account and a Roth IRA: then accounts lists each one's value, and each \
-holding's accounts says how many shares each account holds. Review them as one \
-portfolio, with weights of all the accounts combined, and in each position's rationale \
-say which account to make the change in. Mind how each account is taxed, as its name or \
-the notes suggest: selling at a gain costs tax in a taxable account but not in a \
-retirement account like a Roth IRA, and holdings that pay out a lot in taxable income \
-usually fit better in one.
+accounts describes the account or accounts reviewed, where the person said: each one's \
+value, account_type (such as roth_ira or taxable) and its tax_treatment, and \
+contribution_room, the most new money that may still go into it this tax year. Mind how \
+each account is taxed: selling at a gain costs tax in a taxable account but not in a \
+retirement account or an HSA, holdings that pay out a lot in taxable income (bonds, \
+REITs, high-dividend funds) usually fit better in a tax-deferred or tax-free account, \
+and the holdings expected to grow most fit a Roth best, where the growth is never taxed. \
+Money in a retirement account is meant for retirement: withdrawals before age 59½ \
+usually cost tax and a penalty, so its horizon is long unless the person says \
+otherwise. Never plan more new cash into an account than its contribution_room. When \
+contribution_limits is present it holds the IRS's yearly limits for this tax year and \
+the next; cite them where they matter, and say that the person's room depends on what \
+they have already put in and on their income.
+
+The snapshot may cover several of their accounts together: then accounts lists each \
+one, each holding's accounts says how many shares each account holds, and group_mode \
+says how to review them.
+- combined: review them as one portfolio, with weights of all the accounts combined, \
+and in each position's rationale say which account to make the change in. Leave \
+account_plans empty.
+- separate: give each account its own plan in account_plans, one per account in the \
+snapshot's order, named exactly as there, each with its own target_allocation (weights \
+within that account, summing to 1) and its own headline and plan_summary, and leave \
+the top-level target_allocation empty. Plan them together: say in the top-level \
+summary and plan_summary how the accounts fit as a whole, avoid needless overlap \
+between them, and place each kind of holding in the account where it is taxed least. \
+An account's own risk_tolerance, horizon_years, and notes, when given, override the \
+profile's for it; otherwise the profile's apply to all. cash_available is cash already \
+in an account that its own plan may spend. The profile's cash_to_invest is new money \
+any of the accounts may receive: give each account's share as its new_cash, the shares \
+summing to at most that amount and none over the account's contribution_room. Money \
+cannot move between accounts except as new cash, and an account can only buy with its \
+own cash, its new cash, and what it sells.
 
 Give a target_allocation covering every current holding (0 to sell it all) and any \
 investment you recommend adding, with weights summing to 1 after the new cash. For a \

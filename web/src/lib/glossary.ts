@@ -685,10 +685,10 @@ const entries = {
     note: 'Cash counts as no gain. Holdings without a gain or loss (too new, or no prices) are left out of the totals’ gains.',
   },
   combinedReview: {
-    title: 'Review all your portfolios together',
-    what: 'One review of all your saved portfolios as a single, overall portfolio, such as a brokerage account and a Roth IRA together. Claude sees which account holds what, and says which account each change belongs in, with taxes in mind.',
+    title: 'Review several portfolios together',
+    what: 'Review this portfolio on its own, or choose two to five of your saved portfolios to review in one go, such as a brokerage account and a Roth IRA. Claude sees which account holds what. Review them as one portfolio, with one plan, or each with its own plan and orders, planned together.',
     good: 'Cheaper than reviewing each one, and better advice: overlap and gaps across accounts show up only when they are seen together.',
-    note: 'Say what each account is (taxable, Roth IRA, 401(k)…) in its name or in “Anything else”, so the plan can account for taxes.',
+    note: 'A review of several as one portfolio is kept apart from each portfolio’s own reviews. A review giving each its own plan also shows as each one’s latest review. Set each portfolio’s account type (Roth IRA, 401(k)…) above its holdings so the plan accounts for taxes and contribution limits.',
   },
   dataCoverage: {
     title: 'Market data, by kind',
@@ -795,6 +795,29 @@ const entries = {
     what: 'Before writing, Claude searches the web for what PyQxel’s own data cannot show: the latest results and guidance, analyst actions, deals, legal or regulatory news, and the economic backdrop. Every fact it brings back is listed under the report with the pages it came from, and the report cites it by number, such as [3].',
     good: 'Worth it when recent news matters: a stock around its earnings, a portfolio after a market move, or picks for a short holding period.',
     note: 'On by default. It costs a little more, billed by Anthropic to your key: about 1 cent per search, with up to six searches, plus the tokens to read the results, typically a few cents in all. It also takes a minute or so longer. A report that searches the web is always written anew, never reused. When you use Claude outside the app, this choice goes into the prompt: checked, Claude is told to search the web itself and name its sources; unchecked, to keep to PyQxel’s data.',
+  },
+  accountType: {
+    title: 'Account type',
+    what: 'What kind of account holds this portfolio: an ordinary taxable brokerage account, an IRA (traditional, Roth, rollover, SEP, or SIMPLE), an employer plan such as a 401(k) or 403(b), a health savings account, or a 529 plan. Reviews use it to weigh taxes: selling at a gain costs tax only in a taxable account, and some holdings belong where they are taxed least.',
+    note: 'Saved with the portfolio, so every review of it knows, and the review never plans more new money into a capped account than you say it has room for.',
+  },
+  contributionRoom: {
+    title: 'Room left to contribute this year',
+    what: 'The most new money you may still put into this account this tax year: the year’s limit, less what you have already put in (in every account sharing the limit, such as all your IRAs), and never more than you earned. For example, someone who earned $3,500 this year and has put $3,400 into a Roth IRA has $100 of room left.',
+    note: 'A review puts no more of your new cash into the account than this. Leave it empty if you are not sure; the review then gives the yearly limits instead.',
+  },
+  groupReviewMode: {
+    title: 'How to review them',
+    what: '“As one portfolio” looks at the accounts as a single whole: one plan, one set of weights, and in each position’s reason, which account to make the change in. “Each with its own plan” writes a plan and orders for each account, planned together with the others in mind, such as where each kind of holding is taxed least.',
+    good: 'Each with its own plan costs one review instead of one per account, and keeps each account’s orders apart.',
+  },
+  accountCash: {
+    title: 'Cash in the account to trade',
+    what: 'Cash already sitting in this account, not counting a money-market fund it holds, that its plan may spend. New cash to invest is separate: it is new money, entered once, that the review divides among the accounts.',
+  },
+  accountGoals: {
+    title: 'Goals for each account',
+    what: 'Give each account its own risk tolerance, horizon, notes, and the cash already in it to trade with, or use the same goals for all of them. New cash to invest is entered once: the review decides how much of it goes into each account, within each one’s contribution room.',
   },
   savedPicks: {
     title: 'Saved Claude’s picks',

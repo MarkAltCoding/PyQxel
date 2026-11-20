@@ -1062,6 +1062,28 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/portfolio/account': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    /**
+     * Say what kind of account a portfolio is
+     * @description Save what kind of account ``portfolio`` is, such as a Roth IRA, and how much more
+     *     may be put into it this tax year. Every review of it is told both. Returns 503 when
+     *     the database is unavailable.
+     */
+    put: operations['write_account_settings_api_v1_portfolio_account_put']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/portfolio/analysis': {
     parameters: {
       query?: never
@@ -1071,9 +1093,10 @@ export interface paths {
     }
     /**
      * Your latest portfolio review
-     * @description Return your newest stored review of ``portfolio``, or with ``combined`` of every
-     *     portfolio together, whatever it was written for, so it can be shown again without a
-     *     charge. Returns 404 when you have none.
+     * @description Return your newest stored review of ``portfolio``, or of ``portfolios`` together as
+     *     ``mode`` says, whatever it was written for, so it can be shown again without a charge.
+     *     A portfolio's newest review may be one of several portfolios each given its own plan
+     *     (``separate``), which it was one of. Returns 404 when you have none.
      */
     get: operations['read_portfolio_review_api_v1_portfolio_analysis_get']
     put?: never
@@ -1236,6 +1259,28 @@ export interface paths {
      *     :func:`upstream_error` when no holding's prices can be fetched.
      */
     get: operations['read_changes_api_v1_portfolio_changes_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/portfolio/contribution-limits': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * The IRS's yearly contribution limits
+     * @description Return this tax year's contribution limits for IRAs, employer plans, and HSAs, and
+     *     next year's once the IRS has published them, from the IRS's notices. No provider
+     *     publishes them as data, so ``outdated`` says when they are older than this year.
+     */
+    get: operations['read_contribution_limits_api_v1_portfolio_contribution_limits_get']
     put?: never
     post?: never
     delete?: never
@@ -2234,6 +2279,105 @@ export interface components {
       usage: components['schemas']['AiUsage']
     }
     /**
+     * AccountGoals
+     * @description What one portfolio's own plan is tailored to, in a ``separate`` review of several.
+     *     A goal left null is the shared profile's.
+     */
+    AccountGoals: {
+      /**
+       * Cash Available
+       * @description Cash already in this account that may be traded with, in dollars, besides any money-market fund it holds.
+       * @default 0
+       */
+      cash_available?: number
+      /**
+       * Horizon Years
+       * @description Years until it is needed.
+       */
+      horizon_years?: number | null
+      /** Notes */
+      notes?: string | null
+      /** Portfolio */
+      portfolio: number
+      /** Risk Tolerance */
+      risk_tolerance?: ('conservative' | 'moderate' | 'aggressive') | null
+    }
+    /**
+     * AccountOrders
+     * @description The orders that carry out one account's own plan.
+     */
+    AccountOrders: {
+      /** Account */
+      account: string
+      plan?: components['schemas']['RebalancePlan'] | null
+      /** Portfolio */
+      portfolio?: number | null
+    }
+    /**
+     * AccountPlan
+     * @description One account's own plan, in a review of several accounts each with its own.
+     */
+    AccountPlan: {
+      /**
+       * Account
+       * @description The account's name, exactly as in the snapshot.
+       */
+      account: string
+      /**
+       * Headline
+       * @description One sentence on this account and its plan.
+       */
+      headline: string
+      /**
+       * New Cash
+       * @description How much of the profile's new cash to invest goes into this account, in dollars; the accounts' shares sum to at most that cash, and none exceeds the account's contribution_room when one is given.
+       */
+      new_cash: number
+      /**
+       * Plan Summary
+       * @description This account's plan in a paragraph: what to change and why, how it fits the other accounts, and what it is tailored to.
+       */
+      plan_summary: string
+      /**
+       * Target Allocation
+       * @description Every holding of this account and any new investment in it with its target weight within the account; a holding to sell entirely gets 0. Weights sum to 1.
+       */
+      target_allocation: components['schemas']['TargetPosition'][]
+    }
+    /**
+     * AccountSettings
+     * @description What kind of account a saved portfolio is, and how much more may go into it.
+     */
+    AccountSettings: {
+      /**
+       * Account Type
+       * @description What kind of account it is; null when not said.
+       */
+      account_type?:
+        | (
+            | 'taxable'
+            | 'traditional_ira'
+            | 'roth_ira'
+            | 'rollover_ira'
+            | 'sep_ira'
+            | 'simple_ira'
+            | 'traditional_401k'
+            | 'roth_401k'
+            | '403b'
+            | '457b'
+            | 'solo_401k'
+            | 'hsa'
+            | '529'
+            | 'other'
+          )
+        | null
+      /**
+       * Contribution Room
+       * @description The most new money that may still be put into it this tax year, in dollars, as the person works it out: the year's limit, less what they have put in, and no more than they earned. Null when not said or not capped.
+       */
+      contribution_room?: number | null
+    }
+    /**
      * AccountShares
      * @description How many shares of a holding one account holds, in a review of several accounts.
      */
@@ -2248,7 +2392,8 @@ export interface components {
     }
     /**
      * AccountValue
-     * @description One of the accounts reviewed together, with its value at the latest prices.
+     * @description One of the accounts reviewed, with its value at the latest prices, what kind of
+     *     account it is, and, in a ``separate`` review, its own goals and cash.
      */
     AccountValue: {
       /**
@@ -2257,10 +2402,70 @@ export interface components {
        */
       account: string
       /**
+       * Account Type
+       * @description What kind of account it is; null when not said.
+       */
+      account_type?:
+        | (
+            | 'taxable'
+            | 'traditional_ira'
+            | 'roth_ira'
+            | 'rollover_ira'
+            | 'sep_ira'
+            | 'simple_ira'
+            | 'traditional_401k'
+            | 'roth_401k'
+            | '403b'
+            | '457b'
+            | 'solo_401k'
+            | 'hsa'
+            | '529'
+            | 'other'
+          )
+        | null
+      /** Account Type Name */
+      account_type_name?: string | null
+      /**
+       * Cash Available
+       * @description Cash in it to trade with, besides money-market funds.
+       * @default 0
+       */
+      cash_available?: number
+      /**
+       * Contribution Room
+       * @description The most new money that may still go into it this tax year, in dollars, as the person entered it; null when not said.
+       */
+      contribution_room?: number | null
+      /**
        * Holdings
        * @description How many holdings it has.
        */
       holdings: number
+      /**
+       * Horizon Years
+       * @description Its own horizon; null to use the profile's.
+       */
+      horizon_years?: number | null
+      /**
+       * Notes
+       * @description What the person said about it.
+       */
+      notes?: string | null
+      /**
+       * Portfolio
+       * @description Which saved portfolio it is.
+       */
+      portfolio?: number | null
+      /**
+       * Risk Tolerance
+       * @description Its own risk tolerance; null to use the profile's.
+       */
+      risk_tolerance?: string | null
+      /**
+       * Tax Treatment
+       * @description How its gains are taxed, in a few words.
+       */
+      tax_treatment?: string | null
       /** Value */
       value: number
     }
@@ -3396,6 +3601,60 @@ export interface components {
       peers: string[]
       /** Symbol */
       symbol: string
+    }
+    /**
+     * ContributionLimit
+     * @description One kind of account's yearly contribution limit for one tax year.
+     */
+    ContributionLimit: {
+      /**
+       * Account
+       * @description The kinds of account it applies to.
+       */
+      account: string
+      /**
+       * Catch Up 50
+       * @description What those aged 50 or over may add on top.
+       */
+      catch_up_50?: number | null
+      /**
+       * Catch Up 60 63
+       * @description What those aged 60 to 63 may add instead of the age-50 catch-up.
+       */
+      catch_up_60_63?: number | null
+      /**
+       * Limit
+       * @description The yearly limit, in dollars.
+       */
+      limit: number
+      /** Note */
+      note?: string | null
+    }
+    /**
+     * ContributionLimits
+     * @description The yearly contribution limits that apply now, with how current they are.
+     */
+    ContributionLimits: {
+      /**
+       * As Of
+       * Format: date
+       * @description The day the figures were last checked against the IRS.
+       */
+      as_of: string
+      /** @description The limits of this tax year. */
+      current: components['schemas']['LimitYear']
+      /** @description Next year's limits, once the IRS has published them. */
+      next?: components['schemas']['LimitYear'] | null
+      /**
+       * Notes
+       * @description How the limits work and how they usually change from year to year.
+       */
+      notes: string[]
+      /**
+       * Outdated
+       * @description Whether this year is later than the newest year PyQxel has figures for, so the figures shown are an earlier year's and likely too low.
+       */
+      outdated: boolean
     }
     /**
      * CopulaFitResponse
@@ -5522,6 +5781,33 @@ export interface components {
       symbol: string
     }
     /**
+     * LimitYear
+     * @description The contribution limits of one tax year, as the IRS published them.
+     */
+    LimitYear: {
+      /** Limits */
+      limits: components['schemas']['ContributionLimit'][]
+      /**
+       * Roth Ira Phase Out Joint
+       * @description The same for a married couple filing jointly.
+       */
+      roth_ira_phase_out_joint: [number, number]
+      /**
+       * Roth Ira Phase Out Single
+       * @description Modified adjusted gross income over which a single filer's Roth IRA contribution shrinks, and at which it reaches nothing.
+       */
+      roth_ira_phase_out_single: [number, number]
+      /**
+       * Source
+       * @description Where the figures come from.
+       */
+      source: string
+      /** Source Url */
+      source_url: string
+      /** Year */
+      year: number
+    }
+    /**
      * LinkAddress
      * @description The address a working link was sent to.
      */
@@ -7443,15 +7729,21 @@ export interface components {
     }
     /**
      * PortfolioAnalysisRequest
-     * @description Options for a review of one of the saved portfolios.
+     * @description Options for a review of one of the saved portfolios, or of several at once.
      */
     PortfolioAnalysisRequest: {
       /**
-       * Combined
-       * @description Review every saved portfolio together, as one, in place of ``portfolio``: one review of the whole picture, telling Claude which account holds what.
-       * @default false
+       * Accounts
+       * @description In a ``separate`` review: each portfolio's own goals, where they differ from ``profile``'s, and the cash in it to trade with. ``profile``'s ``cash_to_invest`` is then new money any of them may draw on.
        */
-      combined?: boolean
+      accounts?: components['schemas']['AccountGoals'][]
+      /**
+       * Group Mode
+       * @description With ``portfolios``: review them as one large portfolio (``combined``), or each with its own plan and orders, with the others in mind (``separate``).
+       * @default combined
+       * @enum {string}
+       */
+      group_mode?: 'combined' | 'separate'
       /**
        * History Months
        * @description A custom window of daily returns, in months, used instead of ``period``.
@@ -7470,6 +7762,11 @@ export interface components {
        * @default 1
        */
       portfolio?: number
+      /**
+       * Portfolios
+       * @description Review these saved portfolios at once, in place of ``portfolio``: two to five of them, each named once. Empty for one portfolio's review.
+       */
+      portfolios?: number[]
       profile?: components['schemas']['InvestorProfile']
       /**
        * Refresh
@@ -7490,6 +7787,11 @@ export interface components {
      */
     PortfolioAnalysisResponse: {
       /**
+       * Account Orders
+       * @description In a review giving each account its own plan: the orders for each.
+       */
+      account_orders?: components['schemas']['AccountOrders'][]
+      /**
        * Cached
        * @description Whether this review was written earlier, at ``generated_at``, and reused.
        * @default false
@@ -7506,6 +7808,11 @@ export interface components {
        * Format: date-time
        */
       generated_at: string
+      /**
+       * Group Mode
+       * @description How they were reviewed together, if they were.
+       */
+      group_mode?: ('combined' | 'separate') | null
       /**
        * History Months
        * @description The custom window in months, when one was asked for.
@@ -7528,6 +7835,11 @@ export interface components {
       period: '1y' | '2y' | '5y' | '10y'
       /** @description Orders computed from the review's target allocation. */
       plan?: components['schemas']['RebalancePlan'] | null
+      /**
+       * Portfolios
+       * @description The portfolios reviewed together; empty for one portfolio's review.
+       */
+      portfolios?: number[]
       report: components['schemas']['PortfolioReview']
     }
     /**
@@ -7659,6 +7971,8 @@ export interface components {
       accounts?: components['schemas']['AccountValue'][]
       /** @description The account's latest Claude's picks, with the screener's figures for each when it was picked, as candidates for new investments; null when the account has none. */
       claude_picks?: components['schemas']['PicksForReview'] | null
+      /** @description The IRS's yearly contribution limits, given when an account reviewed is one they cap. */
+      contribution_limits?: components['schemas']['ContributionLimits'] | null
       /**
        * Deal Headlines
        * @description The newest headlines on mergers and acquisitions.
@@ -7669,6 +7983,11 @@ export interface components {
        * @description Each ETF or mutual fund among the holdings, largest first, with its largest holdings, mix of stocks, bonds, and cash, sectors, costs, and the figures weighted from the companies it holds, where they could be found.
        */
       funds?: components['schemas']['FundProfile'][]
+      /**
+       * Group Mode
+       * @description For several accounts: reviewed as one (``combined``) or each with its own plan (``separate``); null for one portfolio's review.
+       */
+      group_mode?: ('combined' | 'separate') | null
       /**
        * History Months
        * @description The custom window, in months, the statistics cover; null when they cover ``period``.
@@ -7760,6 +8079,11 @@ export interface components {
      */
     PortfolioReview: {
       /**
+       * Account Plans
+       * @description When the snapshot's group_mode is separate: one plan for each account, in the snapshot's order. Empty otherwise.
+       */
+      account_plans?: components['schemas']['AccountPlan'][]
+      /**
        * Considerations
        * @description Trade-offs of the plan and alternatives worth weighing: taxes, trading costs, timing, and what would change the recommendation.
        */
@@ -7803,7 +8127,7 @@ export interface components {
       summary: string
       /**
        * Target Allocation
-       * @description Every current holding and any new investment with its target weight; a holding to sell entirely gets 0. Weights sum to 1.
+       * @description Every current holding and any new investment with its target weight; a holding to sell entirely gets 0. Weights sum to 1. Empty when the review gives each account its own plan in account_plans.
        */
       target_allocation: components['schemas']['TargetPosition'][]
     }
@@ -7881,9 +8205,36 @@ export interface components {
     }
     /**
      * PortfolioSummary
-     * @description One of the account's portfolio slots, without prices.
+     * @description One of the account's portfolio slots, without prices, and what kind of account it is.
      */
     PortfolioSummary: {
+      /**
+       * Account Type
+       * @description What kind of account it is; null when not said.
+       */
+      account_type?:
+        | (
+            | 'taxable'
+            | 'traditional_ira'
+            | 'roth_ira'
+            | 'rollover_ira'
+            | 'sep_ira'
+            | 'simple_ira'
+            | 'traditional_401k'
+            | 'roth_401k'
+            | '403b'
+            | '457b'
+            | 'solo_401k'
+            | 'hsa'
+            | '529'
+            | 'other'
+          )
+        | null
+      /**
+       * Contribution Room
+       * @description The most new money that may still be put into it this tax year, in dollars, as the person works it out: the year's limit, less what they have put in, and no more than they earned. Null when not said or not capped.
+       */
+      contribution_room?: number | null
       /**
        * Holdings
        * @description How many holdings it has saved.
@@ -11660,13 +12011,51 @@ export interface operations {
       }
     }
   }
+  write_account_settings_api_v1_portfolio_account_put: {
+    parameters: {
+      query?: {
+        /** @description Which of your saved portfolios, from 1 to 5. */
+        portfolio?: number
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AccountSettings']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PortfolioSummary']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
   read_portfolio_review_api_v1_portfolio_analysis_get: {
     parameters: {
       query?: {
         /** @description Which of your saved portfolios, from 1 to 5. */
         portfolio?: number
-        /** @description The review of every portfolio together, not ``portfolio``. */
-        combined?: boolean
+        /** @description The review of these portfolios together, not ``portfolio``. */
+        portfolios?: number[]
+        /** @description How ``portfolios`` were reviewed together. */
+        mode?: 'combined' | 'separate'
       }
       header?: never
       path?: never
@@ -11891,6 +12280,26 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_contribution_limits_api_v1_portfolio_contribution_limits_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ContributionLimits']
         }
       }
     }

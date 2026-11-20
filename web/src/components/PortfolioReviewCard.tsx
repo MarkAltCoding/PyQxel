@@ -8,7 +8,11 @@ import {
   streamPortfolioReview,
 } from '../api/endpoints'
 import type {
+  AccountGoals,
+  AccountPlan,
+  GroupMode,
   InvestorProfile,
+  PortfolioSummary,
   PortfolioContext,
   PortfolioAnalysisRequest,
   PortfolioAnalysisResponse,
@@ -22,7 +26,9 @@ import { readStored, writeStored } from '../lib/storage'
 import { useReportView } from '../lib/reportView'
 import { useWebSearchChoice } from '../lib/webSearch'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
+import { ContributionLimitsNote } from './AccountSettings'
 import { ExternalClaude } from './ExternalClaude'
+import { accountTypeLabel, CAPPED_ACCOUNT_TYPES } from '../lib/accounts'
 import { NoAnthropicKey } from './NoAnthropicKey'
 import { providerKeys } from '../lib/providerKeys'
 import { ErrorNotice, Notice } from './Notice'
@@ -102,14 +108,85 @@ const RISKS: { value: Risk; label: string }[] = [
   { value: 'aggressive', label: 'Aggressive' },
 ]
 
-type Scope = 'one' | 'both'
+type Scope = 'one' | 'group'
 
 const SCOPES: { value: Scope; label: string }[] = [
   { value: 'one', label: 'This portfolio' },
-  { value: 'both', label: 'All together' },
+  { value: 'group', label: 'Several together' },
 ]
 
-const SCOPE_KEY = 'pyqxel.reviewScope'
+const MODES: { value: GroupMode; label: string }[] = [
+  { value: 'combined', label: 'As one portfolio' },
+  { value: 'separate', label: 'Each with its own plan' },
+]
+
+type GoalsMode = 'shared' | 'each'
+
+const GOALS: { value: GoalsMode; label: string }[] = [
+  { value: 'shared', label: 'Same goals for all' },
+  { value: 'each', label: 'Goals for each account' },
+]
+
+/** One account's own goals and cash in a review of several, as typed. */
+interface AccountDraft {
+  risk: Risk
+  horizon: string
+  horizonUnit: HorizonUnit
+  notes: string
+  cash: string
+}
+
+const NO_ACCOUNT: AccountDraft = {
+  risk: 'unset',
+  horizon: '',
+  horizonUnit: 'years',
+  notes: '',
+  cash: '',
+}
+
+/** Which portfolios are reviewed together and how, kept with the account. */
+interface KeptGroup {
+  scope: Scope
+  members: number[]
+  mode: GroupMode
+  goals: GoalsMode
+  accounts: Record<string, AccountDraft>
+}
+
+const GROUP_KEY = 'pyqxel.reviewGroup'
+
+function keptGroup(): KeptGroup {
+  const empty: KeptGroup = {
+    scope: 'one',
+    members: [],
+    mode: 'combined',
+    goals: 'shared',
+    accounts: {},
+  }
+  try {
+    const kept = JSON.parse(readStored(GROUP_KEY) ?? 'null') as Partial<KeptGroup> | null
+    if (!kept || typeof kept !== 'object') return empty
+    return {
+      scope: kept.scope === 'group' ? 'group' : 'one',
+      members: Array.isArray(kept.members)
+        ? kept.members.filter((n): n is number => Number.isInteger(n))
+        : [],
+      mode: kept.mode === 'separate' ? 'separate' : 'combined',
+      goals: kept.goals === 'each' ? 'each' : 'shared',
+      accounts:
+        kept.accounts && typeof kept.accounts === 'object'
+          ? Object.fromEntries(
+              Object.entries(kept.accounts).map(([number, draft]) => [
+                number,
+                { ...NO_ACCOUNT, ...(draft as Partial<AccountDraft>) },
+              ]),
+            )
+          : {},
+    }
+  } catch {
+    return empty
+  }
+}
 
 /** What the person last told the review about themselves, kept with their account so it
  * need not be typed again. */
@@ -163,24 +240,54 @@ function keptProfile(): KeptProfile {
 export function PortfolioReviewCard({
   portfolio,
   hasHoldings,
-  canCombine = false,
+  portfolios = [],
   stale,
 }: {
   /** Which saved portfolio to review. */
   portfolio: number
   hasHoldings: boolean
-  /** Whether two or more portfolios have saved holdings, so they can be reviewed together. */
-  canCombine?: boolean
+  /** Every portfolio slot, for choosing several to review together. */
+  portfolios?: PortfolioSummary[]
   stale: boolean
 }) {
   const queryClient = useQueryClient()
-  const [scope, setScope] = useState<Scope>(() =>
-    readStored(SCOPE_KEY) === 'both' ? 'both' : 'one',
+  const [group, setGroup] = useState(keptGroup)
+  const keepGroup = (next: Partial<KeptGroup>) => {
+    const merged = { ...group, ...next }
+    setGroup(merged)
+    writeStored(GROUP_KEY, JSON.stringify(merged))
+  }
+  const eligible = portfolios.filter((p) => p.holdings > 0)
+  const eligibleNumbers = eligible.map((p) => p.portfolio)
+  const picked = group.members.filter((n) => eligibleNumbers.includes(n))
+  // Until some are chosen, every portfolio with holdings is.
+  const members = (picked.length > 0 ? picked : eligibleNumbers).sort((a, b) => a - b)
+  const grouped = eligible.length > 1 && group.scope === 'group'
+  const mode = group.mode
+  const separate = grouped && mode === 'separate'
+  const each = separate && group.goals === 'each'
+  const draftFor = (number: number): AccountDraft => group.accounts[number] ?? NO_ACCOUNT
+  const editAccount = (number: number, next: Partial<AccountDraft>) =>
+    keepGroup({ accounts: { ...group.accounts, [number]: { ...draftFor(number), ...next } } })
+  const toggleMember = (number: number, on: boolean) => {
+    const next = on ? [...new Set([...members, number])] : members.filter((n) => n !== number)
+    keepGroup({ members: next })
+  }
+  const nameOf = (number: number) =>
+    portfolios.find((p) => p.portfolio === number)?.name ?? `Portfolio ${number}`
+  const reviewed = grouped ? members : [portfolio]
+  const capped = portfolios.some(
+    (p) =>
+      reviewed.includes(p.portfolio) && p.account_type && CAPPED_ACCOUNT_TYPES.has(p.account_type),
   )
-  const combined = canCombine && scope === 'both'
-  // Reviews are stored per portfolio, and the review of all together apart from any one.
-  const reviewKey = ['portfolio-review', combined ? 'all' : portfolio]
-  const exportKey = combined ? 'portfolio-all' : `portfolio-${portfolio}`
+  // Reviews are stored per portfolio, and those of several together apart from any one,
+  // unless each was given its own plan, which then counts as each one's latest.
+  const reviewKey = grouped
+    ? ['portfolio-review', 'group', mode, members.join(',')]
+    : ['portfolio-review', portfolio]
+  const exportKey = grouped
+    ? `portfolio-group-${mode}-${members.join('-')}`
+    : `portfolio-${portfolio}`
   const [kept, setKept] = useState(keptProfile)
   const { months, risk, horizon, horizonUnit, cash, notes } = kept
   const keep = (next: Partial<KeptProfile>) => {
@@ -206,7 +313,8 @@ export function PortfolioReviewCard({
 
   const latest = useQuery({
     queryKey: reviewKey,
-    queryFn: () => getPortfolioReview(portfolio, combined),
+    queryFn: () =>
+      getPortfolioReview(portfolio, grouped ? { portfolios: members, mode } : undefined),
   })
   const review = latest.data ?? null
 
@@ -219,11 +327,44 @@ export function PortfolioReviewCard({
     round_shares: roundShares,
   })
 
+  const accountGoals = (number: number): AccountGoals => {
+    const draft = draftFor(number)
+    return {
+      portfolio: number,
+      cash_available: draft.cash.trim() ? Number(draft.cash) : 0,
+      ...(each
+        ? {
+            risk_tolerance: draft.risk === 'unset' ? null : draft.risk,
+            horizon_years: draft.horizon.trim()
+              ? inYears(Number(draft.horizon), draft.horizonUnit)
+              : null,
+            notes: draft.notes.trim() || null,
+          }
+        : {}),
+    }
+  }
+  const scopeRequest = (): PortfolioAnalysisRequest =>
+    grouped
+      ? {
+          portfolios: members,
+          group_mode: mode,
+          accounts: separate ? members.map(accountGoals) : [],
+        }
+      : { portfolio }
+  const keepResult = (result: PortfolioAnalysisResponse) => {
+    queryClient.setQueryData(reviewKey, result)
+    // A review giving each account its own plan is each one's latest too.
+    if (result.group_mode === 'separate') {
+      for (const number of result.portfolios ?? []) {
+        void queryClient.invalidateQueries({ queryKey: ['portfolio-review', number] })
+      }
+    }
+  }
+
   // Outside the app: the prompt's data is kept so the pasted answer is saved with it.
   const getPrompt = async () => {
     const request: PortfolioAnalysisRequest = {
-      portfolio,
-      combined,
+      ...scopeRequest(),
       ...historyRequest(months),
       profile: profile(),
       web_search: webSearch,
@@ -237,7 +378,7 @@ export function PortfolioReviewCard({
       exportKey,
     )
     if (!kept) throw new Error('Get the prompt first: the answer is saved with its data.')
-    queryClient.setQueryData(reviewKey, await importPortfolioReview({ ...kept, response }))
+    keepResult(await importPortfolioReview({ ...kept, response }))
   }
 
   const write = async () => {
@@ -248,8 +389,7 @@ export function PortfolioReviewCard({
     try {
       const response = await streamPortfolioReview(
         {
-          portfolio,
-          combined,
+          ...scopeRequest(),
           ...historyRequest(months),
           profile: profile(),
           web_search: webSearch,
@@ -258,8 +398,7 @@ export function PortfolioReviewCard({
         },
         controller.signal,
       )
-      const result = await readAiStream<PortfolioAnalysisResponse>(response, setProgress)
-      queryClient.setQueryData(reviewKey, result)
+      keepResult(await readAiStream<PortfolioAnalysisResponse>(response, setProgress))
     } catch (failure) {
       if (!controller.signal.aborted) setError(failure)
     } finally {
@@ -269,7 +408,8 @@ export function PortfolioReviewCard({
   }
 
   const writing = progress !== null
-  const blocked = !(hasHoldings || combined) || stale
+  const tooFew = grouped && members.length < 2
+  const blocked = !(hasHoldings || grouped) || stale || tooFew
   return (
     <section id="ai-review" className="card">
       <div className="card-header">
@@ -286,7 +426,7 @@ export function PortfolioReviewCard({
           </div>
         </div>
         <div className="filter-row">
-          {canCombine && (
+          {eligible.length > 1 && (
             <div className="field">
               <span className="heading-with-info">
                 What to review
@@ -294,12 +434,9 @@ export function PortfolioReviewCard({
               </span>
               <Segmented
                 label="What to review"
-                value={scope}
+                value={grouped ? 'group' : 'one'}
                 options={SCOPES}
-                onChange={(next) => {
-                  writeStored(SCOPE_KEY, next)
-                  setScope(next)
-                }}
+                onChange={(next) => keepGroup({ scope: next })}
               />
             </div>
           )}
@@ -331,13 +468,64 @@ export function PortfolioReviewCard({
             >
               {review
                 ? 'Write a new review'
-                : combined
-                  ? 'Review all together'
+                : grouped
+                  ? 'Review them together'
                   : 'Review my portfolio'}
             </button>
           )}
         </div>
       </div>
+
+      {grouped && (
+        <fieldset className="review-group">
+          <legend>Portfolios to review together</legend>
+          <div className="filter-row" style={{ alignItems: 'center' }}>
+            {eligible.map((p) => (
+              <label key={p.portfolio} className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={members.includes(p.portfolio)}
+                  disabled={writing}
+                  onChange={(event) => toggleMember(p.portfolio, event.target.checked)}
+                />
+                {p.name}
+                {p.account_type && (
+                  <span className="muted"> · {accountTypeLabel(p.account_type)}</span>
+                )}
+              </label>
+            ))}
+          </div>
+          {tooFew && <Notice tone="warning">Choose at least two portfolios.</Notice>}
+          <div className="filter-row" style={{ alignItems: 'flex-end', marginTop: 8 }}>
+            <div className="field">
+              <span className="heading-with-info">
+                How to review them
+                <InfoTip topic="groupReviewMode" />
+              </span>
+              <Segmented
+                label="How to review them"
+                value={mode}
+                options={MODES}
+                onChange={(next) => keepGroup({ mode: next })}
+              />
+            </div>
+            {separate && (
+              <div className="field">
+                <span className="heading-with-info">
+                  Goals
+                  <InfoTip topic="accountGoals" />
+                </span>
+                <Segmented
+                  label="Goals"
+                  value={group.goals}
+                  options={GOALS}
+                  onChange={(next) => keepGroup({ goals: next })}
+                />
+              </div>
+            )}
+          </div>
+        </fieldset>
+      )}
 
       <div style={{ marginBottom: 4 }}>
         <WebSearchOption checked={webSearch} onChange={setWebSearch} disabled={writing} />
@@ -345,31 +533,38 @@ export function PortfolioReviewCard({
       <details style={{ marginBottom: 12 }}>
         <summary>Tailor the plan to your goals (optional)</summary>
         <div className="filter-row" style={{ marginTop: 10, alignItems: 'flex-end' }}>
-          <Segmented label="Risk tolerance" value={risk} options={RISKS} onChange={setRisk} />
-          <div className="field">
-            <label htmlFor={`${idBase}-horizon`}>Horizon</label>
-            <div className="field-pair">
-              <input
-                id={`${idBase}-horizon`}
-                type="number"
-                min={0}
-                max={horizonUnit === 'years' ? 60 : 720}
-                style={{ width: 80 }}
-                value={horizon}
-                onChange={(e) => setHorizon(e.target.value)}
-              />
-              <select
-                aria-label="Horizon unit"
-                value={horizonUnit}
-                onChange={(e) => setHorizonUnit(e.target.value as HorizonUnit)}
-              >
-                <option value="months">months</option>
-                <option value="years">years</option>
-              </select>
+          {!each && (
+            <Segmented label="Risk tolerance" value={risk} options={RISKS} onChange={setRisk} />
+          )}
+          {!each && (
+            <div className="field">
+              <label htmlFor={`${idBase}-horizon`}>Horizon</label>
+              <div className="field-pair">
+                <input
+                  id={`${idBase}-horizon`}
+                  type="number"
+                  min={0}
+                  max={horizonUnit === 'years' ? 60 : 720}
+                  style={{ width: 80 }}
+                  value={horizon}
+                  onChange={(e) => setHorizon(e.target.value)}
+                />
+                <select
+                  aria-label="Horizon unit"
+                  value={horizonUnit}
+                  onChange={(e) => setHorizonUnit(e.target.value as HorizonUnit)}
+                >
+                  <option value="months">months</option>
+                  <option value="years">years</option>
+                </select>
+              </div>
             </div>
-          </div>
-          <label className="field" style={{ width: 160 }}>
-            <span>New cash to invest</span>
+          )}
+          <div className="field" style={{ width: 160 }}>
+            <span className="heading-with-info">
+              New cash to invest
+              {separate && <span className="muted">(any account may draw on it)</span>}
+            </span>
             <span className="money-input">
               <span aria-hidden="true">$</span>
               <input
@@ -381,9 +576,9 @@ export function PortfolioReviewCard({
                 onChange={(e) => setCash(e.target.value)}
               />
             </span>
-          </label>
+          </div>
           <label className="field" style={{ flex: 1, minWidth: 220 }}>
-            <span>Anything else</span>
+            <span>{each ? 'Anything else, for all of them' : 'Anything else'}</span>
             <input
               type="text"
               maxLength={1000}
@@ -423,6 +618,26 @@ export function PortfolioReviewCard({
             </span>
           )}
         </div>
+        {separate && (
+          <div className="stack" style={{ gap: 10, marginTop: 12 }}>
+            {members.map((number) => (
+              <AccountFields
+                key={number}
+                number={number}
+                name={nameOf(number)}
+                summary={portfolios.find((p) => p.portfolio === number)}
+                draft={draftFor(number)}
+                withGoals={each}
+                onChange={(next) => editAccount(number, next)}
+              />
+            ))}
+          </div>
+        )}
+        {capped && (
+          <div style={{ marginTop: 12 }}>
+            <ContributionLimitsNote />
+          </div>
+        )}
       </details>
 
       {!providerKeys().anthropic && !writing && <NoAnthropicKey what="a review" />}
@@ -468,6 +683,100 @@ export function PortfolioReviewCard({
   )
 }
 
+/** One account's own cash and, when asked for, its own goals, in a review of several. */
+function AccountFields({
+  number,
+  name,
+  summary,
+  draft,
+  withGoals,
+  onChange,
+}: {
+  number: number
+  name: string
+  summary: PortfolioSummary | undefined
+  draft: AccountDraft
+  withGoals: boolean
+  onChange: (next: Partial<AccountDraft>) => void
+}) {
+  const id = `review-account-${number}`
+  const type = summary?.account_type
+  return (
+    <fieldset className="review-account">
+      <legend>
+        {name}
+        {type && <span className="muted"> · {accountTypeLabel(type)}</span>}
+        {summary?.contribution_room != null && (
+          <span className="muted"> · {money(summary.contribution_room, 'USD', 0)} room left</span>
+        )}
+      </legend>
+      <div className="filter-row" style={{ alignItems: 'flex-end' }}>
+        <div className="field" style={{ width: 200 }}>
+          <span className="heading-with-info">
+            Cash in the account to trade
+            <InfoTip topic="accountCash" />
+          </span>
+          <span className="money-input">
+            <span aria-hidden="true">$</span>
+            <input
+              type="number"
+              min={0}
+              step="any"
+              aria-label={`Cash in ${name} to trade, in dollars`}
+              value={draft.cash}
+              onChange={(e) => onChange({ cash: e.target.value })}
+            />
+          </span>
+        </div>
+        {withGoals && (
+          <>
+            <Segmented
+              label={`Risk tolerance for ${name}`}
+              value={draft.risk}
+              options={RISKS}
+              onChange={(risk) => onChange({ risk })}
+            />
+            <div className="field">
+              <label htmlFor={`${id}-horizon`}>Horizon</label>
+              <div className="field-pair">
+                <input
+                  id={`${id}-horizon`}
+                  type="number"
+                  min={0}
+                  max={draft.horizonUnit === 'years' ? 60 : 720}
+                  style={{ width: 80 }}
+                  aria-label={`Horizon for ${name}`}
+                  value={draft.horizon}
+                  onChange={(e) => onChange({ horizon: e.target.value })}
+                />
+                <select
+                  aria-label={`Horizon unit for ${name}`}
+                  value={draft.horizonUnit}
+                  onChange={(e) => onChange({ horizonUnit: e.target.value as HorizonUnit })}
+                >
+                  <option value="months">months</option>
+                  <option value="years">years</option>
+                </select>
+              </div>
+            </div>
+            <label className="field" style={{ flex: 1, minWidth: 200 }}>
+              <span>Anything else about this account</span>
+              <input
+                type="text"
+                maxLength={1000}
+                aria-label={`Anything else about ${name}`}
+                placeholder="e.g. for a house in five years"
+                value={draft.notes}
+                onChange={(e) => onChange({ notes: e.target.value })}
+              />
+            </label>
+          </>
+        )}
+      </div>
+    </fieldset>
+  )
+}
+
 const DIVERSIFICATION_STEPS = ['poor', 'fair', 'good', 'strong'] as const
 const DIVERSIFICATION_METER = {
   poor: 'critical',
@@ -485,7 +794,7 @@ function Review({ response }: { response: PortfolioAnalysisResponse }) {
       <WebSources research={response.context.web_research} />
       <p className="disclaimer" style={{ marginTop: 16 }}>
         {(response.context.accounts?.length ?? 0) > 1 &&
-          `Covers ${listed(response.context.accounts!.map((a) => `${a.account} (${money(a.value, 'USD', 0)})`))} together · `}
+          `Covers ${listed(response.context.accounts!.map((a) => `${a.account} (${money(a.value, 'USD', 0)})`))} together${response.group_mode === 'separate' ? ', each with its own plan' : ', as one portfolio'} · `}
         {response.context.claude_picks &&
           `Given your Claude’s picks of ${dateTime(response.context.claude_picks.generated_at)} for ${response.context.claude_picks.horizon} · `}
         {response.model} · {dateTime(response.generated_at)} · {historyLabel(response)} of price
@@ -546,8 +855,11 @@ function VisualReview({ response }: { response: PortfolioAnalysisResponse }) {
     },
     {
       id: 'plan',
-      label: 'Plan',
-      count: response.plan?.trades.length,
+      label: (report.account_plans ?? []).length > 0 ? 'Plans' : 'Plan',
+      count:
+        (report.account_plans ?? []).length > 0
+          ? (response.account_orders ?? []).reduce((n, o) => n + (o.plan?.trades.length ?? 0), 0)
+          : response.plan?.trades.length,
       content: (
         <div className="stack" style={{ gap: 16 }}>
           <div className="plan-summary report-summary">
@@ -555,8 +867,14 @@ function VisualReview({ response }: { response: PortfolioAnalysisResponse }) {
               <Paragraph key={paragraph} text={paragraph} />
             ))}
           </div>
-          <AllocationChart response={response} />
-          {response.plan && <Orders plan={response.plan} />}
+          {(report.account_plans ?? []).length > 0 ? (
+            <AccountPlans response={response} />
+          ) : (
+            <>
+              <AllocationChart response={response} />
+              {response.plan && <Orders plan={response.plan} />}
+            </>
+          )}
         </div>
       ),
     },
@@ -633,8 +951,14 @@ function TextReview({ response }: { response: PortfolioAnalysisResponse }) {
           <Paragraph key={paragraph} text={paragraph} />
         ))}
       </div>
-      <TargetTable response={response} />
-      {response.plan && <Orders plan={response.plan} />}
+      {(report.account_plans ?? []).length > 0 ? (
+        <AccountPlans response={response} text />
+      ) : (
+        <>
+          <TargetTable response={response} />
+          {response.plan && <Orders plan={response.plan} />}
+        </>
+      )}
       <TextPoints title="Trade-offs and what would change the plan" items={report.considerations} />
       <TextPoints title="Data limitations" items={report.data_limitations} />
     </>
@@ -652,10 +976,22 @@ interface PlanRow {
   why: string
 }
 
-function planRows(response: PortfolioAnalysisResponse): PlanRow[] {
+/** Each holding's weight within one account, from how many shares of it the account holds. */
+function accountWeights(response: PortfolioAnalysisResponse, account: string): Map<string, number> {
+  const values = response.context.holdings.map((h) => {
+    const shares = h.accounts?.find((held) => held.account === account)?.shares ?? 0
+    return [h.symbol, shares * (h.price ?? 0)] as const
+  })
+  const total = values.reduce((sum, [, value]) => sum + value, 0)
+  return new Map(values.filter(([, v]) => v > 0).map(([symbol, v]) => [symbol, v / total]))
+}
+
+function planRows(response: PortfolioAnalysisResponse, plan?: AccountPlan): PlanRow[] {
   const holdings = new Map(response.context.holdings.map((h) => [h.symbol, h]))
-  const marked = response.report.target_allocation.some((t: TargetPosition) => t.cash)
-  return response.report.target_allocation.map((target: TargetPosition) => {
+  const positions = plan ? plan.target_allocation : response.report.target_allocation
+  const weights = plan ? accountWeights(response, plan.account) : null
+  const marked = positions.some((t: TargetPosition) => t.cash)
+  return positions.map((target: TargetPosition) => {
     const symbol = target.symbol.trim().toUpperCase()
     const held = holdings.get(symbol)
     // Reviews written before cash was marked called it CASH.
@@ -664,7 +1000,7 @@ function planRows(response: PortfolioAnalysisResponse): PlanRow[] {
       symbol: cash && !held ? 'Cash' : symbol,
       cash,
       keep: Boolean(target.keep),
-      now: held?.weight ?? 0,
+      now: weights ? (weights.get(symbol) ?? 0) : (held?.weight ?? 0),
       target: target.target_weight,
       why: target.rationale,
     }
@@ -683,7 +1019,13 @@ function PositionName({ row }: { row: PlanRow }) {
   )
 }
 
-function TargetTable({ response }: { response: PortfolioAnalysisResponse }) {
+function TargetTable({
+  response,
+  plan,
+}: {
+  response: PortfolioAnalysisResponse
+  plan?: AccountPlan
+}) {
   return (
     <div className="table-wrap">
       <table className="data">
@@ -699,7 +1041,7 @@ function TargetTable({ response }: { response: PortfolioAnalysisResponse }) {
           </tr>
         </thead>
         <tbody>
-          {planRows(response).map((row) => (
+          {planRows(response, plan).map((row) => (
             <tr key={row.symbol}>
               <td>
                 <PositionName row={row} />
@@ -720,8 +1062,14 @@ function TargetTable({ response }: { response: PortfolioAnalysisResponse }) {
 
 /** Each position's weight now and Claude's target, biggest change first, with the
  * reason a click away. */
-function AllocationChart({ response }: { response: PortfolioAnalysisResponse }) {
-  const rows = planRows(response).sort(
+function AllocationChart({
+  response,
+  plan,
+}: {
+  response: PortfolioAnalysisResponse
+  plan?: AccountPlan
+}) {
+  const rows = planRows(response, plan).sort(
     (a, b) => Math.abs(b.target - b.now) - Math.abs(a.target - a.now),
   )
   const scale = Math.max(0.01, ...rows.flatMap((row) => [row.now, row.target]))
@@ -770,6 +1118,56 @@ function AllocationChart({ response }: { response: PortfolioAnalysisResponse }) 
           )
         })}
       </ul>
+    </div>
+  )
+}
+
+/** Each account's own plan, in a review that gave every account one: what it is, how much
+ * of the new cash goes into it, its targets, and its orders. */
+function AccountPlans({
+  response,
+  text = false,
+}: {
+  response: PortfolioAnalysisResponse
+  text?: boolean
+}) {
+  const accounts = new Map((response.context.accounts ?? []).map((a) => [a.account, a]))
+  const orders = new Map((response.account_orders ?? []).map((o) => [o.account, o.plan]))
+  return (
+    <div className="stack" style={{ gap: 20 }}>
+      {(response.report.account_plans ?? []).map((plan) => {
+        const account = accounts.get(plan.account)
+        const placed = orders.get(plan.account)
+        return (
+          <section key={plan.account} className="account-plan">
+            <h3>
+              {plan.account}
+              {account?.account_type_name && (
+                <span className="muted"> · {account.account_type_name}</span>
+              )}
+            </h3>
+            <p className="headline">{plan.headline}</p>
+            <div className="report-summary">
+              {paragraphs(plan.plan_summary).map((paragraph) => (
+                <Paragraph key={paragraph} text={paragraph} />
+              ))}
+            </div>
+            {plan.new_cash > 0 && (
+              <p>
+                <span className="badge good">
+                  Deposit {money(plan.new_cash, 'USD', 0)} of the new cash here
+                </span>
+              </p>
+            )}
+            {text ? (
+              <TargetTable response={response} plan={plan} />
+            ) : (
+              <AllocationChart response={response} plan={plan} />
+            )}
+            {placed && <Orders plan={placed} />}
+          </section>
+        )
+      })}
     </div>
   )
 }

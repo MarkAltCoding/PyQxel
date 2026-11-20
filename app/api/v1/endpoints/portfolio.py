@@ -47,8 +47,17 @@ from app.data.fetcher import (
 )
 from app.data.panel import MAX_CONCURRENT_DOWNLOADS, fetch_close_panel
 from app.db.picks import latest_picks
-from app.db.holdings import get_holdings, get_portfolio_name, list_portfolios, replace_holdings
+from app.data.contribution_limits import contribution_limits
+from app.db.holdings import (
+    account_settings,
+    get_holdings,
+    get_portfolio_name,
+    list_portfolios,
+    replace_holdings,
+    save_account_settings,
+)
 from app.db.portfolio_analyses import (
+    ReviewGroup,
     find_recent_portfolio_analysis,
     holdings_key,
     latest_portfolio_analysis,
@@ -74,6 +83,7 @@ from app.models.portfolio import (
     HoldingsResponse,
     HoldingsUpdate,
     HoldingValue,
+    PortfolioSummary,
     Holding,
     LeftOutHolding,
     MAX_PORTFOLIOS,
@@ -94,10 +104,20 @@ from app.models.backtest import (
 from app.models.external import PortfolioPromptExport, PortfolioReviewImport
 from app.models.factors import RISK_FREE
 from app.models.picks import PicksForReview, PicksResponse, ReviewedPick
+from app.models.accounts import (
+    ACCOUNT_TYPE_NAMES,
+    CAPPED_ACCOUNT_TYPES,
+    AccountSettings,
+    ContributionLimits,
+    tax_treatment,
+)
 from app.models.portfolio_analysis import (
+    AccountOrders,
+    AccountPlan,
     AccountShares,
     AccountValue,
     AssetRisk,
+    GroupMode,
     InvestorProfile,
     PairCorrelation,
     PlannedTrade,
@@ -769,6 +789,38 @@ async def read_portfolios(session: Session, user: CurrentUser) -> PortfolioList:
         raise _database_error(exc) from exc
 
 
+@router.put(
+    "/account", response_model=PortfolioSummary, summary="Say what kind of account a portfolio is"
+)
+async def write_account_settings(
+    session: Session,
+    user: CurrentUser,
+    settings: Annotated[AccountSettings, Body()],
+    portfolio: PortfolioQuery = 1,
+) -> PortfolioSummary:
+    """Save what kind of account ``portfolio`` is, such as a Roth IRA, and how much more
+    may be put into it this tax year. Every review of it is told both. Returns 503 when
+    the database is unavailable."""
+    try:
+        await save_account_settings(session, user.id, portfolio, settings)
+        found = await list_portfolios(session, user.id)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    return next(summary for summary in found if summary.portfolio == portfolio)
+
+
+@router.get(
+    "/contribution-limits",
+    response_model=ContributionLimits,
+    summary="The IRS's yearly contribution limits",
+)
+async def read_contribution_limits(user: CurrentUser) -> ContributionLimits:
+    """Return this tax year's contribution limits for IRAs, employer plans, and HSAs, and
+    next year's once the IRS has published them, from the IRS's notices. No provider
+    publishes them as data, so ``outdated`` says when they are older than this year."""
+    return contribution_limits(date.today())
+
+
 @router.get("/holdings", response_model=HoldingsResponse, summary="One of your saved portfolios")
 async def read_holdings(
     session: Session,
@@ -1075,42 +1127,117 @@ CORRELATED_PAIRS: int = 5
 
 @dataclass(frozen=True)
 class ReviewHoldings:
-    """What a review covers: one saved portfolio, or every one combined."""
+    """What a review covers: one saved portfolio, or several together."""
 
     holdings: list[HoldingShares]
     """The holdings reviewed; for several accounts, each symbol once with its shares summed."""
     accounts: list[tuple[str, list[HoldingShares]]]
     """Each account's name and holdings when several are reviewed together; else empty."""
+    members: list[int]
+    """Which saved portfolios are reviewed, in order: one, or each of ``accounts``."""
+    names: dict[int, str]
+    """Each reviewed portfolio's name."""
+    settings: dict[int, AccountSettings]
+    """What kind of account each reviewed portfolio is, where the person said."""
 
 
-COMBINED_PORTFOLIO: int = 0
-"""The portfolio number a review of every saved portfolio together is stored under."""
+GROUP_PORTFOLIO: int = 0
+"""The portfolio number a review of several portfolios together is stored under."""
 
 
 def _stored_portfolio(request: PortfolioAnalysisRequest) -> int:
     """The portfolio number a review is stored and looked up under."""
-    return COMBINED_PORTFOLIO if request.combined else request.portfolio
+    return GROUP_PORTFOLIO if request.group else request.portfolio
+
+
+def _group(request: PortfolioAnalysisRequest) -> ReviewGroup | None:
+    """Which portfolios a review of several covers, and how; ``None`` for one portfolio."""
+    return ReviewGroup(request.group_mode, request.group) if request.group else None
 
 
 async def _review_holdings(
     session: AsyncSession, user_id: str, request: PortfolioAnalysisRequest
 ) -> ReviewHoldings:
-    """The saved holdings a review covers: ``request.portfolio``'s, or with ``combined``
-    every portfolio's, a symbol held in several counted once with its shares summed."""
-    if not request.combined:
-        return ReviewHoldings(await get_holdings(session, user_id, request.portfolio), [])
+    """The saved holdings a review covers: ``request.portfolio``'s, or each of
+    ``request.portfolios``' with holdings, a symbol held in several counted once with its
+    shares summed."""
+    settings = await account_settings(session, user_id)
+    if not request.group:
+        number = request.portfolio
+        return ReviewHoldings(
+            await get_holdings(session, user_id, number),
+            [],
+            [number],
+            {number: await get_portfolio_name(session, user_id, number)},
+            {number: settings[number]} if number in settings else {},
+        )
     accounts: list[tuple[str, list[HoldingShares]]] = []
-    for number in range(1, MAX_PORTFOLIOS + 1):
+    members: list[int] = []
+    names: dict[int, str] = {}
+    for number in request.group:
         held = await get_holdings(session, user_id, number)
         if held:
             name = await get_portfolio_name(session, user_id, number)
-            accounts.append((name or default_portfolio_name(number), held))
+            names[number] = name or default_portfolio_name(number)
+            accounts.append((names[number], held))
+            members.append(number)
     shares: dict[str, float] = {}
     for _, held in accounts:
         for holding in held:
             shares[holding.symbol] = shares.get(holding.symbol, 0.0) + holding.shares
     merged = [HoldingShares(symbol=symbol, shares=count) for symbol, count in shares.items()]
-    return ReviewHoldings(merged, accounts)
+    kept = {number: settings[number] for number in members if number in settings}
+    return ReviewHoldings(merged, accounts, members, names, kept)
+
+
+def with_accounts(
+    context: PortfolioContext, covered: ReviewHoldings, request: PortfolioAnalysisRequest
+) -> PortfolioContext:
+    """``context`` with what kind of account each reviewed portfolio is, how much more may
+    go into it, and, in a ``separate`` review, each one's own goals and cash; with the
+    IRS's contribution limits when any of them is an account they cap."""
+    goals = {account.portfolio: account for account in request.accounts}
+    values = {account.account: account for account in context.accounts}
+    accounts: list[AccountValue] = []
+    for number in covered.members:
+        name = covered.names.get(number, default_portfolio_name(number))
+        settings = covered.settings.get(number, AccountSettings())
+        own = goals.get(number) if request.separate else None
+        base = values.get(name)
+        accounts.append(
+            AccountValue(
+                account=name,
+                value=base.value if base is not None else context.total_value,
+                holdings=base.holdings if base is not None else len(context.holdings),
+                portfolio=number,
+                account_type=settings.account_type,
+                account_type_name=(
+                    None
+                    if settings.account_type is None
+                    else ACCOUNT_TYPE_NAMES[settings.account_type]
+                ),
+                tax_treatment=tax_treatment(settings.account_type),
+                contribution_room=settings.contribution_room,
+                cash_available=own.cash_available if own is not None else 0.0,
+                risk_tolerance=None if own is None else own.risk_tolerance,
+                horizon_years=None if own is None else own.horizon_years,
+                notes=None if own is None else own.notes,
+            )
+        )
+    said = any(
+        account.account_type is not None or account.contribution_room is not None
+        for account in accounts
+    )
+    if not request.group and not said:
+        accounts = []
+    capped = any(account.account_type in CAPPED_ACCOUNT_TYPES for account in accounts)
+    return context.model_copy(
+        update={
+            "accounts": accounts,
+            "group_mode": request.group_mode if request.group else None,
+            "contribution_limits": contribution_limits(date.today()) if capped else None,
+        }
+    )
 
 
 FUNDS: frozenset[str] = frozenset({"ETF", "MUTUALFUND"})
@@ -1358,6 +1485,17 @@ def _review_key(
     tailor to and cover, and the Claude's picks it is given."""
     months = "" if request.history_months is None else f"|{request.history_months}mo"
     split = "".join(f"|{name}=" + holdings_key(held) for name, held in covered.accounts)
+    if covered.settings:
+        split += "|types=" + ";".join(
+            f"{number}:{settings.model_dump_json()}"
+            for number, settings in sorted(covered.settings.items())
+        )
+    if request.group:
+        split += f"|{request.group_mode}=" + ",".join(map(str, request.group))
+    if request.accounts:
+        split += "|goals=" + ";".join(
+            goals.model_dump_json() for goals in sorted(request.accounts, key=lambda g: g.portfolio)
+        )
     # Added only when present, so reviews stored before either existed are still reused.
     web = "|web" if request.web_search else ""
     picked = "" if picks is None else f"|picks={picks.id or picks.generated_at.isoformat()}"
@@ -1388,6 +1526,7 @@ class PreparedReview:
         report: PortfolioReview,
         model: str,
         plan: RebalancePlan | None,
+        orders: list[AccountOrders],
     ) -> PortfolioAnalysisResponse:
         """Wrap a finished review with ``context``, the data it was written from, which
         holds the web findings when the web was searched."""
@@ -1396,6 +1535,9 @@ class PreparedReview:
             history_months=self.request.history_months,
             report=report,
             plan=plan,
+            account_orders=orders,
+            portfolios=self.request.group,
+            group_mode=self.request.group_mode if self.request.group else None,
             context=context,
             model=model,
             generated_at=datetime.now(timezone.utc),
@@ -1448,6 +1590,7 @@ async def prepare_portfolio_review(
     context = await _portfolio_context(
         holdings, request.window, request.profile, request.history_months, covered.accounts
     )
+    context = with_accounts(context, covered, request)
     context = context.model_copy(update={"claude_picks": picks_for_review(picks)})
     try:
         async with get_sessionmaker()() as session:
@@ -1462,29 +1605,62 @@ async def prepare_portfolio_review(
 PreparedPortfolioReview = Annotated[PreparedReview, Depends(prepare_portfolio_review)]
 
 
+@dataclass(frozen=True)
+class Holdings:
+    """What one plan's orders start from: the whole review's holdings, or one account's."""
+
+    shares: dict[str, float]
+    """Shares of each holding."""
+    extra_cash: float
+    """Cash to put to work besides the money-market funds held: new cash, and cash in
+    the account."""
+    note: str | None = None
+    """What the plan's notes should say about where the orders go."""
+
+
+def _account_shares(context: PortfolioContext, account: str) -> dict[str, float]:
+    """Shares of each holding ``account`` holds, from the review's data."""
+    return {
+        h.symbol: held.shares
+        for h in context.holdings
+        for held in h.accounts
+        if held.account == account
+    }
+
+
+def _cash_fund(context: PortfolioContext, shares: dict[str, float]) -> str | None:
+    """The money-market fund the cash among ``shares`` sits in: the largest, or ``None``."""
+    funds = [h for h in context.holdings if h.cash and shares.get(h.symbol)]
+    return max(funds, key=lambda h: shares[h.symbol] * (h.price or 0.0)).symbol if funds else None
+
+
 def _cash_symbol(context: PortfolioContext) -> str | None:
     """The money-market fund the portfolio's cash sits in: its largest, or ``None``."""
-    funds = [h for h in context.holdings if h.cash]
-    return max(funds, key=lambda h: h.value or 0.0).symbol if funds else None
+    return _cash_fund(context, {h.symbol: h.shares for h in context.holdings})
 
 
-def settle_review(context: PortfolioContext, report: PortfolioReview) -> PortfolioReview:
-    """Make the targets say exactly what the orders will do.
+def _weights(context: PortfolioContext, shares: dict[str, float]) -> dict[str, float]:
+    """Each holding's share of the value of ``shares``, at the latest prices."""
+    values = {
+        h.symbol: shares[h.symbol] * h.price
+        for h in context.holdings
+        if h.symbol in shares and h.price is not None
+    }
+    total = sum(values.values())
+    return {symbol: value / total for symbol, value in values.items()} if total > 0 else {}
 
-    A holding Claude keeps is held at its current weight, so a rounded target never turns
-    into a small order. Cash is one target, under the money-market fund the portfolio
-    holds it in (e.g. SPAXX), or under Cash when it holds none, whichever names Claude gave
-    it: the fund's ticker, or CASH in answers written before cash was marked, unless the
-    portfolio holds the stock CASH.
-    """
+
+def _settle_positions(
+    context: PortfolioContext, positions: list[TargetPosition], shares: dict[str, float]
+) -> list[TargetPosition]:
+    """``positions`` as the orders will carry them out, for the holdings ``shares``."""
     holdings = {h.symbol: h for h in context.holdings}
-    legacy = not any(position.cash for position in report.target_allocation) and (
-        "CASH" not in holdings
-    )
+    weights = _weights(context, shares)
+    legacy = not any(position.cash for position in positions) and "CASH" not in holdings
     settled: list[TargetPosition] = []
     cash: list[TargetPosition] = []
     cash_at: int | None = None
-    for position in report.target_allocation:
+    for position in positions:
         symbol = position.symbol.strip().upper()
         held = holdings.get(symbol)
         if position.cash or (held is not None and held.cash) or (legacy and symbol == "CASH"):
@@ -1492,13 +1668,13 @@ def settle_review(context: PortfolioContext, report: PortfolioReview) -> Portfol
             cash.append(position)
             continue
         update: dict[str, object] = {"symbol": symbol}
-        if position.keep and held is not None and held.weight is not None:
-            update["target_weight"] = held.weight
+        if position.keep and symbol in weights:
+            update["target_weight"] = weights[symbol]
         settled.append(position.model_copy(update=update))
     if cash:
-        fund = _cash_symbol(context)
+        fund = _cash_fund(context, shares)
         kept = fund is not None and all(position.keep for position in cash)
-        weight = holdings[fund].weight if kept and fund else None
+        weight = weights.get(fund) if kept and fund else None
         settled.insert(
             cash_at or 0,
             TargetPosition(
@@ -1512,22 +1688,83 @@ def settle_review(context: PortfolioContext, report: PortfolioReview) -> Portfol
                 rationale=" ".join(position.rationale for position in cash),
             ),
         )
-    return report.model_copy(update={"target_allocation": settled})
+    return settled
 
 
-async def _plan(context: PortfolioContext, report: PortfolioReview) -> RebalancePlan | None:
-    """The orders that carry out the review's settled target allocation (see
-    :func:`settle_review`), sized at latest prices.
+def _account_plans(context: PortfolioContext, plans: list[AccountPlan]) -> list[AccountPlan]:
+    """``plans`` for the snapshot's accounts alone, each once and in its order, with the
+    new cash each takes held to its contribution room and, together, to the new cash
+    there is."""
+    by_name = {plan.account.strip().casefold(): plan for plan in plans}
+    kept: list[AccountPlan] = []
+    for account in context.accounts:
+        plan = by_name.get(account.account.casefold())
+        if plan is None:
+            continue
+        cash = plan.new_cash
+        if account.contribution_room is not None:
+            cash = min(cash, account.contribution_room)
+        kept.append(
+            plan.model_copy(
+                update={
+                    "account": account.account,
+                    "new_cash": cash,
+                    "target_allocation": _settle_positions(
+                        context, plan.target_allocation, _account_shares(context, account.account)
+                    ),
+                }
+            )
+        )
+    total = sum(plan.new_cash for plan in kept)
+    available = context.profile.cash_to_invest
+    if total > available:
+        scale = available / total if total > 0 else 0.0
+        kept = [plan.model_copy(update={"new_cash": plan.new_cash * scale}) for plan in kept]
+    return kept
+
+
+def settle_review(context: PortfolioContext, report: PortfolioReview) -> PortfolioReview:
+    """Make the targets say exactly what the orders will do.
+
+    A holding Claude keeps is held at its current weight, so a rounded target never turns
+    into a small order. Cash is one target, under the money-market fund the portfolio
+    holds it in (e.g. SPAXX), or under Cash when it holds none, whichever names Claude gave
+    it: the fund's ticker, or CASH in answers written before cash was marked, unless the
+    portfolio holds the stock CASH. In a review giving each account its own plan, each
+    plan is settled against its account's holdings, and the new cash given to the
+    accounts is held to what there is and to each one's contribution room.
+    """
+    if context.group_mode == "separate":
+        return report.model_copy(
+            update={
+                "target_allocation": [],
+                "account_plans": _account_plans(context, report.account_plans),
+            }
+        )
+    shares = {h.symbol: h.shares for h in context.holdings}
+    return report.model_copy(
+        update={
+            "target_allocation": _settle_positions(context, report.target_allocation, shares),
+            "account_plans": [],
+        }
+    )
+
+
+async def _orders(
+    context: PortfolioContext, positions: list[TargetPosition], start: Holdings
+) -> RebalancePlan | None:
+    """The orders that carry out the settled ``positions`` (see :func:`settle_review`)
+    from the holdings ``start``, sized at latest prices.
 
     Cash, and the money-market fund it sits in, is never ordered: it is what the orders
     leave over. New symbols are priced here; one that cannot be is planned by value alone,
-    and a holding that could not be priced gets no order. Returns ``None`` when the review
-    gives no targets.
+    and a holding that could not be priced gets no order. Returns ``None`` when there are
+    no targets.
     """
     # Targets come from Claude, or from an answer pasted from outside the app: only real
     # ticker symbols are planned, and few enough to price, since each new one is looked up.
     targets: dict[str, Target] = {}
-    for position in report.target_allocation[:MAX_PLANNED_POSITIONS]:
+    for position in positions[:MAX_PLANNED_POSITIONS]:
         symbol = CASH if position.cash else position.symbol.strip().upper()
         if symbol != CASH and not re.fullmatch(SYMBOL_PATTERN, symbol):
             continue
@@ -1542,53 +1779,113 @@ async def _plan(context: PortfolioContext, report: PortfolioReview) -> Rebalance
         return None
     funds = {h.symbol for h in context.holdings if h.cash}
     held = {
-        h.symbol: (h.shares, h.price)
+        h.symbol: (start.shares[h.symbol], h.price)
         for h in context.holdings
-        if h.price is not None and h.symbol not in funds
+        if h.price is not None and h.symbol not in funds and start.shares.get(h.symbol)
     }
-    unpriced = [h.symbol for h in context.holdings if h.price is None and h.symbol in targets]
+    unpriced = [
+        h.symbol
+        for h in context.holdings
+        if h.price is None and h.symbol in targets and start.shares.get(h.symbol)
+    ]
     for symbol in unpriced:
         del targets[symbol]
-    cash_held = sum(h.value or 0.0 for h in context.holdings if h.symbol in funds)
+    cash_held = sum(
+        start.shares.get(h.symbol, 0.0) * (h.price or 0.0)
+        for h in context.holdings
+        if h.symbol in funds
+    )
+    held_symbols = {h.symbol for h in context.holdings}
     new = [s for s in targets if s not in held and s != CASH]
-    found = await asyncio.gather(*(fetch_ticker_info(s) for s in new), return_exceptions=True)
+    known = {h.symbol: h.price for h in context.holdings if h.price is not None}
+    lookups = [s for s in new if s not in held_symbols or s not in known]
+    found = await asyncio.gather(*(fetch_ticker_info(s) for s in lookups), return_exceptions=True)
     rates = await asyncio.gather(
         *(
             dollars_per_unit(None if isinstance(info, BaseException) else info.currency)
             for info in found
         )
     )
-    prices = {
+    prices: dict[str, float | None] = {
         symbol: (
             None
             if isinstance(info, BaseException) or info.price is None or rate is None
             else info.price * rate
         )
-        for symbol, info, rate in zip(new, found, rates, strict=True)
+        for symbol, info, rate in zip(lookups, found, rates, strict=True)
     }
+    # A holding of another account, bought into this one, is priced as it is held.
+    prices.update({s: known[s] for s in new if s in known})
     plan = plan_trades(
         held,
         targets,
         prices,
-        context.profile.cash_to_invest + cash_held,
+        start.extra_cash + cash_held,
         fractional=context.profile.fractional_shares,
         tidy=context.profile.round_shares,
     )
     notes = list(plan.notes)
     if unpriced:
         notes.append(f"No order for {', '.join(unpriced)}: it could not be priced.")
-    if len(context.accounts) > 1:
-        notes.append(
-            "These orders are for your accounts combined: each position's reason says "
-            "which account to place it in."
-        )
+    if start.note:
+        notes.append(start.note)
     return RebalancePlan(
         total_value=plan.total_value,
         trades=[PlannedTrade(**vars(trade)) for trade in plan.trades],
         cash_after=plan.cash_after,
-        cash_symbol=_cash_symbol(context),
+        cash_symbol=_cash_fund(context, start.shares),
         notes=notes,
     )
+
+
+async def _plan(context: PortfolioContext, report: PortfolioReview) -> RebalancePlan | None:
+    """The orders that carry out a review's whole-portfolio plan; ``None`` when it gives
+    each account its own."""
+    if context.group_mode == "separate":
+        return None
+    several = len([a for a in context.accounts if a.portfolio is not None]) > 1
+    start = Holdings(
+        {h.symbol: h.shares for h in context.holdings},
+        context.profile.cash_to_invest,
+        (
+            "These orders are for your accounts combined: each position's reason says "
+            "which account to place it in."
+            if several
+            else None
+        ),
+    )
+    return await _orders(context, report.target_allocation, start)
+
+
+async def _account_orders(
+    context: PortfolioContext, report: PortfolioReview
+) -> list[AccountOrders]:
+    """The orders for each account's own plan, in a review that gives them, each from its
+    account's holdings, the cash in it, and the new cash the plan puts into it."""
+    accounts = {account.account: account for account in context.accounts}
+    orders: list[AccountOrders] = []
+    for plan in report.account_plans:
+        account = accounts.get(plan.account)
+        if account is None:
+            continue
+        start = Holdings(
+            _account_shares(context, plan.account),
+            account.cash_available + plan.new_cash,
+            f"Place these orders in {plan.account}."
+            + (
+                f" They use ${plan.new_cash:,.0f} of the new cash, deposited there first."
+                if plan.new_cash
+                else ""
+            ),
+        )
+        orders.append(
+            AccountOrders(
+                account=plan.account,
+                portfolio=account.portfolio,
+                plan=await _orders(context, plan.target_allocation, start),
+            )
+        )
+    return orders
 
 
 async def _remember(
@@ -1606,6 +1903,7 @@ async def _remember(
                 settings.anthropic_model,
                 settings.anthropic_effort,
                 _stored_portfolio(prepared.request),
+                _group(prepared.request),
             )
     except SQLAlchemyError as exc:
         logger.error("Could not store a portfolio review: %s", exc)
@@ -1652,8 +1950,8 @@ async def create_portfolio_review(prepared: PreparedPortfolioReview) -> Portfoli
     except AnalysisError as exc:
         raise ai_error(exc) from exc
     report = settle_review(context, report)
-    plan = await _plan(context, report)
-    return await _remember(prepared, prepared.response(context, report, model, plan))
+    plan, orders = await _plan(context, report), await _account_orders(context, report)
+    return await _remember(prepared, prepared.response(context, report, model, plan, orders))
 
 
 @router.post(
@@ -1696,8 +1994,9 @@ async def stream_portfolio_review_events(
                 if isinstance(item, Written):
                     report = settle_review(context, item.output)
                     plan = await _plan(context, report)
+                    orders = await _account_orders(context, report)
                     response = await _remember(
-                        prepared, prepared.response(context, report, item.model, plan)
+                        prepared, prepared.response(context, report, item.model, plan, orders)
                     )
                     yield ServerSentEvent(event="result", data=response)
                 elif isinstance(item, AnalysisDelta):
@@ -1725,16 +2024,26 @@ async def read_portfolio_review(
     session: Session,
     user: CurrentUser,
     portfolio: PortfolioQuery = 1,
-    combined: Annotated[
-        bool, Query(description="The review of every portfolio together, not ``portfolio``.")
-    ] = False,
+    portfolios: Annotated[
+        list[PortfolioNumber],
+        Query(description="The review of these portfolios together, not ``portfolio``."),
+    ] = [],  # noqa: B006 (FastAPI copies a query's default)
+    mode: Annotated[
+        GroupMode, Query(description="How ``portfolios`` were reviewed together.")
+    ] = "combined",
 ) -> PortfolioAnalysisResponse:
-    """Return your newest stored review of ``portfolio``, or with ``combined`` of every
-    portfolio together, whatever it was written for, so it can be shown again without a
-    charge. Returns 404 when you have none."""
+    """Return your newest stored review of ``portfolio``, or of ``portfolios`` together as
+    ``mode`` says, whatever it was written for, so it can be shown again without a charge.
+    A portfolio's newest review may be one of several portfolios each given its own plan
+    (``separate``), which it was one of. Returns 404 when you have none."""
+    group = sorted(set(portfolios))
     try:
-        review = await latest_portfolio_analysis(
-            session, user.id, COMBINED_PORTFOLIO if combined else portfolio
+        review = (
+            await latest_portfolio_analysis(
+                session, user.id, GROUP_PORTFOLIO, ReviewGroup(mode, group)
+            )
+            if len(group) > 1
+            else await latest_portfolio_analysis(session, user.id, portfolio)
         )
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
@@ -1790,6 +2099,7 @@ async def export_portfolio_prompt(
         request.history_months,
         covered.accounts,
     )
+    context = with_accounts(context, covered, request)
     context = context.model_copy(update={"claude_picks": picks_for_review(picks)})
     context = await with_holding_facts(session, user.id, context)
     return PortfolioPromptExport(
@@ -1832,6 +2142,9 @@ async def import_portfolio_review(
         history_months=body.context.history_months,
         report=report,
         plan=plan,
+        account_orders=await _account_orders(body.context, report),
+        portfolios=body.request.group,
+        group_mode=body.request.group_mode if body.request.group else None,
         context=body.context,
         model=PASTED_MODEL,
         generated_at=datetime.now(timezone.utc),
@@ -1845,6 +2158,7 @@ async def import_portfolio_review(
             PASTED_MODEL,
             PASTED_MODEL,
             _stored_portfolio(body.request),
+            _group(body.request),
         )
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc

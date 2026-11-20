@@ -227,13 +227,14 @@ def test_two_portfolios_are_saved_and_named_apart(priced: None) -> None:
     assert first["name"] == "Portfolio 1"
     assert [(h["symbol"], h["shares"]) for h in first["holdings"]] == [("AAPL", 1)]
     assert [(h["symbol"], h["shares"]) for h in second["holdings"]] == [("AAPL", 3), ("MSFT", 1)]
+    unsaid = {"account_type": None, "contribution_room": None}
     assert client.get("/api/v1/portfolio/portfolios").json() == {
         "portfolios": [
-            {"portfolio": 1, "name": "Portfolio 1", "holdings": 1},
-            {"portfolio": 2, "name": "Retirement", "holdings": 2},
-            {"portfolio": 3, "name": "Portfolio 3", "holdings": 0},
-            {"portfolio": 4, "name": "Portfolio 4", "holdings": 0},
-            {"portfolio": 5, "name": "Portfolio 5", "holdings": 0},
+            {"portfolio": 1, "name": "Portfolio 1", "holdings": 1, **unsaid},
+            {"portfolio": 2, "name": "Retirement", "holdings": 2, **unsaid},
+            {"portfolio": 3, "name": "Portfolio 3", "holdings": 0, **unsaid},
+            {"portfolio": 4, "name": "Portfolio 4", "holdings": 0, **unsaid},
+            {"portfolio": 5, "name": "Portfolio 5", "holdings": 0, **unsaid},
         ]
     }
     client.put("/api/v1/portfolio/holdings", params={"portfolio": 2}, json={"holdings": []})

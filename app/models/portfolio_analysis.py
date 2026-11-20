@@ -1,10 +1,12 @@
 """Schemas for Claude's review of the account's saved portfolio."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from app.models.accounts import AccountType, ContributionLimits
 
 from app.models.markets import MarketContext
 from app.models.news import NewsHeadline
@@ -70,15 +72,54 @@ PERIOD_MONTHS: dict[PortfolioPeriod, int] = {"1y": 12, "2y": 24, "5y": 60, "10y"
 """Months each standard window spans."""
 
 
+GroupMode = Literal["combined", "separate"]
+"""How several portfolios are reviewed at once: ``combined`` as one large portfolio, with
+one plan saying which account holds what, or ``separate``, each with its own plan and
+orders, written with the others in mind (one request, so cheaper than a review of each)."""
+
+
+class AccountGoals(BaseModel):
+    """What one portfolio's own plan is tailored to, in a ``separate`` review of several.
+    A goal left null is the shared profile's."""
+
+    portfolio: PortfolioNumber
+    risk_tolerance: Literal["conservative", "moderate", "aggressive"] | None = None
+    horizon_years: float | None = Field(
+        default=None, ge=0, le=60, allow_inf_nan=False, description="Years until it is needed."
+    )
+    notes: str | None = Field(default=None, max_length=1_000)
+    cash_available: float = Field(
+        default=0.0,
+        ge=0,
+        le=1e9,
+        allow_inf_nan=False,
+        description="Cash already in this account that may be traded with, in dollars, "
+        "besides any money-market fund it holds.",
+    )
+
+
 class PortfolioAnalysisRequest(BaseModel):
-    """Options for a review of one of the saved portfolios."""
+    """Options for a review of one of the saved portfolios, or of several at once."""
 
     portfolio: PortfolioNumber = Field(default=1, description="Which saved portfolio to review.")
-    combined: bool = Field(
-        default=False,
-        description="Review every saved portfolio together, as one, in place of "
-        "``portfolio``: one review of the whole picture, telling Claude which account "
-        "holds what.",
+    portfolios: list[PortfolioNumber] = Field(
+        default_factory=list,
+        max_length=MAX_PORTFOLIOS,
+        description="Review these saved portfolios at once, in place of ``portfolio``: two "
+        "to five of them, each named once. Empty for one portfolio's review.",
+    )
+    group_mode: GroupMode = Field(
+        default="combined",
+        description="With ``portfolios``: review them as one large portfolio "
+        "(``combined``), or each with its own plan and orders, with the others in mind "
+        "(``separate``).",
+    )
+    accounts: list[AccountGoals] = Field(
+        default_factory=list,
+        max_length=MAX_PORTFOLIOS,
+        description="In a ``separate`` review: each portfolio's own goals, where they "
+        "differ from ``profile``'s, and the cash in it to trade with. ``profile``'s "
+        "``cash_to_invest`` is then new money any of them may draw on.",
     )
     profile: InvestorProfile = Field(default_factory=InvestorProfile)
     period: PortfolioPeriod = Field(
@@ -103,6 +144,27 @@ class PortfolioAnalysisRequest(BaseModel):
         "is recent enough to reuse.",
     )
 
+    @model_validator(mode="after")
+    def _a_group_of_two_or_more(self) -> Self:
+        if len(set(self.portfolios)) != len(self.portfolios):
+            raise ValueError("Name each portfolio once.")
+        if len(self.portfolios) == 1:
+            raise ValueError("Review two or more portfolios together, or one on its own.")
+        named = {account.portfolio for account in self.accounts}
+        if len(named) != len(self.accounts) or not named <= set(self.portfolios):
+            raise ValueError("Give goals once for each portfolio in the review.")
+        return self
+
+    @property
+    def group(self) -> list[int]:
+        """The portfolios reviewed together, in order; empty for one portfolio's review."""
+        return sorted(self.portfolios)
+
+    @property
+    def separate(self) -> bool:
+        """Whether each portfolio of a group gets its own plan."""
+        return bool(self.portfolios) and self.group_mode == "separate"
+
     @property
     def window(self) -> PortfolioPeriod:
         """The standard window the prices are fetched over: ``period``, or the shortest
@@ -120,9 +182,33 @@ class AccountShares(BaseModel):
 
 
 class AccountValue(BaseModel):
-    """One of the accounts reviewed together, with its value at the latest prices."""
+    """One of the accounts reviewed, with its value at the latest prices, what kind of
+    account it is, and, in a ``separate`` review, its own goals and cash."""
 
     account: str = Field(description="The account's name, as the person saved it.")
+    portfolio: int | None = Field(default=None, description="Which saved portfolio it is.")
+    account_type: AccountType | None = Field(
+        default=None, description="What kind of account it is; null when not said."
+    )
+    account_type_name: str | None = None
+    tax_treatment: str | None = Field(
+        default=None, description="How its gains are taxed, in a few words."
+    )
+    contribution_room: float | None = Field(
+        default=None,
+        description="The most new money that may still go into it this tax year, in "
+        "dollars, as the person entered it; null when not said.",
+    )
+    cash_available: float = Field(
+        default=0.0, description="Cash in it to trade with, besides money-market funds."
+    )
+    risk_tolerance: str | None = Field(
+        default=None, description="Its own risk tolerance; null to use the profile's."
+    )
+    horizon_years: float | None = Field(
+        default=None, description="Its own horizon; null to use the profile's."
+    )
+    notes: str | None = Field(default=None, description="What the person said about it.")
     value: float = Field(ge=0, allow_inf_nan=False)
     holdings: int = Field(ge=0, description="How many holdings it has.")
 
@@ -300,6 +386,16 @@ class PortfolioContext(BaseModel):
     deal_headlines: list[NewsHeadline] = Field(
         default_factory=list, description="The newest headlines on mergers and acquisitions."
     )
+    group_mode: GroupMode | None = Field(
+        default=None,
+        description="For several accounts: reviewed as one (``combined``) or each with its "
+        "own plan (``separate``); null for one portfolio's review.",
+    )
+    contribution_limits: ContributionLimits | None = Field(
+        default=None,
+        description="The IRS's yearly contribution limits, given when an account reviewed "
+        "is one they cap.",
+    )
     portfolio: PortfolioRiskStats
     most_correlated: list[PairCorrelation] = Field(default_factory=list)
     least_correlated: list[PairCorrelation] = Field(default_factory=list)
@@ -351,6 +447,28 @@ class TargetPosition(BaseModel):
     rationale: str = Field(description="Why this weight, citing figures where it can.")
 
 
+class AccountPlan(BaseModel):
+    """One account's own plan, in a review of several accounts each with its own."""
+
+    account: str = Field(description="The account's name, exactly as in the snapshot.")
+    headline: str = Field(description="One sentence on this account and its plan.")
+    plan_summary: str = Field(
+        description="This account's plan in a paragraph: what to change and why, how it "
+        "fits the other accounts, and what it is tailored to."
+    )
+    new_cash: float = Field(
+        ge=0,
+        description="How much of the profile's new cash to invest goes into this account, "
+        "in dollars; the accounts' shares sum to at most that cash, and none exceeds the "
+        "account's contribution_room when one is given.",
+    )
+    target_allocation: list[TargetPosition] = Field(
+        description="Every holding of this account and any new investment in it with its "
+        "target weight within the account; a holding to sell entirely gets 0. Weights sum "
+        "to 1."
+    )
+
+
 class PortfolioReview(BaseModel):
     """Claude's data-grounded review of a portfolio, with a concrete plan to act on."""
 
@@ -366,7 +484,13 @@ class PortfolioReview(BaseModel):
     )
     target_allocation: list[TargetPosition] = Field(
         description="Every current holding and any new investment with its target weight; "
-        "a holding to sell entirely gets 0. Weights sum to 1."
+        "a holding to sell entirely gets 0. Weights sum to 1. Empty when the review gives "
+        "each account its own plan in account_plans."
+    )
+    account_plans: list[AccountPlan] = Field(
+        default_factory=list,
+        description="When the snapshot's group_mode is separate: one plan for each "
+        "account, in the snapshot's order. Empty otherwise.",
     )
     considerations: list[str] = Field(
         description="Trade-offs of the plan and alternatives worth weighing: taxes, "
@@ -411,6 +535,14 @@ class RebalancePlan(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class AccountOrders(BaseModel):
+    """The orders that carry out one account's own plan."""
+
+    account: str
+    portfolio: int | None = None
+    plan: RebalancePlan | None = None
+
+
 class PortfolioAnalysisResponse(BaseModel):
     """A portfolio review together with the data it was written from."""
 
@@ -424,6 +556,17 @@ class PortfolioAnalysisResponse(BaseModel):
     report: PortfolioReview
     plan: RebalancePlan | None = Field(
         default=None, description="Orders computed from the review's target allocation."
+    )
+    account_orders: list[AccountOrders] = Field(
+        default_factory=list,
+        description="In a review giving each account its own plan: the orders for each.",
+    )
+    portfolios: list[int] = Field(
+        default_factory=list,
+        description="The portfolios reviewed together; empty for one portfolio's review.",
+    )
+    group_mode: GroupMode | None = Field(
+        default=None, description="How they were reviewed together, if they were."
     )
     context: PortfolioContext
     model: str = Field(description="Claude model that wrote the review.")

@@ -9,6 +9,7 @@ import {
   simulate,
 } from '../api/endpoints'
 import { HoldingsTable, type HoldingRow } from '../components/HoldingsTable'
+import { AccountSettingsFields } from '../components/AccountSettings'
 import { PortfolioReviewCard } from '../components/PortfolioReviewCard'
 import type {
   HoldingsResponse,
@@ -157,6 +158,7 @@ export function PortfolioPage() {
   const [drafts, setDrafts] = useState<Partial<Record<PortfolioNumber, Draft>>>({})
   const draft = drafts[selected]
   const dirty = draft !== undefined
+  const summary = portfolios.data?.portfolios.find((p) => p.portfolio === portfolio)
   const savedName = loaded?.name ?? `Portfolio ${portfolio}`
   const rows = draft?.rows ?? toRows(loaded)
   const name = draft?.name ?? savedName
@@ -265,6 +267,7 @@ export function PortfolioPage() {
             </div>
             {holdings.error !== null && <ErrorNotice error={holdings.error} />}
             {save.error !== null && <ErrorNotice error={save.error} />}
+            {summary && <AccountSettingsFields key={summary.portfolio} summary={summary} />}
             <HoldingsTable
               rows={rows}
               holdings={loaded?.holdings ?? []}
@@ -354,7 +357,7 @@ export function PortfolioPage() {
             key={`review-${portfolio}`}
             portfolio={portfolio}
             hasHoldings={priced.length > 0}
-            canCombine={(portfolios.data?.portfolios.filter((p) => p.holdings > 0).length ?? 0) > 1}
+            portfolios={portfolios.data?.portfolios ?? []}
             stale={dirty || holdings.isPlaceholderData}
           />
         </>
