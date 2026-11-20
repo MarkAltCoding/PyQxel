@@ -48,6 +48,7 @@ import { Segmented } from './Segmented'
 import { Stat } from './Stat'
 import { InfoTip } from './InfoTip'
 import { WaitForDataOption } from './WaitForData'
+import { WaitingNote } from './WaitingNote'
 import { AiProgressDetail, WebSearchOption, WebSources } from './WebSearch'
 
 const KINDS = [
@@ -225,6 +226,12 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
                   : 'Gathering data and reasoning…'}
             </span>
           </div>
+          <WaitingNote
+            wait={wait}
+            quiet={
+              !progress.thinking && progress.reportCharacters === 0 && !progress.searches.length
+            }
+          />
           <AiProgressDetail
             progress={{
               thinking: progress.thinking,

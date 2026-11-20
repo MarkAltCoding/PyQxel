@@ -61,6 +61,7 @@ import { Stat } from './Stat'
 import { InfoTip } from './InfoTip'
 import { SavedReviews } from './SavedReviews'
 import { WaitForDataOption } from './WaitForData'
+import { WaitingNote } from './WaitingNote'
 import { AiProgressDetail, WebSearchOption, WebSources } from './WebSearch'
 import { Link } from 'react-router'
 
@@ -711,6 +712,10 @@ export function PortfolioReviewCard({
                   : 'Measuring the portfolio and reasoning…'}
             </span>
           </div>
+          <WaitingNote
+            wait={wait}
+            quiet={!progress.thinking && progress.characters === 0 && !progress.searches.length}
+          />
           <AiProgressDetail progress={progress} />
         </div>
       ) : review ? (

@@ -38,6 +38,7 @@ import {
 } from './ReportParts'
 import { Segmented } from './Segmented'
 import { WaitForDataOption } from './WaitForData'
+import { WaitingNote } from './WaitingNote'
 import { AiProgressDetail, WebSearchOption, WebSources } from './WebSearch'
 import { compact, dateTime, money, number, percent, shortDate, signedPercent } from '../lib/format'
 import { keepExport, keptExport } from '../lib/exportedPrompts'
@@ -431,6 +432,10 @@ export function ClaudesPicks() {
                     : 'Reading the screener and reasoning…'}
               </span>
             </div>
+            <WaitingNote
+              wait={wait}
+              quiet={!progress.thinking && progress.characters === 0 && !progress.searches.length}
+            />
             <AiProgressDetail progress={progress} />
           </div>
         ) : shown ? (
