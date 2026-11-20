@@ -100,7 +100,8 @@ def picks_research_task(context: PicksContext) -> str:
             else ""
         )
         + ", each candidate's next earnings date, a calendar of FOMC meetings and major "
-        "earnings reports, the week's market and deal headlines, and the last two weeks' "
+        "earnings reports, the week's market, deal, currency, and crypto headlines, and the "
+        "last two weeks' "
         "headlines and last month's SEC filings for the "
         f"{len(context.candidate_events)} candidates likeliest to be picked. It has no "
         "analyst estimates or ratings and nothing on the economy beyond the headlines.",

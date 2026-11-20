@@ -31,8 +31,8 @@ CONTEXT_EARNINGS: int = 25
 """Major earnings reports given to Claude, the largest companies'."""
 CONTEXT_IPOS: int = 10
 """IPOs given to Claude, the largest."""
-CONTEXT_HEADLINES: int = 15
-"""Market headlines given to Claude."""
+CONTEXT_HEADLINES: int = 30
+"""Market headlines given to a stock report: the most market-moving."""
 SUMMARY_CHARS: int = 240
 """Length each headline's summary given to Claude is cut to."""
 
@@ -104,6 +104,7 @@ def market_context(
     holiday_days: int = CONTEXT_HOLIDAY_DAYS,
     fomc_days: int | None = None,
     earnings_count: int = CONTEXT_EARNINGS,
+    ipo_count: int = CONTEXT_IPOS,
 ) -> MarketContext:
     """The upcoming FOMC meetings, holidays, major earnings reports, and IPOs, and the
     ``headlines`` market headlines that look most market-moving (:func:`headline_importance`),
@@ -115,6 +116,7 @@ def market_context(
         fomc_days: Days ahead FOMC meetings are listed, at least the next
             :data:`CONTEXT_FOMC_MEETINGS`; ``None`` lists just those.
         earnings_count: Most major earnings reports listed, the largest companies'.
+        ipo_count: Most IPOs listed, the largest.
     """
     soon = today + timedelta(days=event_days)
     upcoming = [meeting for meeting in fomc if meeting.end >= today]
@@ -122,15 +124,6 @@ def market_context(
     if fomc_days is not None:
         horizon = today + timedelta(days=fomc_days)
         meetings += [m for m in upcoming[CONTEXT_FOMC_MEETINGS:] if m.start <= horizon]
-    articles = news.articles if news else []
-    ranked = sorted(
-        enumerate(articles),
-        key=lambda item: (
-            -headline_importance(item[1], news.fetched_at if news else item[1].published_at),
-            item[0],
-        ),
-    )[:headlines]
-    top = [article for _, article in sorted(ranked)]
     return MarketContext(
         as_of=today,
         market_open=None if status is None else status.is_open,
@@ -149,17 +142,29 @@ def market_context(
             (ipo for ipo in ipos or [] if today <= ipo.date <= soon and ipo.status != "withdrawn"),
             key=lambda ipo: ipo.value or 0,
             reverse=True,
-        )[:CONTEXT_IPOS],
-        headlines=[
-            NewsHeadline(
-                published_at=article.published_at,
-                source=article.source,
-                headline=article.headline,
-                summary=_shorten(article.summary),
-            )
-            for article in top
-        ],
+        )[:ipo_count],
+        headlines=top_headlines(news, headlines),
     )
+
+
+def top_headlines(news: MarketNews | None, count: int) -> list[NewsHeadline]:
+    """The ``count`` headlines of ``news`` that look most market-moving
+    (:func:`headline_importance`), newest first, with shortened summaries."""
+    if news is None:
+        return []
+    ranked = sorted(
+        enumerate(news.articles),
+        key=lambda item: (-headline_importance(item[1], news.fetched_at), item[0]),
+    )[:count]
+    return [
+        NewsHeadline(
+            published_at=article.published_at,
+            source=article.source,
+            headline=article.headline,
+            summary=_shorten(article.summary),
+        )
+        for _, article in sorted(ranked)
+    ]
 
 
 MAJOR_PUBLISHERS: frozenset[str] = frozenset(

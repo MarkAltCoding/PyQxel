@@ -256,7 +256,15 @@ class PicksContext(BaseModel):
     )
     deal_headlines: list[NewsHeadline] = Field(
         default_factory=list,
-        description="The newest headlines on mergers and acquisitions, newest first.",
+        description="The headlines on mergers and acquisitions that look most "
+        "market-moving, newest first.",
+    )
+    forex_headlines: list[NewsHeadline] = Field(
+        default_factory=list,
+        description="The same of the currency news: the dollar and exchange rates.",
+    )
+    crypto_headlines: list[NewsHeadline] = Field(
+        default_factory=list, description="The same of the cryptocurrency news."
     )
     sectors: list[SectorSnapshot] = Field(
         default_factory=list,

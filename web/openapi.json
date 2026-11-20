@@ -10271,12 +10271,28 @@
             "title": "Candidates",
             "type": "array"
           },
+          "crypto_headlines": {
+            "description": "The same of the cryptocurrency news.",
+            "items": {
+              "$ref": "#/components/schemas/NewsHeadline"
+            },
+            "title": "Crypto Headlines",
+            "type": "array"
+          },
           "deal_headlines": {
-            "description": "The newest headlines on mergers and acquisitions, newest first.",
+            "description": "The headlines on mergers and acquisitions that look most market-moving, newest first.",
             "items": {
               "$ref": "#/components/schemas/NewsHeadline"
             },
             "title": "Deal Headlines",
+            "type": "array"
+          },
+          "forex_headlines": {
+            "description": "The same of the currency news: the dollar and exchange rates.",
+            "items": {
+              "$ref": "#/components/schemas/NewsHeadline"
+            },
+            "title": "Forex Headlines",
             "type": "array"
           },
           "horizon": {
@@ -11633,12 +11649,28 @@
             ],
             "description": "The IRS's yearly contribution limits, given when an account reviewed is one they cap."
           },
+          "crypto_headlines": {
+            "description": "The same of the cryptocurrency news.",
+            "items": {
+              "$ref": "#/components/schemas/NewsHeadline"
+            },
+            "title": "Crypto Headlines",
+            "type": "array"
+          },
           "deal_headlines": {
-            "description": "The newest headlines on mergers and acquisitions.",
+            "description": "The headlines on mergers and acquisitions that look most market-moving, newest first.",
             "items": {
               "$ref": "#/components/schemas/NewsHeadline"
             },
             "title": "Deal Headlines",
+            "type": "array"
+          },
+          "forex_headlines": {
+            "description": "The same of the currency news: the dollar and exchange rates.",
+            "items": {
+              "$ref": "#/components/schemas/NewsHeadline"
+            },
+            "title": "Forex Headlines",
             "type": "array"
           },
           "funds": {

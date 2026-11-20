@@ -384,7 +384,16 @@ class PortfolioContext(BaseModel):
         "reports, IPOs, and the week's market headlines.",
     )
     deal_headlines: list[NewsHeadline] = Field(
-        default_factory=list, description="The newest headlines on mergers and acquisitions."
+        default_factory=list,
+        description="The headlines on mergers and acquisitions that look most "
+        "market-moving, newest first.",
+    )
+    forex_headlines: list[NewsHeadline] = Field(
+        default_factory=list,
+        description="The same of the currency news: the dollar and exchange rates.",
+    )
+    crypto_headlines: list[NewsHeadline] = Field(
+        default_factory=list, description="The same of the cryptocurrency news."
     )
     group_mode: GroupMode | None = Field(
         default=None,

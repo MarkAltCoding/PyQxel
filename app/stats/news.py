@@ -18,8 +18,8 @@ from app.stats.markets import MAJOR_PUBLISHERS
 
 TOP_SOURCES: int = 8
 """Publishers listed in an overview."""
-CONTEXT_ARTICLES: int = 40
-"""Articles given to Claude: those that matter most, newest first."""
+CONTEXT_ARTICLES: int = 60
+"""Articles given to a stock report: those that matter most for the shares, newest first."""
 CONTEXT_SUMMARY_CHARS: int = 300
 """Length each summary given to Claude is cut to."""
 

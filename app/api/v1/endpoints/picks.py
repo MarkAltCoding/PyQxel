@@ -10,6 +10,7 @@ given the latest picks as candidates for new investments.
 import asyncio
 import hashlib
 import logging
+import math
 import re
 from collections.abc import AsyncIterator, Collection
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ from app.ai.prompts import PICKS_SYSTEM_PROMPT
 from app.ai.web import add_web_research, with_web_research
 from app.api.auth import CurrentUser
 from app.api.v1.endpoints.markets import (
+    PICKS_EARNINGS_DAYS,
     PicksBackdrop,
     backdrop_days,
     backdrop_finnhub_requests,
@@ -98,7 +100,6 @@ from app.models.web import WebSearchQuery
 from app.stats.picks_performance import ends_on, history_period, start_day, track
 from app.stats.picks import (
     EVENTS_SHORTLIST,
-    HEADLINES_PER_CANDIDATE,
     candidate_events,
     headlines_each,
     events_shortlist,
@@ -141,11 +142,13 @@ async def _universe(session: AsyncSession, user_id: str) -> Universe | None:
     return await shared_universe(session) if await shows_universe(session) else None
 
 
-async def _market(horizon_days: float | None) -> tuple[PicksBackdrop | None, str | None]:
-    """The market backdrop for a holding period of ``horizon_days``, or a notice saying it
-    is missing."""
+async def _market(
+    horizon_days: float | None, calendar_days: int | None = None
+) -> tuple[PicksBackdrop | None, str | None]:
+    """The market backdrop for a holding period of ``horizon_days``, with a calendar of
+    ``calendar_days``, or a notice saying it is missing."""
     try:
-        return await fetch_picks_backdrop(date.today(), horizon_days), None
+        return await fetch_picks_backdrop(date.today(), horizon_days, calendar_days), None
     except DataFetchError as exc:
         logger.info("No market backdrop for Claude's picks: %s", exc)
         return None, "The market calendar and headlines could not be fetched."
@@ -159,15 +162,23 @@ NEWS_MARGIN: int = 2
 the person has open."""
 
 
-def news_requests_left(horizon_days: float | None) -> int | None:
-    """How many companies' news can be asked of Finnhub within the key's minute once the
-    backdrop for ``horizon_days`` is fetched; ``None`` without a Finnhub key, when news comes
-    from Alpha Vantage's one shared feed and costs nothing per company."""
+def plan_requests(wanted: int, horizon_days: float | None) -> tuple[int, int]:
+    """How many of ``wanted`` stocks get their own news, and how many days of calendar the
+    backdrop covers, within the Finnhub key's minute. News comes first: every stock wanted
+    gets it while the calendar keeps at least :data:`PICKS_EARNINGS_DAYS`, and the calendar
+    then takes the weeks left, up to the holding period. FOMC meetings, from the Federal
+    Reserve with no key, cover the whole period either way. Without a Finnhub key, news
+    comes from Alpha Vantage's one shared feed and costs nothing per company."""
+    days = backdrop_days(horizon_days)
     api_key = finnhub_key()
     if api_key is None:
-        return None
-    used = backdrop_finnhub_requests(backdrop_days(horizon_days)) + NEWS_MARGIN
-    return max(0, finnhub_requests_per_minute(api_key) - used)
+        return wanted, days
+    allowance = finnhub_requests_per_minute(api_key) - NEWS_MARGIN
+    fixed = backdrop_finnhub_requests(0)  # The IPOs, holidays, status, and news categories.
+    fewest_weeks = math.ceil(PICKS_EARNINGS_DAYS / 7)
+    news = max(0, min(wanted, allowance - fixed - fewest_weeks))
+    weeks = max(fewest_weeks, allowance - fixed - news)
+    return news, min(days, weeks * 7)
 
 
 NEWS_REQUESTS_AT_ONCE: int = 6
@@ -234,19 +245,15 @@ async def _candidate_events(
         if edgar is not None:
             await edgar.aclose()
     now = datetime.now(timezone.utc)
-    # News from Alpha Vantage's shared feed is split among the candidates it came for.
-    each = headlines_each(sum(1 for found in news if found and found.provider == "alpha_vantage"))
+    # The budget of headlines is shared among the candidates whose news was fetched.
+    each = headlines_each(sum(1 for found in news if found is not None))
     return [
         candidate_events(
             candidate.symbol,
             None if found_news is None else found_news.articles,
             found,
             now,
-            (
-                each
-                if found_news is not None and found_news.provider == "alpha_vantage"
-                else HEADLINES_PER_CANDIDATE
-            ),
+            each,
         )
         for candidate, found_news, found in zip(shortlist, news, filings, strict=True)
     ]
@@ -301,12 +308,12 @@ async def holding_facts(
         for symbol in symbols
         if symbol not in known_funds
     ]
-    left = news_requests_left(horizon_days)
-    shortlist = shortlist[
-        : MAX_CANDIDATE_EVENTS if left is None else min(MAX_CANDIDATE_EVENTS, left)
-    ]
+    news_count, calendar_days = plan_requests(
+        min(len(shortlist), MAX_CANDIDATE_EVENTS), horizon_days
+    )
+    shortlist = shortlist[:news_count]
     (backdrop, market_notice), events = await asyncio.gather(
-        _market(horizon_days), _candidate_events(shortlist, ciks)
+        _market(horizon_days, calendar_days), _candidate_events(shortlist, ciks)
     )
     figures = with_listing_facts(figures, None if backdrop is None else backdrop.earnings, sp500)
     notices = [
@@ -375,12 +382,10 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
     sp500 = await _sp500(session, universe)
     ciks = {stock.symbol: stock.cik for stock in companies}
     horizon_days = profile.horizon.total_weeks * 7
-    left = news_requests_left(horizon_days)
-    shortlist = events_shortlist(
-        candidates, EVENTS_SHORTLIST if left is None else min(left, EVENTS_SHORTLIST)
-    )
+    news_count, calendar_days = plan_requests(EVENTS_SHORTLIST, horizon_days)
+    shortlist = events_shortlist(candidates, news_count)
     (backdrop, market_notice), events = await asyncio.gather(
-        _market(horizon_days), _candidate_events(shortlist, ciks)
+        _market(horizon_days, calendar_days), _candidate_events(shortlist, ciks)
     )
     candidates = with_listing_facts(
         candidates, None if backdrop is None else backdrop.earnings, sp500
@@ -420,6 +425,8 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
         candidates=candidates,
         market=None if backdrop is None else backdrop.market,
         deal_headlines=[] if backdrop is None else backdrop.deals,
+        forex_headlines=[] if backdrop is None else backdrop.forex,
+        crypto_headlines=[] if backdrop is None else backdrop.crypto,
         sectors=sector_snapshots(companies),
         candidate_events=events,
         notice=" ".join(notice for notice in notices if notice) or None,

@@ -1460,6 +1460,8 @@ async def with_holding_facts(
             "holding_events": facts.events,
             "market": None if facts.backdrop is None else facts.backdrop.market,
             "deal_headlines": [] if facts.backdrop is None else facts.backdrop.deals,
+            "forex_headlines": [] if facts.backdrop is None else facts.backdrop.forex,
+            "crypto_headlines": [] if facts.backdrop is None else facts.backdrop.crypto,
             "notice": notice,
         }
     )

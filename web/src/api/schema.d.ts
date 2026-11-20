@@ -7299,10 +7299,20 @@ export interface components {
       /** Candidates */
       candidates: components['schemas']['PickCandidate'][]
       /**
+       * Crypto Headlines
+       * @description The same of the cryptocurrency news.
+       */
+      crypto_headlines?: components['schemas']['NewsHeadline'][]
+      /**
        * Deal Headlines
-       * @description The newest headlines on mergers and acquisitions, newest first.
+       * @description The headlines on mergers and acquisitions that look most market-moving, newest first.
        */
       deal_headlines?: components['schemas']['NewsHeadline'][]
+      /**
+       * Forex Headlines
+       * @description The same of the currency news: the dollar and exchange rates.
+       */
+      forex_headlines?: components['schemas']['NewsHeadline'][]
       /**
        * Horizon
        * @description The holding period in words.
@@ -7995,10 +8005,20 @@ export interface components {
       /** @description The IRS's yearly contribution limits, given when an account reviewed is one they cap. */
       contribution_limits?: components['schemas']['ContributionLimits'] | null
       /**
+       * Crypto Headlines
+       * @description The same of the cryptocurrency news.
+       */
+      crypto_headlines?: components['schemas']['NewsHeadline'][]
+      /**
        * Deal Headlines
-       * @description The newest headlines on mergers and acquisitions.
+       * @description The headlines on mergers and acquisitions that look most market-moving, newest first.
        */
       deal_headlines?: components['schemas']['NewsHeadline'][]
+      /**
+       * Forex Headlines
+       * @description The same of the currency news: the dollar and exchange rates.
+       */
+      forex_headlines?: components['schemas']['NewsHeadline'][]
       /**
        * Funds
        * @description Each ETF or mutual fund among the holdings, largest first, with its largest holdings, mix of stocks, bonds, and cash, sectors, costs, and the figures weighted from the companies it holds, where they could be found.

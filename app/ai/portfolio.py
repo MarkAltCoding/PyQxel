@@ -50,8 +50,9 @@ def review_research_task(context: PortfolioContext) -> str:
         f"Its largest holdings are {listed(names)}.",
         "The tool already has each holding's prices, volatility, drawdowns, and "
         "correlations, what each fund holds, each stock's valuation, margins, growth, "
-        "momentum, and next earnings date from its screener, the week's market and deal "
-        "headlines, and the last two weeks' headlines and last month's SEC filings of "
+        "momentum, and next earnings date from its screener, the week's market, deal, "
+        "currency, and crypto headlines, and the last two weeks' headlines and last "
+        "month's SEC filings of "
         f"{len(context.holding_events)} of the holdings. It has no analyst estimates or "
         "ratings, and nothing on the economy beyond the headlines.",
         "Search for recent news that bears on keeping, adding to, or selling the largest "

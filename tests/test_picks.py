@@ -125,7 +125,7 @@ def screener(monkeypatch: pytest.MonkeyPatch) -> list[PicksContext]:
     _store(STOCKS)
     asked: list[PicksContext] = []
 
-    async def no_calendar(today: object, horizon_days: object = None) -> PicksBackdrop:
+    async def no_calendar(today: object, *rest: object) -> PicksBackdrop:
         raise ProviderNotConfiguredError("No Finnhub key.")
 
     async def write(context: PicksContext, *, client: Any) -> tuple[PicksReport, str]:
@@ -272,13 +272,21 @@ def _rich_backdrop(today: object) -> PicksBackdrop:
                 headline="CHEAP agrees to buy a rival",
             )
         ],
+        forex=[
+            NewsHeadline(
+                published_at="2026-11-18T16:00:00Z",  # type: ignore[arg-type]
+                source="Reuters",
+                headline="Dollar slips against the euro",
+            )
+        ],
+        crypto=[],
     )
 
 
 def test_picks_get_news_filings_earnings_dates_and_the_index(
     screener: list[PicksContext], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def backdrop(today: object, horizon_days: object = None) -> PicksBackdrop:
+    async def backdrop(today: object, *rest: object) -> PicksBackdrop:
         return _rich_backdrop(today)
 
     asked_news: list[str] = []
@@ -335,6 +343,7 @@ def test_picks_get_news_filings_earnings_dates_and_the_index(
     assert big.sp500 is True and cheap.sp500 is False
     assert big.exchange == "NYSE" and big.market_cap_rank == 1
     assert context.deal_headlines[0].headline == "CHEAP agrees to buy a rival"
+    assert context.forex_headlines[0].headline == "Dollar slips against the euro"
     assert context.market is not None and context.market.headlines
     assert "MKT" not in asked_news, "an ETF's news is the market's"
     events = {event.symbol: event for event in context.candidate_events}
@@ -712,7 +721,7 @@ def test_a_review_is_given_its_holdings_figures_news_and_filings(
 ) -> None:
     """Portfolio reviews get what the picks get, for each holding."""
 
-    async def backdrop(today: object, horizon_days: object = None) -> PicksBackdrop:
+    async def backdrop(today: object, *rest: object) -> PicksBackdrop:
         return _rich_backdrop(today)
 
     async def news(symbol: str) -> CompanyNews:

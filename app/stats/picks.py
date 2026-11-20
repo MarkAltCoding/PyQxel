@@ -346,21 +346,25 @@ def events_shortlist(
     return ordered[: min(count, MAX_CANDIDATE_EVENTS)]
 
 
-HEADLINES_PER_CANDIDATE: int = 4
-"""Most headlines given for one candidate."""
+HEADLINES_PER_CANDIDATE: int = 12
+"""Most headlines given for one candidate or holding."""
 
-SHARED_FEED_HEADLINES: int = 25
-"""Headlines shared among the candidates whose news came from Alpha Vantage's one
-market-wide feed rather than a request of their own: 25 holdings get one each, ten get
-two, six or fewer get four."""
+FEWEST_HEADLINES: int = 4
+"""Fewest headlines given for each one whose news was fetched, however many there are."""
+
+HEADLINE_BUDGET: int = 240
+"""Company headlines given to Claude in all, shared evenly among the stocks whose news was
+fetched: 30 picks get eight each, 40 holdings six, and ten holdings twelve. The articles
+are already fetched (one request per company, or one shared feed), so a larger share costs
+tokens, about 70 a headline, not requests."""
 
 
-def headlines_each(from_feed: int) -> int:
-    """Headlines each of ``from_feed`` candidates gets from a shared feed: an even share of
-    :data:`SHARED_FEED_HEADLINES`, at least one and at most :data:`HEADLINES_PER_CANDIDATE`."""
-    if from_feed <= 0:
+def headlines_each(stocks: int) -> int:
+    """Headlines each of ``stocks`` gets: an even share of :data:`HEADLINE_BUDGET`, from
+    :data:`FEWEST_HEADLINES` to :data:`HEADLINES_PER_CANDIDATE`."""
+    if stocks <= 0:
         return HEADLINES_PER_CANDIDATE
-    return max(1, min(HEADLINES_PER_CANDIDATE, SHARED_FEED_HEADLINES // from_feed))
+    return max(FEWEST_HEADLINES, min(HEADLINES_PER_CANDIDATE, HEADLINE_BUDGET // stocks))
 
 
 CANDIDATE_SUMMARY_CHARS: int = 200

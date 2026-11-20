@@ -45,10 +45,10 @@ from app.models.news import NewsHeadline
 from app.stats.markets import (
     CONTEXT_EVENT_DAYS,
     MAJOR_MARKET_CAP,
-    SUMMARY_CHARS,
     major_earnings,
     market_context,
     score_headlines,
+    top_headlines,
 )
 
 logger = logging.getLogger(__name__)
@@ -248,8 +248,12 @@ PICKS_EARNINGS_DAYS: int = 28
 portfolio reviews: four of Finnhub's weekly calendar requests, the same ones the Markets
 page's calendar makes."""
 
-BACKDROP_EARNINGS: int = 40
-"""Major earnings reports listed for picks and reviews, the largest companies'."""
+BACKDROP_EARNINGS: int = 100
+"""Major earnings reports listed for picks and reviews, the largest companies', each with
+its day, time, and estimates, as the Markets page's calendar lists them."""
+
+BACKDROP_IPOS: int = 25
+"""IPOs listed for picks and reviews, the largest."""
 
 FOMC_MAX_DAYS: int = 2 * 365
 """Furthest ahead FOMC meetings are listed; the Federal Reserve publishes about a year and
@@ -270,16 +274,22 @@ def backdrop_days(horizon_days: float | None) -> int:
 
 def backdrop_finnhub_requests(days: int) -> int:
     """Finnhub requests the backdrop of ``days`` sends, before its caches: a weekly
-    earnings calendar for each week, the IPOs, holidays, market status, and the general and
-    merger news."""
-    return math.ceil(days / EARNINGS_CHUNK_DAYS) + 5
+    earnings calendar for each week, the IPOs, holidays, market status, and the news in
+    each of the Markets page's four categories."""
+    return math.ceil(days / EARNINGS_CHUNK_DAYS) + 7
 
 
-PICKS_HEADLINES: int = 40
-"""General market headlines given to Claude's picks."""
+PICKS_HEADLINES: int = 80
+"""General market headlines given to picks and reviews, the most market-moving."""
 
-PICKS_DEAL_HEADLINES: int = 15
-"""Headlines on mergers and acquisitions given to Claude's picks."""
+PICKS_DEAL_HEADLINES: int = 30
+"""Headlines on mergers and acquisitions given to picks and reviews."""
+
+PICKS_FOREX_HEADLINES: int = 20
+"""Headlines on currencies given to picks and reviews, for holdings abroad and the dollar."""
+
+PICKS_CRYPTO_HEADLINES: int = 10
+"""Headlines on cryptocurrencies given to picks and reviews, for crypto funds and miners."""
 
 
 @dataclass(frozen=True)
@@ -291,22 +301,16 @@ class PicksBackdrop:
     """Every company's earnings reports over :data:`PICKS_EARNINGS_DAYS` days, to find
     each candidate's next one; ``None`` when the calendar could not be fetched."""
     deals: list[NewsHeadline]
-    """The newest headlines on mergers and acquisitions."""
+    """The headlines on mergers and acquisitions that look most market-moving."""
+    forex: list[NewsHeadline]
+    """The same of the currency news."""
+    crypto: list[NewsHeadline]
+    """The same of the cryptocurrency news."""
 
 
-def _headline(article: Any) -> NewsHeadline:
-    summary = article.summary
-    if summary is not None and len(summary) > SUMMARY_CHARS:
-        summary = summary[:SUMMARY_CHARS].rsplit(" ", 1)[0].rstrip(" ,;:.") + "…"
-    return NewsHeadline(
-        published_at=article.published_at,
-        source=article.source,
-        headline=article.headline,
-        summary=summary,
-    )
-
-
-async def fetch_picks_backdrop(today: date, horizon_days: float | None = None) -> PicksBackdrop:
+async def fetch_picks_backdrop(
+    today: date, horizon_days: float | None = None, calendar_days: int | None = None
+) -> PicksBackdrop:
     """The market backdrop of :func:`fetch_market_context` for a holding period of
     ``horizon_days``, with more headlines, the news on deals, every FOMC meeting scheduled
     within the period, and the earnings reports, IPOs, and holidays of a calendar as long
@@ -314,17 +318,25 @@ async def fetch_picks_backdrop(today: date, horizon_days: float | None = None) -
     requests: :func:`backdrop_finnhub_requests` to Finnhub, shared with the Markets page
     and cached, and the Federal Reserve's calendar.
 
+    ``calendar_days``, when given, shortens the calendar to leave the Finnhub key's minute
+    for company news (:func:`app.api.v1.endpoints.picks.plan_requests`); FOMC meetings
+    still cover the whole period.
+
     Raises:
         ProviderNotConfiguredError: If Finnhub rejects the user's key.
     """
     days = backdrop_days(horizon_days)
+    if calendar_days is not None:
+        days = max(1, min(days, calendar_days))
     fomc_days = int(min(horizon_days if horizon_days is not None else days, FOMC_MAX_DAYS))
     end = today + timedelta(days=days - 1)
-    meetings, (parts, _), news, deals = await asyncio.gather(
+    meetings, (parts, _), news, deals, forex, crypto = await asyncio.gather(
         fetch_fomc_meetings(),
         _finnhub_raw_parts(today, end),
         _general_news(),
         _general_news("merger"),
+        _general_news("forex"),
+        _general_news("crypto"),
     )
     earnings, ipos, holidays, market_status = parts
     major = None if earnings is None else await _major(earnings, MAJOR_MARKET_CAP)
@@ -342,9 +354,10 @@ async def fetch_picks_backdrop(today: date, horizon_days: float | None = None) -
             holiday_days=days,
             fomc_days=max(fomc_days, days),
             earnings_count=BACKDROP_EARNINGS,
+            ipo_count=BACKDROP_IPOS,
         ).model_copy(update={"calendar_days": days}),
         earnings=earnings,
-        deals=[_headline(article) for article in (deals.articles if deals else [])][
-            :PICKS_DEAL_HEADLINES
-        ],
+        deals=top_headlines(deals, PICKS_DEAL_HEADLINES),
+        forex=top_headlines(forex, PICKS_FOREX_HEADLINES),
+        crypto=top_headlines(crypto, PICKS_CRYPTO_HEADLINES),
     )

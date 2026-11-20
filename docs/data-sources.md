@@ -383,23 +383,28 @@ Each list of picks is made from data that is nearly all on hand already:
   screener.
 - **The S&P 500's members (keyless):** from the SEC's filings of a fund that tracks it,
   cached for a day and shared with the screener's S&P 500 choice.
-- **Finnhub (the user's key):** a calendar as long as the holding period, from four weeks
-  to a quarter (`backdrop_days`): one weekly earnings calendar per week, which also gives
-  every candidate's next report date, the IPOs, and the holidays, plus every FOMC meeting
-  in the period (from the Federal Reserve, no key), the general and merger news (the most
-  market-moving headlines), and the company news of the 30 stocks likeliest to be picked
-  (`events_shortlist`), six at a time. The company news is cut to what the key's minute has
-  left after the calendar (`news_requests_left`): 30 of a free plan's 55 PyQxel sends for
-  a quarter's calendar. Company news is cached for ten minutes and shared with the stock
-  page, and the calendars for six hours with the Markets page. Portfolio reviews get the
-  same, for up to 40 holdings and the person's horizon (a year when none is given).
+- **Finnhub (the user's key):** the company news of the 30 stocks likeliest to be picked
+  (`events_shortlist`), six at a time, and what the Markets page shows: one weekly
+  earnings calendar per week, which also gives every candidate's next report date, the
+  IPOs, the holidays, whether the market is open, and the news in all four of its
+  categories (general, deals, currencies, and crypto). News comes first in the key's
+  minute (`plan_requests`): every stock wanted gets its own, and the calendar takes the
+  weeks left, at least four and up to the holding period or a quarter. On a free plan's 55
+  a minute, picks get a full quarter's calendar, and a review of 40 holdings gets six
+  weeks with every holding's news. FOMC meetings, from the Federal Reserve with no key,
+  cover the whole period either way. Company news is cached for ten minutes and shared
+  with the stock page, and the calendars for six hours with the Markets page. Portfolio
+  reviews get the same, for up to 40 holdings and the person's horizon (a year when none
+  is given).
+- **What Claude is given of the news:** 240 company headlines shared evenly among the
+  stocks whose news was fetched, from 4 to 12 each (30 picks get 8, 40 holdings 6), the
+  ones that matter most for each company's shares; and the most market-moving 80
+  general, 30 deal, 20 currency, and 10 crypto headlines. They cost tokens, about 70 a
+  headline, not requests: the articles are already fetched.
 - **Alpha Vantage (a paid plan), without Finnhub:** the one shared news feed stands in for
-  both the market's news and each company's, a single request however many companies. Its
-  headlines are shared out: 25 in all, so 25 holdings get one each and six or fewer get
-  four (`headlines_each`). Without either key the picks are still made, and the context's
-  notice says what is missing.
-- **SEC EDGAR (keyless):** the last 30 days of filings of the same 30 stocks, four at a
-  time, with an 8-K's items in words.
+  both the market's news and each company's, a single request however many companies.
+  Without either key the picks are still made, and the context's notice says what is
+  missing.
 
 ## Notes and gaps
 

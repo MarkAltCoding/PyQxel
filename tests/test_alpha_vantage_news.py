@@ -146,8 +146,8 @@ def test_a_key_known_to_be_free_is_never_asked(
     assert feed == []
 
 
-def test_feed_headlines_are_shared_out_evenly() -> None:
-    assert [headlines_each(n) for n in (1, 6, 7, 10, 25, 40)] == [4, 4, 3, 2, 1, 1]
+def test_the_headline_budget_is_shared_out_evenly() -> None:
+    assert [headlines_each(n) for n in (1, 10, 20, 30, 40, 60, 100)] == [12, 12, 12, 8, 6, 4, 4]
 
 
 def test_the_calendar_follows_the_holding_period() -> None:
@@ -155,7 +155,7 @@ def test_the_calendar_follows_the_holding_period() -> None:
     assert markets_route.backdrop_days(60) == 60
     assert markets_route.backdrop_days(3 * 365) == 90
     assert markets_route.backdrop_days(None) == 90
-    assert markets_route.backdrop_finnhub_requests(90) == 18
+    assert markets_route.backdrop_finnhub_requests(90) == 20
 
 
 def test_fomc_meetings_run_through_the_horizon() -> None:
@@ -174,14 +174,20 @@ def test_fomc_meetings_run_through_the_horizon() -> None:
     assert len(year.fomc_meetings) == 4
 
 
-def test_finnhub_news_requests_fit_the_minute_left(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert picks_route.news_requests_left(90) is None  # No Finnhub key: the feed is free.
+def test_news_comes_first_and_the_calendar_takes_the_minute_left(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # No Finnhub key: the shared feed costs nothing per company, and the calendar is whole.
+    assert picks_route.plan_requests(40, 365) == (40, 90)
 
     use_provider_keys(ProviderKeys(finnhub=SecretStr("f")))
     monkeypatch.setattr(fetcher, "finnhub_minute_limit", lambda key: None)
 
-    assert picks_route.news_requests_left(28) == 55 - (4 + 5) - 2
-    assert picks_route.news_requests_left(90) == 55 - (13 + 5) - 2
+    # 55 a minute, 2 kept free, 7 for the IPOs, holidays, status, and news categories.
+    assert picks_route.plan_requests(30, 365) == (30, 90)  # 16 weeks left: a full quarter.
+    assert picks_route.plan_requests(40, 365) == (40, 42)  # Six weeks left.
+    assert picks_route.plan_requests(40, 14) == (40, 28)
+    assert picks_route.plan_requests(60, 365) == (42, 28)  # The calendar keeps four weeks.
 
 
 def test_an_estimate_counts_the_shared_feed_once() -> None:

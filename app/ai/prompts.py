@@ -176,7 +176,7 @@ The snapshot may also hold market, the backdrop the security trades in: the next
 FOMC meetings, whose rate decision is announced on the end date and moves the whole \
 market (projections marks those with the Fed's economic projections); market holidays \
 in the next month; major companies reporting earnings in the next two weeks, which can \
-move peers and the market; upcoming IPOs; and the newest general market headlines, \
+move peers and the market; upcoming IPOs; and the most market-moving general headlines, \
 which carry the same caveats as company news. Use it to place the security's risks \
 and timing in context, not as news about the company itself.
 
@@ -271,30 +271,34 @@ weight times the company's weight in that fund), and sector exposure through the
 funds. sectors counts each fund under its own holdings' sectors where they are known.
 
 Where they could be had, the snapshot also holds what the screener knows of the \
-holdings and what is in the news, as Claude's picks are given: market (upcoming FOMC \
-meetings, major earnings reports, IPOs, holidays, and the week's market headlines), \
-deal_headlines (mergers and acquisitions), sector_medians (the whole screener's stocks \
-and each of the holdings' sectors, with rising_6m, the share of stocks up over six \
-months), and holding_events (for the largest holdings that are not funds: how many \
-articles named them in two weeks, their headlines that matter most, and their SEC \
-filings of the last month, an 8-K's items saying what it reports). After the snapshot \
-comes holding_figures, a table of comma-separated values under a header row, one line \
-per holding the screener holds: exchange, sector, industry, market_cap_rank (the top \
-500 are the screener's large caps, the top 3,000 its broad market), sp500 (whether the \
-S&P 500 holds it), next_earnings (its next report within four weeks), price, market_cap \
-and avg_dollar_volume in dollars (under $5 million a day is below the screener's cutoff \
-for liquid); pe_ratio, price_to_sales, and \
-ev_to_ebitda as multiples (a negative P/E is a loss); fcf_yield, margins, \
-return_on_equity, revenue_growth and earnings_growth (trailing twelve months), \
-return_1m, return_6m, momentum_12_1, volatility, and max_drawdown as decimals; the \
-Carhart betas; each *_sector_pct column, the percentile from 0 to 100 of that figure \
-among its sector's stocks in the whole screener; and fundamentals_period_end, which \
-says how old the ratios are. An empty cell means the figure is missing, not zero. Use \
-all of it: whether a stock's price leaves room for its growth, how it compares with its \
-sector, an earnings report or an 8-K (results, an officer leaving, an auditor change, a \
-restatement) that bears on keeping, adding to, or trimming it, and what the market is \
-weighing. Headlines are not verified facts: name the source and date when you rely on \
-one.
+holdings and what is in the news, as Claude's picks are given: market (the Markets \
+page's calendar for calendar_days ahead, from four weeks up to a quarter, within the \
+horizon: every FOMC meeting within the horizon, major companies' earnings reports with \
+their day, time, and EPS and revenue estimates, IPOs, and holidays, plus whether the \
+market is open and its most market-moving headlines of the week), deal_headlines \
+(mergers and acquisitions), forex_headlines (the dollar and exchange rates, which bear \
+on holdings abroad), crypto_headlines (for crypto funds and miners), sector_medians \
+(the whole screener's stocks and each of the holdings' sectors, with rising_6m, the \
+share of stocks up over six months), and holding_events (for the largest holdings that \
+are not funds: how many articles named them in two weeks, their headlines that matter \
+most, and their SEC filings of the last month, an 8-K's items saying what it reports). \
+After the snapshot comes holding_figures, a table of comma-separated values under a \
+header row, one line per holding the screener holds: exchange, sector, industry, \
+market_cap_rank (the top 500 are the screener's large caps, the top 3,000 its broad \
+market), sp500 (whether the S&P 500 holds it), next_earnings (its next report within \
+the calendar's calendar_days), price, market_cap and avg_dollar_volume in dollars \
+(under $5 million a day is below the screener's cutoff for liquid); pe_ratio, \
+price_to_sales, and ev_to_ebitda as multiples (a negative P/E is a loss); fcf_yield, \
+margins, return_on_equity, revenue_growth and earnings_growth (trailing twelve \
+months), return_1m, return_6m, momentum_12_1, volatility, and max_drawdown as \
+decimals; the Carhart betas; each *_sector_pct column, the percentile from 0 to 100 of \
+that figure among its sector's stocks in the whole screener; and \
+fundamentals_period_end, which says how old the ratios are. An empty cell means the \
+figure is missing, not zero. Use all of it: whether a stock's price leaves room for \
+its growth, how it compares with its sector, an earnings report or an 8-K (results, an \
+officer leaving, an auditor change, a restatement) that bears on keeping, adding to, \
+or trimming it, and what the market is weighing. Headlines are not verified facts: \
+name the source and date when you rely on one.
 
 Ground every claim about the portfolio in the snapshot, citing the figures behind it. \
 You may use general knowledge of markets, sectors, asset classes, and well-known funds \
@@ -415,16 +419,20 @@ what to buy now and hold for a stated period. They chose this tool to get your a
 picks, by ticker, with reasons: give them, not a list of things to consider.
 
 You will receive a JSON snapshot: the person's profile (risk tolerance, the holding \
-period as horizon and horizon_weeks, the amount to invest, the kinds of security wanted, \
-and notes to follow), the state of the screener the candidates come from, and, when \
-they could be fetched: market (upcoming FOMC meetings, major earnings reports, IPOs, \
-holidays, and the week's market headlines), deal_headlines (mergers and acquisitions), \
-sectors (the medians of the whole screener's stocks and of each sector, with rising_6m, \
-the share of stocks up over six months, as a gauge of breadth), and candidate_events \
-(for the candidates likeliest to be picked: how many articles named them in two weeks, \
-their headlines that matter most, and their SEC filings of the last month, an 8-K's items \
-saying what it reports). A candidate with no entry there simply had no news fetched; it \
-is not a sign of no news.
+period as horizon and horizon_weeks, the amount to invest, the kinds of security \
+wanted, and notes to follow), the state of the screener the candidates come from, and, \
+when they could be fetched: market (the Markets page's calendar for calendar_days \
+ahead, from four weeks up to a quarter, within the holding period: every FOMC meeting \
+within the period, major companies' earnings reports with their day, time, and EPS and \
+revenue estimates, IPOs, and holidays, plus whether the market is open and its most \
+market-moving headlines of the week), deal_headlines (mergers and acquisitions), \
+forex_headlines (the dollar and exchange rates), crypto_headlines (for crypto funds \
+and miners), sectors (the medians of the whole screener's stocks and of each sector, \
+with rising_6m, the share of stocks up over six months, as a gauge of breadth), and \
+candidate_events (for the candidates likeliest to be picked: how many articles named \
+them in two weeks, their headlines that matter most, and their SEC filings of the last \
+month, an 8-K's items saying what it reports). A candidate with no entry there simply \
+had no news fetched; it is not a sign of no news.
 
 After the snapshot comes a table of candidates, one per line, as comma-separated values \
 under a header row. The candidates are the screener's securities that lead on some \
@@ -438,8 +446,8 @@ least $300 million, so smaller and thinly traded securities are left out on purp
 columns are everything the screener lets a person filter on, so you can screen it as \
 they would: exchange (Nasdaq for the screener's Nasdaq choice), sector, and industry; \
 market_cap_rank (the top 500 are large caps, the top 3,000 the broad market); sp500 \
-(whether the S&P 500 holds it); next_earnings (its next report within \
-four weeks, empty when none is scheduled or the calendar was missing); price, market_cap \
+(whether the S&P 500 holds it); next_earnings (its next report within the calendar's \
+calendar_days, empty when none is scheduled or the calendar was missing); price, market_cap \
 and avg_dollar_volume in dollars; pe_ratio, price_to_sales, and ev_to_ebitda as \
 multiples (a negative P/E is a loss); fcf_yield, margins, return_on_equity, \
 revenue_growth and earnings_growth (trailing twelve months, year on year), return_1m, \
