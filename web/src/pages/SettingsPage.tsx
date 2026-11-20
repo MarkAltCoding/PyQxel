@@ -468,6 +468,8 @@ function UsageSettings({ usage }: { usage: UsageResponse | undefined }) {
     },
   })
   const stored = usage?.stored_prices
+  const pages = Object.keys(ASKING_PAGES) as AskingPage[]
+  const asking = pages.filter((page) => !loadsWithoutAsking(page)).length
   return (
     <section id="plan-usage" className="card stack" style={{ gap: 14 }}>
       <div>
@@ -477,11 +479,27 @@ function UsageSettings({ usage }: { usage: UsageResponse | undefined }) {
         </div>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
           Pages that call your keys’ providers as soon as they open ask first, saying about how many
-          requests each key would spend. Untick a page to load it without asking.
+          requests each key would spend. Turn the warnings off to load every page without asking, or
+          untick a page to load just that one without asking.
         </p>
       </div>
-      <div className="stack" style={{ gap: 6 }}>
-        {(Object.keys(ASKING_PAGES) as AskingPage[]).map((page) => (
+      <label className="filter-row" style={{ alignItems: 'center', gap: 10 }}>
+        <input
+          type="checkbox"
+          checked={asking === pages.length}
+          ref={(box) => {
+            // Some pages ask and some do not: neither on nor off, and a click turns all on.
+            if (box) box.indeterminate = asking > 0 && asking < pages.length
+          }}
+          onChange={(event) => {
+            for (const page of pages) setLoadsWithoutAsking(page, !event.target.checked)
+            setChanged((count) => count + 1)
+          }}
+        />
+        <strong>Warn me before a page spends my keys’ requests</strong>
+      </label>
+      <div className="stack" style={{ gap: 6, paddingLeft: 24 }}>
+        {pages.map((page) => (
           <label key={page} className="filter-row" style={{ alignItems: 'center', gap: 10 }}>
             <input
               type="checkbox"
