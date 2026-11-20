@@ -62,7 +62,9 @@ test('the policy pages give the support email', async ({ page }) => {
   }
 })
 
-test('the Settings link is marked while Settings is open, like the other tabs', async ({ page }) => {
+test('the Settings link is marked while Settings is open, like the other tabs', async ({
+  page,
+}) => {
   await signIn(page)
   await page.goto('/settings')
   await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible()
