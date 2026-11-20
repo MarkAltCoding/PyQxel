@@ -318,6 +318,14 @@ def test_picks_get_news_filings_earnings_dates_and_the_index(
     monkeypatch.setattr(picks_route, "cached_index_members", members)
     monkeypatch.setattr(picks_route, "fetch_company_filings", filings)
 
+    class Edgar:
+        """Stands in for EDGAR's client, which needs ``SEC_USER_AGENT``."""
+
+        async def aclose(self) -> None:
+            pass
+
+    monkeypatch.setattr(picks_route, "edgar_client", Edgar)
+
     assert client.post(PICKS, json={}).status_code == 200
     context = screener[0]
 
