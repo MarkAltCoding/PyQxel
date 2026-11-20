@@ -115,6 +115,17 @@ async def list_picks(session: AsyncSession, user_id: str, limit: int = 20) -> Pi
     )
 
 
+async def recent_picks(session: AsyncSession, user_id: str, limit: int = 20) -> list[PicksResponse]:
+    """The account's stored lists of picks in full, newest first."""
+    records = await session.scalars(
+        select(PicksRecord)
+        .where(PicksRecord.user_id == user_id)
+        .order_by(PicksRecord.created_at.desc(), PicksRecord.id)
+        .limit(limit)
+    )
+    return [_response(record) for record in records]
+
+
 async def delete_picks(session: AsyncSession, user_id: str, picks_id: UUID) -> bool:
     """Delete ``user_id``'s stored picks with ``picks_id``; return whether they existed."""
     record = await session.get(PicksRecord, str(picks_id))

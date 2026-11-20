@@ -235,7 +235,8 @@ async def test_alpha_vantage_alone_serves_info_quotes_and_history(
 
     info = await fetcher.fetch_ticker_info("acme")
     quote = await fetcher.fetch_quote("ACME")
-    history = await fetcher.fetch_price_history("ACME", period="1mo", interval="1d")
+    # Three months, so the October bars stay inside the window as the calendar moves on.
+    history = await fetcher.fetch_price_history("ACME", period="3mo", interval="1d")
 
     assert (info.source, info.name, info.sector, info.market_cap) == (
         "alpha_vantage",

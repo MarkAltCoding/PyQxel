@@ -14,7 +14,7 @@ import re
 from collections.abc import AsyncIterator, Collection
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
@@ -32,14 +32,17 @@ from app.ai.web import add_web_research, with_web_research
 from app.api.auth import CurrentUser
 from app.api.v1.endpoints.markets import PicksBackdrop, fetch_picks_backdrop
 from app.api.v1.endpoints.research import ai_error, anthropic_key, check_ai_limits
+from app.api.v1.endpoints.stocks import upstream_error
 from app.core.config import get_settings
 from app.data.alternative import fetch_company_filings
 from app.data.fetcher import DataFetchError
 from app.data.index_members import cached_index_members
 from app.data.news import NewsFetchError, fetch_company_news
+from app.data.panel import fetch_close_panel
 from app.data.sec_edgar import FilingFetchError, edgar_client
 from app.db.picks import (
     delete_picks,
+    recent_picks,
     find_recent_picks,
     get_picks,
     latest_picks,
@@ -64,6 +67,7 @@ from app.models.external import PicksImport, PicksPromptExport
 from app.models.alternative import SecFiling
 from app.models.news import NewsArticle
 from app.models.picks import (
+    BENCHMARK_NAMES,
     MAX_CANDIDATE_EVENTS,
     MAX_PICKS,
     MIN_PICKS,
@@ -75,13 +79,18 @@ from app.models.picks import (
     PicksReport,
     PicksRequest,
     PicksResponse,
+    PicksBenchmark,
+    PicksPerformance,
     PicksUniverse,
+    SavedPicks,
+    SavedPicksList,
     ScreenerFacts,
     SectorSnapshot,
 )
 from app.models.research import AnalysisDelta, AnalysisStreamError
 from app.models.stock import SYMBOL_PATTERN
 from app.models.web import WebSearchQuery
+from app.stats.picks_performance import ends_on, history_period, start_day, track
 from app.stats.picks import (
     candidate_events,
     events_shortlist,
@@ -634,6 +643,133 @@ async def read_latest_picks(session: Session, user: CurrentUser) -> PicksRespons
     if picks is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No picks yet.")
     return picks.model_copy(update={"cached": True})
+
+
+MAX_TRACKED_LISTS: int = 20
+"""Most stored lists measured at once, to bound the prices one request asks for."""
+
+Benchmark = Annotated[
+    PicksBenchmark,
+    Query(
+        description="The fund the picks are compared with: SPY for the S&P 500, QQQ for "
+        "the Nasdaq-100, DIA for the Dow, IWM for small caps, or VTI for the whole US market."
+    ),
+]
+
+
+async def _closes(lists: list[PicksResponse], benchmark: str) -> Any:
+    """Daily adjusted closes of every pick in ``lists`` and the benchmark, back to just
+    before the oldest list, leaving out what cannot be priced.
+
+    Raises:
+        DataFetchError: If nothing at all can be priced.
+    """
+    today = date.today()
+    oldest = min(start_day(picks.generated_at) for picks in lists)
+    symbols = list(
+        dict.fromkeys([pick.symbol for picks in lists for pick in picks.report.picks] + [benchmark])
+    )
+    panel = await fetch_close_panel(
+        symbols, history_period(oldest, today), "1d", tolerate_failures=True
+    )
+    return panel.closes
+
+
+@router.get(
+    "/performance",
+    response_model=SavedPicksList,
+    summary="Your saved lists of picks, each with how it has done",
+)
+async def read_saved_picks(
+    session: Session,
+    user: CurrentUser,
+    benchmark: Benchmark = "SPY",
+    limit: Annotated[int, Query(ge=1, le=MAX_TRACKED_LISTS)] = MAX_TRACKED_LISTS,
+) -> SavedPicksList:
+    """Return your stored lists of picks, newest first, each with its gain or loss since it
+    was made and the benchmark's over the same days.
+
+    Each list is measured from the last close before it was made, held in Claude's
+    weights without rebalancing, until its holding period ends; after that its record
+    stays as it was then. Prices come from your keys, as on the Portfolio page, and from
+    your stored price history. When nothing can be priced the lists are still returned,
+    without returns, and ``notice`` says why. Returns 503 when the database is unavailable.
+    """
+    try:
+        lists = await recent_picks(session, user.id, limit)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    notice = None
+    performances: dict[str, PicksPerformance] = {}
+    if lists:
+        try:
+            closes = await _closes(lists, benchmark)
+            today = date.today()
+            performances = {
+                str(picks.id): track(picks, closes, benchmark, today) for picks in lists
+            }
+        except DataFetchError as exc:
+            logger.info("Saved picks could not be priced: %s", exc)
+            notice = (
+                f"The picks could not be priced just now, so their returns are missing: {exc} "
+                "A key that prices them, added in Settings, fills them in."
+            )
+    items = []
+    for picks in lists:
+        assert picks.id is not None, "stored picks have an ID"
+        found = performances.get(str(picks.id))
+        items.append(
+            SavedPicks(
+                id=picks.id,
+                generated_at=picks.generated_at,
+                horizon=picks.context.horizon,
+                risk_tolerance=picks.context.profile.risk_tolerance,
+                model=picks.model,
+                headline=picks.report.headline,
+                symbols=[pick.symbol for pick in picks.report.picks],
+                ends_on=ends_on(picks),
+                ended=date.today() > ends_on(picks),
+                total_return=None if found is None else found.total_return,
+                benchmark_return=None if found is None else found.benchmark_return,
+                excess_return=None if found is None else found.excess_return,
+            )
+        )
+    return SavedPicksList(
+        benchmark=benchmark,
+        benchmark_name=BENCHMARK_NAMES[benchmark],
+        items=items,
+        notice=notice,
+    )
+
+
+@router.get(
+    "/{picks_id}/performance",
+    response_model=PicksPerformance,
+    summary="How a stored list of picks has done",
+)
+async def read_picks_performance(
+    picks_id: UUID, session: Session, user: CurrentUser, benchmark: Benchmark = "SPY"
+) -> PicksPerformance:
+    """Return each pick's gain or loss since the list was made, the list's, and the
+    benchmark's, with a point for each trading day, measured as for ``/performance``
+    until the holding period ends.
+
+    Returns 404 for unknown IDs and other accounts' picks, 403 without a key that prices
+    them, 502 when they cannot be priced, and 503 when the database is unavailable.
+    """
+    try:
+        picks = await get_picks(session, user.id, picks_id)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    if picks is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"No picks with ID {picks_id}."
+        )
+    try:
+        closes = await _closes([picks], benchmark)
+    except DataFetchError as exc:
+        raise upstream_error(exc) from exc
+    return track(picks, closes, benchmark, date.today())
 
 
 @router.post(

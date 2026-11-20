@@ -48,7 +48,10 @@ import type {
   MarketSignals,
   NewsResponse,
   PicksImport,
+  PicksBenchmark,
   PicksList,
+  PicksPerformance,
+  SavedPicksList,
   PicksPromptExport,
   PicksRequest,
   PicksResponse,
@@ -294,6 +297,12 @@ export const getLatestPicks = async (): Promise<PicksResponse | null> => {
 /** The account's stored lists of picks, newest first, without their reasons. */
 export const listPicks = () => api<PicksList>(`${V1}/picks`, { query: { limit: 20 } })
 export const getPicks = (id: string) => api<PicksResponse>(`${V1}/picks/${id}`)
+/** The stored lists of picks, newest first, each with how it has done against ``benchmark``. */
+export const getSavedPicks = (benchmark: PicksBenchmark) =>
+  api<SavedPicksList>(`${V1}/picks/performance`, { query: { benchmark } })
+/** How one stored list of picks has done, pick by pick and day by day. */
+export const getPicksPerformance = (id: string, benchmark: PicksBenchmark) =>
+  api<PicksPerformance>(`${V1}/picks/${id}/performance`, { query: { benchmark } })
 export const deletePicks = (id: string) => api<void>(`${V1}/picks/${id}`, { method: 'DELETE' })
 export const streamPicks = (body: PicksRequest, signal: AbortSignal) =>
   send(`${V1}/picks/stream`, { method: 'POST', body, signal })

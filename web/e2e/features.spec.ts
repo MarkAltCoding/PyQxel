@@ -110,6 +110,28 @@ test('Claude’s picks are shown, and the screener can list them alone', async (
   ])
 })
 
+test('saved picks are listed, and outside Claude is told it may search the web', async ({
+  page,
+}) => {
+  await page.goto('/screener/picks')
+
+  const saved = page.locator('#saved-picks')
+  await expect(saved.getByRole('heading', { name: 'Saved Claude’s picks' })).toBeVisible()
+  await expect(saved.locator('tbody tr')).toHaveCount(1)
+  await expect(saved.getByRole('cell', { name: 'BRAVO, CHARL, BNDX' })).toBeVisible()
+  // The test server has no price keys, so the lists stay listed without their returns.
+  await expect(saved.getByText(/could not be priced/)).toBeVisible()
+  await expect(page.locator('#picks-performance')).toBeVisible()
+
+  const web = page.getByRole('checkbox', { name: /Let Claude search the web/ })
+  await expect(web).toBeChecked()
+  await page.getByText('Use Claude outside the app, without API costs').click()
+  await expect(page.getByText(/One difference from the app: the web search/)).toBeVisible()
+  await web.uncheck()
+  await expect(page.getByText(/tells Claude to use only PyQxel’s data/)).toBeVisible()
+  await web.check()
+})
+
 test('what is entered follows the account to another browser', async ({ page, browser }) => {
   await page.goto('/screener/picks')
   const saved = page.waitForResponse(

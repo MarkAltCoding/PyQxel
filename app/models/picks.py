@@ -394,3 +394,103 @@ class PicksForReview(BaseModel):
     market_view: str
     approach: str
     picks: list[ReviewedPick]
+
+
+PicksBenchmark = Literal["SPY", "QQQ", "DIA", "IWM", "VTI"]
+"""What a list of picks is compared with: a fund tracking a market index, which every
+price key covers and whose adjusted closes count dividends, as an index's level does not."""
+
+BENCHMARK_NAMES: dict[str, str] = {
+    "SPY": "S&P 500 (SPY)",
+    "QQQ": "Nasdaq-100 (QQQ)",
+    "DIA": "Dow Jones Industrial Average (DIA)",
+    "IWM": "Russell 2000 small caps (IWM)",
+    "VTI": "US total stock market (VTI)",
+}
+"""Each benchmark's name as the app shows it."""
+
+
+class PickPerformance(BaseModel):
+    """How one pick has done since the list was made."""
+
+    symbol: str
+    weight: float = Field(ge=0, le=1, description="Its share of the money at the start.")
+    start_price: float | None = Field(
+        default=None, description="Its adjusted close the list is measured from."
+    )
+    latest_price: float | None = Field(
+        default=None, description="Its latest adjusted close, or the last in the period."
+    )
+    gain: float | None = Field(
+        default=None,
+        description="Its gain or loss since the start, as a decimal, dividends counted; "
+        "null when it could not be priced.",
+    )
+    contribution: float | None = Field(
+        default=None,
+        description="What it added to the list's return: its weight times its gain.",
+    )
+
+
+class PerformancePoint(BaseModel):
+    """The list's and the benchmark's gain since the start, on one trading day."""
+
+    date: date
+    picks: float | None = None
+    benchmark: float | None = None
+
+
+class PicksPerformance(BaseModel):
+    """How a list of picks has done since it was made, held as Claude weighted it and
+    never rebalanced, against a benchmark, until its holding period ends."""
+
+    id: UUID
+    benchmark: PicksBenchmark
+    benchmark_name: str
+    start: date | None = Field(
+        default=None,
+        description="The trading day whose close the list is measured from: the last close "
+        "before the picks were made.",
+    )
+    as_of: date | None = Field(
+        default=None,
+        description="The last trading day measured: today's latest, or the "
+        "last of the holding period once it has ended.",
+    )
+    ends_on: date = Field(description="The day the holding period ends; tracking stops then.")
+    ended: bool = Field(description="Whether the holding period is over.")
+    total_return: float | None = Field(
+        default=None,
+        description="The list's gain or loss since the start, as a decimal: each pick's gain "
+        "times its weight, among the picks that could be priced.",
+    )
+    benchmark_return: float | None = None
+    excess_return: float | None = Field(
+        default=None, description="The list's return minus the benchmark's."
+    )
+    picks: list[PickPerformance] = Field(default_factory=list)
+    series: list[PerformancePoint] = Field(
+        default_factory=list, description="Each trading day's gain since the start."
+    )
+    notice: str | None = Field(default=None, description="What could not be priced, if any.")
+
+
+class SavedPicks(PicksSummary):
+    """A stored list of picks with how it has done, for the list of saved picks."""
+
+    ends_on: date
+    ended: bool
+    total_return: float | None = None
+    benchmark_return: float | None = None
+    excess_return: float | None = None
+
+
+class SavedPicksList(BaseModel):
+    """An account's stored lists of picks, newest first, each with how it has done."""
+
+    benchmark: PicksBenchmark
+    benchmark_name: str
+    items: list[SavedPicks]
+    notice: str | None = Field(
+        default=None, description="Why some lists have no performance, if any."
+    )

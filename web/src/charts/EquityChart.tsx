@@ -11,6 +11,8 @@ interface Props {
   benchmarkLabel?: string
   /** The benchmark's short name, at the end of its line. */
   benchmarkShort?: string
+  /** What the first line is, such as Claude's picks. */
+  strategyLabel?: string
 }
 
 /** Growth of $10,000 for the strategy and its benchmark, on one axis, ends labeled. */
@@ -19,6 +21,7 @@ export function EquityChart({
   start = 10_000,
   benchmarkLabel = 'Buy and hold',
   benchmarkShort = 'Hold',
+  strategyLabel = 'Strategy',
 }: Props) {
   const theme = useChartTheme()
   const option = useMemo(() => {
@@ -44,7 +47,7 @@ export function EquityChart({
             tooltipRow(
               theme.series1,
               money(point.strategy * start, 'USD', 0),
-              `Strategy (${signedPercent(point.strategy - 1)})`,
+              `${strategyLabel} (${signedPercent(point.strategy - 1)})`,
             ) +
             tooltipRow(
               theme.series2,
@@ -73,13 +76,13 @@ export function EquityChart({
       dataZoom: [{ type: 'inside', zoomOnMouseWheel: 'ctrl' }],
       series: [
         {
-          name: 'Strategy',
+          name: strategyLabel,
           type: 'line',
           data: points.map((point) => point.strategy * start),
           showSymbol: false,
           lineStyle: { width: 2, color: theme.series1 },
           itemStyle: { color: theme.series1 },
-          endLabel: endLabel('Strategy'),
+          endLabel: endLabel(strategyLabel === 'Strategy' ? 'Strategy' : 'Picks'),
           z: 3,
         },
         {
@@ -93,12 +96,12 @@ export function EquityChart({
         },
       ],
     }
-  }, [points, start, benchmarkLabel, benchmarkShort, theme])
+  }, [points, start, benchmarkLabel, benchmarkShort, strategyLabel, theme])
   return (
     <EChart
       option={option}
       height={320}
-      label={`Growth of $10,000: strategy and ${benchmarkLabel.toLowerCase()}`}
+      label={`Growth of $10,000: ${strategyLabel.toLowerCase()} and ${benchmarkLabel}`}
     />
   )
 }
@@ -107,6 +110,7 @@ export function EquityTable({
   points,
   start = 10_000,
   benchmarkLabel = 'Buy and hold',
+  strategyLabel = 'Strategy',
 }: Omit<Props, 'benchmarkShort'>) {
   // Every bar would be thousands of rows; month-ends keep the table readable.
   const rows = points.filter((point, index) => {
@@ -118,7 +122,7 @@ export function EquityTable({
       <thead>
         <tr>
           <th>Month end</th>
-          <th className="num">Strategy</th>
+          <th className="num">{strategyLabel}</th>
           <th className="num">{benchmarkLabel}</th>
         </tr>
       </thead>

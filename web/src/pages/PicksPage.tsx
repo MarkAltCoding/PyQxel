@@ -9,11 +9,11 @@ import {
   getPicks,
   getUniverseStatus,
   importPicks,
-  listPicks,
   streamPicks,
 } from '../api/endpoints'
 import type {
   ClaudePick,
+  PicksBenchmark,
   PicksContext,
   PicksRequest,
   PicksResponse,
@@ -22,6 +22,7 @@ import type {
 import { ExternalClaude } from '../components/ExternalClaude'
 import { InfoTip } from '../components/InfoTip'
 import { NoAnthropicKey } from '../components/NoAnthropicKey'
+import { PicksPerformanceCard, SavedPicksCard } from '../components/PicksPerformance'
 import { ErrorNotice, Notice } from '../components/Notice'
 import {
   FinePrint,
@@ -44,7 +45,9 @@ import {
   LATEST_PICKS_KEY,
   PICKS_LIST_KEY,
   profileOf,
+  storedPicksBenchmark,
   storedPicksForm,
+  storePicksBenchmark,
   storePicksForm,
   type PicksForm,
   type PicksKinds,
@@ -106,7 +109,11 @@ export function PicksPage() {
 
   const status = useQuery({ queryKey: ['universe-status'], queryFn: getUniverseStatus })
   const latest = useQuery({ queryKey: LATEST_PICKS_KEY, queryFn: getLatestPicks })
-  const history = useQuery({ queryKey: PICKS_LIST_KEY, queryFn: listPicks })
+  const [benchmark, setBenchmark] = useState<PicksBenchmark>(storedPicksBenchmark)
+  const chooseBenchmark = (next: PicksBenchmark) => {
+    setBenchmark(next)
+    storePicksBenchmark(next)
+  }
   const earlier = useQuery({
     queryKey: ['picks', opened],
     queryFn: () => getPicks(opened!),
@@ -178,7 +185,6 @@ export function PicksPage() {
 
   const writing = progress !== null
   const noScreener = status.data?.stocks === 0
-  const items = history.data?.items ?? []
   return (
     <div className="stack">
       <header className="page-header">
@@ -377,21 +383,10 @@ export function PicksPage() {
             )}
           </div>
           <div className="filter-row" style={{ alignItems: 'flex-end' }}>
-            {items.length > 1 && (
-              <label className="field">
-                <span>Show</span>
-                <select
-                  value={opened ?? ''}
-                  onChange={(event) => setOpened(event.target.value || null)}
-                >
-                  <option value="">Latest picks</option>
-                  {items.slice(1).map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {shortDate(item.generated_at)} · {item.horizon}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            {opened !== null && (
+              <button type="button" className="button" onClick={() => setOpened(null)}>
+                Show the latest
+              </button>
             )}
             {shown && (
               <Link
@@ -431,6 +426,21 @@ export function PicksPage() {
           </div>
         )}
       </section>
+
+      {!writing && shown?.id && (
+        <PicksPerformanceCard id={shown.id} benchmark={benchmark} onBenchmark={chooseBenchmark} />
+      )}
+
+      <SavedPicksCard
+        openedId={opened}
+        onOpen={(id) => {
+          setOpened(id === latest.data?.id ? null : id)
+          document.getElementById('picks')?.scrollIntoView?.({ behavior: 'smooth' })
+        }}
+        onDelete={(id) => void remove(id)}
+        benchmark={benchmark}
+        onBenchmark={chooseBenchmark}
+      />
     </div>
   )
 }

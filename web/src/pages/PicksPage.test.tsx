@@ -87,7 +87,11 @@ function serve(routes: Record<string, Route>) {
 }
 
 const json = (body: unknown) => new Response(JSON.stringify(body))
-const STATUS = { 'GET /api/v1/screener/status': () => json({ stocks: 5200, own: true }) }
+const STATUS = {
+  'GET /api/v1/screener/status': () => json({ stocks: 5200, own: true }),
+  'GET /api/v1/picks/performance': () =>
+    json({ benchmark: 'SPY', benchmark_name: 'S&P 500 (SPY)', items: [] }),
+}
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -215,28 +219,93 @@ describe('PicksPage', () => {
     expect(screen.getByRole('button', { name: 'Get Claude’s picks' })).toBeDisabled()
   })
 
-  it('opens earlier picks from the history, and deletes them', async () => {
+  it('lists saved picks with how they did, opens one with its performance, and deletes it', async () => {
     const older = '11111111-1111-1111-1111-111111111111'
+    const saved = (id: string, made: string, horizon: string, gain: number) => ({
+      id,
+      generated_at: made,
+      horizon,
+      model: 'claude-opus-5-5',
+      headline: 'x',
+      symbols: ['NVDA', 'TSLA'],
+      ends_on: '2027-11-13',
+      ended: horizon === '2 weeks',
+      total_return: gain,
+      benchmark_return: 0.02,
+      excess_return: gain - 0.02,
+    })
     const calls = serve({
       ...STATUS,
-      'GET /api/v1/picks/latest': () => json(picks('The latest.')),
-      'GET /api/v1/picks': () =>
+      'GET /api/v1/picks/latest': () => json(picks('The latest.', { id: 'latest' })),
+      'GET /api/v1/picks/performance': (_init, url) =>
         json({
+          benchmark: url.searchParams.get('benchmark'),
+          benchmark_name:
+            url.searchParams.get('benchmark') === 'QQQ' ? 'Nasdaq-100 (QQQ)' : 'S&P 500 (SPY)',
           items: [
-            { id: 'latest', generated_at: '2026-11-13T12:00:00Z', horizon: '1 year', symbols: [] },
-            { id: older, generated_at: '2026-10-01T12:00:00Z', horizon: '2 weeks', symbols: [] },
+            saved('latest', '2026-11-13T12:00:00Z', '1 year', 0.05),
+            saved(older, '2026-10-01T12:00:00Z', '2 weeks', -0.04),
           ],
         }),
       [`GET /api/v1/picks/${older}`]: () => json(picks('An earlier idea.', { id: older })),
+      [`GET /api/v1/picks/${older}/performance`]: (_init, url) =>
+        json({
+          id: older,
+          benchmark: url.searchParams.get('benchmark'),
+          benchmark_name: 'Nasdaq-100 (QQQ)',
+          start: '2026-09-30',
+          as_of: '2026-10-15',
+          ends_on: '2026-10-15',
+          ended: true,
+          total_return: -0.04,
+          benchmark_return: 0.02,
+          excess_return: -0.06,
+          picks: [
+            {
+              symbol: 'NVDA',
+              weight: 0.6,
+              start_price: 100,
+              latest_price: 95,
+              gain: -0.05,
+              contribution: -0.03,
+            },
+          ],
+          series: [],
+        }),
+      'GET /api/v1/picks/latest/performance': () =>
+        json({
+          id: 'latest',
+          benchmark: 'SPY',
+          benchmark_name: 'S&P 500 (SPY)',
+          ends_on: '2027-11-13',
+          ended: false,
+          picks: [],
+          series: [],
+        }),
       [`DELETE /api/v1/picks/${older}`]: () => new Response(null, { status: 204 }),
     })
     renderPage()
 
     await screen.findByText('The latest.')
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Show' }), older)
+    const savedCard = () => document.getElementById('saved-picks')!
+    await screen.findByRole('heading', { name: 'Saved Claude’s picks' })
+    const table = await within(savedCard()).findByRole('table')
+    expect(within(table).getByText('+5.0%')).toBeInTheDocument()
+    expect(within(table).getByText(/\(ended\)/)).toBeInTheDocument()
+
+    const compare = screen.getByRole('group', { name: 'Compare saved picks with' })
+    await userEvent.click(within(compare).getByRole('button', { name: 'Nasdaq-100' }))
+    // The list is fetched again against the Nasdaq-100.
+    await screen.findByRole('columnheader', { name: /Nasdaq-100/ })
+    const compared = within(savedCard()).getByRole('table')
+    await userEvent.click(within(compared).getByRole('button', { name: /Oct/ }))
 
     expect(await screen.findByText('An earlier idea.')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Earlier picks' })).toBeInTheDocument()
+    expect(await screen.findByText(/tracking stopped then/)).toBeInTheDocument()
+    const shown = document.getElementById('picks-performance')!
+    expect(within(shown).getAllByText('-6.0%').length).toBeGreaterThan(0)
+    expect(calls.some((call) => call.key === `GET /api/v1/picks/${older}/performance`)).toBe(true)
     expect(screen.getByRole('link', { name: 'Show in the screener' })).toHaveAttribute(
       'href',
       `/screener?picks=${older}`,

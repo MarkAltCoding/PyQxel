@@ -796,6 +796,43 @@ const entries = {
     good: 'Worth it when recent news matters: a stock around its earnings, a portfolio after a market move, or picks for a short holding period.',
     note: 'On by default. It costs a little more, billed by Anthropic to your key: about 1 cent per search, with up to six searches, plus the tokens to read the results, typically a few cents in all. It also takes a minute or so longer. A report that searches the web is always written anew, never reused. When you use Claude outside the app, this choice goes into the prompt: checked, Claude is told to search the web itself and name its sources; unchecked, to keep to PyQxel’s data.',
   },
+  savedPicks: {
+    title: 'Saved Claude’s picks',
+    what: 'Every list of picks Claude made for you, newest first, with how it has done since: the list’s gain or loss, the benchmark’s over the same days, and the difference. Open one to see it in full, pick by pick.',
+    note: 'A list is tracked until its holding period ends; after that its record stays as it was on the last day of the period.',
+  },
+  picksPerformance: {
+    title: 'How the picks have done',
+    what: 'The gain or loss of $10,000 put into the picks in Claude’s weights at the last close before they were made, and never rebalanced, beside the same money in the benchmark fund. Prices are adjusted, so dividends count.',
+    good: 'The picks’ line above the benchmark’s, by more than the trading costs and taxes buying them would have cost.',
+    bad: 'The picks trailing the benchmark: owning the index would have done better.',
+    note: 'Measuring stops when the holding period ends. A few weeks say little: over short stretches luck swamps skill, so judge picks over their whole period and over several lists.',
+  },
+  picksReturn: {
+    title: 'Picks’ return',
+    what: 'The list’s gain or loss since it was made: each pick’s gain times its share of the money, as if bought in Claude’s weights and held.',
+    note: 'A pick that cannot be priced is left out, and the others’ weights are scaled up to fill its share.',
+  },
+  picksBenchmarkReturn: {
+    title: 'Benchmark’s return',
+    what: 'The gain or loss of the benchmark fund over the same days, dividends included: SPY for the S&P 500, QQQ for the Nasdaq-100, DIA for the Dow, IWM for small caps, or VTI for the whole US market.',
+    note: 'Choose the benchmark that matches what the picks could have been instead: the S&P 500 for large US companies, the Nasdaq-100 for technology-heavy picks, small caps for small companies.',
+  },
+  picksExcess: {
+    title: 'Versus the benchmark',
+    what: 'The picks’ return minus the benchmark’s, in percentage points: how much better or worse the picks did than simply owning the index.',
+    good: 'Above zero: the picks beat the index.',
+    bad: 'Below zero: the index did better.',
+    note: 'It does not count trading costs or taxes, which the index fund would mostly have avoided.',
+  },
+  picksTracking: {
+    title: 'Tracked until',
+    what: 'The day the list’s holding period ends. Its return is measured up to that day and then stays as it was, so a finished list shows how it did over the period it was made for.',
+  },
+  pickGain: {
+    title: 'Gain since picked',
+    what: 'How much the pick has gained or lost since the last close before the list was made, dividends included, and what that added to the list’s return (its weight times its gain).',
+  },
   webSources: {
     title: 'From the web',
     what: 'The facts Claude found by searching the web for this report, each with the page or pages it came from. Only statements the search tied to a page are kept, so nothing from the web is here, or in the report, without a source you can open.',

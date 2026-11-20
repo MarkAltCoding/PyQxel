@@ -9095,6 +9095,43 @@
         "title": "PerformanceMetrics",
         "type": "object"
       },
+      "PerformancePoint": {
+        "description": "The list's and the benchmark's gain since the start, on one trading day.",
+        "properties": {
+          "benchmark": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "picks": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Picks"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "PerformancePoint",
+        "type": "object"
+      },
       "Pick": {
         "description": "One security Claude would buy and hold for the period.",
         "properties": {
@@ -9634,6 +9671,76 @@
         "title": "PickCandidate",
         "type": "object"
       },
+      "PickPerformance": {
+        "description": "How one pick has done since the list was made.",
+        "properties": {
+          "contribution": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What it added to the list's return: its weight times its gain.",
+            "title": "Contribution"
+          },
+          "gain": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its gain or loss since the start, as a decimal, dividends counted; null when it could not be priced.",
+            "title": "Gain"
+          },
+          "latest_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its latest adjusted close, or the last in the period.",
+            "title": "Latest Price"
+          },
+          "start_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its adjusted close the list is measured from.",
+            "title": "Start Price"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "weight": {
+            "description": "Its share of the money at the start.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "symbol",
+          "weight"
+        ],
+        "title": "PickPerformance",
+        "type": "object"
+      },
       "PicksContext": {
         "description": "The data a list of picks is written from. All of it is sent to Claude, the\ncandidates as a table.",
         "properties": {
@@ -9840,6 +9947,139 @@
           "items"
         ],
         "title": "PicksList",
+        "type": "object"
+      },
+      "PicksPerformance": {
+        "description": "How a list of picks has done since it was made, held as Claude weighted it and\nnever rebalanced, against a benchmark, until its holding period ends.",
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last trading day measured: today's latest, or the last of the holding period once it has ended.",
+            "title": "As Of"
+          },
+          "benchmark": {
+            "enum": [
+              "SPY",
+              "QQQ",
+              "DIA",
+              "IWM",
+              "VTI"
+            ],
+            "title": "Benchmark",
+            "type": "string"
+          },
+          "benchmark_name": {
+            "title": "Benchmark Name",
+            "type": "string"
+          },
+          "benchmark_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Return"
+          },
+          "ended": {
+            "description": "Whether the holding period is over.",
+            "title": "Ended",
+            "type": "boolean"
+          },
+          "ends_on": {
+            "description": "The day the holding period ends; tracking stops then.",
+            "format": "date",
+            "title": "Ends On",
+            "type": "string"
+          },
+          "excess_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The list's return minus the benchmark's.",
+            "title": "Excess Return"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What could not be priced, if any.",
+            "title": "Notice"
+          },
+          "picks": {
+            "items": {
+              "$ref": "#/components/schemas/PickPerformance"
+            },
+            "title": "Picks",
+            "type": "array"
+          },
+          "series": {
+            "description": "Each trading day's gain since the start.",
+            "items": {
+              "$ref": "#/components/schemas/PerformancePoint"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The trading day whose close the list is measured from: the last close before the picks were made.",
+            "title": "Start"
+          },
+          "total_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The list's gain or loss since the start, as a decimal: each pick's gain times its weight, among the picks that could be priced.",
+            "title": "Total Return"
+          }
+        },
+        "required": [
+          "id",
+          "benchmark",
+          "benchmark_name",
+          "ends_on",
+          "ended"
+        ],
+        "title": "PicksPerformance",
         "type": "object"
       },
       "PicksProfile": {
@@ -12621,6 +12861,153 @@
           }
         },
         "title": "Rsi",
+        "type": "object"
+      },
+      "SavedPicks": {
+        "description": "A stored list of picks with how it has done, for the list of saved picks.",
+        "properties": {
+          "benchmark_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Return"
+          },
+          "ended": {
+            "title": "Ended",
+            "type": "boolean"
+          },
+          "ends_on": {
+            "format": "date",
+            "title": "Ends On",
+            "type": "string"
+          },
+          "excess_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excess Return"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "horizon": {
+            "description": "The holding period in words.",
+            "title": "Horizon",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "risk_tolerance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Tolerance"
+          },
+          "symbols": {
+            "description": "The picks' tickers, best first.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbols",
+            "type": "array"
+          },
+          "total_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Return"
+          }
+        },
+        "required": [
+          "id",
+          "generated_at",
+          "horizon",
+          "model",
+          "headline",
+          "symbols",
+          "ends_on",
+          "ended"
+        ],
+        "title": "SavedPicks",
+        "type": "object"
+      },
+      "SavedPicksList": {
+        "description": "An account's stored lists of picks, newest first, each with how it has done.",
+        "properties": {
+          "benchmark": {
+            "enum": [
+              "SPY",
+              "QQQ",
+              "DIA",
+              "IWM",
+              "VTI"
+            ],
+            "title": "Benchmark",
+            "type": "string"
+          },
+          "benchmark_name": {
+            "title": "Benchmark Name",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SavedPicks"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why some lists have no performance, if any.",
+            "title": "Notice"
+          }
+        },
+        "required": [
+          "benchmark",
+          "benchmark_name",
+          "items"
+        ],
+        "title": "SavedPicksList",
         "type": "object"
       },
       "SavedState": {
@@ -17667,6 +18054,71 @@
         ]
       }
     },
+    "/api/v1/picks/performance": {
+      "get": {
+        "description": "Return your stored lists of picks, newest first, each with its gain or loss since it\nwas made and the benchmark's over the same days.\n\nEach list is measured from the last close before it was made, held in Claude's\nweights without rebalancing, until its holding period ends; after that its record\nstays as it was then. Prices come from your keys, as on the Portfolio page, and from\nyour stored price history. When nothing can be priced the lists are still returned,\nwithout returns, and ``notice`` says why. Returns 503 when the database is unavailable.",
+        "operationId": "read_saved_picks_api_v1_picks_performance_get",
+        "parameters": [
+          {
+            "description": "The fund the picks are compared with: SPY for the S&P 500, QQQ for the Nasdaq-100, DIA for the Dow, IWM for small caps, or VTI for the whole US market.",
+            "in": "query",
+            "name": "benchmark",
+            "required": false,
+            "schema": {
+              "default": "SPY",
+              "description": "The fund the picks are compared with: SPY for the S&P 500, QQQ for the Nasdaq-100, DIA for the Dow, IWM for small caps, or VTI for the whole US market.",
+              "enum": [
+                "SPY",
+                "QQQ",
+                "DIA",
+                "IWM",
+                "VTI"
+              ],
+              "title": "Benchmark",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedPicksList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Your saved lists of picks, each with how it has done",
+        "tags": [
+          "picks"
+        ]
+      }
+    },
     "/api/v1/picks/prompt": {
       "post": {
         "description": "Return exactly what a list of picks would send Claude, as one Markdown document.\n\nNo Anthropic key is needed and nothing counts against your AI limits. The app makes no\nweb search: with ``web_search``, the prompt tells Claude to search the web itself and\nname its sources, and without it, to keep to the data given. Paste ``prompt`` into\nClaude, then send its answer to ``/picks/import`` with the ``context`` returned here.\nFails as ``/picks`` does when there is nothing to pick from.",
@@ -17862,6 +18314,69 @@
           }
         },
         "summary": "A stored list of picks in full",
+        "tags": [
+          "picks"
+        ]
+      }
+    },
+    "/api/v1/picks/{picks_id}/performance": {
+      "get": {
+        "description": "Return each pick's gain or loss since the list was made, the list's, and the\nbenchmark's, with a point for each trading day, measured as for ``/performance``\nuntil the holding period ends.\n\nReturns 404 for unknown IDs and other accounts' picks, 403 without a key that prices\nthem, 502 when they cannot be priced, and 503 when the database is unavailable.",
+        "operationId": "read_picks_performance_api_v1_picks__picks_id__performance_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "picks_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Picks Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The fund the picks are compared with: SPY for the S&P 500, QQQ for the Nasdaq-100, DIA for the Dow, IWM for small caps, or VTI for the whole US market.",
+            "in": "query",
+            "name": "benchmark",
+            "required": false,
+            "schema": {
+              "default": "SPY",
+              "description": "The fund the picks are compared with: SPY for the S&P 500, QQQ for the Nasdaq-100, DIA for the Dow, IWM for small caps, or VTI for the whole US market.",
+              "enum": [
+                "SPY",
+                "QQQ",
+                "DIA",
+                "IWM",
+                "VTI"
+              ],
+              "title": "Benchmark",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PicksPerformance"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "How a stored list of picks has done",
         "tags": [
           "picks"
         ]

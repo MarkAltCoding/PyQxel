@@ -1,7 +1,7 @@
 // What Claude's picks are tailored to, as the form holds it, kept with the account so it
 // need not be entered again; and the shared names of the picks' queries.
 
-import type { PicksProfile } from '../api/types'
+import type { PicksBenchmark, PicksProfile } from '../api/types'
 import { listed } from './format'
 import { readStored, writeStored } from './storage'
 
@@ -107,4 +107,24 @@ export function profileOf(form: PicksForm): PicksProfile {
     asset_types: form.kinds ? [form.kinds] : [],
     notes: form.notes.trim() || null,
   }
+}
+
+/** The benchmark lists of picks are compared with, remembered for this account. */
+export const PICKS_BENCHMARKS: { value: PicksBenchmark; label: string }[] = [
+  { value: 'SPY', label: 'S&P 500' },
+  { value: 'QQQ', label: 'Nasdaq-100' },
+  { value: 'DIA', label: 'Dow' },
+  { value: 'IWM', label: 'Small caps' },
+  { value: 'VTI', label: 'Total market' },
+]
+
+const BENCHMARK_KEY = 'pyqxel.picksBenchmark'
+
+export function storedPicksBenchmark(): PicksBenchmark {
+  const stored = readStored(BENCHMARK_KEY)
+  return PICKS_BENCHMARKS.find((option) => option.value === stored)?.value ?? 'SPY'
+}
+
+export function storePicksBenchmark(benchmark: PicksBenchmark): void {
+  writeStored(BENCHMARK_KEY, benchmark === 'SPY' ? null : benchmark)
 }

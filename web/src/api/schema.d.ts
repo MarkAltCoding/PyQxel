@@ -927,6 +927,33 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/picks/performance': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Your saved lists of picks, each with how it has done
+     * @description Return your stored lists of picks, newest first, each with its gain or loss since it
+     *     was made and the benchmark's over the same days.
+     *
+     *     Each list is measured from the last close before it was made, held in Claude's
+     *     weights without rebalancing, until its holding period ends; after that its record
+     *     stays as it was then. Prices come from your keys, as on the Portfolio page, and from
+     *     your stored price history. When nothing can be priced the lists are still returned,
+     *     without returns, and ``notice`` says why. Returns 503 when the database is unavailable.
+     */
+    get: operations['read_saved_picks_api_v1_picks_performance_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/picks/prompt': {
     parameters: {
       query?: never
@@ -1005,6 +1032,31 @@ export interface paths {
      *     unavailable.
      */
     delete: operations['remove_picks_api_v1_picks__picks_id__delete']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/picks/{picks_id}/performance': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * How a stored list of picks has done
+     * @description Return each pick's gain or loss since the list was made, the list's, and the
+     *     benchmark's, with a point for each trading day, measured as for ``/performance``
+     *     until the holding period ends.
+     *
+     *     Returns 404 for unknown IDs and other accounts' picks, 403 without a key that prices
+     *     them, 502 when they cannot be priced, and 503 when the database is unavailable.
+     */
+    get: operations['read_picks_performance_api_v1_picks__picks_id__performance_get']
+    put?: never
+    post?: never
+    delete?: never
     options?: never
     head?: never
     patch?: never
@@ -6670,6 +6722,21 @@ export interface components {
       total_return: number
     }
     /**
+     * PerformancePoint
+     * @description The list's and the benchmark's gain since the start, on one trading day.
+     */
+    PerformancePoint: {
+      /** Benchmark */
+      benchmark?: number | null
+      /**
+       * Date
+       * Format: date
+       */
+      date: string
+      /** Picks */
+      picks?: number | null
+    }
+    /**
      * Pick
      * @description One security Claude would buy and hold for the period.
      */
@@ -6879,6 +6946,39 @@ export interface components {
       volatility_sector_pct?: number | null
     }
     /**
+     * PickPerformance
+     * @description How one pick has done since the list was made.
+     */
+    PickPerformance: {
+      /**
+       * Contribution
+       * @description What it added to the list's return: its weight times its gain.
+       */
+      contribution?: number | null
+      /**
+       * Gain
+       * @description Its gain or loss since the start, as a decimal, dividends counted; null when it could not be priced.
+       */
+      gain?: number | null
+      /**
+       * Latest Price
+       * @description Its latest adjusted close, or the last in the period.
+       */
+      latest_price?: number | null
+      /**
+       * Start Price
+       * @description Its adjusted close the list is measured from.
+       */
+      start_price?: number | null
+      /** Symbol */
+      symbol: string
+      /**
+       * Weight
+       * @description Its share of the money at the start.
+       */
+      weight: number
+    }
+    /**
      * PicksContext
      * @description The data a list of picks is written from. All of it is sent to Claude, the
      *     candidates as a table.
@@ -6979,6 +7079,70 @@ export interface components {
     PicksList: {
       /** Items */
       items: components['schemas']['PicksSummary'][]
+    }
+    /**
+     * PicksPerformance
+     * @description How a list of picks has done since it was made, held as Claude weighted it and
+     *     never rebalanced, against a benchmark, until its holding period ends.
+     */
+    PicksPerformance: {
+      /**
+       * As Of
+       * @description The last trading day measured: today's latest, or the last of the holding period once it has ended.
+       */
+      as_of?: string | null
+      /**
+       * Benchmark
+       * @enum {string}
+       */
+      benchmark: 'SPY' | 'QQQ' | 'DIA' | 'IWM' | 'VTI'
+      /** Benchmark Name */
+      benchmark_name: string
+      /** Benchmark Return */
+      benchmark_return?: number | null
+      /**
+       * Ended
+       * @description Whether the holding period is over.
+       */
+      ended: boolean
+      /**
+       * Ends On
+       * Format: date
+       * @description The day the holding period ends; tracking stops then.
+       */
+      ends_on: string
+      /**
+       * Excess Return
+       * @description The list's return minus the benchmark's.
+       */
+      excess_return?: number | null
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string
+      /**
+       * Notice
+       * @description What could not be priced, if any.
+       */
+      notice?: string | null
+      /** Picks */
+      picks?: components['schemas']['PickPerformance'][]
+      /**
+       * Series
+       * @description Each trading day's gain since the start.
+       */
+      series?: components['schemas']['PerformancePoint'][]
+      /**
+       * Start
+       * @description The trading day whose close the list is measured from: the last close before the picks were made.
+       */
+      start?: string | null
+      /**
+       * Total Return
+       * @description The list's gain or loss since the start, as a decimal: each pick's gain times its weight, among the picks that could be priced.
+       */
+      total_return?: number | null
     }
     /**
      * PicksProfile
@@ -8458,6 +8622,71 @@ export interface components {
        * @enum {string}
        */
       type: 'rsi'
+    }
+    /**
+     * SavedPicks
+     * @description A stored list of picks with how it has done, for the list of saved picks.
+     */
+    SavedPicks: {
+      /** Benchmark Return */
+      benchmark_return?: number | null
+      /** Ended */
+      ended: boolean
+      /**
+       * Ends On
+       * Format: date
+       */
+      ends_on: string
+      /** Excess Return */
+      excess_return?: number | null
+      /**
+       * Generated At
+       * Format: date-time
+       */
+      generated_at: string
+      /** Headline */
+      headline: string
+      /**
+       * Horizon
+       * @description The holding period in words.
+       */
+      horizon: string
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string
+      /** Model */
+      model: string
+      /** Risk Tolerance */
+      risk_tolerance?: string | null
+      /**
+       * Symbols
+       * @description The picks' tickers, best first.
+       */
+      symbols: string[]
+      /** Total Return */
+      total_return?: number | null
+    }
+    /**
+     * SavedPicksList
+     * @description An account's stored lists of picks, newest first, each with how it has done.
+     */
+    SavedPicksList: {
+      /**
+       * Benchmark
+       * @enum {string}
+       */
+      benchmark: 'SPY' | 'QQQ' | 'DIA' | 'IWM' | 'VTI'
+      /** Benchmark Name */
+      benchmark_name: string
+      /** Items */
+      items: components['schemas']['SavedPicks'][]
+      /**
+       * Notice
+       * @description Why some lists have no performance, if any.
+       */
+      notice?: string | null
     }
     /**
      * SavedState
@@ -11238,6 +11467,39 @@ export interface operations {
       }
     }
   }
+  read_saved_picks_api_v1_picks_performance_get: {
+    parameters: {
+      query?: {
+        /** @description The fund the picks are compared with: SPY for the S&P 500, QQQ for the Nasdaq-100, DIA for the Dow, IWM for small caps, or VTI for the whole US market. */
+        benchmark?: 'SPY' | 'QQQ' | 'DIA' | 'IWM' | 'VTI'
+        limit?: number
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SavedPicksList']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
   export_picks_prompt_api_v1_picks_prompt_post: {
     parameters: {
       query?: never
@@ -11352,6 +11614,40 @@ export interface operations {
           [name: string]: unknown
         }
         content?: never
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_picks_performance_api_v1_picks__picks_id__performance_get: {
+    parameters: {
+      query?: {
+        /** @description The fund the picks are compared with: SPY for the S&P 500, QQQ for the Nasdaq-100, DIA for the Dow, IWM for small caps, or VTI for the whole US market. */
+        benchmark?: 'SPY' | 'QQQ' | 'DIA' | 'IWM' | 'VTI'
+      }
+      header?: never
+      path: {
+        picks_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PicksPerformance']
+        }
       }
       /** @description Validation Error */
       422: {
