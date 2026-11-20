@@ -61,3 +61,20 @@ test('the policy pages give the support email', async ({ page }) => {
     await expect(page.locator('a[href="mailto:pyqxel.app@gmail.com"]').first()).toBeVisible()
   }
 })
+
+test('the Settings link is marked while Settings is open, like the other tabs', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/settings')
+  await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible()
+
+  // The top bar's button on a computer, the tab bar's tab on a phone: whichever shows.
+  const settings = page.locator('header a[href="/settings"]:visible')
+  const markets = page.locator('header a[href="/markets"]:visible')
+  await expect(settings).toHaveClass(/active/)
+  const look = (link: typeof settings) =>
+    link.evaluate((el) => {
+      const style = getComputedStyle(el)
+      return `${style.color} ${style.backgroundColor}`
+    })
+  expect(await look(settings)).not.toBe(await look(markets))
+})

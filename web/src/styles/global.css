@@ -293,6 +293,12 @@ p {
   gap: 8px;
 }
 
+/* The top bar's Settings button is marked like the tabs while Settings is open. */
+.topbar-actions .topbar-settings.active {
+  color: var(--text-primary);
+  background: var(--surface-sunken);
+}
+
 main {
   flex: 1;
   width: 100%;
