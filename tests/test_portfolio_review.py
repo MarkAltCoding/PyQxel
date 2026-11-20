@@ -352,9 +352,7 @@ def market(monkeypatch: pytest.MonkeyPatch) -> list[PortfolioContext]:
         asked.append(context)
         return REVIEW, "claude-opus-5-5"
 
-    async def no_facts(
-        session: Any, user_id: str, symbols: list[str], funds: Any = (), horizon: Any = None
-    ) -> HoldingFacts:
+    async def no_facts(session: Any, user_id: str, symbols: list[str], *rest: Any) -> HoldingFacts:
         return HoldingFacts(figures=[], sectors=[], events=[], backdrop=None, notices=[])
 
     monkeypatch.setattr(portfolio, "fetch_ticker_info", info)
@@ -514,7 +512,7 @@ def test_the_combined_prompt_names_each_account(market: list[PortfolioContext]) 
 
     exported = client.post("/api/v1/portfolio/analysis/prompt", json={"portfolios": [1, 2]}).json()
 
-    assert '"account": "Roth IRA"' in exported["prompt"]
+    assert '"account":"Roth IRA"' in exported["prompt"]
     assert "Roth IRA" in exported["prompt"] and "several of their accounts" in exported["prompt"]
     assert {h["symbol"] for h in exported["context"]["holdings"]} == {"AAPL", "XOM"}
 

@@ -32,6 +32,7 @@ from app.ai.web import add_web_research, with_web_research
 from app.api.auth import CurrentUser
 from app.api.v1.endpoints.markets import DEFAULT_REVIEW_HORIZON_DAYS
 from app.api.v1.endpoints.picks import holding_facts
+from app.stats.picks import taking_turns
 from app.api.v1.endpoints.research import ai_error, anthropic_key, check_ai_limits
 from app.core.config import get_settings
 from app.api.v1.endpoints.backtest import attribute, equity_points, load_benchmark, load_factors
@@ -1428,7 +1429,7 @@ async def _portfolio_context(
 
 
 async def with_holding_facts(
-    session: AsyncSession, user_id: str, context: PortfolioContext
+    session: AsyncSession, user_id: str, context: PortfolioContext, wait_seconds: float = 0
 ) -> PortfolioContext:
     """``context`` with what Claude's picks are given of each holding: the screener's
     figures and sector ranks, the next earnings date, news, SEC filings, and the market
@@ -1439,6 +1440,17 @@ async def with_holding_facts(
         key=lambda holding: -(holding.weight or 0.0),
     )
     symbols = list(dict.fromkeys(holding.symbol for holding in held))
+    if any(holding.accounts for holding in held):
+        # Several accounts: each one's largest holdings take turns, so news reaches all.
+        by_account: dict[str, list[tuple[float, str]]] = {}
+        for holding in held:
+            for share in holding.accounts:
+                value = share.shares * (holding.price or 0.0)
+                by_account.setdefault(share.account, []).append((value, holding.symbol))
+        ranked = [
+            [symbol for _, symbol in sorted(rows, reverse=True)] for rows in by_account.values()
+        ]
+        symbols = list(dict.fromkeys([*taking_turns(ranked), *symbols]))
     funds = {fund.symbol for fund in context.funds}
     horizon = context.profile.horizon_years
     try:
@@ -1448,6 +1460,7 @@ async def with_holding_facts(
             symbols,
             funds,
             DEFAULT_REVIEW_HORIZON_DAYS if horizon is None else horizon * 365.25,
+            wait_seconds,
         )
     except SQLAlchemyError as exc:
         logger.error("Could not read the holdings' screener figures: %s", exc)
@@ -1604,7 +1617,7 @@ async def prepare_portfolio_review(
     context = context.model_copy(update={"claude_picks": picks_for_review(picks)})
     try:
         async with get_sessionmaker()() as session:
-            context = await with_holding_facts(session, user.id, context)
+            context = await with_holding_facts(session, user.id, context, request.wait_seconds)
     except SQLAlchemyError as exc:
         logger.error("Could not open the database for the holdings' figures: %s", exc)
     return PreparedReview(
@@ -2111,7 +2124,7 @@ async def export_portfolio_prompt(
     )
     context = with_accounts(context, covered, request)
     context = context.model_copy(update={"claude_picks": picks_for_review(picks)})
-    context = await with_holding_facts(session, user.id, context)
+    context = await with_holding_facts(session, user.id, context, request.wait_seconds)
     return PortfolioPromptExport(
         prompt=render_prompt(
             PORTFOLIO_SYSTEM_PROMPT,

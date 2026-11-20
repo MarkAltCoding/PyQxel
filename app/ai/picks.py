@@ -18,6 +18,13 @@ if TYPE_CHECKING:
     from anthropic.types.beta import BetaMessageParam
 
 METRIC_COLUMNS: tuple[str, ...] = tuple(ScreenMetrics.model_fields)
+
+SIGNAL_COLUMNS: tuple[str, ...] = (
+    "analyst_buy", "analyst_hold", "analyst_sell", "analyst_buy_change", "eps_surprise",
+    "eps_beats", "insider_net_value",
+)  # fmt: skip
+"""Analysts' ratings, earnings surprises, and insiders' trading, from Finnhub, for the
+stocks whose signals were fetched; empty for the rest."""
 """The screening metrics, in the order the candidates table lists them."""
 
 SECTOR_PERCENTILE_COLUMNS: tuple[str, ...] = tuple(
@@ -28,20 +35,21 @@ SECTOR_PERCENTILE_COLUMNS: tuple[str, ...] = tuple(
 COLUMNS: tuple[str, ...] = (
     "symbol", "name", "asset_type", "exchange", "sector", "industry", "market_cap_rank",
     "sp500", "next_earnings", "lenses", *METRIC_COLUMNS, *SECTOR_PERCENTILE_COLUMNS,
+    *SIGNAL_COLUMNS,
     "fundamentals_period_end",
 )  # fmt: skip
 """The candidates table's columns: everything the screener filters on, and more."""
 
 
 def _cell(value: object) -> str:
-    """A table cell: empty when unknown, and a number to four significant figures, which
+    """A table cell: empty when unknown, and a number to three significant figures, which
     is all a pick turns on and a third of the characters."""
     if value is None:
         return ""
     if isinstance(value, bool):
         return "yes" if value else "no"
     if isinstance(value, float):
-        return f"{value:.4g}"
+        return f"{value:.3g}"
     if isinstance(value, list):
         return "; ".join(str(item) for item in value)
     return str(value)
@@ -68,7 +76,7 @@ def candidates_table(
 def picks_messages(context: PicksContext) -> list[BetaMessageParam]:
     """The request: the task, the snapshot without its candidates, then the candidates as
     a table."""
-    snapshot = context.model_dump_json(indent=2, exclude={"candidates"})
+    snapshot = context.model_dump_json(exclude={"candidates"})
     return [
         {
             "role": "user",
@@ -103,8 +111,10 @@ def picks_research_task(context: PicksContext) -> str:
         "earnings reports, the week's market, deal, currency, and crypto headlines, and the "
         "last two weeks' "
         "headlines and last month's SEC filings for the "
-        f"{len(context.candidate_events)} candidates likeliest to be picked. It has no "
-        "analyst estimates or ratings and nothing on the economy beyond the headlines.",
+        f"{len(context.candidate_events)} candidates likeliest to be picked, analysts' "
+        "rating counts and earnings surprises for some of them, and the Treasury yield "
+        "curve, inflation, and jobs figures. It has no analysts' price targets or "
+        "estimate revisions.",
         "Search for the market and economic backdrop that matters over that holding period "
         "(interest rates and the Federal Reserve, inflation, earnings trends, and what is "
         "leading or lagging the market), for analysts' views and estimate changes, and for "

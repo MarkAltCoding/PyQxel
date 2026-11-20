@@ -1024,6 +1024,14 @@
             "title": "Refresh",
             "type": "boolean"
           },
+          "wait_seconds": {
+            "default": 0,
+            "description": "How long, in seconds, you will wait beyond the first minute for more data where a provider's per-minute limit holds it back: a free Finnhub plan answers 60 requests a minute, so the news, analysts' ratings, and calendar of many stocks take several. 0 waits for nothing and leaves out what does not fit; the report's notice says what waiting would add.",
+            "maximum": 900.0,
+            "minimum": 0.0,
+            "title": "Wait Seconds",
+            "type": "integer"
+          },
           "web_search": {
             "default": false,
             "description": "Let Claude search the web first, for what the app's data cannot show. Every fact it brings back is listed with its source. Anthropic bills each search to your key, on top of the tokens, and a report that searches the web is always written anew.",
@@ -3897,6 +3905,177 @@
           "period"
         ],
         "title": "EarningsSurprise",
+        "type": "object"
+      },
+      "EconomyContext": {
+        "description": "The economy's backdrop, from the Treasury and the Bureau of Labor Statistics.",
+        "properties": {
+          "core_cpi_3m_annualized": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Core prices over the last three months, at a yearly rate, as a decimal: the recent direction of inflation.",
+            "title": "Core Cpi 3M Annualized"
+          },
+          "core_cpi_yoy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The same without food and energy, as a decimal.",
+            "title": "Core Cpi Yoy"
+          },
+          "cpi_yoy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Consumer prices over twelve months, as a decimal.",
+            "title": "Cpi Yoy"
+          },
+          "inflation_month": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The month the latest consumer prices are for, YYYY-MM.",
+            "title": "Inflation Month"
+          },
+          "jobs_month": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The month the jobs figures are for.",
+            "title": "Jobs Month"
+          },
+          "payrolls_change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Jobs added in the latest month, in thousands.",
+            "title": "Payrolls Change"
+          },
+          "payrolls_change_3m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Jobs added a month on average over three months, thousands.",
+            "title": "Payrolls Change 3M"
+          },
+          "sources": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the figures come from and when they were retrieved, to cite with them, as the BLS asks.",
+            "title": "Sources"
+          },
+          "spread_10y_2y": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The 10-year yield less the 2-year, in percentage points; below zero, an inverted curve, which has often come before recessions.",
+            "title": "Spread 10Y 2Y"
+          },
+          "spread_10y_3m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The 10-year yield less the 3-month, in percentage points.",
+            "title": "Spread 10Y 3M"
+          },
+          "unemployment": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest unemployment rate, as a decimal.",
+            "title": "Unemployment"
+          },
+          "unemployment_year_ago": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unemployment Year Ago"
+          },
+          "yields": {
+            "description": "The yield curve, shortest maturity first.",
+            "items": {
+              "$ref": "#/components/schemas/YieldPoint"
+            },
+            "title": "Yields",
+            "type": "array"
+          },
+          "yields_as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest yield curve's date.",
+            "title": "Yields As Of"
+          }
+        },
+        "title": "EconomyContext",
         "type": "object"
       },
       "EmailAddress": {
@@ -7662,6 +7841,17 @@
             "description": "Days ahead the earnings reports, IPOs, and holidays cover, for picks and reviews; null for a stock report's two weeks.",
             "title": "Calendar Days"
           },
+          "economy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EconomyContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The yield curve, inflation, and jobs; null when neither the Treasury nor the Bureau of Labor Statistics could be reached."
+          },
           "fomc_meetings": {
             "description": "The next scheduled FOMC meetings: the next two, or, for Claude's picks and portfolio reviews, every one scheduled within the holding period.",
             "items": {
@@ -9718,6 +9908,54 @@
       "PickCandidate": {
         "description": "A security the screener offered Claude, with the measures it led on.",
         "properties": {
+          "analyst_buy": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Analysts rating it buy or strong buy in the latest month; null when its ratings were not fetched.",
+            "title": "Analyst Buy"
+          },
+          "analyst_buy_change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The change in the share of analysts rating it a buy since about three months before, as a decimal (0.1 = ten points more rate it a buy).",
+            "title": "Analyst Buy Change"
+          },
+          "analyst_hold": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Analysts rating it hold.",
+            "title": "Analyst Hold"
+          },
+          "analyst_sell": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Analysts rating it sell or strong sell.",
+            "title": "Analyst Sell"
+          },
           "asset_type": {
             "default": "stock",
             "enum": [
@@ -9791,6 +10029,30 @@
             ],
             "description": "TTM net income, year on year; null after a loss.",
             "title": "Earnings Growth"
+          },
+          "eps_beats": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quarters of the last four in which earnings beat the estimate.",
+            "title": "Eps Beats"
+          },
+          "eps_surprise": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest quarter's earnings surprise, as a decimal of the estimate.",
+            "title": "Eps Surprise"
           },
           "ev_to_ebitda": {
             "anyOf": [
@@ -9893,6 +10155,18 @@
               }
             ],
             "title": "Industry"
+          },
+          "insider_net_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open-market insider purchases less sales over 90 days, in dollars.",
+            "title": "Insider Net Value"
           },
           "lenses": {
             "description": "The measures this security led the screener on, such as 12-month momentum or free cash flow yield.",
@@ -10259,7 +10533,7 @@
             "items": {
               "$ref": "#/components/schemas/CandidateEvents"
             },
-            "maxItems": 40,
+            "maxItems": 100,
             "title": "Candidate Events",
             "type": "array"
           },
@@ -10267,7 +10541,7 @@
             "items": {
               "$ref": "#/components/schemas/PickCandidate"
             },
-            "maxItems": 520,
+            "maxItems": 640,
             "title": "Candidates",
             "type": "array"
           },
@@ -10775,6 +11049,14 @@
             "title": "Refresh",
             "type": "boolean"
           },
+          "wait_seconds": {
+            "default": 0,
+            "description": "How long, in seconds, you will wait beyond the first minute for more data where a provider's per-minute limit holds it back: a free Finnhub plan answers 60 requests a minute, so the news, analysts' ratings, and calendar of many stocks take several. 0 waits for nothing and leaves out what does not fit; the report's notice says what waiting would add.",
+            "maximum": 900.0,
+            "minimum": 0.0,
+            "title": "Wait Seconds",
+            "type": "integer"
+          },
           "web_search": {
             "default": false,
             "description": "Let Claude search the web first, for news and the backdrop the screener cannot show. Every fact it brings back is listed with its source. Anthropic bills each search to your key, on top of the tokens.",
@@ -11191,6 +11473,14 @@
             "description": "Write a new review even when one for the same holdings and period is recent enough to reuse.",
             "title": "Refresh",
             "type": "boolean"
+          },
+          "wait_seconds": {
+            "default": 0,
+            "description": "How long, in seconds, you will wait beyond the first minute for more data where a provider's per-minute limit holds it back: a free Finnhub plan answers 60 requests a minute, so the news, analysts' ratings, and calendar of many stocks take several. 0 waits for nothing and leaves out what does not fit; the report's notice says what waiting would add.",
+            "maximum": 900.0,
+            "minimum": 0.0,
+            "title": "Wait Seconds",
+            "type": "integer"
           },
           "web_search": {
             "default": false,
@@ -11714,7 +12004,7 @@
             "items": {
               "$ref": "#/components/schemas/CandidateEvents"
             },
-            "maxItems": 40,
+            "maxItems": 100,
             "title": "Holding Events",
             "type": "array"
           },
@@ -14344,6 +14634,54 @@
       "ScreenerFacts": {
         "description": "What the screener knows of one security, as Claude is given it: its figures,\neverything the screener can filter it by, its next earnings date, and where its\nfigures fall in its sector.",
         "properties": {
+          "analyst_buy": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Analysts rating it buy or strong buy in the latest month; null when its ratings were not fetched.",
+            "title": "Analyst Buy"
+          },
+          "analyst_buy_change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The change in the share of analysts rating it a buy since about three months before, as a decimal (0.1 = ten points more rate it a buy).",
+            "title": "Analyst Buy Change"
+          },
+          "analyst_hold": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Analysts rating it hold.",
+            "title": "Analyst Hold"
+          },
+          "analyst_sell": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Analysts rating it sell or strong sell.",
+            "title": "Analyst Sell"
+          },
           "asset_type": {
             "default": "stock",
             "enum": [
@@ -14417,6 +14755,30 @@
             ],
             "description": "TTM net income, year on year; null after a loss.",
             "title": "Earnings Growth"
+          },
+          "eps_beats": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quarters of the last four in which earnings beat the estimate.",
+            "title": "Eps Beats"
+          },
+          "eps_surprise": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest quarter's earnings surprise, as a decimal of the estimate.",
+            "title": "Eps Surprise"
           },
           "ev_to_ebitda": {
             "anyOf": [
@@ -14519,6 +14881,18 @@
               }
             ],
             "title": "Industry"
+          },
+          "insider_net_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open-market insider purchases less sales over 90 days, in dollars.",
+            "title": "Insider Net Value"
           },
           "market_cap": {
             "anyOf": [
@@ -16930,6 +17304,51 @@
         ],
         "title": "WebSource",
         "type": "object"
+      },
+      "YieldPoint": {
+        "description": "The Treasury's par yield at one maturity on three dates.",
+        "properties": {
+          "latest": {
+            "description": "The latest yield, in percent.",
+            "title": "Latest",
+            "type": "number"
+          },
+          "month_ago": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "About a month before.",
+            "title": "Month Ago"
+          },
+          "tenor": {
+            "description": "The maturity, as the Treasury names it: 3 Mo, 2 Yr, 10 Yr.",
+            "title": "Tenor",
+            "type": "string"
+          },
+          "year_ago": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "About a year before.",
+            "title": "Year Ago"
+          }
+        },
+        "required": [
+          "tenor",
+          "latest"
+        ],
+        "title": "YieldPoint",
+        "type": "object"
       }
     }
   },
@@ -18631,6 +19050,7 @@
                     }
                   },
                   "refresh": false,
+                  "wait_seconds": 0,
                   "web_search": false
                 }
               }
@@ -18813,6 +19233,7 @@
                     }
                   },
                   "refresh": false,
+                  "wait_seconds": 0,
                   "web_search": false
                 }
               }
@@ -18866,6 +19287,7 @@
                     }
                   },
                   "refresh": false,
+                  "wait_seconds": 0,
                   "web_search": false
                 }
               }
@@ -19215,6 +19637,7 @@
                     "round_shares": true
                   },
                   "refresh": false,
+                  "wait_seconds": 0,
                   "web_search": false
                 }
               }
@@ -19312,6 +19735,7 @@
                     "round_shares": true
                   },
                   "refresh": false,
+                  "wait_seconds": 0,
                   "web_search": false
                 }
               }
@@ -19367,6 +19791,7 @@
                     "round_shares": true
                   },
                   "refresh": false,
+                  "wait_seconds": 0,
                   "web_search": false
                 }
               }
@@ -20255,6 +20680,7 @@
                   "kind": "thesis",
                   "period": "1y",
                   "refresh": false,
+                  "wait_seconds": 0,
                   "web_search": false
                 }
               }
@@ -20373,6 +20799,7 @@
                   "kind": "thesis",
                   "period": "1y",
                   "refresh": false,
+                  "wait_seconds": 0,
                   "web_search": false
                 }
               }
@@ -20435,6 +20862,7 @@
                   "kind": "thesis",
                   "period": "1y",
                   "refresh": false,
+                  "wait_seconds": 0,
                   "web_search": false
                 }
               }

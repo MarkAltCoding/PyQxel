@@ -45,6 +45,18 @@ FilingForm = Literal["10-K", "10-Q"]
 """SEC forms read for an analysis: the annual and the quarterly report."""
 
 
+MAX_WAIT_SECONDS: int = 900
+"""Longest a report may wait out data providers' per-minute limits: fifteen minutes."""
+
+WAIT_DESCRIPTION: str = (
+    "How long, in seconds, you will wait beyond the first minute for more data where a "
+    "provider's per-minute limit holds it back: a free Finnhub plan answers 60 requests a "
+    "minute, so the news, analysts' ratings, and calendar of many stocks take several. 0 "
+    "waits for nothing and leaves out what does not fit; the report's notice says what "
+    "waiting would add."
+)
+
+
 class AnalysisRequest(BaseModel):
     """Options for an AI-written analysis."""
 
@@ -65,6 +77,7 @@ class AnalysisRequest(BaseModel):
         "to your key, on top of the tokens, and a report that searches the web is always "
         "written anew.",
     )
+    wait_seconds: int = Field(default=0, ge=0, le=MAX_WAIT_SECONDS, description=WAIT_DESCRIPTION)
     refresh: bool = Field(
         default=False,
         description="Write a new report even if a recent one for the same options is cached.",

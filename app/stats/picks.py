@@ -26,6 +26,7 @@ from app.models.picks import (
     SectorSnapshot,
 )
 from app.models.alternative import SecFiling
+from app.models.signals import EarningsSurprise, InsiderTrade, RecommendationMonth
 from app.models.screener import (
     AssetType,
     RankedStock,
@@ -83,6 +84,9 @@ def _bounded(
 ) -> ScreenFilter:
     return ScreenFilter(field=name, min=low, max=high)
 
+
+SMALL_MID_CAP: float = 10_000_000_000.0
+"""Market cap, in dollars, below which a company counts as small or mid cap."""
 
 LENSES: tuple[Lens, ...] = (
     Lens("largest companies", "market_cap", True, 50),
@@ -159,6 +163,58 @@ LENSES: tuple[Lens, ...] = (
         False,
         15,
         filters=(_bounded("beta_market", low=0.0), _bounded("factor_r_squared", low=0.1)),
+    ),
+    # Under-followed companies: small and mid caps, which fewer analysts and large funds
+    # cover, on what tends to matter for them.
+    Lens(
+        "small/mid cap: growth with free cash flow",
+        "revenue_growth",
+        True,
+        20,
+        filters=(
+            _bounded("market_cap", high=SMALL_MID_CAP),
+            _bounded("revenue_growth", high=5.0),
+            _bounded("fcf_yield", low=0.02),
+        ),
+    ),
+    Lens(
+        "small/mid cap: free cash flow yield",
+        "fcf_yield",
+        True,
+        20,
+        filters=(_bounded("market_cap", high=SMALL_MID_CAP), _bounded("fcf_yield", high=0.5)),
+    ),
+    Lens(
+        "small/mid cap: 12-month momentum",
+        "momentum_12_1",
+        True,
+        20,
+        filters=(_bounded("market_cap", high=SMALL_MID_CAP),),
+    ),
+    Lens(
+        "small/mid cap: return on equity at a low P/E",
+        "return_on_equity",
+        True,
+        20,
+        filters=(
+            _bounded("market_cap", high=SMALL_MID_CAP),
+            _bounded("return_on_equity", high=2.0),
+            _bounded("pe_ratio", low=1.0, high=20.0),
+        ),
+    ),
+    Lens(
+        "cheap fast growers",
+        "ev_to_ebitda",
+        False,
+        20,
+        filters=(_bounded("ev_to_ebitda", low=1.0), _bounded("revenue_growth", low=0.15, high=5.0)),
+    ),
+    Lens(
+        "recovering after a down year",
+        "return_1m",
+        True,
+        15,
+        filters=(_bounded("momentum_12_1", high=-0.1), _bounded("fcf_yield", low=0.0)),
     ),
     Lens("most traded ETFs", "avg_dollar_volume", True, 40, asset_type="etf"),
     Lens("ETF 12-month momentum", "momentum_12_1", True, 15, asset_type="etf"),
@@ -330,9 +386,11 @@ def with_listing_facts(
     ]
 
 
-EVENTS_SHORTLIST: int = 30
-"""Candidates whose own news and filings are fetched: one Finnhub request and one keyless
-EDGAR request each, cached and shared with the stock page."""
+EVENTS_SHORTLIST: int = 60
+"""Candidates whose own news, filings, and signals are wanted: one Finnhub request for the
+news and one keyless EDGAR request each, cached and shared with the stock page, and three
+Finnhub requests for the signals; :func:`app.api.v1.endpoints.picks.plan_requests` cuts
+the list to what fits the time the person will wait."""
 
 
 def events_shortlist(
@@ -427,3 +485,65 @@ def screener_facts(stock: ScreenedStock) -> ScreenerFacts:
     """What Claude is given of a security the screener holds, before its sector ranks,
     earnings date, and index membership are added."""
     return ScreenerFacts(**stock.model_dump(include=set(ScreenerFacts.model_fields)))
+
+
+BUY_CHANGE_MONTHS: int = 3
+"""Months back the change in analysts' buy share is measured from."""
+
+
+def signal_facts(
+    recommendations: list[RecommendationMonth] | None,
+    surprises: list[EarningsSurprise] | None,
+    trades: list[InsiderTrade] | None,
+) -> dict[str, float | int | None]:
+    """The signal columns of one stock (:data:`app.ai.picks.SIGNAL_COLUMNS`) from its
+    analysts' rating counts (newest first), earnings surprises (newest first), and open-market
+    insider trades; a part passed as ``None`` could not be fetched and stays empty."""
+    facts: dict[str, float | int | None] = {}
+    if recommendations:
+        latest = recommendations[0]
+
+        def buy_share(month: RecommendationMonth) -> float | None:
+            total = month.strong_buy + month.buy + month.hold + month.sell + month.strong_sell
+            return None if total == 0 else (month.strong_buy + month.buy) / total
+
+        facts["analyst_buy"] = latest.strong_buy + latest.buy
+        facts["analyst_hold"] = latest.hold
+        facts["analyst_sell"] = latest.sell + latest.strong_sell
+        if len(recommendations) > BUY_CHANGE_MONTHS:
+            now, before = buy_share(latest), buy_share(recommendations[BUY_CHANGE_MONTHS])
+            if now is not None and before is not None:
+                facts["analyst_buy_change"] = round(now - before, 4)
+    if surprises:
+        facts["eps_surprise"] = surprises[0].surprise_percent
+        recent = [q for q in surprises[:4] if q.surprise is not None]
+        if recent:
+            facts["eps_beats"] = sum(1 for q in recent if (q.surprise or 0.0) > 0)
+    if trades is not None:
+        facts["insider_net_value"] = round(
+            sum(trade.value or 0.0 for trade in trades if trade.code in ("P", "S")), 2
+        )
+    return facts
+
+
+def with_signal_facts(
+    rows: Sequence[Facts], signals: dict[str, dict[str, float | int | None]]
+) -> list[Facts]:
+    """``rows`` with each one's signal columns filled from ``signals``, by symbol."""
+    return [
+        row.model_copy(update=signals[row.symbol]) if row.symbol in signals else row for row in rows
+    ]
+
+
+def taking_turns(ranked: Sequence[Sequence[str]]) -> list[str]:
+    """The symbols of several ranked lists, each list's first, then each one's second, and
+    so on, each symbol once: so when only the first few get their own news, every account
+    reviewed together gets its largest holdings covered, not just the largest account."""
+    order: list[str] = []
+    seen: set[str] = set()
+    for turn in range(max((len(symbols) for symbols in ranked), default=0)):
+        for symbols in ranked:
+            if turn < len(symbols) and symbols[turn] not in seen:
+                seen.add(symbols[turn])
+                order.append(symbols[turn])
+    return order

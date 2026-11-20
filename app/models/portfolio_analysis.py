@@ -18,7 +18,7 @@ from app.models.picks import (
     SectorSnapshot,
 )
 from app.models.portfolio import MAX_PORTFOLIOS, MAX_SYMBOLS, PortfolioNumber, PortfolioPeriod
-from app.models.research import RiskFactor
+from app.models.research import MAX_WAIT_SECONDS, WAIT_DESCRIPTION, RiskFactor
 from app.models.stock import FundProfile
 from app.models.web import WebResearch
 
@@ -138,6 +138,7 @@ class PortfolioAnalysisRequest(BaseModel):
         "listed with its source. Anthropic bills each search to your key, on top of the "
         "tokens.",
     )
+    wait_seconds: int = Field(default=0, ge=0, le=MAX_WAIT_SECONDS, description=WAIT_DESCRIPTION)
     refresh: bool = Field(
         default=False,
         description="Write a new review even when one for the same holdings and period "

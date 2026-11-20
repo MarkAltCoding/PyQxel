@@ -42,8 +42,16 @@ from app.api.v1.endpoints.research import ai_error, anthropic_key, check_ai_limi
 from app.api.v1.endpoints.stocks import upstream_error
 from app.core.config import get_settings
 from app.data.alternative import fetch_company_filings
-from app.data.fetcher import DataFetchError, finnhub_key, finnhub_requests_per_minute
+from app.core.text import listed
+from app.data.fetcher import (
+    DataFetchError,
+    finnhub_key,
+    finnhub_patience,
+    finnhub_requests_per_minute,
+)
+from app.data.finnhub import fetch_earnings_surprises, fetch_insider_trades, fetch_recommendations
 from app.data.index_members import cached_index_members
+from app.data.markets import uncached_earnings_weeks
 from app.data.news import NewsFetchError, fetch_company_news
 from app.data.panel import fetch_close_panel
 from app.data.sec_edgar import FilingFetchError, edgar_client
@@ -99,7 +107,8 @@ from app.models.stock import SYMBOL_PATTERN
 from app.models.web import WebSearchQuery
 from app.stats.picks_performance import ends_on, history_period, start_day, track
 from app.stats.picks import (
-    EVENTS_SHORTLIST,
+    signal_facts,
+    with_signal_facts,
     candidate_events,
     headlines_each,
     events_shortlist,
@@ -162,23 +171,95 @@ NEWS_MARGIN: int = 2
 the person has open."""
 
 
-def plan_requests(wanted: int, horizon_days: float | None) -> tuple[int, int]:
-    """How many of ``wanted`` stocks get their own news, and how many days of calendar the
-    backdrop covers, within the Finnhub key's minute. News comes first: every stock wanted
-    gets it while the calendar keeps at least :data:`PICKS_EARNINGS_DAYS`, and the calendar
-    then takes the weeks left, up to the holding period. FOMC meetings, from the Federal
-    Reserve with no key, cover the whole period either way. Without a Finnhub key, news
-    comes from Alpha Vantage's one shared feed and costs nothing per company."""
+SIGNAL_REQUESTS: int = 3
+"""Finnhub requests one stock's signals take: its analysts' ratings, its earnings
+surprises, and its insiders' trades."""
+
+
+@dataclass(frozen=True)
+class FetchPlan:
+    """What a report gathers from Finnhub within the time the person will wait."""
+
+    news: int
+    """Stocks that get their own news."""
+    calendar_days: int
+    """Days the backdrop's calendar covers."""
+    signals: int
+    """Stocks, of those with news, that get their analysts' ratings, earnings surprises,
+    and insiders' trades."""
+    minutes: int
+    """Minutes of Finnhub's limit the plan spans: one without waiting."""
+    more: str | None
+    """What waiting longer would add, for the context's notice; ``None`` when nothing."""
+
+
+PATIENCE_SLACK_SECONDS: float = 30.0
+"""Seconds of waiting allowed beyond what the person chose, since the plan counts whole
+minutes of Finnhub's limit and the first may already be partly spent."""
+
+
+def _patience(wait_seconds: float) -> float:
+    """How long Finnhub requests may wait for the next minute, for a report the person
+    will wait ``wait_seconds`` for; nothing when they chose not to wait."""
+    return wait_seconds + PATIENCE_SLACK_SECONDS if wait_seconds > 0 else 0.0
+
+
+def _minutes_for(requests: int, per_minute: int) -> int:
+    return max(1, math.ceil(requests / per_minute))
+
+
+async def plan_requests(
+    news_wanted: int, horizon_days: float | None, wait_seconds: float = 0
+) -> FetchPlan:
+    """How much a report gathers from Finnhub when the person waits up to ``wait_seconds``
+    beyond the key's first minute of requests.
+
+    In order: every wanted stock's news, then the calendar, at least
+    :data:`PICKS_EARNINGS_DAYS` and up to the holding period or a quarter (weeks already
+    cached cost nothing), then each stock's signals (:data:`SIGNAL_REQUESTS` each). FOMC
+    meetings, from the Federal Reserve with no key, cover the whole period either way.
+    Without a Finnhub key, news comes from Alpha Vantage's one shared feed, which costs
+    nothing per company, and there are no signals.
+    """
     days = backdrop_days(horizon_days)
     api_key = finnhub_key()
     if api_key is None:
-        return wanted, days
-    allowance = finnhub_requests_per_minute(api_key) - NEWS_MARGIN
+        return FetchPlan(news_wanted, days, 0, 1, None)
+    per_minute = finnhub_requests_per_minute(api_key)
+    minutes = 1 + int(max(wait_seconds, 0) // 60)
+    budget = per_minute * minutes - NEWS_MARGIN
     fixed = backdrop_finnhub_requests(0)  # The IPOs, holidays, status, and news categories.
-    fewest_weeks = math.ceil(PICKS_EARNINGS_DAYS / 7)
-    news = max(0, min(wanted, allowance - fixed - fewest_weeks))
-    weeks = max(fewest_weeks, allowance - fixed - news)
-    return news, min(days, weeks * 7)
+    today = date.today()
+    fewest = PICKS_EARNINGS_DAYS
+    full_weeks = await uncached_earnings_weeks(today, today + timedelta(days=days - 1))
+    fewest_weeks = await uncached_earnings_weeks(today, today + timedelta(days=fewest - 1))
+
+    news = max(0, min(news_wanted, budget - fixed - fewest_weeks))
+    left = budget - fixed - news
+    if full_weeks <= left:
+        calendar_days, left = days, left - full_weeks
+    else:
+        # Every request left goes to the calendar's weeks, so none is left for signals.
+        calendar_days, left = max(fewest, min(days, left * 7)), 0
+    signals = max(0, min(news, left // SIGNAL_REQUESTS))
+
+    whole = fixed + news_wanted + full_weeks + news_wanted * SIGNAL_REQUESTS
+    more = None
+    if news < news_wanted or calendar_days < days or signals < news_wanted:
+        extra = _minutes_for(whole + NEWS_MARGIN, per_minute) - 1
+        parts = []
+        if news < news_wanted:
+            parts.append(f"news for {news_wanted - news} more stocks")
+        if signals < news_wanted:
+            parts.append(f"analysts' ratings and earnings surprises for {news_wanted - signals}")
+        if calendar_days < days:
+            parts.append(f"{days - calendar_days} more days of calendar")
+        more = (
+            f"Your Finnhub plan's {per_minute} requests a minute left out {listed(parts)}; "
+            f"waiting about {extra} {'minute' if extra == 1 else 'minutes'} for them would "
+            "add them all."
+        )
+    return FetchPlan(news, calendar_days, signals, minutes, more)
 
 
 NEWS_REQUESTS_AT_ONCE: int = 6
@@ -259,6 +340,45 @@ async def _candidate_events(
     ]
 
 
+SIGNALS_AT_ONCE: int = 4
+"""Stocks whose signals are asked of Finnhub together (three requests each)."""
+
+
+async def _stock_signals(
+    symbol: str, today: date, slots: asyncio.Semaphore
+) -> dict[str, float | int | None] | None:
+    """One stock's signal columns, or ``None`` when Finnhub supplied none of them."""
+    async with slots:
+        results = await asyncio.gather(
+            fetch_recommendations(symbol),
+            fetch_earnings_surprises(symbol),
+            fetch_insider_trades(symbol, today),
+            return_exceptions=True,
+        )
+    parts: list[Any] = []
+    for result in results:
+        if isinstance(result, DataFetchError):
+            logger.info("A signal of %s was left out: %s", symbol, result)
+            parts.append(None)
+        elif isinstance(result, BaseException):
+            raise result
+        else:
+            parts.append(result)
+    if all(part is None for part in parts):
+        return None
+    return signal_facts(parts[0], parts[1], parts[2])
+
+
+async def _signals(symbols: list[str]) -> dict[str, dict[str, float | int | None]]:
+    """The signal columns of each of ``symbols`` that Finnhub could supply."""
+    if not symbols or finnhub_key() is None:
+        return {}
+    slots = asyncio.Semaphore(SIGNALS_AT_ONCE)
+    today = date.today()
+    found = await asyncio.gather(*(_stock_signals(symbol, today, slots) for symbol in symbols))
+    return {symbol: facts for symbol, facts in zip(symbols, found, strict=True) if facts}
+
+
 @dataclass(frozen=True)
 class HoldingFacts:
     """What a portfolio review is given of its holdings beyond their prices, gathered as
@@ -279,13 +399,16 @@ async def holding_facts(
     symbols: list[str],
     funds: Collection[str] = (),
     horizon_days: float | None = None,
+    wait_seconds: float = 0,
 ) -> HoldingFacts:
     """The screener's figures, sector ranks, next earnings dates, and index membership of
     ``symbols`` (most important first), the news and SEC filings of the first
     :data:`~app.models.picks.MAX_CANDIDATE_EVENTS` that are not ``funds``, and the market
     backdrop, all from what the picks use: the stored screener, keyless SEC data, and a
-    request to Finnhub per company (cached) plus the shared calendars. A source that
-    cannot be read is left out with a notice."""
+    request to Finnhub per company (cached) plus the shared calendars, and each holding's
+    analysts' ratings, earnings surprises, and insiders' trades as far as
+    :func:`plan_requests` allows within ``wait_seconds``. A source that cannot be read is
+    left out with a notice."""
     universe = await _universe(session, user_id)
     figures: list[ScreenerFacts] = []
     sectors: list[SectorSnapshot] = []
@@ -308,18 +431,23 @@ async def holding_facts(
         for symbol in symbols
         if symbol not in known_funds
     ]
-    news_count, calendar_days = plan_requests(
-        min(len(shortlist), MAX_CANDIDATE_EVENTS), horizon_days
+    plan = await plan_requests(
+        min(len(shortlist), MAX_CANDIDATE_EVENTS), horizon_days, wait_seconds
     )
-    shortlist = shortlist[:news_count]
-    (backdrop, market_notice), events = await asyncio.gather(
-        _market(horizon_days, calendar_days), _candidate_events(shortlist, ciks)
-    )
+    shortlist = shortlist[: plan.news]
+    with finnhub_patience(_patience(wait_seconds)):
+        (backdrop, market_notice), events, signals = await asyncio.gather(
+            _market(horizon_days, plan.calendar_days),
+            _candidate_events(shortlist, ciks),
+            _signals([c.symbol for c in shortlist[: plan.signals]]),
+        )
     figures = with_listing_facts(figures, None if backdrop is None else backdrop.earnings, sp500)
+    figures = with_signal_facts(figures, signals)
     notices = [
         notice
         for notice in (
             market_notice,
+            plan.more,
             (
                 None
                 if universe is not None
@@ -382,16 +510,23 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
     sp500 = await _sp500(session, universe)
     ciks = {stock.symbol: stock.cik for stock in companies}
     horizon_days = profile.horizon.total_weeks * 7
-    news_count, calendar_days = plan_requests(EVENTS_SHORTLIST, horizon_days)
-    shortlist = events_shortlist(candidates, news_count)
-    (backdrop, market_notice), events = await asyncio.gather(
-        _market(horizon_days, calendar_days), _candidate_events(shortlist, ciks)
-    )
+    wait = request.wait_seconds
+    shortlist = events_shortlist(candidates)
+    plan = await plan_requests(len(shortlist), horizon_days, wait)
+    shortlist = shortlist[: plan.news]
+    with finnhub_patience(_patience(wait)):
+        (backdrop, market_notice), events, signals = await asyncio.gather(
+            _market(horizon_days, plan.calendar_days),
+            _candidate_events(shortlist, ciks),
+            _signals([c.symbol for c in shortlist[: plan.signals]]),
+        )
     candidates = with_listing_facts(
         candidates, None if backdrop is None else backdrop.earnings, sp500
     )
+    candidates = with_signal_facts(candidates, signals)
     notices = [
         market_notice,
+        plan.more,
         (
             "Each candidate's next earnings date comes from Finnhub's calendar, which could "
             "not be fetched."

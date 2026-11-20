@@ -138,6 +138,7 @@ describe('PortfolioReviewCard', () => {
         portfolio: 2,
         period: '1y',
         web_search: true,
+        wait_seconds: 300,
         refresh: true,
         profile: {
           risk_tolerance: null,

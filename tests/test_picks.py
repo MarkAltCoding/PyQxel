@@ -206,12 +206,16 @@ def test_the_candidates_go_to_claude_as_a_table(screener: list[PicksContext]) ->
         "symbol,name,asset_type,exchange,sector,industry,market_cap_rank,sp500,"
         "next_earnings,lenses,price,market_cap"
     )
-    assert table[0].endswith("volatility_sector_pct,fundamentals_period_end")
+    assert table[0].endswith(
+        "volatility_sector_pct,analyst_buy,analyst_hold,analyst_sell,"
+        "analyst_buy_change,eps_surprise,eps_beats,insider_net_value,"
+        "fundamentals_period_end"
+    )
     big = next(line for line in table if line.startswith("BIG,"))
     assert "largest companies; 12-month momentum" in big and ",0.4," in big
     message = cast(str, picks_messages(context)[0]["content"])
     assert "<candidates>" in message and '"candidates"' not in message
-    assert '"horizon": "1 year"' in message
+    assert '"horizon":"1 year"' in message
 
 
 def test_only_liquid_securities_large_enough_are_candidates(

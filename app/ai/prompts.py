@@ -172,13 +172,15 @@ holdings are, compare its costs and valuation with what is typical for its kind 
 (general knowledge, labeled as such), and treat analyst ratings, insider trades, and \
 earnings, which describe a single company, as not applying to it.
 
-The snapshot may also hold market, the backdrop the security trades in: the next \
-FOMC meetings, whose rate decision is announced on the end date and moves the whole \
-market (projections marks those with the Fed's economic projections); market holidays \
-in the next month; major companies reporting earnings in the next two weeks, which can \
-move peers and the market; upcoming IPOs; and the most market-moving general headlines, \
-which carry the same caveats as company news. Use it to place the security's risks \
-and timing in context, not as news about the company itself.
+The snapshot may also hold market, the backdrop the security trades in: the next FOMC \
+meetings, whose rate decision is announced on the end date and moves the whole market \
+(projections marks those with the Fed's economic projections); market holidays in the \
+next month; major companies reporting earnings in the next two weeks, which can move \
+peers and the market; upcoming IPOs; the economy (the Treasury yield curve and its \
+spreads, inflation, unemployment, and job gains, with the sources to name when you use \
+them), which sets the rates its value is discounted at; and the most market-moving \
+general headlines, which carry the same caveats as company news. Use it to place the \
+security's risks and timing in context, not as news about the company itself.
 
 Ground every claim in the snapshot and filings. Filings are written by the company's \
 management: attribute what you draw from them (for example, "the 10-K reports"), keep \
@@ -275,30 +277,40 @@ holdings and what is in the news, as Claude's picks are given: market (the Marke
 page's calendar for calendar_days ahead, from four weeks up to a quarter, within the \
 horizon: every FOMC meeting within the horizon, major companies' earnings reports with \
 their day, time, and EPS and revenue estimates, IPOs, and holidays, plus whether the \
-market is open and its most market-moving headlines of the week), deal_headlines \
-(mergers and acquisitions), forex_headlines (the dollar and exchange rates, which bear \
-on holdings abroad), crypto_headlines (for crypto funds and miners), sector_medians \
-(the whole screener's stocks and each of the holdings' sectors, with rising_6m, the \
-share of stocks up over six months), and holding_events (for the largest holdings that \
-are not funds: how many articles named them in two weeks, their headlines that matter \
-most, and their SEC filings of the last month, an 8-K's items saying what it reports). \
-After the snapshot comes holding_figures, a table of comma-separated values under a \
-header row, one line per holding the screener holds: exchange, sector, industry, \
-market_cap_rank (the top 500 are the screener's large caps, the top 3,000 its broad \
-market), sp500 (whether the S&P 500 holds it), next_earnings (its next report within \
-the calendar's calendar_days), price, market_cap and avg_dollar_volume in dollars \
-(under $5 million a day is below the screener's cutoff for liquid); pe_ratio, \
-price_to_sales, and ev_to_ebitda as multiples (a negative P/E is a loss); fcf_yield, \
-margins, return_on_equity, revenue_growth and earnings_growth (trailing twelve \
-months), return_1m, return_6m, momentum_12_1, volatility, and max_drawdown as \
-decimals; the Carhart betas; each *_sector_pct column, the percentile from 0 to 100 of \
-that figure among its sector's stocks in the whole screener; and \
-fundamentals_period_end, which says how old the ratios are. An empty cell means the \
-figure is missing, not zero. Use all of it: whether a stock's price leaves room for \
-its growth, how it compares with its sector, an earnings report or an 8-K (results, an \
-officer leaving, an auditor change, a restatement) that bears on keeping, adding to, \
-or trimming it, and what the market is weighing. Headlines are not verified facts: \
-name the source and date when you rely on one.
+market is open economy (the Treasury yield curve now, a month ago, and a year ago, \
+with its 10-year less 2-year and 10-year less 3-month spreads, consumer prices over \
+twelve months, core prices over twelve months and at the last three months' yearly \
+pace, unemployment now and a year ago, and job gains, with the sources to name when you \
+use them), and its most market-moving \
+headlines of the week), deal_headlines (mergers and acquisitions), forex_headlines \
+(the dollar and exchange rates, which bear on holdings abroad), crypto_headlines (for \
+crypto funds and miners), sector_medians (the whole screener's stocks and each of the \
+holdings' sectors, with rising_6m, the share of stocks up over six months), and \
+holding_events (for the largest holdings that are not funds: how many articles named \
+them in two weeks, their headlines that matter most, and their SEC filings of the last \
+month, an 8-K's items saying what it reports). After the snapshot comes \
+holding_figures, a table of comma-separated values under a header row, one line per \
+holding the screener holds: exchange, sector, industry, market_cap_rank (the top 500 \
+are the screener's large caps, the top 3,000 its broad market), sp500 (whether the S&P \
+500 holds it), next_earnings (its next report within the calendar's calendar_days), \
+price, market_cap and avg_dollar_volume in dollars (under $5 million a day is below \
+the screener's cutoff for liquid); pe_ratio, price_to_sales, and ev_to_ebitda as \
+multiples (a negative P/E is a loss); fcf_yield, margins, return_on_equity, \
+revenue_growth and earnings_growth (trailing twelve months), return_1m, return_6m, \
+momentum_12_1, volatility, and max_drawdown as decimals; the Carhart betas; each \
+*_sector_pct column, the percentile from 0 to 100 of that figure among its sector's \
+stocks in the whole screener; fundamentals_period_end, which says how old the ratios \
+are; and, where they could be fetched, analyst_buy, analyst_hold, and analyst_sell \
+(analysts' ratings in the latest month), analyst_buy_change (the change in the share \
+rating it a buy over about three months, as a decimal), eps_surprise (the latest \
+quarter's earnings against the estimate, as a decimal), eps_beats (quarters of the \
+last four that beat), and insider_net_value (insiders' open-market purchases less \
+sales over 90 days, in dollars). An empty cell means the figure is missing, not zero. \
+Use all of it: whether a stock's price leaves room for its growth, how it compares \
+with its sector, an earnings report or an 8-K (results, an officer leaving, an auditor \
+change, a restatement) that bears on keeping, adding to, or trimming it, and what the \
+market is weighing. Headlines are not verified facts: name the source and date when \
+you rely on one.
 
 Ground every claim about the portfolio in the snapshot, citing the figures behind it. \
 You may use general knowledge of markets, sectors, asset classes, and well-known funds \
@@ -424,7 +436,11 @@ wanted, and notes to follow), the state of the screener the candidates come from
 when they could be fetched: market (the Markets page's calendar for calendar_days \
 ahead, from four weeks up to a quarter, within the holding period: every FOMC meeting \
 within the period, major companies' earnings reports with their day, time, and EPS and \
-revenue estimates, IPOs, and holidays, plus whether the market is open and its most \
+revenue estimates, IPOs, and holidays, plus whether the market is open economy (the \
+Treasury yield curve now, a month ago, and a year ago, with its 10-year less 2-year \
+and 10-year less 3-month spreads, consumer prices over twelve months, core prices over \
+twelve months and at the last three months' yearly pace, unemployment now and a year \
+ago, and job gains, with the sources to name when you use them), and its most \
 market-moving headlines of the week), deal_headlines (mergers and acquisitions), \
 forex_headlines (the dollar and exchange rates), crypto_headlines (for crypto funds \
 and miners), sectors (the medians of the whole screener's stocks and of each sector, \
@@ -434,32 +450,41 @@ them in two weeks, their headlines that matter most, and their SEC filings of th
 month, an 8-K's items saying what it reports). A candidate with no entry there simply \
 had no news fetched; it is not a sign of no news.
 
-After the snapshot comes a table of candidates, one per line, as comma-separated values \
-under a header row. The candidates are the screener's securities that lead on some \
-measure: lenses names the measures each one led on (for example the largest companies, \
-the smallest companies, 12-month momentum, free cash flow yield, low EV/EBITDA, revenue \
-growth, net margin, a value or small-company tilt, low volatility, low market beta, or \
-the most traded ETFs), so the table is a wide net, not a recommendation, and most of it \
-should not be picked. Every candidate trades at least $5 million a day on average, the \
-screener's cutoff for liquid, and costs at least $2 a share, and every stock is worth at \
-least $300 million, so smaller and thinly traded securities are left out on purpose. Its \
-columns are everything the screener lets a person filter on, so you can screen it as \
-they would: exchange (Nasdaq for the screener's Nasdaq choice), sector, and industry; \
+After the snapshot comes a table of candidates, one per line, as comma-separated \
+values under a header row. The candidates are the screener's securities that lead on \
+some measure: lenses names the measures each one led on (for example the largest \
+companies, the smallest companies, 12-month momentum, free cash flow yield, low \
+EV/EBITDA, revenue growth, net margin, a value or small-company tilt, low volatility, \
+low market beta, small and mid caps (under $10 billion, which fewer analysts follow) \
+with growth backed by cash, cash yield, momentum, or high returns at a low P/E, cheap \
+fast growers, stocks recovering after a down year, or the most traded ETFs), so the \
+table is a wide net, not a recommendation, and most of it should not be picked. Every \
+candidate trades at least $5 million a day on average, the screener's cutoff for \
+liquid, and costs at least $2 a share, and every stock is worth at least $300 million, \
+so smaller and thinly traded securities are left out on purpose. Its columns are \
+everything the screener lets a person filter on, so you can screen it as they would: \
+exchange (Nasdaq for the screener's Nasdaq choice), sector, and industry; \
 market_cap_rank (the top 500 are large caps, the top 3,000 the broad market); sp500 \
 (whether the S&P 500 holds it); next_earnings (its next report within the calendar's \
-calendar_days, empty when none is scheduled or the calendar was missing); price, market_cap \
-and avg_dollar_volume in dollars; pe_ratio, price_to_sales, and ev_to_ebitda as \
-multiples (a negative P/E is a loss); fcf_yield, margins, return_on_equity, \
-revenue_growth and earnings_growth (trailing twelve months, year on year), return_1m, \
-return_6m, momentum_12_1 (the return from twelve months to one month ago), volatility \
-(annualized, over a year), and max_drawdown (over a year) as decimals, where 0.25 means \
-25%; the Carhart betas to the market, size, value, and momentum, with factor_r_squared; \
-then each *_sector_pct column, the percentile from 0 to 100 of that figure among the \
-stocks of its sector in the whole screener (a P/E percentile of 20 is cheaper than 80% \
-of its profitable peers; a higher percentile is a higher figure, whether or not higher \
-is better); and fundamentals_period_end, the end of the period its ratios use, which \
-says how old they are. An empty cell means the figure could not be computed, not zero, \
-and an ETF has no company figures. Write percentages in your answer, not decimals.
+calendar_days, empty when none is scheduled or the calendar was missing); price, \
+market_cap and avg_dollar_volume in dollars; pe_ratio, price_to_sales, and \
+ev_to_ebitda as multiples (a negative P/E is a loss); fcf_yield, margins, \
+return_on_equity, revenue_growth and earnings_growth (trailing twelve months, year on \
+year), return_1m, return_6m, momentum_12_1 (the return from twelve months to one month \
+ago), volatility (annualized, over a year), and max_drawdown (over a year) as \
+decimals, where 0.25 means 25%; the Carhart betas to the market, size, value, and \
+momentum, with factor_r_squared; then each *_sector_pct column, the percentile from 0 \
+to 100 of that figure among the stocks of its sector in the whole screener (a P/E \
+percentile of 20 is cheaper than 80% of its profitable peers; a higher percentile is a \
+higher figure, whether or not higher is better); fundamentals_period_end, the end of \
+the period its ratios use, which says how old they are; and, for the stocks whose \
+signals could be fetched, analyst_buy, analyst_hold, and analyst_sell (analysts' \
+ratings in the latest month), analyst_buy_change (the change in the share rating it a \
+buy over about three months, as a decimal), eps_surprise (the latest quarter's \
+earnings against the estimate, as a decimal), eps_beats (quarters of the last four \
+that beat), and insider_net_value (insiders' open-market purchases less sales over 90 \
+days, in dollars). An empty cell means the figure could not be computed, not zero, and \
+an ETF has no company figures. Write percentages in your answer, not decimals.
 
 Fit the picks to the holding period, which changes what matters:
 - Weeks to about three months: what moves prices over such a stretch is momentum and \

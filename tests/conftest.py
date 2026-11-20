@@ -166,6 +166,18 @@ def no_treasury(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_economy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Treasury's yield curve and the Bureau of Labor Statistics are unreachable, so no
+    test reaches them and backdrops have no economy; tests of the economy serve it."""
+
+    async def unreachable(today: object) -> None:
+        raise DataFetchError("Government data is not reached in tests.")
+
+    monkeypatch.setattr(markets_route, "fetch_yield_curve", unreachable)
+    monkeypatch.setattr(markets_route, "fetch_bls", unreachable)
+
+
+@pytest.fixture(autouse=True)
 def no_fund_filings(monkeypatch: pytest.MonkeyPatch) -> None:
     """The SEC's fund filings are unreachable, so no test reaches sec.gov for a fund's
     holdings; tests of them serve them themselves."""

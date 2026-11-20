@@ -109,6 +109,62 @@ class MarketNews(BaseModel):
     )
 
 
+class YieldPoint(BaseModel):
+    """The Treasury's par yield at one maturity on three dates."""
+
+    tenor: str = Field(description="The maturity, as the Treasury names it: 3 Mo, 2 Yr, 10 Yr.")
+    latest: float = Field(description="The latest yield, in percent.")
+    month_ago: float | None = Field(default=None, description="About a month before.")
+    year_ago: float | None = Field(default=None, description="About a year before.")
+
+
+class EconomyContext(BaseModel):
+    """The economy's backdrop, from the Treasury and the Bureau of Labor Statistics."""
+
+    yields_as_of: Day | None = Field(default=None, description="The latest yield curve's date.")
+    yields: list[YieldPoint] = Field(
+        default_factory=list, description="The yield curve, shortest maturity first."
+    )
+    spread_10y_2y: float | None = Field(
+        default=None,
+        description="The 10-year yield less the 2-year, in percentage points; below zero, "
+        "an inverted curve, which has often come before recessions.",
+    )
+    spread_10y_3m: float | None = Field(
+        default=None, description="The 10-year yield less the 3-month, in percentage points."
+    )
+    inflation_month: str | None = Field(
+        default=None, description="The month the latest consumer prices are for, YYYY-MM."
+    )
+    cpi_yoy: float | None = Field(
+        default=None, description="Consumer prices over twelve months, as a decimal."
+    )
+    core_cpi_yoy: float | None = Field(
+        default=None, description="The same without food and energy, as a decimal."
+    )
+    core_cpi_3m_annualized: float | None = Field(
+        default=None,
+        description="Core prices over the last three months, at a yearly rate, as a decimal: "
+        "the recent direction of inflation.",
+    )
+    unemployment: float | None = Field(
+        default=None, description="The latest unemployment rate, as a decimal."
+    )
+    unemployment_year_ago: float | None = None
+    payrolls_change: float | None = Field(
+        default=None, description="Jobs added in the latest month, in thousands."
+    )
+    payrolls_change_3m: float | None = Field(
+        default=None, description="Jobs added a month on average over three months, thousands."
+    )
+    jobs_month: str | None = Field(default=None, description="The month the jobs figures are for.")
+    sources: str | None = Field(
+        default=None,
+        description="Where the figures come from and when they were retrieved, to cite with "
+        "them, as the BLS asks.",
+    )
+
+
 class MarketContext(BaseModel):
     """The market backdrop an analysis is written against."""
 
@@ -129,6 +185,11 @@ class MarketContext(BaseModel):
     ipos: list[IpoEvent] = Field(
         description="IPOs in the next two weeks, or for picks and reviews within the "
         "calendar window, largest first."
+    )
+    economy: EconomyContext | None = Field(
+        default=None,
+        description="The yield curve, inflation, and jobs; null when neither the Treasury "
+        "nor the Bureau of Labor Statistics could be reached.",
     )
     calendar_days: int | None = Field(
         default=None,

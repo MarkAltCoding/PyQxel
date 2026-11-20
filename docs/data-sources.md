@@ -37,11 +37,11 @@ None of this is legal advice; recheck before launching commercially.
 | Source | Key? | Reuse, including commercial | Used for | Status |
 | --- | --- | --- | --- | --- |
 | **SEC EDGAR** | None; at most 10 requests a second, with a User-Agent naming the app and a contact | "Information presented on sec.gov is considered public information and may be copied or further distributed ... without the SEC's permission"; citation requested. "SEC" and "EDGAR" are trademarks | Financial statements, filings text, the screener's listings and industries, fund holdings (N-PORT), **a stock's sector and industry**, **its list of recent filings** | In use; the last two added November 6, 2026 |
-| **US Treasury** daily bill rates (home.treasury.gov) and **FiscalData** API | None | A work of the US government, so public domain; FiscalData: "available to copy, adapt, redistribute, or otherwise use for non-commercial or commercial purposes" | **The interest cash earns in backtests** (4-week bill, daily since 2002) | Added November 6, 2026 |
+| **US Treasury** daily bill rates and par yield curve (home.treasury.gov) and **FiscalData** API | None | A work of the US government, so public domain; FiscalData: "available to copy, adapt, redistribute, or otherwise use for non-commercial or commercial purposes" | **The interest cash earns in backtests** (4-week bill, daily since 2002); **the yield curve given to Claude's reports, picks, and reviews** (`app/data/economy.py`; tested November 20, 2026) | Bills added November 6, the curve November 20, 2026 |
 | **Federal Reserve Board** H.10 exchange rates and H.15 interest rates | None | "Information on Board's website is in the public domain and may be copied and distributed without permission"; cite the Board | **Exchange rates for currencies the ECB does not publish** (23 currencies, such as the Taiwan dollar; released weekly) | Added November 6, 2026 |
 | **European Central Bank** reference rates | None | Free reuse, commercial or not, quoting "Source: ECB statistics" and leaving the data unchanged | Exchange rates | In use |
 | **Federal Reserve** FOMC calendar | None | Public domain, as above | Markets page | In use |
-| **BLS** (inflation, jobs) | None for API v1: 25 requests a day per server; a free key gives 500 | Public domain; cite BLS and the date retrieved, and say BLS cannot vouch for derived analyses | Nothing yet: it would add macro data, not replace a key | Candidate |
+| **BLS** (inflation, jobs) | None for API v1: 25 requests a day per server; a free key gives 500 | Public domain; cite BLS and the date retrieved, and say BLS cannot vouch for derived analyses (`EconomyContext.sources` carries both) | **Consumer prices, core prices, unemployment, and payrolls for Claude's reports, picks, and reviews**: one query for all four series, kept 12 hours (tested November 20, 2026) | Added November 20, 2026 |
 | **World Bank** indicators | None; "reasonable request volume" | CC BY 4.0 with attribution "The World Bank: Dataset name: Data source"; some indicators belong to third parties | Nothing yet: global macro data | Candidate |
 | **USAspending.gov** | None | US government data; no license stated | Could replace Finnhub's government contracts | Candidate |
 | **Senate lobbying disclosures** (lda.gov) | None at 15 requests a minute; a free key gives 120 | "Data ... do not, and should not, include controls over its end use"; cite the date retrieved | Could replace Finnhub's lobbying data | Candidate |
@@ -396,6 +396,16 @@ Each list of picks is made from data that is nearly all on hand already:
   with the stock page, and the calendars for six hours with the Markets page. Portfolio
   reviews get the same, for up to 40 holdings and the person's horizon (a year when none
   is given).
+- **Waiting for more (`wait_seconds`):** the person chooses how long they will wait,
+  from none to fifteen minutes (five by default in the app). `plan_requests` then spends
+  that many minutes of the key's limit, in order: every wanted stock's news (60 picks
+  candidates, or up to 100 holdings), the calendar up to a quarter (weeks already cached
+  cost nothing), then each stock's analysts' ratings, earnings surprises, and insiders'
+  trades (three requests each). Requests beyond a minute wait for the next one
+  (`fetcher.finnhub_patience`) instead of being refused. A full list of picks takes about
+  five minutes on a free plan, and a review of 40 holdings about four; without waiting,
+  the notice says what more waiting would add. The copied prompt for Claude outside the
+  app gathers the same.
 - **What Claude is given of the news:** 240 company headlines shared evenly among the
   stocks whose news was fetched, from 4 to 12 each (30 picks get 8, 40 holdings 6), the
   ones that matter most for each company's shares; and the most market-moving 80

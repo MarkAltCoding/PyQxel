@@ -70,6 +70,7 @@ from app.api.v1.endpoints.markets import fetch_market_context
 from app.data.alternative import fetch_alternative
 from app.data.finnhub import fetch_company_metrics, fetch_signals
 from app.data.fetcher import (
+    finnhub_patience,
     DataFetchError,
     SourceTurnedOffError,
     ProviderNotConfiguredError,
@@ -531,31 +532,34 @@ async def gather_analysis_data(
     limit is checked."""
     # Groups run together, since asyncio.gather is typed for at most six awaitables.
     today = datetime.now(timezone.utc).date()
-    (
-        (info_result, history_result, filings_result, factors_result, financials_result),
-        (garch_result, peers_result, news_result, signals_result, metrics_result),
-        (alternative_result, market_result),
-    ) = await asyncio.gather(
-        asyncio.gather(
-            fetch_ticker_info(symbol),
-            fetch_price_history(symbol, period=request.period, interval="1d"),
-            fetch_latest_filings(symbol) if request.include_filings else _no_filings(),
-            fetch_factors(ANALYSIS_FACTOR_MODEL),
-            fetch_financials_filled(symbol),
-            return_exceptions=True,
-        ),
-        asyncio.gather(
-            _garch_forecast(symbol),
-            _peer_group(symbol.upper()),
-            fetch_company_news(symbol),
-            fetch_signals(symbol, today),
-            fetch_company_metrics(symbol),
-            return_exceptions=True,
-        ),
-        asyncio.gather(
-            fetch_alternative(symbol, today), fetch_market_context(today), return_exceptions=True
-        ),
-    )
+    with finnhub_patience(request.wait_seconds + 30 if request.wait_seconds else 0):
+        (
+            (info_result, history_result, filings_result, factors_result, financials_result),
+            (garch_result, peers_result, news_result, signals_result, metrics_result),
+            (alternative_result, market_result),
+        ) = await asyncio.gather(
+            asyncio.gather(
+                fetch_ticker_info(symbol),
+                fetch_price_history(symbol, period=request.period, interval="1d"),
+                fetch_latest_filings(symbol) if request.include_filings else _no_filings(),
+                fetch_factors(ANALYSIS_FACTOR_MODEL),
+                fetch_financials_filled(symbol),
+                return_exceptions=True,
+            ),
+            asyncio.gather(
+                _garch_forecast(symbol),
+                _peer_group(symbol.upper()),
+                fetch_company_news(symbol),
+                fetch_signals(symbol, today),
+                fetch_company_metrics(symbol),
+                return_exceptions=True,
+            ),
+            asyncio.gather(
+                fetch_alternative(symbol, today),
+                fetch_market_context(today),
+                return_exceptions=True,
+            ),
+        )
     if isinstance(history_result, DataFetchError):
         raise upstream_error(history_result) from history_result
     if isinstance(history_result, BaseException):

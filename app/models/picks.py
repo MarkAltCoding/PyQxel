@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.core.text import listed
 from app.models.markets import MarketContext
 from app.models.news import NewsHeadline
+from app.models.research import MAX_WAIT_SECONDS, WAIT_DESCRIPTION
 from app.models.screener import AssetType, ScreenedStock, ScreenMetrics
 from app.models.web import WebResearch
 
@@ -32,12 +33,13 @@ MIN_PICKS: int = 3
 MAX_PICKS: int = 12
 """Most picks kept from an answer."""
 
-MAX_CANDIDATES: int = 520
+MAX_CANDIDATES: int = 640
 """Most candidates the screener offers Claude for one list of picks: room for every lens's
 leaders, so the lenses listed last (the ETFs') are never crowded out."""
 
-MAX_CANDIDATE_EVENTS: int = 40
-"""Most candidates whose own news and SEC filings are given to Claude."""
+MAX_CANDIDATE_EVENTS: int = 100
+"""Most candidates or holdings whose own news and SEC filings are given to Claude, when
+the person waits long enough for them all."""
 
 
 def _plural(count: int, unit: str) -> str:
@@ -115,6 +117,7 @@ class PicksRequest(BaseModel):
         "cannot show. Every fact it brings back is listed with its source. Anthropic bills "
         "each search to your key, on top of the tokens.",
     )
+    wait_seconds: int = Field(default=0, ge=0, le=MAX_WAIT_SECONDS, description=WAIT_DESCRIPTION)
     refresh: bool = Field(
         default=False,
         description="Pick anew even when picks for the same profile and screener data are "
@@ -151,6 +154,32 @@ class ScreenerFacts(ScreenMetrics):
         default=None,
         description="Its next scheduled earnings report within the calendar's window; null "
         "when none is scheduled in it or the calendar could not be fetched.",
+    )
+    analyst_buy: int | None = Field(
+        default=None,
+        description="Analysts rating it buy or strong buy in the latest month; null when "
+        "its ratings were not fetched.",
+    )
+    analyst_hold: int | None = Field(default=None, description="Analysts rating it hold.")
+    analyst_sell: int | None = Field(
+        default=None, description="Analysts rating it sell or strong sell."
+    )
+    analyst_buy_change: float | None = Field(
+        default=None,
+        description="The change in the share of analysts rating it a buy since about three "
+        "months before, as a decimal (0.1 = ten points more rate it a buy).",
+    )
+    eps_surprise: float | None = Field(
+        default=None,
+        description="The latest quarter's earnings surprise, as a decimal of the estimate.",
+    )
+    eps_beats: int | None = Field(
+        default=None,
+        description="Quarters of the last four in which earnings beat the estimate.",
+    )
+    insider_net_value: float | None = Field(
+        default=None,
+        description="Open-market insider purchases less sales over 90 days, in dollars.",
     )
     pe_ratio_sector_pct: float | None = Field(
         default=None,

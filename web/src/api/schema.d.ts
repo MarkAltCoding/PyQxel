@@ -2732,6 +2732,12 @@ export interface components {
        */
       refresh?: boolean
       /**
+       * Wait Seconds
+       * @description How long, in seconds, you will wait beyond the first minute for more data where a provider's per-minute limit holds it back: a free Finnhub plan answers 60 requests a minute, so the news, analysts' ratings, and calendar of many stocks take several. 0 waits for nothing and leaves out what does not fit; the report's notice says what waiting would add.
+       * @default 0
+       */
+      wait_seconds?: number
+      /**
        * Web Search
        * @description Let Claude search the web first, for what the app's data cannot show. Every fact it brings back is listed with its source. Anthropic bills each search to your key, on top of the tokens, and a report that searches the web is always written anew.
        * @default false
@@ -4224,6 +4230,79 @@ export interface components {
       surprise_percent?: number | null
       /** Year */
       year?: number | null
+    }
+    /**
+     * EconomyContext
+     * @description The economy's backdrop, from the Treasury and the Bureau of Labor Statistics.
+     */
+    EconomyContext: {
+      /**
+       * Core Cpi 3M Annualized
+       * @description Core prices over the last three months, at a yearly rate, as a decimal: the recent direction of inflation.
+       */
+      core_cpi_3m_annualized?: number | null
+      /**
+       * Core Cpi Yoy
+       * @description The same without food and energy, as a decimal.
+       */
+      core_cpi_yoy?: number | null
+      /**
+       * Cpi Yoy
+       * @description Consumer prices over twelve months, as a decimal.
+       */
+      cpi_yoy?: number | null
+      /**
+       * Inflation Month
+       * @description The month the latest consumer prices are for, YYYY-MM.
+       */
+      inflation_month?: string | null
+      /**
+       * Jobs Month
+       * @description The month the jobs figures are for.
+       */
+      jobs_month?: string | null
+      /**
+       * Payrolls Change
+       * @description Jobs added in the latest month, in thousands.
+       */
+      payrolls_change?: number | null
+      /**
+       * Payrolls Change 3M
+       * @description Jobs added a month on average over three months, thousands.
+       */
+      payrolls_change_3m?: number | null
+      /**
+       * Sources
+       * @description Where the figures come from and when they were retrieved, to cite with them, as the BLS asks.
+       */
+      sources?: string | null
+      /**
+       * Spread 10Y 2Y
+       * @description The 10-year yield less the 2-year, in percentage points; below zero, an inverted curve, which has often come before recessions.
+       */
+      spread_10y_2y?: number | null
+      /**
+       * Spread 10Y 3M
+       * @description The 10-year yield less the 3-month, in percentage points.
+       */
+      spread_10y_3m?: number | null
+      /**
+       * Unemployment
+       * @description The latest unemployment rate, as a decimal.
+       */
+      unemployment?: number | null
+      /** Unemployment Year Ago */
+      unemployment_year_ago?: number | null
+      /**
+       * Yields
+       * @description The yield curve, shortest maturity first.
+       */
+      yields?: components['schemas']['YieldPoint'][]
+      /**
+       * Yields As Of
+       * @description The latest yield curve's date.
+       */
+      yields_as_of?: string | null
     }
     /**
      * EmailAddress
@@ -6012,6 +6091,8 @@ export interface components {
        * @description Days ahead the earnings reports, IPOs, and holidays cover, for picks and reviews; null for a stock report's two weeks.
        */
       calendar_days?: number | null
+      /** @description The yield curve, inflation, and jobs; null when neither the Treasury nor the Bureau of Labor Statistics could be reached. */
+      economy?: components['schemas']['EconomyContext'] | null
       /**
        * Fomc Meetings
        * @description The next scheduled FOMC meetings: the next two, or, for Claude's picks and portfolio reviews, every one scheduled within the holding period.
@@ -7101,6 +7182,26 @@ export interface components {
      */
     PickCandidate: {
       /**
+       * Analyst Buy
+       * @description Analysts rating it buy or strong buy in the latest month; null when its ratings were not fetched.
+       */
+      analyst_buy?: number | null
+      /**
+       * Analyst Buy Change
+       * @description The change in the share of analysts rating it a buy since about three months before, as a decimal (0.1 = ten points more rate it a buy).
+       */
+      analyst_buy_change?: number | null
+      /**
+       * Analyst Hold
+       * @description Analysts rating it hold.
+       */
+      analyst_hold?: number | null
+      /**
+       * Analyst Sell
+       * @description Analysts rating it sell or strong sell.
+       */
+      analyst_sell?: number | null
+      /**
        * Asset Type
        * @default stock
        * @enum {string}
@@ -7136,6 +7237,16 @@ export interface components {
        * @description TTM net income, year on year; null after a loss.
        */
       earnings_growth?: number | null
+      /**
+       * Eps Beats
+       * @description Quarters of the last four in which earnings beat the estimate.
+       */
+      eps_beats?: number | null
+      /**
+       * Eps Surprise
+       * @description The latest quarter's earnings surprise, as a decimal of the estimate.
+       */
+      eps_surprise?: number | null
       /** Ev To Ebitda */
       ev_to_ebitda?: number | null
       /** Ev To Ebitda Sector Pct */
@@ -7160,6 +7271,11 @@ export interface components {
       gross_margin?: number | null
       /** Industry */
       industry?: string | null
+      /**
+       * Insider Net Value
+       * @description Open-market insider purchases less sales over 90 days, in dollars.
+       */
+      insider_net_value?: number | null
       /**
        * Lenses
        * @description The measures this security led the screener on, such as 12-month momentum or free cash flow yield.
@@ -7557,6 +7673,12 @@ export interface components {
        */
       refresh?: boolean
       /**
+       * Wait Seconds
+       * @description How long, in seconds, you will wait beyond the first minute for more data where a provider's per-minute limit holds it back: a free Finnhub plan answers 60 requests a minute, so the news, analysts' ratings, and calendar of many stocks take several. 0 waits for nothing and leaves out what does not fit; the report's notice says what waiting would add.
+       * @default 0
+       */
+      wait_seconds?: number
+      /**
        * Web Search
        * @description Let Claude search the web first, for news and the backdrop the screener cannot show. Every fact it brings back is listed with its source. Anthropic bills each search to your key, on top of the tokens.
        * @default false
@@ -7805,6 +7927,12 @@ export interface components {
        * @default false
        */
       refresh?: boolean
+      /**
+       * Wait Seconds
+       * @description How long, in seconds, you will wait beyond the first minute for more data where a provider's per-minute limit holds it back: a free Finnhub plan answers 60 requests a minute, so the news, analysts' ratings, and calendar of many stocks take several. 0 waits for nothing and leaves out what does not fit; the report's notice says what waiting would add.
+       * @default 0
+       */
+      wait_seconds?: number
       /**
        * Web Search
        * @description Let Claude search the web first, for news on the holdings and the backdrop, which the price statistics cannot show. Every fact it brings back is listed with its source. Anthropic bills each search to your key, on top of the tokens.
@@ -9413,6 +9541,26 @@ export interface components {
      */
     ScreenerFacts: {
       /**
+       * Analyst Buy
+       * @description Analysts rating it buy or strong buy in the latest month; null when its ratings were not fetched.
+       */
+      analyst_buy?: number | null
+      /**
+       * Analyst Buy Change
+       * @description The change in the share of analysts rating it a buy since about three months before, as a decimal (0.1 = ten points more rate it a buy).
+       */
+      analyst_buy_change?: number | null
+      /**
+       * Analyst Hold
+       * @description Analysts rating it hold.
+       */
+      analyst_hold?: number | null
+      /**
+       * Analyst Sell
+       * @description Analysts rating it sell or strong sell.
+       */
+      analyst_sell?: number | null
+      /**
        * Asset Type
        * @default stock
        * @enum {string}
@@ -9448,6 +9596,16 @@ export interface components {
        * @description TTM net income, year on year; null after a loss.
        */
       earnings_growth?: number | null
+      /**
+       * Eps Beats
+       * @description Quarters of the last four in which earnings beat the estimate.
+       */
+      eps_beats?: number | null
+      /**
+       * Eps Surprise
+       * @description The latest quarter's earnings surprise, as a decimal of the estimate.
+       */
+      eps_surprise?: number | null
       /** Ev To Ebitda */
       ev_to_ebitda?: number | null
       /** Ev To Ebitda Sector Pct */
@@ -9472,6 +9630,11 @@ export interface components {
       gross_margin?: number | null
       /** Industry */
       industry?: string | null
+      /**
+       * Insider Net Value
+       * @description Open-market insider purchases less sales over 90 days, in dollars.
+       */
+      insider_net_value?: number | null
       /**
        * Market Cap
        * @description Null for an ETF, which is not a company.
@@ -10628,6 +10791,32 @@ export interface components {
        * @description The page's address.
        */
       url: string
+    }
+    /**
+     * YieldPoint
+     * @description The Treasury's par yield at one maturity on three dates.
+     */
+    YieldPoint: {
+      /**
+       * Latest
+       * @description The latest yield, in percent.
+       */
+      latest: number
+      /**
+       * Month Ago
+       * @description About a month before.
+       */
+      month_ago?: number | null
+      /**
+       * Tenor
+       * @description The maturity, as the Treasury names it: 3 Mo, 2 Yr, 10 Yr.
+       */
+      tenor: string
+      /**
+       * Year Ago
+       * @description About a year before.
+       */
+      year_ago?: number | null
     }
   }
   responses: never

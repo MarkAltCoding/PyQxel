@@ -24,6 +24,7 @@ from app.data.fetcher import (
     finnhub_key,
 )
 from app.data.fomc import fetch_fomc_meetings
+from app.data.economy import fetch_bls, fetch_yield_curve
 from app.data.markets import (
     EARNINGS_CHUNK_DAYS,
     fetch_earnings_calendar,
@@ -35,6 +36,7 @@ from app.data.markets import (
 from app.db.screener import market_caps, shows_universe
 from app.db.session import get_sessionmaker
 from app.models.markets import (
+    EconomyContext,
     EarningsEvent,
     MarketCalendar,
     MarketContext,
@@ -42,8 +44,8 @@ from app.models.markets import (
     MarketNewsCategory,
 )
 from app.models.news import NewsHeadline
+from app.stats.economy import economy_context
 from app.stats.markets import (
-    CONTEXT_EVENT_DAYS,
     MAJOR_MARKET_CAP,
     major_earnings,
     market_context,
@@ -225,22 +227,67 @@ async def _general_news(category: MarketNewsCategory = "general") -> MarketNews 
         return None
 
 
+async def fetch_economy(today: date) -> EconomyContext | None:
+    """The yield curve, inflation, and jobs, from the Treasury and the Bureau of Labor
+    Statistics (public, no key); a source that cannot be reached is left out."""
+    curve, figures = await asyncio.gather(
+        fetch_yield_curve(today), fetch_bls(today), return_exceptions=True
+    )
+    for name, result in (("yield curve", curve), ("BLS figures", figures)):
+        if isinstance(result, DataFetchError):
+            logger.info("The %s was left out of the backdrop: %s", name, result)
+        elif isinstance(result, BaseException):
+            raise result
+    return economy_context(
+        None if isinstance(curve, BaseException) else curve,
+        None if isinstance(figures, BaseException) else figures,
+        today,
+    )
+
+
+REPORT_CALENDAR_DAYS: int = 90
+"""Days of calendar a stock report is given: a quarter, in which every company reports."""
+
+REPORT_FOMC_DAYS: int = 365
+"""Days ahead a stock report lists FOMC meetings."""
+
+REPORT_EARNINGS: int = 50
+"""Major earnings reports a stock report lists, the largest companies'."""
+
+REPORT_IPOS: int = 15
+"""IPOs a stock report lists, the largest."""
+
+
 async def fetch_market_context(today: date) -> MarketContext:
-    """The market backdrop for an analysis: upcoming FOMC meetings, holidays, major
-    earnings reports, and IPOs, and the newest market headlines.
+    """The market backdrop for an analysis: a year of FOMC meetings, a quarter's holidays,
+    major earnings reports, and IPOs, and the most market-moving market headlines.
 
     FOMC meetings come for every account; the rest needs a Finnhub key and is left empty
-    without one, or when Finnhub cannot supply it.
+    without one, or when Finnhub cannot supply it. The quarter's weekly earnings calendars
+    are the Markets page's, cached for six hours.
 
     Raises:
         ProviderNotConfiguredError: If Finnhub rejects the user's key.
     """
-    end = today + timedelta(days=CONTEXT_EVENT_DAYS)
-    meetings, (parts, _), news = await asyncio.gather(
-        fetch_fomc_meetings(), _finnhub_parts(today, end), _general_news()
+    end = today + timedelta(days=REPORT_CALENDAR_DAYS - 1)
+    meetings, (parts, _), news, economy = await asyncio.gather(
+        fetch_fomc_meetings(), _finnhub_parts(today, end), _general_news(), fetch_economy(today)
     )
     earnings, ipos, holidays, market_status = parts
-    return market_context(today, meetings, holidays, earnings, ipos, news, market_status)
+    return market_context(
+        today,
+        meetings,
+        holidays,
+        earnings,
+        ipos,
+        news,
+        market_status,
+        event_days=REPORT_CALENDAR_DAYS,
+        holiday_days=REPORT_CALENDAR_DAYS,
+        fomc_days=REPORT_FOMC_DAYS,
+        earnings_count=REPORT_EARNINGS,
+        ipo_count=REPORT_IPOS,
+    ).model_copy(update={"calendar_days": REPORT_CALENDAR_DAYS, "economy": economy})
 
 
 PICKS_EARNINGS_DAYS: int = 28
@@ -330,13 +377,16 @@ async def fetch_picks_backdrop(
         days = max(1, min(days, calendar_days))
     fomc_days = int(min(horizon_days if horizon_days is not None else days, FOMC_MAX_DAYS))
     end = today + timedelta(days=days - 1)
-    meetings, (parts, _), news, deals, forex, crypto = await asyncio.gather(
-        fetch_fomc_meetings(),
-        _finnhub_raw_parts(today, end),
-        _general_news(),
-        _general_news("merger"),
-        _general_news("forex"),
-        _general_news("crypto"),
+    (meetings, (parts, _), news, deals, forex, crypto), economy = await asyncio.gather(
+        asyncio.gather(
+            fetch_fomc_meetings(),
+            _finnhub_raw_parts(today, end),
+            _general_news(),
+            _general_news("merger"),
+            _general_news("forex"),
+            _general_news("crypto"),
+        ),
+        fetch_economy(today),
     )
     earnings, ipos, holidays, market_status = parts
     major = None if earnings is None else await _major(earnings, MAJOR_MARKET_CAP)
@@ -355,7 +405,7 @@ async def fetch_picks_backdrop(
             fomc_days=max(fomc_days, days),
             earnings_count=BACKDROP_EARNINGS,
             ipo_count=BACKDROP_IPOS,
-        ).model_copy(update={"calendar_days": days}),
+        ).model_copy(update={"calendar_days": days, "economy": economy}),
         earnings=earnings,
         deals=top_headlines(deals, PICKS_DEAL_HEADLINES),
         forex=top_headlines(forex, PICKS_FOREX_HEADLINES),

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ApiError } from '../api/client'
+import { LONG_PROMPT_TOKENS, promptTokens } from '../lib/promptSize'
 import { ErrorNotice, Notice } from './Notice'
 
 export interface ExportedPrompt {
@@ -133,11 +134,21 @@ export function ExternalClaude({
                 Download {exported.filename}
               </button>
               <span className="disclaimer">
-                {exported.prompt.length.toLocaleString()} characters
+                {exported.prompt.length.toLocaleString()} characters, about{' '}
+                {promptTokens(exported.prompt).toLocaleString()} tokens
               </span>
             </>
           )}
         </div>
+        {exported && promptTokens(exported.prompt) > LONG_PROMPT_TOKENS && (
+          <Notice tone="warning">
+            This prompt is long, about {promptTokens(exported.prompt).toLocaleString()} tokens,
+            because it holds all the data the app gives Claude. Some claude.ai plans may not take
+            that much in one chat. If Claude says it is too long, attach the downloaded file in a
+            new chat; if that is refused too, write the report in the app on your Anthropic key,
+            which has room for it.
+          </Notice>
+        )}
         {exported && (
           <label className="field">
             <span className="visually-hidden">Prompt for Claude</span>

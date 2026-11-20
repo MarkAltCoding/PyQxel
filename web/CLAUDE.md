@@ -46,7 +46,8 @@ even through signing in): Stock `price`, `factors`, `volatility`, `fund`, `news`
 AI reports (`AnalysisPanel`, `PortfolioReviewCard`, `PicksPage`) share
 `components/ReportParts.tsx`: a verdict with meters, tabs, and a Visual / Full text switch
 remembered by `lib/reportView.ts`. Each offers `WebSearchOption` (remembered by
-`lib/webSearch.ts`), shows searches as they happen with `AiProgressDetail`, and lists what
+`lib/webSearch.ts`) and `WaitForDataOption` (how long to wait for data a provider's per-minute
+limit holds back, sent as `wait_seconds`; `lib/waitForData.ts`, five minutes by default), shows searches as they happen with `AiProgressDetail`, and lists what
 the web search found, with sources, in `WebSources`.
 
 ## Custom strategies in the browser

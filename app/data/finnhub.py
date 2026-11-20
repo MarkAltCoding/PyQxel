@@ -135,6 +135,19 @@ def _api_key() -> str:
     return api_key
 
 
+def _cache_key(path: str, params: dict[str, str]) -> str:
+    return "finnhub:" + path + ":" + ":".join(f"{k}={v}" for k, v in sorted(params.items()))
+
+
+async def is_cached(path: str, params: dict[str, str], ttl: float = SIGNALS_TTL_SECONDS) -> bool:
+    """Whether :func:`cached_get` would answer ``path`` with ``params`` without a request."""
+    key = _cache_key(path, params)
+    entry = _memory.get(key)
+    if entry and time.monotonic() - entry[0] < ttl:
+        return True
+    return await cache_get(key) is not None
+
+
 async def cached_get(
     path: str,
     params: dict[str, str],
@@ -148,7 +161,7 @@ async def cached_get(
         DataFetchError: As :func:`app.data.fetcher.finnhub_get` raises it.
     """
     api_key = _api_key()
-    key = "finnhub:" + path + ":" + ":".join(f"{k}={v}" for k, v in sorted(params.items()))
+    key = _cache_key(path, params)
     entry = _memory.get(key)
     text = entry[1] if entry and time.monotonic() - entry[0] < ttl else None
     if text is None:

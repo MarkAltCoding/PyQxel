@@ -24,6 +24,7 @@ import { dateTime, listed, money, number, percent } from '../lib/format'
 import { keepExport, keptExport } from '../lib/exportedPrompts'
 import { readStored, writeStored } from '../lib/storage'
 import { useReportView } from '../lib/reportView'
+import { useWaitChoice } from '../lib/waitForData'
 import { useWebSearchChoice } from '../lib/webSearch'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
 import { ContributionLimitsNote } from './AccountSettings'
@@ -52,6 +53,7 @@ import { paragraphs } from '../lib/reportText'
 import { Segmented } from './Segmented'
 import { Stat } from './Stat'
 import { InfoTip } from './InfoTip'
+import { WaitForDataOption } from './WaitForData'
 import { AiProgressDetail, WebSearchOption, WebSources } from './WebSearch'
 import { Link } from 'react-router'
 
@@ -303,6 +305,7 @@ export function PortfolioReviewCard({
   const setNotes = (value: string) => keep({ notes: value })
   const idBase = useId()
   const [webSearch, setWebSearch] = useWebSearchChoice()
+  const [wait, setWait] = useWaitChoice()
   // Most brokers trade fractions of a share now; the choice is remembered in this browser.
   const [fractional, setFractional] = useState(() => readStored(FRACTIONAL_KEY) !== 'off')
   const [roundShares, setRoundShares] = useState(() => readStored(ROUND_KEY) !== 'off')
@@ -368,6 +371,7 @@ export function PortfolioReviewCard({
       ...historyRequest(months),
       profile: profile(),
       web_search: webSearch,
+      wait_seconds: wait,
     }
     const exported = await exportPortfolioPrompt(request)
     keepExport(exportKey, { request, context: exported.context })
@@ -393,6 +397,7 @@ export function PortfolioReviewCard({
           ...historyRequest(months),
           profile: profile(),
           web_search: webSearch,
+          wait_seconds: wait,
           refresh:
             review !== null && (review.history_months ?? PERIOD_MONTHS[review.period]) === months,
         },
@@ -529,6 +534,7 @@ export function PortfolioReviewCard({
 
       <div style={{ marginBottom: 4 }}>
         <WebSearchOption checked={webSearch} onChange={setWebSearch} disabled={writing} />
+        <WaitForDataOption seconds={wait} onChange={setWait} disabled={writing} />
       </div>
       <details style={{ marginBottom: 12 }}>
         <summary>Tailor the plan to your goals (optional)</summary>

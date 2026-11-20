@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 def review_messages(context: PortfolioContext) -> list[BetaMessageParam]:
     """The request: the task, the snapshot without the holdings' screener figures, then
     those figures as a table, as Claude's picks give their candidates."""
-    snapshot = context.model_dump_json(indent=2, exclude={"holding_figures"})
+    snapshot = context.model_dump_json(exclude={"holding_figures"})
     content = f"{PORTFOLIO_TASK}\n\n<snapshot>\n{snapshot}\n</snapshot>"
     if context.holding_figures:
         table = candidates_table(context.holding_figures, FACT_COLUMNS)
@@ -53,8 +53,9 @@ def review_research_task(context: PortfolioContext) -> str:
         "momentum, and next earnings date from its screener, the week's market, deal, "
         "currency, and crypto headlines, and the last two weeks' headlines and last "
         "month's SEC filings of "
-        f"{len(context.holding_events)} of the holdings. It has no analyst estimates or "
-        "ratings, and nothing on the economy beyond the headlines.",
+        f"{len(context.holding_events)} of the holdings, analysts' rating counts and "
+        "earnings surprises for some of them, and the Treasury yield curve, inflation, "
+        "and jobs figures. It has no analysts' price targets or estimate revisions.",
         "Search for recent news that bears on keeping, adding to, or selling the largest "
         "holdings (results and guidance, analyst actions, deals, legal or regulatory "
         "trouble, a fund's changes), and for the market and economic backdrop: interest "

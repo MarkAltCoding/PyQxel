@@ -34,6 +34,7 @@ import {
 } from '../components/ReportParts'
 import { ScreenerTabs } from '../components/ScreenerTabs'
 import { Segmented } from '../components/Segmented'
+import { WaitForDataOption } from '../components/WaitForData'
 import { AiProgressDetail, WebSearchOption, WebSources } from '../components/WebSearch'
 import { compact, dateTime, money, number, percent, shortDate, signedPercent } from '../lib/format'
 import { keepExport, keptExport } from '../lib/exportedPrompts'
@@ -55,6 +56,7 @@ import {
 } from '../lib/picks'
 import { providerKeys } from '../lib/providerKeys'
 import { badgeTone } from '../lib/tones'
+import { useWaitChoice } from '../lib/waitForData'
 import { useWebSearchChoice } from '../lib/webSearch'
 
 const RISKS: { value: PicksRisk; label: string }[] = [
@@ -94,6 +96,7 @@ export function PicksPage() {
   const idBase = useId()
   const [form, setForm] = useState<PicksForm>(storedPicksForm)
   const [webSearch, setWebSearch] = useWebSearchChoice()
+  const [wait, setWait] = useWaitChoice()
   const [progress, setProgress] = useState<AiProgress | null>(null)
   const [error, setError] = useState<unknown>(null)
   // An earlier list opened from the history, shown in place of the latest.
@@ -126,6 +129,7 @@ export function PicksPage() {
   const request = (refresh: boolean): PicksRequest => ({
     profile: profileOf(form),
     web_search: webSearch,
+    wait_seconds: wait,
     refresh,
   })
   const keepLatest = (result: PicksResponse) => {
@@ -347,6 +351,7 @@ export function PicksPage() {
         </div>
         <div style={{ marginTop: 8 }}>
           <WebSearchOption checked={webSearch} onChange={setWebSearch} disabled={writing} />
+          <WaitForDataOption seconds={wait} onChange={setWait} disabled={writing} />
         </div>
 
         {!providerKeys().anthropic && !writing && (

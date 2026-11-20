@@ -182,6 +182,7 @@ describe('PicksPage', () => {
         notes: 'no banks',
       },
       web_search: false,
+      wait_seconds: 300,
       refresh: false,
     })
     // The answers are kept for next time.

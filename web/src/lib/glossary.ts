@@ -796,6 +796,12 @@ const entries = {
     good: 'Worth it when recent news matters: a stock around its earnings, a portfolio after a market move, or picks for a short holding period.',
     note: 'On by default. It costs a little more, billed by Anthropic to your key: about 1 cent per search, with up to six searches, plus the tokens to read the results, typically a few cents in all. It also takes a minute or so longer. A report that searches the web is always written anew, never reused. When you use Claude outside the app, this choice goes into the prompt: checked, Claude is told to search the web itself and name its sources; unchecked, to keep to PyQxel’s data.',
   },
+  waitForData: {
+    title: 'Wait for more data',
+    what: 'How long you will wait for the data a provider’s per-minute limit holds back. A free Finnhub plan answers 60 requests a minute, and each stock’s news is one request, its analysts’ ratings, earnings surprises, and insider trades three more, and each week of the earnings calendar one. Waiting lets PyQxel ask for all of it, a minute’s worth at a time, so Claude gets every stock’s news and ratings and a full quarter’s calendar.',
+    good: 'Five minutes covers a full list of picks or a review of about 40 holdings on a free plan. Choose No waiting for a quicker report: what does not fit in the first minute is left out, and the report’s notes say how long waiting would have taken to add it.',
+    note: 'It only waits when it must: with a paid Finnhub plan, or data already fetched in the last few minutes, the report comes as fast as ever. The same choice goes into the prompt you take outside the app, so it holds the same data.',
+  },
   accountType: {
     title: 'Account type',
     what: 'What kind of account holds this portfolio: an ordinary taxable brokerage account, an IRA (traditional, Roth, rollover, SEP, or SIMPLE), an employer plan such as a 401(k) or 403(b), a health savings account, or a 529 plan. Reviews use it to weigh taxes: selling at a gain costs tax only in a taxable account, and some holdings belong where they are taxed least.',

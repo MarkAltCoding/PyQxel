@@ -224,3 +224,23 @@ test('one switch turns off the warnings before every page spends requests', asyn
   await all.check()
   for (const box of await each.all()) await expect(box).toBeChecked()
 })
+
+test('Claude’s picks offer how long to wait for more data, and remember it', async ({
+  page,
+}, info) => {
+  // The choice follows the account, which the phone run shares: checked at desktop width.
+  test.skip(info.project.name === 'phone', 'Account choices are checked at desktop width.')
+  await signIn(page)
+  await page.goto('/screener/picks')
+  const wait = page.getByRole('combobox', { name: 'Wait for more data' })
+  await expect(wait).toHaveValue('300')
+
+  await wait.selectOption({ label: 'No waiting' })
+  await page.reload()
+  const after = page.getByRole('combobox', { name: 'Wait for more data' })
+  await expect(after).toHaveValue('0')
+
+  // Left as the other tests expect it: the choice follows the account.
+  await after.selectOption({ label: 'Up to 5 minutes' })
+  await expect(after).toHaveValue('300')
+})

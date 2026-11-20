@@ -132,8 +132,8 @@ async def test_thesis_request_is_grounded_and_structured() -> None:
     assert call["betas"] == [FALLBACK_BETA]
     content = call["messages"][0]["content"]
     assert content.startswith(TASKS["thesis"])
-    assert '"symbol": "AAPL"' in content
-    assert '"period_return": 0.25' in content
+    assert '"symbol":"AAPL"' in content
+    assert '"period_return":0.25' in content
 
 
 async def test_risk_request_uses_risk_schema() -> None:

@@ -21,6 +21,7 @@ import type {
 import { keepExport, keptExport } from '../lib/exportedPrompts'
 import { dateTime, percent, signedPercent, tone } from '../lib/format'
 import { useReportView } from '../lib/reportView'
+import { useWaitChoice } from '../lib/waitForData'
 import { useWebSearchChoice } from '../lib/webSearch'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
 import { ExternalClaude } from './ExternalClaude'
@@ -45,6 +46,7 @@ import {
 import { Segmented } from './Segmented'
 import { Stat } from './Stat'
 import { InfoTip } from './InfoTip'
+import { WaitForDataOption } from './WaitForData'
 import { AiProgressDetail, WebSearchOption, WebSources } from './WebSearch'
 
 const KINDS = [
@@ -69,6 +71,7 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
   const [progress, setProgress] = useState<Progress | null>(null)
   const [streamError, setStreamError] = useState<unknown>(null)
   const [webSearch, setWebSearch] = useWebSearchChoice()
+  const [wait, setWait] = useWaitChoice()
   // Reports written in this visit, by kind; the panel is remounted for another symbol.
   const [writtenByKind, setWritten] = useState<Partial<Record<AnalysisKind, AnalysisResponse>>>({})
   const written = writtenByKind[kind] ?? null
@@ -100,7 +103,14 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
     try {
       const response = await streamAnalysis(
         symbol,
-        { kind, period: '1y', include_filings: true, web_search: webSearch, refresh },
+        {
+          kind,
+          period: '1y',
+          include_filings: true,
+          web_search: webSearch,
+          wait_seconds: wait,
+          refresh,
+        },
         controller.signal,
       )
       for await (const event of readEvents(response)) {
@@ -147,6 +157,7 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
       period: '1y',
       include_filings: true,
       web_search: webSearch,
+      wait_seconds: wait,
     }
     const exported = await exportAnalysisPrompt(symbol, request)
     keepExport(exportName, { request, context: exported.context })
@@ -179,6 +190,7 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
         <div className="filter-row">
           <Segmented label="Report kind" value={kind} options={KINDS} onChange={changeKind} />
           <WebSearchOption checked={webSearch} onChange={setWebSearch} disabled={writing} />
+          <WaitForDataOption seconds={wait} onChange={setWait} disabled={writing} />
           {writing ? (
             <button type="button" className="button" onClick={() => abort.current?.abort()}>
               Cancel

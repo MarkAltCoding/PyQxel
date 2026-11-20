@@ -174,20 +174,57 @@ def test_fomc_meetings_run_through_the_horizon() -> None:
     assert len(year.fomc_meetings) == 4
 
 
-def test_news_comes_first_and_the_calendar_takes_the_minute_left(
+def test_news_comes_first_then_the_calendar_then_signals(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # No Finnhub key: the shared feed costs nothing per company, and the calendar is whole.
-    assert picks_route.plan_requests(40, 365) == (40, 90)
+    import asyncio
+
+    def plan(wanted: int, horizon: float, wait: float = 0) -> tuple[int, int, int]:
+        found = asyncio.run(picks_route.plan_requests(wanted, horizon, wait))
+        return found.news, found.calendar_days, found.signals
+
+    # No Finnhub key: the shared feed costs nothing per company, and there are no signals.
+    assert plan(40, 365) == (40, 90, 0)
 
     use_provider_keys(ProviderKeys(finnhub=SecretStr("f")))
     monkeypatch.setattr(fetcher, "finnhub_minute_limit", lambda key: None)
 
     # 55 a minute, 2 kept free, 7 for the IPOs, holidays, status, and news categories.
-    assert picks_route.plan_requests(30, 365) == (30, 90)  # 16 weeks left: a full quarter.
-    assert picks_route.plan_requests(40, 365) == (40, 42)  # Six weeks left.
-    assert picks_route.plan_requests(40, 14) == (40, 28)
-    assert picks_route.plan_requests(60, 365) == (42, 28)  # The calendar keeps four weeks.
+    assert plan(30, 365) == (30, 90, 1)  # 16 weeks left: a quarter, and one stock's signals.
+    assert plan(40, 365) == (40, 42, 0)  # Six weeks left.
+    assert plan(60, 365) == (42, 28, 0)  # The calendar keeps four weeks.
+    # Waiting four more minutes: 273 requests, enough for every part.
+    assert plan(60, 365, 240) == (60, 90, 60)
+    found = asyncio.run(picks_route.plan_requests(60, 365))
+    assert found.more is not None and "waiting about 4 minutes" in found.more
+
+
+def test_waiting_requests_take_the_next_minute(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Within the time allowed, a request beyond the minute's limit waits for the next
+    minute; without it, it is refused."""
+    import asyncio
+
+    slept: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        fetcher._finnhub_counts.clear()  # The next minute starts afresh.
+
+    monkeypatch.setattr("app.data.fetcher.asyncio.sleep", sleep)
+    monkeypatch.setattr(fetcher, "finnhub_minute_limit", lambda key: None)
+
+    async def run(patience: float) -> None:
+        with fetcher.finnhub_patience(patience):
+            for _ in range(fetcher.FINNHUB_REQUESTS_PER_MINUTE + 1):
+                await fetcher._finnhub_slot("waiting-key")
+
+    fetcher._finnhub_counts.clear()
+    asyncio.run(run(120))
+    assert len(slept) == 1 and 0 < slept[0] <= 61
+
+    fetcher._finnhub_counts.clear()
+    with pytest.raises(fetcher.FinnhubRateLimitError):
+        asyncio.run(run(0))
 
 
 def test_an_estimate_counts_the_shared_feed_once() -> None:

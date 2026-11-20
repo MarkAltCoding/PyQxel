@@ -19,7 +19,7 @@ import httpx2
 
 from app.data import alpha_vantage_news
 from app.data.fetcher import DataFetchError, ProviderNotConfiguredError, finnhub_key
-from app.data.finnhub import cached_get
+from app.data.finnhub import cached_get, is_cached
 from app.data.news import parse_articles
 from app.models.markets import (
     EarningsEvent,
@@ -147,6 +147,20 @@ async def _earnings_rows(
         _earnings_rows(middle + timedelta(days=1), end, client),
     )
     return first + second
+
+
+async def uncached_earnings_weeks(start: date, end: date) -> int:
+    """How many of the weekly earnings calendar requests from ``start`` to ``end`` would
+    be sent, the rest being cached (a week split at the row limit counts once)."""
+    weeks = 0
+    day = start
+    while day <= end:
+        last = min(end, day + timedelta(days=EARNINGS_CHUNK_DAYS - 1))
+        params = {"from": day.isoformat(), "to": last.isoformat()}
+        if not await is_cached("calendar/earnings", params, CALENDAR_TTL_SECONDS):
+            weeks += 1
+        day = last + timedelta(days=1)
+    return weeks
 
 
 async def fetch_earnings_calendar(

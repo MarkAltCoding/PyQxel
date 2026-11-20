@@ -33,7 +33,9 @@ import math
 import time
 import zlib
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal, TypeVar
@@ -784,24 +786,60 @@ def finnhub_requests_per_minute(api_key: str, share: float = FINNHUB_PACE_SHARE)
     return max(1, math.floor(limit * share))
 
 
+_finnhub_patience: ContextVar[float | None] = ContextVar("finnhub_patience", default=None)
+"""When, on the event loop's clock, the current request stops waiting out Finnhub's
+per-minute limit; ``None`` when it does not wait at all."""
+
+
+@contextmanager
+def finnhub_patience(seconds: float) -> Iterator[None]:
+    """Within the block, a Finnhub request beyond the key's minute waits for the next
+    minute instead of being refused, as long as that is within ``seconds`` from now: for a
+    report the person chose to wait for, so it gets more data."""
+    token = _finnhub_patience.set(
+        asyncio.get_running_loop().time() + seconds if seconds > 0 else None
+    )
+    try:
+        yield
+    finally:
+        _finnhub_patience.reset(token)
+
+
+async def _wait_for(seconds: float) -> bool:
+    """Wait ``seconds`` if the current request's patience allows it; whether it did."""
+    deadline = _finnhub_patience.get()
+    if deadline is None or asyncio.get_running_loop().time() + seconds > deadline:
+        return False
+    await asyncio.sleep(seconds)
+    return True
+
+
 async def _finnhub_slot(api_key: str) -> None:
     """Count a request against the key's minute, refusing it beyond
-    :func:`finnhub_requests_per_minute`. The count is shared through Redis when it is set."""
-    now = time.time()
-    minute, digest = int(now // 60), _key_digest(api_key)
-    count = await cache_increment(f"finnhub:count:{digest}:{minute}", 60)
-    if count is None:
-        count = _finnhub_counts.get((digest, minute), 0) + 1
-        _finnhub_counts[digest, minute] = count
-        for stale in [entry for entry in _finnhub_counts if entry[1] < minute]:
-            del _finnhub_counts[stale]
-    known = finnhub_minute_limit(api_key) is not None
-    allowed = finnhub_requests_per_minute(api_key) if known else FINNHUB_REQUESTS_PER_MINUTE
-    if count > allowed:
-        raise FinnhubRateLimitError(
-            "Your Finnhub plan's rate limit was reached; try again shortly.",
-            retry_after=60 - int(now % 60),
-        )
+    :func:`finnhub_requests_per_minute`, or, within :func:`finnhub_patience`, waiting for
+    the next minute. The count is shared through Redis when it is set."""
+    while True:
+        now = time.time()
+        minute, digest = int(now // 60), _key_digest(api_key)
+        count = await cache_increment(f"finnhub:count:{digest}:{minute}", 60)
+        if count is None:
+            count = _finnhub_counts.get((digest, minute), 0) + 1
+            _finnhub_counts[digest, minute] = count
+            for stale in [entry for entry in _finnhub_counts if entry[1] < minute]:
+                del _finnhub_counts[stale]
+        known = finnhub_minute_limit(api_key) is not None
+        allowed = finnhub_requests_per_minute(api_key) if known else FINNHUB_REQUESTS_PER_MINUTE
+        if count <= allowed:
+            return
+        if not await _wait_for(60 - now % 60 + FINNHUB_MINUTE_SLACK_SECONDS):
+            raise FinnhubRateLimitError(
+                "Your Finnhub plan's rate limit was reached; try again shortly.",
+                retry_after=60 - int(now % 60),
+            )
+
+
+FINNHUB_MINUTE_SLACK_SECONDS: float = 1.0
+"""Seconds past the turn of the minute a waiting request starts, for clocks that differ."""
 
 
 async def finnhub_get(
@@ -818,9 +856,11 @@ async def finnhub_get(
     digest = _key_digest(api_key)
     refused, paused = f"finnhub:refused:{digest}:{path}:{symbol}", f"finnhub:paused:{digest}"
     if (ends := await _recall(paused)) is not None:
-        raise FinnhubRateLimitError(
-            "Your Finnhub plan's rate limit was reached; try again shortly.", resets_at=ends
-        )
+        left = (ends - datetime.now(timezone.utc)).total_seconds()
+        if not await _wait_for(max(left, 0.0) + FINNHUB_MINUTE_SLACK_SECONDS):
+            raise FinnhubRateLimitError(
+                "Your Finnhub plan's rate limit was reached; try again shortly.", resets_at=ends
+            )
     if await _recall(refused):
         raise ProviderPlanError(
             f"Your Finnhub plan does not cover this request ({path} for {symbol}).",
