@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from app.ai import web
 from app.ai.agent import AIRefusalError, Written
 from app.ai.picks import COLUMNS, candidates_table, picks_messages, picks_research_task
+from app.ai.portfolio import review_messages
 from app.ai.prompts import PICKS_SYSTEM_PROMPT, PORTFOLIO_SYSTEM_PROMPT
 from app.api.v1.endpoints import picks as picks_route
 from app.api.v1.endpoints.picks import TooFewPicksError, settle_picks
@@ -696,3 +697,76 @@ def test_the_review_prompt_holds_the_picks(
     exported = client.post("/api/v1/portfolio/analysis/prompt", json={}).json()
 
     assert '"claude_picks"' in exported["prompt"] and "CHEAP leads its lens." in exported["prompt"]
+
+
+def test_a_review_is_given_its_holdings_figures_news_and_filings(
+    screener: list[PicksContext], monkeypatch: pytest.MonkeyPatch, user: User
+) -> None:
+    """Portfolio reviews get what the picks get, for each holding."""
+
+    async def backdrop(today: object) -> PicksBackdrop:
+        return _rich_backdrop(today)
+
+    async def news(symbol: str) -> CompanyNews:
+        return CompanyNews(
+            symbol=symbol,
+            start="2026-11-06",  # type: ignore[arg-type]
+            end="2026-11-19",  # type: ignore[arg-type]
+            fetched_at="2026-11-19T12:00:00Z",  # type: ignore[arg-type]
+            articles=[
+                NewsArticle(
+                    published_at="2026-11-18T12:00:00Z",  # type: ignore[arg-type]
+                    headline=f"{symbol} beats estimates",
+                    source="Reuters",
+                    url="https://example.com/b",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(picks_route, "fetch_picks_backdrop", backdrop)
+    monkeypatch.setattr(picks_route, "fetch_company_news", news)
+
+    async def shown(session: object) -> bool:
+        return True  # As for a request that may see the shared screener.
+
+    monkeypatch.setattr(picks_route, "shows_universe", shown)
+
+    async def run() -> picks_route.HoldingFacts:
+        async with get_sessionmaker()() as session:
+            return await picks_route.holding_facts(session, user.id, ["BIG", "MKT", "ZZZ"])
+
+    facts = asyncio.run(run())
+
+    assert [f.symbol for f in facts.figures] == ["BIG", "MKT"], "ZZZ is not in the screener"
+    assert str(facts.figures[0].next_earnings) == "2026-12-01"
+    assert [e.symbol for e in facts.events] == ["BIG", "ZZZ"], "a fund's news is the market's"
+    assert facts.backdrop is not None and facts.backdrop.deals
+    assert facts.sectors[0].sector == "All stocks"
+    assert {s.sector for s in facts.sectors[1:]} == {"Technology"}, "only the holdings' sectors"
+
+    context = PortfolioContext.model_validate(
+        {
+            "period": "1y",
+            "total_value": 100.0,
+            "sectors": {"Technology": 1.0},
+            "holdings": [{"symbol": "BIG", "shares": 1}],
+            "portfolio": {
+                "start": "2025-11-19T00:00:00Z",
+                "end": "2026-11-19T00:00:00Z",
+                "observations": 250,
+                "annualized_return": 0.1,
+                "volatility": 0.2,
+                "max_drawdown": -0.1,
+                "current_drawdown": 0.0,
+                "diversification_ratio": 1.0,
+                "effective_holdings": 1.0,
+                "largest_weight": 1.0,
+                "covered_weight": 1.0,
+            },
+            "holding_figures": [f.model_dump(mode="json") for f in facts.figures],
+            "holding_events": [e.model_dump(mode="json") for e in facts.events],
+        }
+    )
+    message = cast(str, review_messages(context)[0]["content"])
+    assert "<holding_figures>\nsymbol,name,asset_type,exchange" in message
+    assert "BIG beats estimates" in message and '"holding_figures"' not in message

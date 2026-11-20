@@ -12,6 +12,7 @@ import statistics
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import TypeVar
 
 from app.models.markets import EarningsEvent
 from app.models.news import NewsArticle, NewsHeadline
@@ -21,6 +22,7 @@ from app.models.picks import (
     CandidateEvents,
     CandidateFiling,
     PickCandidate,
+    ScreenerFacts,
     SectorSnapshot,
 )
 from app.models.alternative import SecFiling
@@ -240,18 +242,31 @@ def _by_sector(stocks: Iterable[ScreenedStock]) -> dict[str, list[ScreenedStock]
     return sectors
 
 
-def sector_snapshots(stocks: Sequence[ScreenedStock]) -> list[SectorSnapshot]:
-    """The whole screener's stocks, then each sector's, largest sector first, as medians."""
+def sector_snapshots(
+    stocks: Sequence[ScreenedStock], only: Collection[str] | None = None
+) -> list[SectorSnapshot]:
+    """The whole screener's stocks, then each sector's (those in ``only``, when given),
+    largest sector first, as medians."""
     companies = [stock for stock in stocks if stock.asset_type == "stock"]
     if not companies:
         return []
-    sectors = sorted(_by_sector(companies).items(), key=lambda item: (-len(item[1]), item[0]))
+    sectors = sorted(
+        (
+            (name, group)
+            for name, group in _by_sector(companies).items()
+            if only is None or name in only
+        ),
+        key=lambda item: (-len(item[1]), item[0]),
+    )
     return [_snapshot(ALL_STOCKS, companies)] + [_snapshot(name, group) for name, group in sectors]
 
 
+Facts = TypeVar("Facts", bound=ScreenerFacts)
+
+
 def with_sector_percentiles(
-    candidates: list[PickCandidate], stocks: Sequence[ScreenedStock]
-) -> list[PickCandidate]:
+    candidates: list[Facts], stocks: Sequence[ScreenedStock]
+) -> list[Facts]:
     """``candidates`` with where each stock's figures fall in its sector, as
     ``<field>_sector_pct`` for each of :data:`SECTOR_PERCENTILE_FIELDS`."""
     sectors = _by_sector(stocks)
@@ -277,10 +292,10 @@ def with_sector_percentiles(
 
 
 def with_listing_facts(
-    candidates: list[PickCandidate],
+    candidates: list[Facts],
     earnings: Iterable[EarningsEvent] | None,
     sp500: Collection[str] | None,
-) -> list[PickCandidate]:
+) -> list[Facts]:
     """``candidates`` with each one's next earnings report among ``earnings`` and whether
     the S&P 500 holds it; either is left null when its source is ``None``."""
     next_report: dict[str, date] = {}
@@ -371,3 +386,9 @@ def candidate_events(
         headlines=headlines,
         filings=kept,
     )
+
+
+def screener_facts(stock: ScreenedStock) -> ScreenerFacts:
+    """What Claude is given of a security the screener holds, before its sector ranks,
+    earnings date, and index membership are added."""
+    return ScreenerFacts(**stock.model_dump(include=set(ScreenerFacts.model_fields)))

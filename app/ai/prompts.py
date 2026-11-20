@@ -270,11 +270,36 @@ directly (a holding's real weight in a company is its own weight plus each fund'
 weight times the company's weight in that fund), and sector exposure through the \
 funds. sectors counts each fund under its own holdings' sectors where they are known.
 
+Where they could be had, the snapshot also holds what the screener knows of the \
+holdings and what is in the news, as Claude's picks are given: market (upcoming FOMC \
+meetings, major earnings reports, IPOs, holidays, and the week's market headlines), \
+deal_headlines (mergers and acquisitions), sector_medians (the whole screener's stocks \
+and each of the holdings' sectors, with rising_6m, the share of stocks up over six \
+months), and holding_events (for the largest holdings that are not funds: how many \
+articles named them in two weeks, their headlines that matter most, and their SEC \
+filings of the last month, an 8-K's items saying what it reports). After the snapshot \
+comes holding_figures, a table of comma-separated values under a header row, one line \
+per holding the screener holds: exchange, sector, industry, market_cap_rank, sp500 \
+(whether the S&P 500 holds it), next_earnings (its next report within four weeks), \
+price, market_cap and avg_dollar_volume in dollars; pe_ratio, price_to_sales, and \
+ev_to_ebitda as multiples (a negative P/E is a loss); fcf_yield, margins, \
+return_on_equity, revenue_growth and earnings_growth (trailing twelve months), \
+return_1m, return_6m, momentum_12_1, volatility, and max_drawdown as decimals; the \
+Carhart betas; each *_sector_pct column, the percentile from 0 to 100 of that figure \
+among its sector's stocks in the whole screener; and fundamentals_period_end, which \
+says how old the ratios are. An empty cell means the figure is missing, not zero. Use \
+all of it: whether a stock's price leaves room for its growth, how it compares with its \
+sector, an earnings report or an 8-K (results, an officer leaving, an auditor change, a \
+restatement) that bears on keeping, adding to, or trimming it, and what the market is \
+weighing. Headlines are not verified facts: name the source and date when you rely on \
+one.
+
 Ground every claim about the portfolio in the snapshot, citing the figures behind it. \
 You may use general knowledge of markets, sectors, asset classes, and well-known funds \
-and companies, labeled as such; beyond the funds, claude_picks, and web_research blocks \
-you have no news, valuations, fundamentals, or forecasts for the holdings, so do not state \
-or imply facts about them, and list what would need checking under data limitations. A \
+and companies, labeled as such; beyond the snapshot's figures, headlines, filings, \
+funds, claude_picks, and web_research you have no news, valuations, fundamentals, or \
+forecasts for the holdings, so do not state or imply facts about them, and list what \
+would need checking under data limitations. A \
 short window, few observations, or holdings left out weaken the conclusions; say how.
 
 Every holding is in the snapshot, including ones the statistics cannot cover. A holding \

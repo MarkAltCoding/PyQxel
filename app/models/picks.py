@@ -121,9 +121,10 @@ class PicksRequest(BaseModel):
     )
 
 
-class PickCandidate(ScreenMetrics):
-    """A security the screener offered Claude, with the measures it led on and everything
-    else the screener can filter it by."""
+class ScreenerFacts(ScreenMetrics):
+    """What the screener knows of one security, as Claude is given it: its figures,
+    everything the screener can filter it by, its next earnings date, and where its
+    figures fall in its sector."""
 
     symbol: str
     name: str
@@ -164,6 +165,11 @@ class PickCandidate(ScreenMetrics):
     return_on_equity_sector_pct: float | None = None
     momentum_12_1_sector_pct: float | None = None
     volatility_sector_pct: float | None = None
+
+
+class PickCandidate(ScreenerFacts):
+    """A security the screener offered Claude, with the measures it led on."""
+
     lenses: list[str] = Field(
         description="The measures this security led the screener on, such as 12-month "
         "momentum or free cash flow yield."

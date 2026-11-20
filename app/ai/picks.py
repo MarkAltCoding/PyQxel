@@ -3,13 +3,13 @@ screener's candidates."""
 
 import csv
 import io
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from typing import TYPE_CHECKING
 
 from app.ai.agent import Written, stream_structured, write_structured
 from app.ai.prompts import PICKS_SYSTEM_PROMPT, PICKS_TASK
 from app.core.text import listed
-from app.models.picks import PickCandidate, PicksContext, PicksReport
+from app.models.picks import PickCandidate, PicksContext, PicksReport, ScreenerFacts
 from app.models.research import AnalysisDelta, ModelFallback
 from app.models.screener import ScreenMetrics
 
@@ -47,14 +47,21 @@ def _cell(value: object) -> str:
     return str(value)
 
 
-def candidates_table(candidates: list[PickCandidate]) -> str:
+FACT_COLUMNS: tuple[str, ...] = tuple(column for column in COLUMNS if column != "lenses")
+"""The columns of a table of securities that were not found through a lens, such as a
+portfolio's holdings."""
+
+
+def candidates_table(
+    candidates: Sequence[ScreenerFacts], columns: tuple[str, ...] = COLUMNS
+) -> str:
     """The candidates as comma-separated values under a header row: a tenth of the tokens
     the same rows cost as JSON."""
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\n")
-    writer.writerow(COLUMNS)
+    writer.writerow(columns)
     for candidate in candidates:
-        writer.writerow(_cell(getattr(candidate, column)) for column in COLUMNS)
+        writer.writerow(_cell(getattr(candidate, column)) for column in columns)
     return out.getvalue().strip()
 
 

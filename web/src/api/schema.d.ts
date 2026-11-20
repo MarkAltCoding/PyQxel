@@ -6723,8 +6723,7 @@ export interface components {
     }
     /**
      * PickCandidate
-     * @description A security the screener offered Claude, with the measures it led on and everything
-     *     else the screener can filter it by.
+     * @description A security the screener offered Claude, with the measures it led on.
      */
     PickCandidate: {
       /**
@@ -7497,6 +7496,11 @@ export interface components {
       /** @description The account's latest Claude's picks, with the screener's figures for each when it was picked, as candidates for new investments; null when the account has none. */
       claude_picks?: components['schemas']['PicksForReview'] | null
       /**
+       * Deal Headlines
+       * @description The newest headlines on mergers and acquisitions.
+       */
+      deal_headlines?: components['schemas']['NewsHeadline'][]
+      /**
        * Funds
        * @description Each ETF or mutual fund among the holdings, largest first, with its largest holdings, mix of stocks, bonds, and cash, sectors, costs, and the figures weighted from the companies it holds, where they could be found.
        */
@@ -7506,6 +7510,16 @@ export interface components {
        * @description The custom window, in months, the statistics cover; null when they cover ``period``.
        */
       history_months?: number | null
+      /**
+       * Holding Events
+       * @description Recent news and SEC filings of the largest holdings that are not funds.
+       */
+      holding_events?: components['schemas']['CandidateEvents'][]
+      /**
+       * Holding Figures
+       * @description The screener's figures for each holding it holds, largest first: valuation, margins, growth, momentum, risk, factor betas, where each falls in its sector, its next earnings date, and whether the S&P 500 holds it.
+       */
+      holding_figures?: components['schemas']['ScreenerFacts'][]
       /** Holdings */
       holdings: components['schemas']['AssetRisk'][]
       /** Least Correlated */
@@ -7515,6 +7529,8 @@ export interface components {
        * @description Holdings left out of the statistics because they could not be priced or have too little history; they are still in ``holdings`` and reviewed, and ``notice`` says which and why.
        */
       left_out?: string[]
+      /** @description The market backdrop: upcoming FOMC meetings, holidays, major earnings reports, IPOs, and the week's market headlines. */
+      market?: components['schemas']['MarketContext'] | null
       /** Most Correlated */
       most_correlated?: components['schemas']['PairCorrelation'][]
       /**
@@ -7529,6 +7545,11 @@ export interface components {
       period: '1y' | '2y' | '5y' | '10y'
       portfolio: components['schemas']['PortfolioRiskStats']
       profile?: components['schemas']['InvestorProfile']
+      /**
+       * Sector Medians
+       * @description The whole screener's stocks, then each of the holdings' sectors, as medians, to compare the holdings with.
+       */
+      sector_medians?: components['schemas']['SectorSnapshot'][]
       /**
        * Sectors
        * @description Weight in each sector, by the providers' classification; a fund's stocks are spread over their sectors where they are known, and its bonds and cash count as Bonds and Cash; holdings without a sector are under Unclassified.
@@ -8762,6 +8783,160 @@ export interface components {
        * @description Annualized volatility of daily returns over a year.
        */
       volatility?: number | null
+    }
+    /**
+     * ScreenerFacts
+     * @description What the screener knows of one security, as Claude is given it: its figures,
+     *     everything the screener can filter it by, its next earnings date, and where its
+     *     figures fall in its sector.
+     */
+    ScreenerFacts: {
+      /**
+       * Asset Type
+       * @default stock
+       * @enum {string}
+       */
+      asset_type?: 'stock' | 'etf'
+      /**
+       * Avg Dollar Volume
+       * @description Average close times volume over the last three months.
+       */
+      avg_dollar_volume: number
+      /**
+       * Beta Market
+       * @description Carhart Mkt-RF beta.
+       */
+      beta_market?: number | null
+      /**
+       * Beta Momentum
+       * @description Carhart Mom beta.
+       */
+      beta_momentum?: number | null
+      /**
+       * Beta Size
+       * @description Carhart SMB beta.
+       */
+      beta_size?: number | null
+      /**
+       * Beta Value
+       * @description Carhart HML beta.
+       */
+      beta_value?: number | null
+      /**
+       * Earnings Growth
+       * @description TTM net income, year on year; null after a loss.
+       */
+      earnings_growth?: number | null
+      /** Ev To Ebitda */
+      ev_to_ebitda?: number | null
+      /** Ev To Ebitda Sector Pct */
+      ev_to_ebitda_sector_pct?: number | null
+      /** Exchange */
+      exchange?: string | null
+      /**
+       * Factor R Squared
+       * @description Share of return variance the four factors explain.
+       */
+      factor_r_squared?: number | null
+      /** Fcf Yield */
+      fcf_yield?: number | null
+      /** Fcf Yield Sector Pct */
+      fcf_yield_sector_pct?: number | null
+      /**
+       * Fundamentals Period End
+       * @description End of the latest period its financial ratios use.
+       */
+      fundamentals_period_end?: string | null
+      /** Gross Margin */
+      gross_margin?: number | null
+      /** Industry */
+      industry?: string | null
+      /**
+       * Market Cap
+       * @description Null for an ETF, which is not a company.
+       */
+      market_cap?: number | null
+      /**
+       * Market Cap Rank
+       * @description Rank by market cap in the screener, a company's share classes counted once; null for an ETF. The top 500 are the screener's large caps, the top 3,000 its broad market.
+       */
+      market_cap_rank?: number | null
+      /**
+       * Max Drawdown
+       * @description Largest peak-to-trough decline over a year.
+       */
+      max_drawdown?: number | null
+      /**
+       * Momentum 12 1
+       * @description Return from 12 months to 1 month ago, skipping the latest month as momentum strategies do.
+       */
+      momentum_12_1?: number | null
+      /** Momentum 12 1 Sector Pct */
+      momentum_12_1_sector_pct?: number | null
+      /** Name */
+      name: string
+      /** Net Margin */
+      net_margin?: number | null
+      /**
+       * Next Earnings
+       * @description Its next scheduled earnings report within the calendar's window; null when none is scheduled in it or the calendar could not be fetched.
+       */
+      next_earnings?: string | null
+      /** Operating Margin */
+      operating_margin?: number | null
+      /** Operating Margin Sector Pct */
+      operating_margin_sector_pct?: number | null
+      /** Pe Ratio */
+      pe_ratio?: number | null
+      /**
+       * Pe Ratio Sector Pct
+       * @description Percent of its sector's profitable stocks with a lower P/E (low is cheap). Every *_sector_pct column is a percentile from 0 to 100 among the stocks of its sector in the whole screener, counting ties as half; null for an ETF or when the figure is missing.
+       */
+      pe_ratio_sector_pct?: number | null
+      /**
+       * Price
+       * @description Latest adjusted close.
+       */
+      price: number
+      /** Price To Sales */
+      price_to_sales?: number | null
+      /**
+       * Return 1M
+       * @description Return over 21 trading days.
+       */
+      return_1m?: number | null
+      /**
+       * Return 6M
+       * @description Return over 126 trading days.
+       */
+      return_6m?: number | null
+      /** Return On Equity */
+      return_on_equity?: number | null
+      /** Return On Equity Sector Pct */
+      return_on_equity_sector_pct?: number | null
+      /**
+       * Revenue Growth
+       * @description TTM revenue, year on year.
+       */
+      revenue_growth?: number | null
+      /** Revenue Growth Sector Pct */
+      revenue_growth_sector_pct?: number | null
+      /** Sector */
+      sector?: string | null
+      /**
+       * Sp500
+       * @description Whether the S&P 500 holds it; null when the index's members could not be read.
+       */
+      sp500?: boolean | null
+      /** Symbol */
+      symbol: string
+      /**
+       * Volatility
+       * @description Annualized volatility of daily returns over a year.
+       */
+      volatility?: number | null
+      /** Volatility Sector Pct */
+      volatility_sector_pct?: number | null
     }
     /**
      * SearchMatch

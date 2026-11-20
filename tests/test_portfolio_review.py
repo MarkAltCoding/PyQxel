@@ -10,6 +10,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+
+from app.api.v1.endpoints.picks import HoldingFacts
 from fastapi.testclient import TestClient
 
 from app.ai.agent import AIRefusalError, Written
@@ -300,9 +302,15 @@ def market(monkeypatch: pytest.MonkeyPatch) -> list[PortfolioContext]:
         asked.append(context)
         return REVIEW, "claude-opus-5-5"
 
+    async def no_facts(
+        session: Any, user_id: str, symbols: list[str], funds: Any = ()
+    ) -> HoldingFacts:
+        return HoldingFacts(figures=[], sectors=[], events=[], backdrop=None, notices=[])
+
     monkeypatch.setattr(portfolio, "fetch_ticker_info", info)
     monkeypatch.setattr(portfolio, "fetch_close_panel", closes)
     monkeypatch.setattr(portfolio, "write_portfolio_review", write)
+    monkeypatch.setattr(portfolio, "holding_facts", no_facts)
     return asked
 
 

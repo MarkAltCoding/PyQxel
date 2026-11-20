@@ -140,6 +140,18 @@ def no_edgar_filings(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(alternative, "fetch_sec_filings", unreachable)
 
+    from app.api.v1.endpoints import picks
+
+    async def no_filings(cik: int, since: object, client: object) -> None:
+        raise DataFetchError("EDGAR is not reached in tests.")
+
+    async def no_members(index: str, listings: object) -> None:
+        raise DataFetchError("EDGAR is not reached in tests.")
+
+    # What Claude's picks and portfolio reviews read from EDGAR for each security.
+    monkeypatch.setattr(picks, "fetch_company_filings", no_filings)
+    monkeypatch.setattr(picks, "cached_index_members", no_members)
+
 
 @pytest.fixture(autouse=True)
 def no_treasury(monkeypatch: pytest.MonkeyPatch) -> None:

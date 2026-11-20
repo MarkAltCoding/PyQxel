@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 from app.ai.agent import Written, stream_structured, write_structured
+from app.ai.picks import FACT_COLUMNS, candidates_table
 from app.ai.prompts import PORTFOLIO_SYSTEM_PROMPT, PORTFOLIO_TASK
 from app.core.text import listed
 from app.models.portfolio_analysis import PortfolioContext, PortfolioReview
@@ -15,8 +16,14 @@ if TYPE_CHECKING:
 
 
 def review_messages(context: PortfolioContext) -> list[BetaMessageParam]:
-    snapshot = context.model_dump_json(indent=2)
-    return [{"role": "user", "content": f"{PORTFOLIO_TASK}\n\n<snapshot>\n{snapshot}\n</snapshot>"}]
+    """The request: the task, the snapshot without the holdings' screener figures, then
+    those figures as a table, as Claude's picks give their candidates."""
+    snapshot = context.model_dump_json(indent=2, exclude={"holding_figures"})
+    content = f"{PORTFOLIO_TASK}\n\n<snapshot>\n{snapshot}\n</snapshot>"
+    if context.holding_figures:
+        table = candidates_table(context.holding_figures, FACT_COLUMNS)
+        content += f"\n\n<holding_figures>\n{table}\n</holding_figures>"
+    return [{"role": "user", "content": content}]
 
 
 RESEARCHED_HOLDINGS: int = 12
@@ -42,7 +49,11 @@ def review_research_task(context: PortfolioContext) -> str:
         + ".",
         f"Its largest holdings are {listed(names)}.",
         "The tool already has each holding's prices, volatility, drawdowns, and "
-        "correlations, and what each fund holds. It has no news, valuations, or forecasts.",
+        "correlations, what each fund holds, each stock's valuation, margins, growth, "
+        "momentum, and next earnings date from its screener, the week's market and deal "
+        "headlines, and the last two weeks' headlines and last month's SEC filings of "
+        f"{len(context.holding_events)} of the holdings. It has no analyst estimates or "
+        "ratings, and nothing on the economy beyond the headlines.",
         "Search for recent news that bears on keeping, adding to, or selling the largest "
         "holdings (results and guidance, analyst actions, deals, legal or regulatory "
         "trouble, a fund's changes), and for the market and economic backdrop: interest "

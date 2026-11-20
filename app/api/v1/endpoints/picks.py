@@ -11,7 +11,7 @@ import asyncio
 import hashlib
 import logging
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
@@ -64,6 +64,7 @@ from app.models.external import PicksImport, PicksPromptExport
 from app.models.alternative import SecFiling
 from app.models.news import NewsArticle
 from app.models.picks import (
+    MAX_CANDIDATE_EVENTS,
     MAX_PICKS,
     MIN_PICKS,
     CandidateEvents,
@@ -75,6 +76,8 @@ from app.models.picks import (
     PicksRequest,
     PicksResponse,
     PicksUniverse,
+    ScreenerFacts,
+    SectorSnapshot,
 )
 from app.models.research import AnalysisDelta, AnalysisStreamError
 from app.models.stock import SYMBOL_PATTERN
@@ -84,6 +87,7 @@ from app.stats.picks import (
     events_shortlist,
     lenses_for,
     merge_candidates,
+    screener_facts,
     sector_snapshots,
     with_listing_facts,
     with_sector_percentiles,
@@ -200,6 +204,78 @@ async def _candidate_events(
         candidate_events(candidate.symbol, articles, found, now)
         for candidate, articles, found in zip(shortlist, news, filings, strict=True)
     ]
+
+
+@dataclass(frozen=True)
+class HoldingFacts:
+    """What a portfolio review is given of its holdings beyond their prices, gathered as
+    for Claude's picks."""
+
+    figures: list[ScreenerFacts]
+    """The screener's facts on each holding it holds, in the order asked."""
+    sectors: list[SectorSnapshot]
+    """The whole screener's medians, then those of the holdings' sectors."""
+    events: list[CandidateEvents]
+    backdrop: PicksBackdrop | None
+    notices: list[str]
+
+
+async def holding_facts(
+    session: AsyncSession, user_id: str, symbols: list[str], funds: Collection[str] = ()
+) -> HoldingFacts:
+    """The screener's figures, sector ranks, next earnings dates, and index membership of
+    ``symbols`` (most important first), the news and SEC filings of the first
+    :data:`~app.models.picks.MAX_CANDIDATE_EVENTS` that are not ``funds``, and the market
+    backdrop, all from what the picks use: the stored screener, keyless SEC data, and a
+    request to Finnhub per company (cached) plus the shared calendars. A source that
+    cannot be read is left out with a notice."""
+    universe = await _universe(session, user_id)
+    figures: list[ScreenerFacts] = []
+    sectors: list[SectorSnapshot] = []
+    sp500: set[str] | None = None
+    ciks: dict[str, int | None] = {}
+    known_funds = set(funds)
+    if universe is not None and universe.refreshed_at is not None:
+        found = await universe_stocks(session, universe, symbols)
+        figures = [screener_facts(found[symbol]) for symbol in symbols if symbol in found]
+        known_funds |= {stock.symbol for stock in found.values() if stock.asset_type == "etf"}
+        ciks = {symbol: stock.cik for symbol, stock in found.items()}
+        companies = await universe_companies(session, universe)
+        figures = with_sector_percentiles(figures, companies)
+        sectors = sector_snapshots(
+            companies, {figure.sector for figure in figures if figure.sector}
+        )
+        sp500 = await _sp500(session, universe)
+    shortlist = [
+        PickCandidate(symbol=symbol, name=symbol, price=0.0, avg_dollar_volume=0.0, lenses=[])
+        for symbol in symbols
+        if symbol not in known_funds
+    ][:MAX_CANDIDATE_EVENTS]
+    (backdrop, market_notice), events = await asyncio.gather(
+        _market(), _candidate_events(shortlist, ciks)
+    )
+    figures = with_listing_facts(figures, None if backdrop is None else backdrop.earnings, sp500)
+    notices = [
+        notice
+        for notice in (
+            market_notice,
+            (
+                None
+                if universe is not None
+                else "The screener's figures (valuations, growth, margins, momentum) are "
+                "missing: your account has no screener yet."
+            ),
+            (
+                "No holding's own news could be fetched: it comes from Finnhub on your key."
+                if events and all(event.news_articles is None for event in events)
+                else None
+            ),
+        )
+        if notice
+    ]
+    return HoldingFacts(
+        figures=figures, sectors=sectors, events=events, backdrop=backdrop, notices=notices
+    )
 
 
 async def _sp500(session: AsyncSession, universe: Universe) -> set[str] | None:

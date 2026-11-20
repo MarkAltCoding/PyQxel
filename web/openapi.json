@@ -9169,7 +9169,7 @@
         "type": "object"
       },
       "PickCandidate": {
-        "description": "A security the screener offered Claude, with the measures it led on and everything\nelse the screener can filter it by.",
+        "description": "A security the screener offered Claude, with the measures it led on.",
         "properties": {
           "asset_type": {
             "default": "stock",
@@ -10816,6 +10816,14 @@
             ],
             "description": "The account's latest Claude's picks, with the screener's figures for each when it was picked, as candidates for new investments; null when the account has none."
           },
+          "deal_headlines": {
+            "description": "The newest headlines on mergers and acquisitions.",
+            "items": {
+              "$ref": "#/components/schemas/NewsHeadline"
+            },
+            "title": "Deal Headlines",
+            "type": "array"
+          },
           "funds": {
             "description": "Each ETF or mutual fund among the holdings, largest first, with its largest holdings, mix of stocks, bonds, and cash, sectors, costs, and the figures weighted from the companies it holds, where they could be found.",
             "items": {
@@ -10835,6 +10843,24 @@
             ],
             "description": "The custom window, in months, the statistics cover; null when they cover ``period``.",
             "title": "History Months"
+          },
+          "holding_events": {
+            "description": "Recent news and SEC filings of the largest holdings that are not funds.",
+            "items": {
+              "$ref": "#/components/schemas/CandidateEvents"
+            },
+            "maxItems": 40,
+            "title": "Holding Events",
+            "type": "array"
+          },
+          "holding_figures": {
+            "description": "The screener's figures for each holding it holds, largest first: valuation, margins, growth, momentum, risk, factor betas, where each falls in its sector, its next earnings date, and whether the S&P 500 holds it.",
+            "items": {
+              "$ref": "#/components/schemas/ScreenerFacts"
+            },
+            "maxItems": 200,
+            "title": "Holding Figures",
+            "type": "array"
           },
           "holdings": {
             "items": {
@@ -10859,6 +10885,17 @@
             },
             "title": "Left Out",
             "type": "array"
+          },
+          "market": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MarketContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The market backdrop: upcoming FOMC meetings, holidays, major earnings reports, IPOs, and the week's market headlines."
           },
           "most_correlated": {
             "items": {
@@ -10894,6 +10931,14 @@
           },
           "profile": {
             "$ref": "#/components/schemas/InvestorProfile"
+          },
+          "sector_medians": {
+            "description": "The whole screener's stocks, then each of the holdings' sectors, as medians, to compare the holdings with.",
+            "items": {
+              "$ref": "#/components/schemas/SectorSnapshot"
+            },
+            "title": "Sector Medians",
+            "type": "array"
           },
           "sectors": {
             "additionalProperties": {
@@ -13232,6 +13277,463 @@
           "market_cap_source"
         ],
         "title": "ScreenedStock",
+        "type": "object"
+      },
+      "ScreenerFacts": {
+        "description": "What the screener knows of one security, as Claude is given it: its figures,\neverything the screener can filter it by, its next earnings date, and where its\nfigures fall in its sector.",
+        "properties": {
+          "asset_type": {
+            "default": "stock",
+            "enum": [
+              "stock",
+              "etf"
+            ],
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "avg_dollar_volume": {
+            "description": "Average close times volume over the last three months.",
+            "title": "Avg Dollar Volume",
+            "type": "number"
+          },
+          "beta_market": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carhart Mkt-RF beta.",
+            "title": "Beta Market"
+          },
+          "beta_momentum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carhart Mom beta.",
+            "title": "Beta Momentum"
+          },
+          "beta_size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carhart SMB beta.",
+            "title": "Beta Size"
+          },
+          "beta_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carhart HML beta.",
+            "title": "Beta Value"
+          },
+          "earnings_growth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "TTM net income, year on year; null after a loss.",
+            "title": "Earnings Growth"
+          },
+          "ev_to_ebitda": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ev To Ebitda"
+          },
+          "ev_to_ebitda_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ev To Ebitda Sector Pct"
+          },
+          "exchange": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange"
+          },
+          "factor_r_squared": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of return variance the four factors explain.",
+            "title": "Factor R Squared"
+          },
+          "fcf_yield": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fcf Yield"
+          },
+          "fcf_yield_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fcf Yield Sector Pct"
+          },
+          "fundamentals_period_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "End of the latest period its financial ratios use.",
+            "title": "Fundamentals Period End"
+          },
+          "gross_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Margin"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "market_cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for an ETF, which is not a company.",
+            "title": "Market Cap"
+          },
+          "market_cap_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rank by market cap in the screener, a company's share classes counted once; null for an ETF. The top 500 are the screener's large caps, the top 3,000 its broad market.",
+            "title": "Market Cap Rank"
+          },
+          "max_drawdown": {
+            "anyOf": [
+              {
+                "maximum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Largest peak-to-trough decline over a year.",
+            "title": "Max Drawdown"
+          },
+          "momentum_12_1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return from 12 months to 1 month ago, skipping the latest month as momentum strategies do.",
+            "title": "Momentum 12 1"
+          },
+          "momentum_12_1_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Momentum 12 1 Sector Pct"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "net_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Margin"
+          },
+          "next_earnings": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its next scheduled earnings report within the calendar's window; null when none is scheduled in it or the calendar could not be fetched.",
+            "title": "Next Earnings"
+          },
+          "operating_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operating Margin"
+          },
+          "operating_margin_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operating Margin Sector Pct"
+          },
+          "pe_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pe Ratio"
+          },
+          "pe_ratio_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Percent of its sector's profitable stocks with a lower P/E (low is cheap). Every *_sector_pct column is a percentile from 0 to 100 among the stocks of its sector in the whole screener, counting ties as half; null for an ETF or when the figure is missing.",
+            "title": "Pe Ratio Sector Pct"
+          },
+          "price": {
+            "description": "Latest adjusted close.",
+            "title": "Price",
+            "type": "number"
+          },
+          "price_to_sales": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price To Sales"
+          },
+          "return_1m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return over 21 trading days.",
+            "title": "Return 1M"
+          },
+          "return_6m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Return over 126 trading days.",
+            "title": "Return 6M"
+          },
+          "return_on_equity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return On Equity"
+          },
+          "return_on_equity_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return On Equity Sector Pct"
+          },
+          "revenue_growth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "TTM revenue, year on year.",
+            "title": "Revenue Growth"
+          },
+          "revenue_growth_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Growth Sector Pct"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "sp500": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the S&P 500 holds it; null when the index's members could not be read.",
+            "title": "Sp500"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "volatility": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Annualized volatility of daily returns over a year.",
+            "title": "Volatility"
+          },
+          "volatility_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volatility Sector Pct"
+          }
+        },
+        "required": [
+          "price",
+          "avg_dollar_volume",
+          "symbol",
+          "name"
+        ],
+        "title": "ScreenerFacts",
         "type": "object"
       },
       "SearchMatch": {

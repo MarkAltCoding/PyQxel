@@ -6,7 +6,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.picks import PicksForReview
+from app.models.markets import MarketContext
+from app.models.news import NewsHeadline
+from app.models.picks import (
+    MAX_CANDIDATE_EVENTS,
+    CandidateEvents,
+    PicksForReview,
+    ScreenerFacts,
+    SectorSnapshot,
+)
 from app.models.portfolio import MAX_PORTFOLIOS, MAX_SYMBOLS, PortfolioNumber, PortfolioPeriod
 from app.models.research import RiskFactor
 from app.models.stock import FundProfile
@@ -266,6 +274,31 @@ class PortfolioContext(BaseModel):
         default=None,
         description="What a web search made for this review found, each fact with its "
         "sources; null when the web was not searched.",
+    )
+    holding_figures: list[ScreenerFacts] = Field(
+        default_factory=list,
+        max_length=MAX_SYMBOLS * MAX_PORTFOLIOS,
+        description="The screener's figures for each holding it holds, largest first: "
+        "valuation, margins, growth, momentum, risk, factor betas, where each falls in its "
+        "sector, its next earnings date, and whether the S&P 500 holds it.",
+    )
+    sector_medians: list[SectorSnapshot] = Field(
+        default_factory=list,
+        description="The whole screener's stocks, then each of the holdings' sectors, as "
+        "medians, to compare the holdings with.",
+    )
+    holding_events: list[CandidateEvents] = Field(
+        default_factory=list,
+        max_length=MAX_CANDIDATE_EVENTS,
+        description="Recent news and SEC filings of the largest holdings that are not funds.",
+    )
+    market: MarketContext | None = Field(
+        default=None,
+        description="The market backdrop: upcoming FOMC meetings, holidays, major earnings "
+        "reports, IPOs, and the week's market headlines.",
+    )
+    deal_headlines: list[NewsHeadline] = Field(
+        default_factory=list, description="The newest headlines on mergers and acquisitions."
     )
     portfolio: PortfolioRiskStats
     most_correlated: list[PairCorrelation] = Field(default_factory=list)
