@@ -2,6 +2,7 @@
 pasted answers built to be slow or to crash the parser, and pasted plans or data that
 would make the server do work it should not."""
 
+import gc
 import json
 import time
 from collections.abc import Iterator
@@ -75,11 +76,14 @@ def test_rejected_input_is_not_echoed_back() -> None:
     ],
 )
 def test_hostile_pastes_are_refused_quickly(pasted: str) -> None:
-    started = time.perf_counter()
+    # The process's own CPU time, after collecting what earlier tests left behind, so a
+    # shared CI runner pausing the test does not count against the parser.
+    gc.collect()
+    started = time.process_time()
     with pytest.raises(ExternalResponseError):
         parse_response(pasted, InvestmentThesis)
 
-    assert time.perf_counter() - started < 0.5
+    assert time.process_time() - started < 0.5
 
 
 # The market fixture is imported from the portfolio review tests.
