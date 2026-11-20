@@ -20,10 +20,17 @@ if TYPE_CHECKING:
 METRIC_COLUMNS: tuple[str, ...] = tuple(ScreenMetrics.model_fields)
 """The screening metrics, in the order the candidates table lists them."""
 
+SECTOR_PERCENTILE_COLUMNS: tuple[str, ...] = tuple(
+    field for field in PickCandidate.model_fields if field.endswith("_sector_pct")
+)
+"""Where each figure falls in the candidate's sector, after the figures themselves."""
+
 COLUMNS: tuple[str, ...] = (
-    "symbol", "name", "asset_type", "sector", "industry", "lenses", *METRIC_COLUMNS
+    "symbol", "name", "asset_type", "exchange", "sector", "industry", "market_cap_rank",
+    "sp500", "next_earnings", "lenses", *METRIC_COLUMNS, *SECTOR_PERCENTILE_COLUMNS,
+    "fundamentals_period_end",
 )  # fmt: skip
-"""The candidates table's columns."""
+"""The candidates table's columns: everything the screener filters on, and more."""
 
 
 def _cell(value: object) -> str:
@@ -31,6 +38,8 @@ def _cell(value: object) -> str:
     is all a pick turns on and a third of the characters."""
     if value is None:
         return ""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
     if isinstance(value, float):
         return f"{value:.4g}"
     if isinstance(value, list):
@@ -77,19 +86,23 @@ def picks_research_task(context: PicksContext) -> str:
         )
         + ".",
         "The tool already has each candidate's price, valuation multiples, margins, growth, "
-        "momentum, volatility, and factor betas"
+        "momentum, volatility, factor betas, and rank within its sector"
         + (
             f" as of {context.universe.prices_as_of:%B %-d, %Y}"
             if context.universe.prices_as_of
             else ""
         )
-        + ", and a calendar of FOMC meetings and major earnings reports. It has no news on "
-        "the candidates, no analyst estimates, and nothing on the economy.",
+        + ", each candidate's next earnings date, a calendar of FOMC meetings and major "
+        "earnings reports, the week's market and deal headlines, and the last two weeks' "
+        "headlines and last month's SEC filings for the "
+        f"{len(context.candidate_events)} candidates likeliest to be picked. It has no "
+        "analyst estimates or ratings and nothing on the economy beyond the headlines.",
         "Search for the market and economic backdrop that matters over that holding period "
         "(interest rates and the Federal Reserve, inflation, earnings trends, and what is "
-        "leading or lagging the market), and for recent news on the candidates below that "
-        "look strongest for this profile: results and guidance, analyst actions, deals, and "
-        "legal or regulatory trouble.",
+        "leading or lagging the market), for analysts' views and estimate changes, and for "
+        "recent news on the candidates below that look strongest for this profile but have "
+        "no headlines of their own in the tool: results and guidance, analyst actions, "
+        "deals, and legal or regulatory trouble.",
     ]
     if profile.notes:
         lines.append(f"The person added: {profile.notes}")

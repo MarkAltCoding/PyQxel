@@ -864,9 +864,11 @@ async def export_analysis_prompt(
     """Return exactly what an analysis would send Claude, as one Markdown document.
 
     The same data is gathered as for ``/analysis``, filings included, but nothing is sent
-    to Claude: no Anthropic key is needed and nothing counts against your AI limits.
-    Paste ``prompt`` into Claude, then send its answer to ``/analysis/import`` with the
-    ``context`` returned here. Fails as ``/analysis`` does when the data cannot be had.
+    to Claude: no Anthropic key is needed and nothing counts against your AI limits. With
+    ``web_search``, the prompt tells Claude to search the web itself and name its sources;
+    without it, to keep to the data given. Paste ``prompt`` into Claude, then send its
+    answer to ``/analysis/import`` with the ``context`` returned here. Fails as
+    ``/analysis`` does when the data cannot be had.
     """
     symbol, context, filings = await gather_analysis_data(symbol, request)
     messages: list[Any] = [
@@ -874,7 +876,7 @@ async def export_analysis_prompt(
     ]
     schema = InvestmentThesis if request.kind == "thesis" else RiskSummary
     return AnalysisPromptExport(
-        prompt=render_prompt(SYSTEM_PROMPT, messages, schema),
+        prompt=render_prompt(SYSTEM_PROMPT, messages, schema, request.web_search),
         filename=f"pyqxel-{symbol}-{request.kind}-{request.period}-prompt.md",
         context=context,
     )

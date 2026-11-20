@@ -794,7 +794,7 @@ const entries = {
     title: 'Let Claude search the web',
     what: 'Before writing, Claude searches the web for what PyQxel’s own data cannot show: the latest results and guidance, analyst actions, deals, legal or regulatory news, and the economic backdrop. Every fact it brings back is listed under the report with the pages it came from, and the report cites it by number, such as [3].',
     good: 'Worth it when recent news matters: a stock around its earnings, a portfolio after a market move, or picks for a short holding period.',
-    note: 'It costs a little more, billed by Anthropic to your key: about 1 cent per search, with up to six searches, plus the tokens to read the results, typically a few cents in all. It also takes a minute or so longer. A report that searches the web is always written anew, never reused.',
+    note: 'On by default. It costs a little more, billed by Anthropic to your key: about 1 cent per search, with up to six searches, plus the tokens to read the results, typically a few cents in all. It also takes a minute or so longer. A report that searches the web is always written anew, never reused. When you use Claude outside the app, this choice goes into the prompt: checked, Claude is told to search the web itself and name its sources; unchecked, to keep to PyQxel’s data.',
   },
   webSources: {
     title: 'From the web',

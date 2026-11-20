@@ -6,7 +6,8 @@ Claude and the market calendar are faked; the screener is a small stored univers
 
 import asyncio
 from collections.abc import AsyncIterator
-from typing import Any, cast
+from datetime import datetime, timezone
+from typing import Any, cast, get_args
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,7 +15,7 @@ from pydantic import ValidationError
 
 from app.ai import web
 from app.ai.agent import AIRefusalError, Written
-from app.ai.picks import candidates_table, picks_messages, picks_research_task
+from app.ai.picks import COLUMNS, candidates_table, picks_messages, picks_research_task
 from app.ai.prompts import PICKS_SYSTEM_PROMPT, PORTFOLIO_SYSTEM_PROMPT
 from app.api.v1.endpoints import picks as picks_route
 from app.api.v1.endpoints.picks import TooFewPicksError, settle_picks
@@ -23,13 +24,28 @@ from app.db.screener import finish_run, replace_universe, start_run
 from app.db.session import get_sessionmaker
 from app.db.users import User, ai_usage
 from app.main import app
-from app.models.markets import MarketContext
+from app.api.v1.endpoints.markets import PicksBackdrop
+from app.data.alternative import form_8k_items
+from app.data.fetcher import DataFetchError
+from app.data.index_members import IndexMembers
+from app.data.news import NewsNotConfiguredError
+from app.models.alternative import SecFiling
+from app.models.markets import EarningsEvent, MarketContext
+from app.models.news import CompanyNews, NewsArticle, NewsHeadline
 from app.models.picks import Horizon, Pick, PicksContext, PicksProfile, PicksReport
 from app.models.portfolio_analysis import PortfolioContext
 from app.models.research import AnalysisDelta
-from app.models.screener import RankedStock, ScreenedStock
+from app.models.screener import RankedStock, ScreenedStock, ScreenField
 from app.models.web import WebSearchQuery
-from app.stats.picks import LENSES, lenses_for, merge_candidates
+from app.stats.picks import (
+    LENSES,
+    candidate_events,
+    events_shortlist,
+    lenses_for,
+    merge_candidates,
+    sector_snapshots,
+    with_sector_percentiles,
+)
 from tests.test_api import _sse_events
 from tests.test_portfolio_review import _save, _signed_in, market  # noqa: F401
 from tests.test_screener_api import _stock
@@ -108,14 +124,26 @@ def screener(monkeypatch: pytest.MonkeyPatch) -> list[PicksContext]:
     _store(STOCKS)
     asked: list[PicksContext] = []
 
-    async def no_calendar(today: object) -> MarketContext:
+    async def no_calendar(today: object) -> PicksBackdrop:
         raise ProviderNotConfiguredError("No Finnhub key.")
 
     async def write(context: PicksContext, *, client: Any) -> tuple[PicksReport, str]:
         asked.append(context)
         return REPORT, "claude-opus-5-5"
 
-    monkeypatch.setattr(picks_route, "fetch_market_context", no_calendar)
+    async def no_news(symbol: str) -> CompanyNews:
+        raise NewsNotConfiguredError("No Finnhub key.")
+
+    async def no_members(index: str, listings: object) -> IndexMembers:
+        raise DataFetchError("EDGAR is down.")
+
+    async def no_filings(cik: int, since: object, client: object) -> list[SecFiling]:
+        raise DataFetchError("EDGAR is down.")
+
+    monkeypatch.setattr(picks_route, "fetch_picks_backdrop", no_calendar)
+    monkeypatch.setattr(picks_route, "fetch_company_news", no_news)
+    monkeypatch.setattr(picks_route, "cached_index_members", no_members)
+    monkeypatch.setattr(picks_route, "fetch_company_filings", no_filings)
     monkeypatch.setattr(picks_route, "write_picks", write)
     return asked
 
@@ -173,7 +201,11 @@ def test_the_candidates_go_to_claude_as_a_table(screener: list[PicksContext]) ->
 
     context = screener[0]
     table = candidates_table(context.candidates).splitlines()
-    assert table[0].startswith("symbol,name,asset_type,sector,industry,lenses,price,market_cap")
+    assert table[0].startswith(
+        "symbol,name,asset_type,exchange,sector,industry,market_cap_rank,sp500,"
+        "next_earnings,lenses,price,market_cap"
+    )
+    assert table[0].endswith("volatility_sector_pct,fundamentals_period_end")
     big = next(line for line in table if line.startswith("BIG,"))
     assert "largest companies; 12-month momentum" in big and ",0.4," in big
     message = cast(str, picks_messages(context)[0]["content"])
@@ -198,6 +230,165 @@ def test_the_kinds_asked_for_bound_the_candidates(screener: list[PicksContext]) 
 
     assert "MKT" not in {c.symbol for c in screener[0].candidates}
     assert {c.symbol for c in screener[1].candidates} == {"MKT"}
+
+
+# Everything else Claude is given: the screener's filters, sectors, news, and filings.
+
+
+def test_every_screener_filter_has_a_column() -> None:
+    """Claude can screen the candidates on whatever the screener lets a person filter by."""
+    assert set(get_args(ScreenField)) <= set(COLUMNS)
+    assert {"exchange", "sector", "industry", "market_cap_rank", "sp500", "asset_type"} <= set(
+        COLUMNS
+    )
+
+
+def _rich_backdrop(today: object) -> PicksBackdrop:
+    backdrop = MarketContext(
+        as_of="2026-11-19",  # type: ignore[arg-type]
+        fomc_meetings=[],
+        holidays=[],
+        major_earnings=[],
+        ipos=[],
+        headlines=[
+            NewsHeadline(
+                published_at="2026-11-18T14:00:00Z",  # type: ignore[arg-type]
+                source="Reuters",
+                headline="Stocks rally as yields fall",
+            )
+        ],
+    )
+    return PicksBackdrop(
+        market=backdrop,
+        earnings=[
+            EarningsEvent(symbol="BIG", date="2026-12-08"),  # type: ignore[arg-type]
+            EarningsEvent(symbol="BIG", date="2026-12-01"),  # type: ignore[arg-type]
+        ],
+        deals=[
+            NewsHeadline(
+                published_at="2026-11-18T15:00:00Z",  # type: ignore[arg-type]
+                source="Bloomberg",
+                headline="CHEAP agrees to buy a rival",
+            )
+        ],
+    )
+
+
+def test_picks_get_news_filings_earnings_dates_and_the_index(
+    screener: list[PicksContext], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def backdrop(today: object) -> PicksBackdrop:
+        return _rich_backdrop(today)
+
+    asked_news: list[str] = []
+
+    async def news(symbol: str) -> CompanyNews:
+        asked_news.append(symbol)
+        return CompanyNews(
+            symbol=symbol,
+            start="2026-11-06",  # type: ignore[arg-type]
+            end="2026-11-19",  # type: ignore[arg-type]
+            fetched_at="2026-11-19T12:00:00Z",  # type: ignore[arg-type]
+            articles=[
+                NewsArticle(
+                    published_at="2026-11-18T12:00:00Z",  # type: ignore[arg-type]
+                    headline=f"{symbol} raises its outlook after record quarter",
+                    source="Reuters",
+                    url="https://example.com/a",
+                )
+            ],
+        )
+
+    async def members(index: str, listings: object) -> IndexMembers:
+        return IndexMembers(listings=[], classes={1: 1})  # BIG's CIK is its rank, 1.
+
+    async def filings(cik: int, since: object, client: object) -> list[SecFiling]:
+        return [
+            SecFiling(
+                form="8-K",
+                filed="2026-11-10",  # type: ignore[arg-type]
+                items=["Results of operations"],
+            ),
+            SecFiling(form="424B2", filed="2026-11-09"),  # type: ignore[arg-type]
+        ]
+
+    monkeypatch.setattr(picks_route, "fetch_picks_backdrop", backdrop)
+    monkeypatch.setattr(picks_route, "fetch_company_news", news)
+    monkeypatch.setattr(picks_route, "cached_index_members", members)
+    monkeypatch.setattr(picks_route, "fetch_company_filings", filings)
+
+    assert client.post(PICKS, json={}).status_code == 200
+    context = screener[0]
+
+    big = next(c for c in context.candidates if c.symbol == "BIG")
+    cheap = next(c for c in context.candidates if c.symbol == "CHEAP")
+    assert str(big.next_earnings) == "2026-12-01", "the next report, not a later one"
+    assert big.sp500 is True and cheap.sp500 is False
+    assert big.exchange == "NYSE" and big.market_cap_rank == 1
+    assert context.deal_headlines[0].headline == "CHEAP agrees to buy a rival"
+    assert context.market is not None and context.market.headlines
+    assert "MKT" not in asked_news, "an ETF's news is the market's"
+    events = {event.symbol: event for event in context.candidate_events}
+    assert events["BIG"].news_articles == 1
+    assert events["BIG"].headlines[0].headline.startswith("BIG raises its outlook")
+    assert [f.form for f in events["BIG"].filings] == ["8-K"], "a prospectus is left out"
+    assert context.sectors[0].sector == "All stocks" and context.sectors[0].stocks == 6
+    assert context.notice is None
+    message = cast(str, picks_messages(context)[0]["content"])
+    assert "Results of operations" in message and "Stocks rally" in message
+
+
+def test_without_finnhub_or_edgar_the_picks_still_come_with_a_notice(
+    screener: list[PicksContext],
+) -> None:
+    assert client.post(PICKS, json={}).status_code == 200
+    context = screener[0]
+
+    assert all(c.sp500 is None and c.next_earnings is None for c in context.candidates)
+    assert all(e.news_articles is None and not e.filings for e in context.candidate_events)
+    assert context.notice is not None and "own news" in context.notice
+
+
+def test_candidates_are_ranked_within_their_sector() -> None:
+    stocks = [
+        _stock(f"T{i}", i, sector="Technology", pe_ratio=10.0 * i, volatility=0.1 * i)
+        for i in range(1, 7)
+    ] + [_stock("LOSS", 7, sector="Technology", pe_ratio=-5.0)]
+    candidates = merge_candidates(
+        [(LENSES[0], [RankedStock(**stock.model_dump(), rank=1) for stock in stocks])]
+    )
+
+    ranked = {c.symbol: c for c in with_sector_percentiles(candidates, stocks)}
+    snapshots = sector_snapshots(stocks)
+
+    assert ranked["T1"].pe_ratio_sector_pct == 8.3, "half of itself among six, rounded"
+    assert ranked["T6"].volatility_sector_pct is not None
+    assert ranked["LOSS"].pe_ratio_sector_pct is None, "a loss has no P/E rank"
+    assert snapshots[0].sector == "All stocks"
+    assert snapshots[1].sector == "Technology" and snapshots[1].median_pe_ratio == 35.0
+
+
+def test_the_news_shortlist_favors_candidates_that_led_on_most_measures() -> None:
+    stocks = [_stock("A", 1), _stock("B", 2), _stock("C", 3)]
+    ranked = [RankedStock(**stock.model_dump(), rank=1) for stock in stocks]
+    candidates = merge_candidates([(LENSES[0], ranked), (LENSES[1], ranked[2:])])
+
+    assert [c.symbol for c in events_shortlist(candidates, 2)] == ["C", "A"]
+
+
+def test_8k_items_are_put_in_words_and_quiet_forms_left_out() -> None:
+    assert form_8k_items("2.02,9.01") == ["Results of operations"]
+    assert form_8k_items(None) == []
+    events = candidate_events(
+        "X",
+        None,
+        [
+            SecFiling(form="4", filed="2026-11-10"),  # type: ignore[arg-type]
+            SecFiling(form="SC 13G/A", filed="2026-11-09"),  # type: ignore[arg-type]
+        ],
+        datetime(2026, 11, 19, tzinfo=timezone.utc),
+    )
+    assert [f.form for f in events.filings] == ["4"] and events.news_articles is None
 
 
 # Settling an answer.
@@ -393,11 +584,16 @@ def test_stored_picks_are_deleted_and_kept_apart_by_account(screener: list[Picks
 def test_the_prompt_can_be_taken_outside_and_the_answer_brought_back(
     screener: list[PicksContext],
 ) -> None:
-    exported = client.post(f"{PICKS}/prompt", json={"profile": {"horizon": {"years": 3}}})
+    exported = client.post(
+        f"{PICKS}/prompt", json={"profile": {"horizon": {"years": 3}}, "web_search": True}
+    )
     assert exported.status_code == 200, exported.text
     prompt = exported.json()
     assert prompt["filename"] == "pyqxel-claudes-picks-3-years-prompt.md"
     assert PICKS_SYSTEM_PROMPT[:60] in prompt["prompt"] and "BIG," in prompt["prompt"]
+    assert "You may use information from outside this prompt" in prompt["prompt"]
+    kept_in = client.post(f"{PICKS}/prompt", json={"profile": {"horizon": {"years": 3}}})
+    assert "do not search the web" in kept_in.json()["prompt"]
 
     saved = client.post(
         f"{PICKS}/import",

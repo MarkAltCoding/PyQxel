@@ -1736,9 +1736,10 @@ async def export_portfolio_prompt(
 ) -> PortfolioPromptExport:
     """Return exactly what a review of your saved portfolio would send Claude.
 
-    No Anthropic key is needed and nothing counts against your AI limits. Paste
-    ``prompt`` into Claude, then send its answer to ``/analysis/import`` with the
-    ``context`` returned here.
+    No Anthropic key is needed and nothing counts against your AI limits. With
+    ``web_search``, the prompt tells Claude to search the web itself and name its sources;
+    without it, to keep to the data given. Paste ``prompt`` into Claude, then send its
+    answer to ``/analysis/import`` with the ``context`` returned here.
     """
     covered = await _saved_holdings(session, user.id, request)
     try:
@@ -1754,7 +1755,12 @@ async def export_portfolio_prompt(
     )
     context = context.model_copy(update={"claude_picks": picks_for_review(picks)})
     return PortfolioPromptExport(
-        prompt=render_prompt(PORTFOLIO_SYSTEM_PROMPT, review_messages(context), PortfolioReview),
+        prompt=render_prompt(
+            PORTFOLIO_SYSTEM_PROMPT,
+            review_messages(context),
+            PortfolioReview,
+            request.web_search,
+        ),
         filename=f"pyqxel-portfolio-review-{_window_label(request)}-prompt.md",
         context=context,
     )

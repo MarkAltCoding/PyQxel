@@ -226,6 +226,7 @@ export function PortfolioReviewCard({
       combined,
       ...historyRequest(months),
       profile: profile(),
+      web_search: webSearch,
     }
     const exported = await exportPortfolioPrompt(request)
     keepExport(exportKey, { request, context: exported.context })
@@ -457,7 +458,12 @@ export function PortfolioReviewCard({
               : 'No review yet.'}
         </div>
       )}
-      <ExternalClaude getPrompt={getPrompt} onPaste={pasteAnswer} disabled={writing || blocked} />
+      <ExternalClaude
+        getPrompt={getPrompt}
+        onPaste={pasteAnswer}
+        disabled={writing || blocked}
+        webSearch={webSearch}
+      />
     </section>
   )
 }

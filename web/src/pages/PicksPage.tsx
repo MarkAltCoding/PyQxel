@@ -358,6 +358,7 @@ export function PicksPage() {
           onPaste={pasteAnswer}
           saveLabel="Save picks"
           disabled={writing || problem !== null}
+          webSearch={webSearch}
         />
       </section>
 

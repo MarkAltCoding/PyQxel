@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.core.text import listed
 from app.models.markets import MarketContext
+from app.models.news import NewsHeadline
 from app.models.screener import AssetType, ScreenedStock, ScreenMetrics
 from app.models.web import WebResearch
 
@@ -31,8 +32,11 @@ MIN_PICKS: int = 3
 MAX_PICKS: int = 12
 """Most picks kept from an answer."""
 
-MAX_CANDIDATES: int = 400
+MAX_CANDIDATES: int = 450
 """Most candidates the screener offers Claude for one list of picks."""
+
+MAX_CANDIDATE_EVENTS: int = 40
+"""Most candidates whose own news and SEC filings are given to Claude."""
 
 
 def _plural(count: int, unit: str) -> str:
@@ -118,16 +122,103 @@ class PicksRequest(BaseModel):
 
 
 class PickCandidate(ScreenMetrics):
-    """A security the screener offered Claude, with the measures it led on."""
+    """A security the screener offered Claude, with the measures it led on and everything
+    else the screener can filter it by."""
 
     symbol: str
     name: str
     asset_type: AssetType = "stock"
+    exchange: str | None = None
     sector: str | None = None
     industry: str | None = None
+    market_cap_rank: int | None = Field(
+        default=None,
+        description="Rank by market cap in the screener, a company's share classes counted "
+        "once; null for an ETF. The top 500 are the screener's large caps, the top 3,000 "
+        "its broad market.",
+    )
+    sp500: bool | None = Field(
+        default=None,
+        description="Whether the S&P 500 holds it; null when the index's members could not "
+        "be read.",
+    )
+    fundamentals_period_end: date | None = Field(
+        default=None, description="End of the latest period its financial ratios use."
+    )
+    next_earnings: date | None = Field(
+        default=None,
+        description="Its next scheduled earnings report within the calendar's window; null "
+        "when none is scheduled in it or the calendar could not be fetched.",
+    )
+    pe_ratio_sector_pct: float | None = Field(
+        default=None,
+        description="Percent of its sector's profitable stocks with a lower P/E (low is "
+        "cheap). Every *_sector_pct column is a percentile from 0 to 100 among the stocks of "
+        "its sector in the whole screener, counting ties as half; null for an ETF or when "
+        "the figure is missing.",
+    )
+    ev_to_ebitda_sector_pct: float | None = None
+    fcf_yield_sector_pct: float | None = None
+    revenue_growth_sector_pct: float | None = None
+    operating_margin_sector_pct: float | None = None
+    return_on_equity_sector_pct: float | None = None
+    momentum_12_1_sector_pct: float | None = None
+    volatility_sector_pct: float | None = None
     lenses: list[str] = Field(
         description="The measures this security led the screener on, such as 12-month "
         "momentum or free cash flow yield."
+    )
+
+
+class SectorSnapshot(BaseModel):
+    """How the stocks of one sector, or of the whole screener, look today: medians of
+    the screener's figures among those that have them."""
+
+    sector: str = Field(description="The sector, or ``All stocks`` for the whole screener.")
+    stocks: int = Field(ge=0)
+    median_pe_ratio: float | None = Field(default=None, description="Among profitable stocks only.")
+    median_ev_to_ebitda: float | None = None
+    median_fcf_yield: float | None = None
+    median_revenue_growth: float | None = None
+    median_operating_margin: float | None = None
+    median_return_1m: float | None = None
+    median_return_6m: float | None = None
+    median_momentum_12_1: float | None = None
+    median_volatility: float | None = None
+    rising_6m: float | None = Field(
+        default=None,
+        description="Share of its stocks that rose over six months, as a decimal: the "
+        "breadth of its trend.",
+    )
+
+
+class CandidateFiling(BaseModel):
+    """A filing a candidate made with the SEC recently."""
+
+    form: str = Field(description="Such as 8-K, 10-Q, 10-K, 4 (an insider's trade), or S-3.")
+    filed: date
+    items: list[str] = Field(
+        default_factory=list, description="What an 8-K reports, in words; empty otherwise."
+    )
+
+
+class CandidateEvents(BaseModel):
+    """A candidate's own recent news and SEC filings."""
+
+    symbol: str
+    news_articles: int | None = Field(
+        default=None,
+        description="Articles about it in the last 14 days; null when its news could not be "
+        "fetched.",
+    )
+    headlines: list[NewsHeadline] = Field(
+        default_factory=list,
+        description="Its headlines that look to matter most for its shares, newest first.",
+    )
+    filings: list[CandidateFiling] = Field(
+        default_factory=list,
+        description="Its SEC filings of the last 30 days, newest first; empty for an ETF or "
+        "when EDGAR could not be read.",
     )
 
 
@@ -155,6 +246,21 @@ class PicksContext(BaseModel):
         default=None,
         description="The market backdrop: upcoming FOMC meetings, market holidays, major "
         "companies' earnings reports, and IPOs, and the newest market headlines.",
+    )
+    deal_headlines: list[NewsHeadline] = Field(
+        default_factory=list,
+        description="The newest headlines on mergers and acquisitions, newest first.",
+    )
+    sectors: list[SectorSnapshot] = Field(
+        default_factory=list,
+        description="The whole screener's stocks, then each sector's, as medians: what a "
+        "candidate's figures compare against.",
+    )
+    candidate_events: list[CandidateEvents] = Field(
+        default_factory=list,
+        max_length=MAX_CANDIDATE_EVENTS,
+        description="Recent news and SEC filings of the candidates likeliest to be picked: "
+        "the stocks that led on the most measures, then the largest.",
     )
     web_research: WebResearch | None = Field(
         default=None,

@@ -7,6 +7,7 @@ the user's own key. :func:`market_context` gathers the same data for AI analyses
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any
 
@@ -38,9 +39,11 @@ from app.models.markets import (
     MarketNews,
     MarketNewsCategory,
 )
+from app.models.news import NewsHeadline
 from app.stats.markets import (
     CONTEXT_EVENT_DAYS,
     MAJOR_MARKET_CAP,
+    SUMMARY_CHARS,
     major_earnings,
     market_context,
     score_headlines,
@@ -85,7 +88,15 @@ async def _finnhub_parts(
     max_market_cap: float | None = None,
 ) -> tuple[list[Any], list[str]]:
     """Earnings, IPOs, holidays, and the market status, each ``None`` when Finnhub could
-    not supply it, and why."""
+    not supply it, and why. Only major companies' earnings reports are kept."""
+    parts, missing = await _finnhub_raw_parts(start, end)
+    if parts[0] is not None:
+        parts[0] = await _major(parts[0], min_market_cap, max_market_cap)
+    return parts, missing
+
+
+async def _finnhub_raw_parts(start: date, end: date) -> tuple[list[Any], list[str]]:
+    """As :func:`_finnhub_parts`, with every company's earnings reports."""
     if finnhub_key() is None:
         return [None] * len(PART_NAMES), []
     results = await asyncio.gather(
@@ -107,8 +118,6 @@ async def _finnhub_parts(
             raise result
         else:
             parts.append(result)
-    if parts[0] is not None:
-        parts[0] = await _major(parts[0], min_market_cap, max_market_cap)
     return parts, missing
 
 
@@ -198,16 +207,17 @@ async def get_market_news(
     return score_headlines(news, datetime.now(timezone.utc))
 
 
-async def _general_news() -> MarketNews | None:
-    """The general market news, or ``None`` without a Finnhub key or when Finnhub fails."""
+async def _general_news(category: MarketNewsCategory = "general") -> MarketNews | None:
+    """The market news in ``category``, or ``None`` without a Finnhub key or when Finnhub
+    fails."""
     if finnhub_key() is None:
         return None
     try:
-        return await fetch_market_news("general")
+        return await fetch_market_news(category)
     except ProviderNotConfiguredError:
         raise
     except DataFetchError as exc:
-        logger.info("Market news was left out of an analysis: %s", exc)
+        logger.info("Market news (%s) was left out of an analysis: %s", category, exc)
         return None
 
 
@@ -227,3 +237,67 @@ async def fetch_market_context(today: date) -> MarketContext:
     )
     earnings, ipos, holidays, market_status = parts
     return market_context(today, meetings, holidays, earnings, ipos, news, market_status)
+
+
+PICKS_EARNINGS_DAYS: int = 28
+"""Days of every company's earnings reports gathered for Claude's picks: four of
+Finnhub's weekly calendar requests, the same ones the Markets page's calendar makes."""
+
+PICKS_HEADLINES: int = 40
+"""General market headlines given to Claude's picks."""
+
+PICKS_DEAL_HEADLINES: int = 15
+"""Headlines on mergers and acquisitions given to Claude's picks."""
+
+
+@dataclass(frozen=True)
+class PicksBackdrop:
+    """The market backdrop of Claude's picks, with what only the picks use."""
+
+    market: MarketContext
+    earnings: list[EarningsEvent] | None
+    """Every company's earnings reports over :data:`PICKS_EARNINGS_DAYS` days, to find
+    each candidate's next one; ``None`` when the calendar could not be fetched."""
+    deals: list[NewsHeadline]
+    """The newest headlines on mergers and acquisitions."""
+
+
+def _headline(article: Any) -> NewsHeadline:
+    summary = article.summary
+    if summary is not None and len(summary) > SUMMARY_CHARS:
+        summary = summary[:SUMMARY_CHARS].rsplit(" ", 1)[0].rstrip(" ,;:.") + "…"
+    return NewsHeadline(
+        published_at=article.published_at,
+        source=article.source,
+        headline=article.headline,
+        summary=summary,
+    )
+
+
+async def fetch_picks_backdrop(today: date) -> PicksBackdrop:
+    """The market backdrop of :func:`fetch_market_context`, with more headlines, the news
+    on deals, and every company's earnings reports of the next four weeks, all in one
+    round of requests: eight to Finnhub, most of them shared with the Markets page and
+    cached, and the Federal Reserve's calendar.
+
+    Raises:
+        ProviderNotConfiguredError: If Finnhub rejects the user's key.
+    """
+    end = today + timedelta(days=PICKS_EARNINGS_DAYS - 1)
+    meetings, (parts, _), news, deals = await asyncio.gather(
+        fetch_fomc_meetings(),
+        _finnhub_raw_parts(today, end),
+        _general_news(),
+        _general_news("merger"),
+    )
+    earnings, ipos, holidays, market_status = parts
+    major = None if earnings is None else await _major(earnings, MAJOR_MARKET_CAP)
+    return PicksBackdrop(
+        market=market_context(
+            today, meetings, holidays, major, ipos, news, market_status, PICKS_HEADLINES
+        ),
+        earnings=earnings,
+        deals=[_headline(article) for article in (deals.articles if deals else [])][
+            :PICKS_DEAL_HEADLINES
+        ],
+    )

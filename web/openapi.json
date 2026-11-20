@@ -2218,6 +2218,77 @@
         "title": "BuyAndHold",
         "type": "object"
       },
+      "CandidateEvents": {
+        "description": "A candidate's own recent news and SEC filings.",
+        "properties": {
+          "filings": {
+            "description": "Its SEC filings of the last 30 days, newest first; empty for an ETF or when EDGAR could not be read.",
+            "items": {
+              "$ref": "#/components/schemas/CandidateFiling"
+            },
+            "title": "Filings",
+            "type": "array"
+          },
+          "headlines": {
+            "description": "Its headlines that look to matter most for its shares, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/NewsHeadline"
+            },
+            "title": "Headlines",
+            "type": "array"
+          },
+          "news_articles": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Articles about it in the last 14 days; null when its news could not be fetched.",
+            "title": "News Articles"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "CandidateEvents",
+        "type": "object"
+      },
+      "CandidateFiling": {
+        "description": "A filing a candidate made with the SEC recently.",
+        "properties": {
+          "filed": {
+            "format": "date",
+            "title": "Filed",
+            "type": "string"
+          },
+          "form": {
+            "description": "Such as 8-K, 10-Q, 10-K, 4 (an insider's trade), or S-3.",
+            "title": "Form",
+            "type": "string"
+          },
+          "items": {
+            "description": "What an 8-K reports, in words; empty otherwise.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "form",
+          "filed"
+        ],
+        "title": "CandidateFiling",
+        "type": "object"
+      },
       "CheckoutLink": {
         "description": "Where to send the browser to pay or manage billing on Stripe's own pages.",
         "properties": {
@@ -9098,7 +9169,7 @@
         "type": "object"
       },
       "PickCandidate": {
-        "description": "A security the screener offered Claude, with the measures it led on.",
+        "description": "A security the screener offered Claude, with the measures it led on and everything\nelse the screener can filter it by.",
         "properties": {
           "asset_type": {
             "default": "stock",
@@ -9185,6 +9256,28 @@
             ],
             "title": "Ev To Ebitda"
           },
+          "ev_to_ebitda_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ev To Ebitda Sector Pct"
+          },
+          "exchange": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange"
+          },
           "factor_r_squared": {
             "anyOf": [
               {
@@ -9207,6 +9300,30 @@
               }
             ],
             "title": "Fcf Yield"
+          },
+          "fcf_yield_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fcf Yield Sector Pct"
+          },
+          "fundamentals_period_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "End of the latest period its financial ratios use.",
+            "title": "Fundamentals Period End"
           },
           "gross_margin": {
             "anyOf": [
@@ -9250,6 +9367,18 @@
             "description": "Null for an ETF, which is not a company.",
             "title": "Market Cap"
           },
+          "market_cap_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rank by market cap in the screener, a company's share classes counted once; null for an ETF. The top 500 are the screener's large caps, the top 3,000 its broad market.",
+            "title": "Market Cap Rank"
+          },
           "max_drawdown": {
             "anyOf": [
               {
@@ -9275,6 +9404,17 @@
             "description": "Return from 12 months to 1 month ago, skipping the latest month as momentum strategies do.",
             "title": "Momentum 12 1"
           },
+          "momentum_12_1_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Momentum 12 1 Sector Pct"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -9290,6 +9430,19 @@
             ],
             "title": "Net Margin"
           },
+          "next_earnings": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its next scheduled earnings report within the calendar's window; null when none is scheduled in it or the calendar could not be fetched.",
+            "title": "Next Earnings"
+          },
           "operating_margin": {
             "anyOf": [
               {
@@ -9301,6 +9454,17 @@
             ],
             "title": "Operating Margin"
           },
+          "operating_margin_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operating Margin Sector Pct"
+          },
           "pe_ratio": {
             "anyOf": [
               {
@@ -9311,6 +9475,18 @@
               }
             ],
             "title": "Pe Ratio"
+          },
+          "pe_ratio_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Percent of its sector's profitable stocks with a lower P/E (low is cheap). Every *_sector_pct column is a percentile from 0 to 100 among the stocks of its sector in the whole screener, counting ties as half; null for an ETF or when the figure is missing.",
+            "title": "Pe Ratio Sector Pct"
           },
           "price": {
             "description": "Latest adjusted close.",
@@ -9363,6 +9539,17 @@
             ],
             "title": "Return On Equity"
           },
+          "return_on_equity_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return On Equity Sector Pct"
+          },
           "revenue_growth": {
             "anyOf": [
               {
@@ -9375,6 +9562,17 @@
             "description": "TTM revenue, year on year.",
             "title": "Revenue Growth"
           },
+          "revenue_growth_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Growth Sector Pct"
+          },
           "sector": {
             "anyOf": [
               {
@@ -9385,6 +9583,18 @@
               }
             ],
             "title": "Sector"
+          },
+          "sp500": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the S&P 500 holds it; null when the index's members could not be read.",
+            "title": "Sp500"
           },
           "symbol": {
             "title": "Symbol",
@@ -9401,6 +9611,17 @@
             ],
             "description": "Annualized volatility of daily returns over a year.",
             "title": "Volatility"
+          },
+          "volatility_sector_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volatility Sector Pct"
           }
         },
         "required": [
@@ -9416,12 +9637,29 @@
       "PicksContext": {
         "description": "The data a list of picks is written from. All of it is sent to Claude, the\ncandidates as a table.",
         "properties": {
+          "candidate_events": {
+            "description": "Recent news and SEC filings of the candidates likeliest to be picked: the stocks that led on the most measures, then the largest.",
+            "items": {
+              "$ref": "#/components/schemas/CandidateEvents"
+            },
+            "maxItems": 40,
+            "title": "Candidate Events",
+            "type": "array"
+          },
           "candidates": {
             "items": {
               "$ref": "#/components/schemas/PickCandidate"
             },
-            "maxItems": 400,
+            "maxItems": 450,
             "title": "Candidates",
+            "type": "array"
+          },
+          "deal_headlines": {
+            "description": "The newest headlines on mergers and acquisitions, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/NewsHeadline"
+            },
+            "title": "Deal Headlines",
             "type": "array"
           },
           "horizon": {
@@ -9460,6 +9698,14 @@
           },
           "profile": {
             "$ref": "#/components/schemas/PicksProfile"
+          },
+          "sectors": {
+            "description": "The whole screener's stocks, then each sector's, as medians: what a candidate's figures compare against.",
+            "items": {
+              "$ref": "#/components/schemas/SectorSnapshot"
+            },
+            "title": "Sectors",
+            "type": "array"
           },
           "today": {
             "format": "date",
@@ -13097,6 +13343,14 @@
             "title": "Form",
             "type": "string"
           },
+          "items": {
+            "description": "What an 8-K reports, its numbered items in words, such as Results of operations; empty for other forms.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Items",
+            "type": "array"
+          },
           "url": {
             "anyOf": [
               {
@@ -13114,6 +13368,139 @@
           "filed"
         ],
         "title": "SecFiling",
+        "type": "object"
+      },
+      "SectorSnapshot": {
+        "description": "How the stocks of one sector, or of the whole screener, look today: medians of\nthe screener's figures among those that have them.",
+        "properties": {
+          "median_ev_to_ebitda": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Ev To Ebitda"
+          },
+          "median_fcf_yield": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Fcf Yield"
+          },
+          "median_momentum_12_1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Momentum 12 1"
+          },
+          "median_operating_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Operating Margin"
+          },
+          "median_pe_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Among profitable stocks only.",
+            "title": "Median Pe Ratio"
+          },
+          "median_return_1m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Return 1M"
+          },
+          "median_return_6m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Return 6M"
+          },
+          "median_revenue_growth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Revenue Growth"
+          },
+          "median_volatility": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Volatility"
+          },
+          "rising_6m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of its stocks that rose over six months, as a decimal: the breadth of its trend.",
+            "title": "Rising 6M"
+          },
+          "sector": {
+            "description": "The sector, or ``All stocks`` for the whole screener.",
+            "title": "Sector",
+            "type": "string"
+          },
+          "stocks": {
+            "minimum": 0.0,
+            "title": "Stocks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sector",
+          "stocks"
+        ],
+        "title": "SectorSnapshot",
         "type": "object"
       },
       "ShortTermReversal": {
@@ -16780,7 +17167,7 @@
     },
     "/api/v1/picks/prompt": {
       "post": {
-        "description": "Return exactly what a list of picks would send Claude, as one Markdown document.\n\nNo Anthropic key is needed and nothing counts against your AI limits; the web is not\nsearched. Paste ``prompt`` into Claude, then send its answer to ``/picks/import`` with\nthe ``context`` returned here. Fails as ``/picks`` does when there is nothing to pick\nfrom.",
+        "description": "Return exactly what a list of picks would send Claude, as one Markdown document.\n\nNo Anthropic key is needed and nothing counts against your AI limits. The app makes no\nweb search: with ``web_search``, the prompt tells Claude to search the web itself and\nname its sources, and without it, to keep to the data given. Paste ``prompt`` into\nClaude, then send its answer to ``/picks/import`` with the ``context`` returned here.\nFails as ``/picks`` does when there is nothing to pick from.",
         "operationId": "export_picks_prompt_api_v1_picks_prompt_post",
         "requestBody": {
           "content": {
@@ -17133,7 +17520,7 @@
     },
     "/api/v1/portfolio/analysis/prompt": {
       "post": {
-        "description": "Return exactly what a review of your saved portfolio would send Claude.\n\nNo Anthropic key is needed and nothing counts against your AI limits. Paste\n``prompt`` into Claude, then send its answer to ``/analysis/import`` with the\n``context`` returned here.",
+        "description": "Return exactly what a review of your saved portfolio would send Claude.\n\nNo Anthropic key is needed and nothing counts against your AI limits. With\n``web_search``, the prompt tells Claude to search the web itself and name its sources;\nwithout it, to keep to the data given. Paste ``prompt`` into Claude, then send its\nanswer to ``/analysis/import`` with the ``context`` returned here.",
         "operationId": "export_portfolio_prompt_api_v1_portfolio_analysis_prompt_post",
         "requestBody": {
           "content": {
@@ -18161,7 +18548,7 @@
     },
     "/api/v1/stocks/{symbol}/analysis/prompt": {
       "post": {
-        "description": "Return exactly what an analysis would send Claude, as one Markdown document.\n\nThe same data is gathered as for ``/analysis``, filings included, but nothing is sent\nto Claude: no Anthropic key is needed and nothing counts against your AI limits.\nPaste ``prompt`` into Claude, then send its answer to ``/analysis/import`` with the\n``context`` returned here. Fails as ``/analysis`` does when the data cannot be had.",
+        "description": "Return exactly what an analysis would send Claude, as one Markdown document.\n\nThe same data is gathered as for ``/analysis``, filings included, but nothing is sent\nto Claude: no Anthropic key is needed and nothing counts against your AI limits. With\n``web_search``, the prompt tells Claude to search the web itself and name its sources;\nwithout it, to keep to the data given. Paste ``prompt`` into Claude, then send its\nanswer to ``/analysis/import`` with the ``context`` returned here. Fails as\n``/analysis`` does when the data cannot be had.",
         "operationId": "export_analysis_prompt_api_v1_stocks__symbol__analysis_prompt_post",
         "parameters": [
           {

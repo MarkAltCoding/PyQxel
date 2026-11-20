@@ -157,6 +157,41 @@ async def fetch_patents(
 EDGAR_ARCHIVE_URL: str = "https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/{document}"
 """A filing's main document on EDGAR."""
 
+FORM_8K_ITEMS: dict[str, str] = {
+    "1.01": "Material agreement entered",
+    "1.02": "Material agreement ended",
+    "1.03": "Bankruptcy or receivership",
+    "1.05": "Cybersecurity incident",
+    "2.01": "Acquisition or sale of assets completed",
+    "2.02": "Results of operations",
+    "2.03": "New debt or obligation",
+    "2.04": "Debt accelerated",
+    "2.05": "Exit or restructuring costs",
+    "2.06": "Impairment",
+    "3.01": "Delisting notice or listing transfer",
+    "3.02": "Unregistered sale of shares",
+    "3.03": "Change to shareholders' rights",
+    "4.01": "Auditor changed",
+    "4.02": "Earlier financial statements no longer to be relied on",
+    "5.01": "Change in control",
+    "5.02": "Director or officer departure or appointment",
+    "5.03": "Bylaws or fiscal year amended",
+    "5.07": "Shareholder vote results",
+    "7.01": "Regulation FD disclosure",
+    "8.01": "Other events",
+}
+"""What each numbered item of an 8-K, a company's report of a material event, announces.
+Item 9.01, the exhibits, says nothing on its own and is left out."""
+
+
+def form_8k_items(raw: object) -> list[str]:
+    """The items an 8-K lists in EDGAR's comma-separated ``items`` field, in words."""
+    if not isinstance(raw, str):
+        return []
+    return [
+        FORM_8K_ITEMS[item] for item in raw.replace(" ", "").split(",") if item in FORM_8K_ITEMS
+    ]
+
 
 def parse_submissions(submissions: Any, cik: int, since: date) -> list[SecFiling]:
     """The filings in a company's EDGAR submissions filed on or after ``since``, newest
@@ -170,9 +205,11 @@ def parse_submissions(submissions: Any, cik: int, since: date) -> list[SecFiling
     dates = recent.get("filingDate") or []
     accessions = recent.get("accessionNumber") or []
     documents = recent.get("primaryDocument") or []
+    items = recent.get("items") or []
+    items = list(items) + [None] * (len(forms) - len(items))
     filings: list[SecFiling] = []
-    for form, filed_text, accession, document in zip(
-        forms, dates, accessions, documents, strict=False
+    for form, filed_text, accession, document, listed_items in zip(
+        forms, dates, accessions, documents, items, strict=False
     ):
         filed = _day(filed_text)
         if not form or filed is None or filed < since:
@@ -188,6 +225,7 @@ def parse_submissions(submissions: Any, cik: int, since: date) -> list[SecFiling
                     if accession and document
                     else None
                 ),
+                items=form_8k_items(listed_items) if str(form).startswith("8-K") else [],
             )
         )
     return sorted(filings, key=lambda filing: filing.filed, reverse=True)
@@ -225,6 +263,25 @@ async def fetch_sec_filings(
     except Exception as exc:  # EDGAR's lookups raise their own error types.
         raise DataFetchError(f"EDGAR's filings of {symbol} could not be fetched: {exc}") from exc
     return parse_submissions(submissions, cik, today - timedelta(days=FILING_DAYS))
+
+
+async def fetch_company_filings(
+    cik: int, since: date, client: httpx2.AsyncClient
+) -> list[SecFiling]:
+    """The filings of the SEC registrant ``cik`` on or after ``since``, newest first, from
+    its EDGAR submissions: one keyless request, on a client from
+    :func:`app.data.sec_edgar.edgar_client`.
+
+    Raises:
+        DataFetchError: If EDGAR cannot be reached or has no such registrant.
+    """
+    from app.data.sec_edgar import SUBMISSIONS_URL, edgar_get
+
+    try:
+        submissions = (await edgar_get(client, SUBMISSIONS_URL.format(cik=cik))).json()
+    except Exception as exc:  # EDGAR's lookups raise their own error types.
+        raise DataFetchError(f"EDGAR's filings of CIK {cik} could not be fetched: {exc}") from exc
+    return parse_submissions(submissions, cik, since)
 
 
 def _reason(name: str, error: BaseException) -> str:

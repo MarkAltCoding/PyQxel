@@ -163,7 +163,9 @@ describe('PicksPage', () => {
     await userEvent.type(screen.getByRole('spinbutton', { name: /Amount to invest/ }), '2500')
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Pick from' }), 'stock')
     await userEvent.type(screen.getByRole('textbox', { name: 'Anything else' }), 'no banks')
-    await userEvent.click(screen.getByRole('checkbox', { name: /Let Claude search the web/ }))
+    const web = screen.getByRole('checkbox', { name: /Let Claude search the web/ })
+    expect(web).toBeChecked() // On until the person turns it off.
+    await userEvent.click(web)
     await userEvent.click(screen.getByRole('button', { name: 'Get Claude’s picks' }))
 
     expect(await screen.findByText('Two-week momentum.')).toBeInTheDocument()
@@ -175,7 +177,7 @@ describe('PicksPage', () => {
         asset_types: ['stock'],
         notes: 'no banks',
       },
-      web_search: true,
+      web_search: false,
       refresh: false,
     })
     // The answers are kept for next time.

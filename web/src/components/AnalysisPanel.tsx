@@ -142,7 +142,12 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
   // Outside the app: the prompt's data is kept so the pasted answer is saved with it.
   const exportName = `stock.${symbol}.${kind}`
   const getPrompt = async () => {
-    const request: AnalysisRequest = { kind, period: '1y', include_filings: true }
+    const request: AnalysisRequest = {
+      kind,
+      period: '1y',
+      include_filings: true,
+      web_search: webSearch,
+    }
     const exported = await exportAnalysisPrompt(symbol, request)
     keepExport(exportName, { request, context: exported.context })
     return exported
@@ -226,7 +231,12 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
           No {kind === 'thesis' ? 'thesis' : 'risk summary'} for {symbol} yet.
         </div>
       )}
-      <ExternalClaude getPrompt={getPrompt} onPaste={pasteAnswer} disabled={writing} />
+      <ExternalClaude
+        getPrompt={getPrompt}
+        onPaste={pasteAnswer}
+        disabled={writing}
+        webSearch={webSearch}
+      />
     </section>
   )
 }

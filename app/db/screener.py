@@ -496,6 +496,15 @@ async def universe_stocks(
     return {stock.symbol: stock for stock in stocks}
 
 
+async def universe_companies(session: AsyncSession, universe: Universe) -> list[ScreenedStock]:
+    """Every company's stock in ``universe``, ETFs left out: what a sector's figures are
+    summarized from."""
+    table = universe.table
+    kind: InstrumentedAttribute[Any] = getattr(table, "asset_type")
+    records = await session.scalars(select(table).where(universe.rows, kind == "stock"))
+    return [ScreenedStock.model_validate(record, from_attributes=True) for record in records]
+
+
 async def universe_counts(session: AsyncSession, universe: Universe) -> tuple[int, int]:
     """How many securities ``universe`` holds, and how many of them are ETFs."""
     table = universe.table

@@ -17,6 +17,7 @@ export function ExternalClaude({
   onPaste,
   saveLabel = 'Save answer',
   disabled = false,
+  webSearch,
 }: {
   /** Builds the prompt; throws to show why it cannot. */
   getPrompt: () => Promise<ExportedPrompt>
@@ -24,6 +25,11 @@ export function ExternalClaude({
   onPaste: (answer: string) => Promise<void>
   saveLabel?: string
   disabled?: boolean
+  /**
+   * Whether the report lets Claude use the web; the prompt then says so. Left out for
+   * requests without that choice, such as the coding assistant.
+   */
+  webSearch?: boolean
 }) {
   const [exported, setExported] = useState<ExportedPrompt | null>(null)
   const [loading, setLoading] = useState(false)
@@ -86,10 +92,29 @@ export function ExternalClaude({
       <summary>Use Claude outside the app, without API costs</summary>
       <div className="stack" style={{ gap: 12, marginTop: 10 }}>
         <p className="disclaimer">
-          Get exactly what the app would send Claude, paste it into a new chat on claude.ai (or
-          attach the downloaded file), then paste Claude’s whole answer below. Nothing is sent to
-          Claude from here, and it does not count against your AI limits.
+          Get exactly what the app would send Claude, with all the same data, paste it into a new
+          chat on claude.ai (or attach the downloaded file), then paste Claude’s whole answer below.
+          Nothing is sent to Claude from here, and it does not count against your AI limits.
         </p>
+        {webSearch !== undefined && (
+          <Notice tone="warning">
+            {webSearch ? (
+              <>
+                One difference from the app: the web search. In the app, PyQxel searches the web
+                first and lists every source under the report as a numbered link. Outside it, the
+                prompt tells Claude it may use outside information and to search the web itself,
+                which it can do only if web search is on in that chat (the + button’s tools on
+                claude.ai). Its sources are then named in the text of its answer, not listed under
+                the report. Uncheck “Let Claude search the web” to keep it to PyQxel’s data.
+              </>
+            ) : (
+              <>
+                “Let Claude search the web” is unchecked, so the prompt tells Claude to use only
+                PyQxel’s data and not search the web.
+              </>
+            )}
+          </Notice>
+        )}
         <div className="filter-row" style={{ alignItems: 'center' }}>
           <button
             type="button"

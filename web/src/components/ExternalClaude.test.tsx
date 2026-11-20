@@ -61,4 +61,15 @@ describe('ExternalClaude', () => {
       await screen.findByText('Type your question in the box above first.'),
     ).toBeInTheDocument()
   })
+
+  it('warns how the web search differs outside the app', async () => {
+    const { rerender } = render(
+      <ExternalClaude getPrompt={async () => PROMPT} onPaste={vi.fn()} webSearch />,
+    )
+    await open()
+    expect(screen.getByText(/One difference from the app: the web search/)).toBeInTheDocument()
+
+    rerender(<ExternalClaude getPrompt={async () => PROMPT} onPaste={vi.fn()} webSearch={false} />)
+    expect(screen.getByText(/tells Claude to use only PyQxel’s data/)).toBeInTheDocument()
+  })
 })

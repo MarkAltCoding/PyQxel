@@ -352,8 +352,32 @@ follows the same rule as every other source: one user's key, one user's results.
   statements the API tied to a page are kept (`findings_in`), each listed under the
   report with its links, and the report cites them by number. Results are kept with the
   report, for its owner alone, like the rest of its data.
+- **Default:** the box starts checked, and the person can uncheck it.
 - **Without an Anthropic key:** the report can still be taken to claude.ai ("Use Claude
-  outside the app"), which has its own web search; that prompt does not search.
+  outside the app"), which has its own web search. PyQxel makes no search for that
+  prompt; it tells Claude whether it may search the web itself (the same checkbox), and
+  to name the publisher and date of anything it finds, since there are no numbered
+  findings outside the app.
+
+## What Claude's picks are given, and what it costs
+
+Each list of picks is made from data that is nearly all on hand already:
+
+- **The screener (no requests):** every candidate's figures, exchange, sector,
+  industry, market cap rank, the end of its ratios' period, and its percentile within
+  its sector on eight figures, plus each sector's medians, all read from the stored
+  screener.
+- **The S&P 500's members (keyless):** from the SEC's filings of a fund that tracks it,
+  cached for a day and shared with the screener's S&P 500 choice.
+- **Finnhub (the user's key):** the market calendar (FOMC from the Federal Reserve, no
+  key), four weekly earnings calendars that also give every candidate's next report
+  date, the general and merger news, and the company news of the 30 stocks likeliest to
+  be picked (`events_shortlist`), six at a time. That is about 38 requests on a free
+  plan's 60 a minute; company news is cached for ten minutes and shared with the stock
+  page, and the calendars for six hours with the Markets page. Without a Finnhub key the
+  picks are still made, and the context's notice says what is missing.
+- **SEC EDGAR (keyless):** the last 30 days of filings of the same 30 stocks, four at a
+  time, with an 8-K's items in words.
 
 ## Notes and gaps
 

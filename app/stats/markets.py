@@ -99,9 +99,10 @@ def market_context(
     ipos: list[IpoEvent] | None,
     news: MarketNews | None,
     status: MarketStatus | None,
+    headlines: int = CONTEXT_HEADLINES,
 ) -> MarketContext:
     """The upcoming FOMC meetings, holidays, major earnings reports, and IPOs, and the
-    newest market headlines; parts passed as ``None`` are left empty."""
+    newest ``headlines`` market headlines; parts passed as ``None`` are left empty."""
     soon = today + timedelta(days=CONTEXT_EVENT_DAYS)
     return MarketContext(
         as_of=today,
@@ -129,7 +130,7 @@ def market_context(
                 headline=article.headline,
                 summary=_shorten(article.summary),
             )
-            for article in (news.articles if news else [])[:CONTEXT_HEADLINES]
+            for article in (news.articles if news else [])[:headlines]
         ],
     )
 

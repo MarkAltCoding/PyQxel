@@ -7,6 +7,7 @@ table can then show the picks alone (``symbols`` of a screen), and a portfolio r
 given the latest picks as candidates for new investments.
 """
 
+import asyncio
 import hashlib
 import logging
 import re
@@ -18,6 +19,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
 from fastapi.sse import EventSourceResponse, ServerSentEvent
+from httpx2 import AsyncClient
 from pydantic import SecretStr
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,10 +30,14 @@ from app.ai.picks import picks_messages, picks_research_task, stream_picks, writ
 from app.ai.prompts import PICKS_SYSTEM_PROMPT
 from app.ai.web import add_web_research, with_web_research
 from app.api.auth import CurrentUser
-from app.api.v1.endpoints.markets import fetch_market_context
+from app.api.v1.endpoints.markets import PicksBackdrop, fetch_picks_backdrop
 from app.api.v1.endpoints.research import ai_error, anthropic_key, check_ai_limits
 from app.core.config import get_settings
+from app.data.alternative import fetch_company_filings
 from app.data.fetcher import DataFetchError
+from app.data.index_members import cached_index_members
+from app.data.news import NewsFetchError, fetch_company_news
+from app.data.sec_edgar import FilingFetchError, edgar_client
 from app.db.picks import (
     delete_picks,
     find_recent_picks,
@@ -42,20 +48,27 @@ from app.db.picks import (
 )
 from app.db.screener import (
     Universe,
+    index_symbols,
+    load_listings,
     screen,
     shared_universe,
     shows_universe,
+    universe_companies,
     universe_counts,
+    universe_listings,
     universe_stocks,
     user_universe,
 )
 from app.db.session import get_session, get_sessionmaker
 from app.models.external import PicksImport, PicksPromptExport
-from app.models.markets import MarketContext
+from app.models.alternative import SecFiling
+from app.models.news import NewsArticle
 from app.models.picks import (
     MAX_PICKS,
     MIN_PICKS,
+    CandidateEvents,
     Pick,
+    PickCandidate,
     PicksContext,
     PicksList,
     PicksReport,
@@ -66,7 +79,15 @@ from app.models.picks import (
 from app.models.research import AnalysisDelta, AnalysisStreamError
 from app.models.stock import SYMBOL_PATTERN
 from app.models.web import WebSearchQuery
-from app.stats.picks import lenses_for, merge_candidates
+from app.stats.picks import (
+    candidate_events,
+    events_shortlist,
+    lenses_for,
+    merge_candidates,
+    sector_snapshots,
+    with_listing_facts,
+    with_sector_percentiles,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,13 +120,100 @@ async def _universe(session: AsyncSession, user_id: str) -> Universe | None:
     return await shared_universe(session) if await shows_universe(session) else None
 
 
-async def _market() -> tuple[MarketContext | None, str | None]:
+async def _market() -> tuple[PicksBackdrop | None, str | None]:
     """The market backdrop, or a notice saying it is missing."""
     try:
-        return await fetch_market_context(date.today()), None
+        return await fetch_picks_backdrop(date.today()), None
     except DataFetchError as exc:
         logger.info("No market backdrop for Claude's picks: %s", exc)
         return None, "The market calendar and headlines could not be fetched."
+
+
+FILING_DAYS: int = 30
+"""Days of a candidate's SEC filings given to Claude."""
+
+NEWS_REQUESTS_AT_ONCE: int = 6
+"""Company news requests to Finnhub in flight together, well inside its 30 a second."""
+
+EDGAR_REQUESTS_AT_ONCE: int = 4
+"""Requests to EDGAR in flight together, inside the SEC's ten a second."""
+
+
+async def _news(symbol: str, slots: asyncio.Semaphore) -> list[NewsArticle] | None:
+    """A candidate's news of the last two weeks, or ``None`` when it cannot be had."""
+    async with slots:
+        try:
+            return (await fetch_company_news(symbol)).articles
+        except NewsFetchError as exc:
+            logger.info("No news on %s for Claude's picks: %s", symbol, exc)
+            return None
+
+
+async def _filings(
+    cik: int | None, client: AsyncClient | None, since: date, slots: asyncio.Semaphore
+) -> list[SecFiling] | None:
+    """A candidate's recent SEC filings, or ``None`` when they cannot be had."""
+    if cik is None or client is None:
+        return None
+    async with slots:
+        try:
+            return await fetch_company_filings(cik, since, client)
+        except DataFetchError as exc:
+            logger.info("No SEC filings of CIK %s for Claude's picks: %s", cik, exc)
+            return None
+
+
+async def _candidate_events(
+    shortlist: list[PickCandidate], ciks: dict[str, int | None]
+) -> list[CandidateEvents]:
+    """The news and SEC filings of each candidate on ``shortlist``: one Finnhub request
+    each (cached for ten minutes and shared with the stock page) and one keyless request
+    to EDGAR. A source that cannot be read is left out for that candidate."""
+    if not shortlist:
+        return []
+    today = date.today()
+    news_slots = asyncio.Semaphore(NEWS_REQUESTS_AT_ONCE)
+    edgar_slots = asyncio.Semaphore(EDGAR_REQUESTS_AT_ONCE)
+    edgar: AsyncClient | None
+    try:
+        edgar = edgar_client()
+    except FilingFetchError as exc:
+        logger.info("No SEC filings for Claude's picks: %s", exc)
+        edgar = None
+    try:
+        news, filings = await asyncio.gather(
+            asyncio.gather(*(_news(c.symbol, news_slots) for c in shortlist)),
+            asyncio.gather(
+                *(
+                    _filings(
+                        ciks.get(c.symbol), edgar, today - timedelta(days=FILING_DAYS), edgar_slots
+                    )
+                    for c in shortlist
+                )
+            ),
+        )
+    finally:
+        if edgar is not None:
+            await edgar.aclose()
+    now = datetime.now(timezone.utc)
+    return [
+        candidate_events(candidate.symbol, articles, found, now)
+        for candidate, articles, found in zip(shortlist, news, filings, strict=True)
+    ]
+
+
+async def _sp500(session: AsyncSession, universe: Universe) -> set[str] | None:
+    """The symbols in ``universe`` the S&P 500 holds, from the SEC's filings of a fund that
+    tracks it (keyless, cached for a day); ``None`` when they cannot be read."""
+    try:
+        listings = [listing for listing, _ in await load_listings(session)]
+        if not listings:
+            listings = await universe_listings(session, universe)
+        classes = (await cached_index_members("sp500", listings)).classes
+    except (DataFetchError, FilingFetchError) as exc:
+        logger.info("No S&P 500 members for Claude's picks: %s", exc)
+        return None
+    return await index_symbols(session, universe, classes) if classes else None
 
 
 async def picks_context(session: AsyncSession, user_id: str, request: PicksRequest) -> PicksContext:
@@ -131,9 +239,29 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
             "candidates must trade at least $5 million a day.",
         )
     securities, etfs = await universe_counts(session, universe)
-    market, market_notice = await _market()
+    companies = await universe_companies(session, universe)
+    candidates = with_sector_percentiles(candidates, companies)
+    sp500 = await _sp500(session, universe)
+    ciks = {stock.symbol: stock.cik for stock in companies}
+    (backdrop, market_notice), events = await asyncio.gather(
+        _market(), _candidate_events(events_shortlist(candidates), ciks)
+    )
+    candidates = with_listing_facts(
+        candidates, None if backdrop is None else backdrop.earnings, sp500
+    )
     notices = [
         market_notice,
+        (
+            "Each candidate's next earnings date comes from Finnhub's calendar, which could "
+            "not be fetched."
+            if backdrop is not None and backdrop.earnings is None
+            else None
+        ),
+        (
+            "No candidate's own news could be fetched: it comes from Finnhub on your key."
+            if events and all(event.news_articles is None for event in events)
+            else None
+        ),
         (
             "The screener holds no ETFs, so the candidates are stocks alone."
             if etfs == 0 and "etf" in (profile.asset_types or ["etf"])
@@ -153,7 +281,10 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
             has_etfs=etfs > 0,
         ),
         candidates=candidates,
-        market=market,
+        market=None if backdrop is None else backdrop.market,
+        deal_headlines=[] if backdrop is None else backdrop.deals,
+        sectors=sector_snapshots(companies),
+        candidate_events=events,
         notice=" ".join(notice for notice in notices if notice) or None,
     )
 
@@ -441,17 +572,20 @@ async def export_picks_prompt(
 ) -> PicksPromptExport:
     """Return exactly what a list of picks would send Claude, as one Markdown document.
 
-    No Anthropic key is needed and nothing counts against your AI limits; the web is not
-    searched. Paste ``prompt`` into Claude, then send its answer to ``/picks/import`` with
-    the ``context`` returned here. Fails as ``/picks`` does when there is nothing to pick
-    from.
+    No Anthropic key is needed and nothing counts against your AI limits. The app makes no
+    web search: with ``web_search``, the prompt tells Claude to search the web itself and
+    name its sources, and without it, to keep to the data given. Paste ``prompt`` into
+    Claude, then send its answer to ``/picks/import`` with the ``context`` returned here.
+    Fails as ``/picks`` does when there is nothing to pick from.
     """
     try:
         context = await picks_context(session, user.id, request)
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
     return PicksPromptExport(
-        prompt=render_prompt(PICKS_SYSTEM_PROMPT, picks_messages(context), PicksReport),
+        prompt=render_prompt(
+            PICKS_SYSTEM_PROMPT, picks_messages(context), PicksReport, request.web_search
+        ),
         filename=f"pyqxel-claudes-picks-{context.horizon.replace(', ', '-').replace(' ', '-')}"
         "-prompt.md",
         context=context,

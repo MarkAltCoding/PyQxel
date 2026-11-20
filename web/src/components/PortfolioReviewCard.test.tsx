@@ -122,7 +122,7 @@ describe('PortfolioReviewCard', () => {
         portfolio: 2,
         combined: false,
         period: '1y',
-        web_search: false,
+        web_search: true,
         refresh: true,
         profile: {
           risk_tolerance: null,

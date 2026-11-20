@@ -68,6 +68,11 @@ class SecFiling(BaseModel):
     form: str
     filed: date
     url: str | None = None
+    items: list[str] = Field(
+        default_factory=list,
+        description="What an 8-K reports, its numbered items in words, such as Results of "
+        "operations; empty for other forms.",
+    )
 
 
 class AlternativeRecords(BaseModel):

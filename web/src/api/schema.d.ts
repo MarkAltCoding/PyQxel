@@ -940,10 +940,11 @@ export interface paths {
      * The picks prompt, to paste into Claude outside the app
      * @description Return exactly what a list of picks would send Claude, as one Markdown document.
      *
-     *     No Anthropic key is needed and nothing counts against your AI limits; the web is not
-     *     searched. Paste ``prompt`` into Claude, then send its answer to ``/picks/import`` with
-     *     the ``context`` returned here. Fails as ``/picks`` does when there is nothing to pick
-     *     from.
+     *     No Anthropic key is needed and nothing counts against your AI limits. The app makes no
+     *     web search: with ``web_search``, the prompt tells Claude to search the web itself and
+     *     name its sources, and without it, to keep to the data given. Paste ``prompt`` into
+     *     Claude, then send its answer to ``/picks/import`` with the ``context`` returned here.
+     *     Fails as ``/picks`` does when there is nothing to pick from.
      */
     post: operations['export_picks_prompt_api_v1_picks_prompt_post']
     delete?: never
@@ -1090,9 +1091,10 @@ export interface paths {
      * The portfolio review prompt, to paste into Claude outside the app
      * @description Return exactly what a review of your saved portfolio would send Claude.
      *
-     *     No Anthropic key is needed and nothing counts against your AI limits. Paste
-     *     ``prompt`` into Claude, then send its answer to ``/analysis/import`` with the
-     *     ``context`` returned here.
+     *     No Anthropic key is needed and nothing counts against your AI limits. With
+     *     ``web_search``, the prompt tells Claude to search the web itself and name its sources;
+     *     without it, to keep to the data given. Paste ``prompt`` into Claude, then send its
+     *     answer to ``/analysis/import`` with the ``context`` returned here.
      */
     post: operations['export_portfolio_prompt_api_v1_portfolio_analysis_prompt_post']
     delete?: never
@@ -1631,9 +1633,11 @@ export interface paths {
      * @description Return exactly what an analysis would send Claude, as one Markdown document.
      *
      *     The same data is gathered as for ``/analysis``, filings included, but nothing is sent
-     *     to Claude: no Anthropic key is needed and nothing counts against your AI limits.
-     *     Paste ``prompt`` into Claude, then send its answer to ``/analysis/import`` with the
-     *     ``context`` returned here. Fails as ``/analysis`` does when the data cannot be had.
+     *     to Claude: no Anthropic key is needed and nothing counts against your AI limits. With
+     *     ``web_search``, the prompt tells Claude to search the web itself and name its sources;
+     *     without it, to keep to the data given. Paste ``prompt`` into Claude, then send its
+     *     answer to ``/analysis/import`` with the ``context`` returned here. Fails as
+     *     ``/analysis`` does when the data cannot be had.
      */
     post: operations['export_analysis_prompt_api_v1_stocks__symbol__analysis_prompt_post']
     delete?: never
@@ -3251,6 +3255,50 @@ export interface components {
        * @enum {string}
        */
       type: 'buy_and_hold'
+    }
+    /**
+     * CandidateEvents
+     * @description A candidate's own recent news and SEC filings.
+     */
+    CandidateEvents: {
+      /**
+       * Filings
+       * @description Its SEC filings of the last 30 days, newest first; empty for an ETF or when EDGAR could not be read.
+       */
+      filings?: components['schemas']['CandidateFiling'][]
+      /**
+       * Headlines
+       * @description Its headlines that look to matter most for its shares, newest first.
+       */
+      headlines?: components['schemas']['NewsHeadline'][]
+      /**
+       * News Articles
+       * @description Articles about it in the last 14 days; null when its news could not be fetched.
+       */
+      news_articles?: number | null
+      /** Symbol */
+      symbol: string
+    }
+    /**
+     * CandidateFiling
+     * @description A filing a candidate made with the SEC recently.
+     */
+    CandidateFiling: {
+      /**
+       * Filed
+       * Format: date
+       */
+      filed: string
+      /**
+       * Form
+       * @description Such as 8-K, 10-Q, 10-K, 4 (an insider's trade), or S-3.
+       */
+      form: string
+      /**
+       * Items
+       * @description What an 8-K reports, in words; empty otherwise.
+       */
+      items?: string[]
     }
     /**
      * CheckoutLink
@@ -6675,7 +6723,8 @@ export interface components {
     }
     /**
      * PickCandidate
-     * @description A security the screener offered Claude, with the measures it led on.
+     * @description A security the screener offered Claude, with the measures it led on and everything
+     *     else the screener can filter it by.
      */
     PickCandidate: {
       /**
@@ -6716,6 +6765,10 @@ export interface components {
       earnings_growth?: number | null
       /** Ev To Ebitda */
       ev_to_ebitda?: number | null
+      /** Ev To Ebitda Sector Pct */
+      ev_to_ebitda_sector_pct?: number | null
+      /** Exchange */
+      exchange?: string | null
       /**
        * Factor R Squared
        * @description Share of return variance the four factors explain.
@@ -6723,6 +6776,13 @@ export interface components {
       factor_r_squared?: number | null
       /** Fcf Yield */
       fcf_yield?: number | null
+      /** Fcf Yield Sector Pct */
+      fcf_yield_sector_pct?: number | null
+      /**
+       * Fundamentals Period End
+       * @description End of the latest period its financial ratios use.
+       */
+      fundamentals_period_end?: string | null
       /** Gross Margin */
       gross_margin?: number | null
       /** Industry */
@@ -6738,6 +6798,11 @@ export interface components {
        */
       market_cap?: number | null
       /**
+       * Market Cap Rank
+       * @description Rank by market cap in the screener, a company's share classes counted once; null for an ETF. The top 500 are the screener's large caps, the top 3,000 its broad market.
+       */
+      market_cap_rank?: number | null
+      /**
        * Max Drawdown
        * @description Largest peak-to-trough decline over a year.
        */
@@ -6747,14 +6812,28 @@ export interface components {
        * @description Return from 12 months to 1 month ago, skipping the latest month as momentum strategies do.
        */
       momentum_12_1?: number | null
+      /** Momentum 12 1 Sector Pct */
+      momentum_12_1_sector_pct?: number | null
       /** Name */
       name: string
       /** Net Margin */
       net_margin?: number | null
+      /**
+       * Next Earnings
+       * @description Its next scheduled earnings report within the calendar's window; null when none is scheduled in it or the calendar could not be fetched.
+       */
+      next_earnings?: string | null
       /** Operating Margin */
       operating_margin?: number | null
+      /** Operating Margin Sector Pct */
+      operating_margin_sector_pct?: number | null
       /** Pe Ratio */
       pe_ratio?: number | null
+      /**
+       * Pe Ratio Sector Pct
+       * @description Percent of its sector's profitable stocks with a lower P/E (low is cheap). Every *_sector_pct column is a percentile from 0 to 100 among the stocks of its sector in the whole screener, counting ties as half; null for an ETF or when the figure is missing.
+       */
+      pe_ratio_sector_pct?: number | null
       /**
        * Price
        * @description Latest adjusted close.
@@ -6774,13 +6853,22 @@ export interface components {
       return_6m?: number | null
       /** Return On Equity */
       return_on_equity?: number | null
+      /** Return On Equity Sector Pct */
+      return_on_equity_sector_pct?: number | null
       /**
        * Revenue Growth
        * @description TTM revenue, year on year.
        */
       revenue_growth?: number | null
+      /** Revenue Growth Sector Pct */
+      revenue_growth_sector_pct?: number | null
       /** Sector */
       sector?: string | null
+      /**
+       * Sp500
+       * @description Whether the S&P 500 holds it; null when the index's members could not be read.
+       */
+      sp500?: boolean | null
       /** Symbol */
       symbol: string
       /**
@@ -6788,6 +6876,8 @@ export interface components {
        * @description Annualized volatility of daily returns over a year.
        */
       volatility?: number | null
+      /** Volatility Sector Pct */
+      volatility_sector_pct?: number | null
     }
     /**
      * PicksContext
@@ -6795,8 +6885,18 @@ export interface components {
      *     candidates as a table.
      */
     PicksContext: {
+      /**
+       * Candidate Events
+       * @description Recent news and SEC filings of the candidates likeliest to be picked: the stocks that led on the most measures, then the largest.
+       */
+      candidate_events?: components['schemas']['CandidateEvents'][]
       /** Candidates */
       candidates: components['schemas']['PickCandidate'][]
+      /**
+       * Deal Headlines
+       * @description The newest headlines on mergers and acquisitions, newest first.
+       */
+      deal_headlines?: components['schemas']['NewsHeadline'][]
       /**
        * Horizon
        * @description The holding period in words.
@@ -6815,6 +6915,11 @@ export interface components {
        */
       notice?: string | null
       profile: components['schemas']['PicksProfile']
+      /**
+       * Sectors
+       * @description The whole screener's stocks, then each sector's, as medians: what a candidate's figures compare against.
+       */
+      sectors?: components['schemas']['SectorSnapshot'][]
       /**
        * Today
        * Format: date
@@ -8711,8 +8816,53 @@ export interface components {
       filed: string
       /** Form */
       form: string
+      /**
+       * Items
+       * @description What an 8-K reports, its numbered items in words, such as Results of operations; empty for other forms.
+       */
+      items?: string[]
       /** Url */
       url?: string | null
+    }
+    /**
+     * SectorSnapshot
+     * @description How the stocks of one sector, or of the whole screener, look today: medians of
+     *     the screener's figures among those that have them.
+     */
+    SectorSnapshot: {
+      /** Median Ev To Ebitda */
+      median_ev_to_ebitda?: number | null
+      /** Median Fcf Yield */
+      median_fcf_yield?: number | null
+      /** Median Momentum 12 1 */
+      median_momentum_12_1?: number | null
+      /** Median Operating Margin */
+      median_operating_margin?: number | null
+      /**
+       * Median Pe Ratio
+       * @description Among profitable stocks only.
+       */
+      median_pe_ratio?: number | null
+      /** Median Return 1M */
+      median_return_1m?: number | null
+      /** Median Return 6M */
+      median_return_6m?: number | null
+      /** Median Revenue Growth */
+      median_revenue_growth?: number | null
+      /** Median Volatility */
+      median_volatility?: number | null
+      /**
+       * Rising 6M
+       * @description Share of its stocks that rose over six months, as a decimal: the breadth of its trend.
+       */
+      rising_6m?: number | null
+      /**
+       * Sector
+       * @description The sector, or ``All stocks`` for the whole screener.
+       */
+      sector: string
+      /** Stocks */
+      stocks: number
     }
     /**
      * ShortTermReversal
