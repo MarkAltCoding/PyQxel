@@ -444,3 +444,16 @@ def test_company_headlines_are_scored_by_what_they_mean_for_the_shares() -> None
         [article("Apple to buy a chip maker in $3 billion deal")], "AAPL", now
     )
     assert scored[0].importance is not None and scored[0].importance > passing
+
+
+def test_context_keeps_the_headlines_that_matter_over_the_newest_chatter() -> None:
+    news = _news([float(h) for h in range(CONTEXT_ARTICLES + 10)])
+    results = news.articles[-1].model_copy(
+        update={"headline": "AAPL beats on earnings, lifts guidance"}
+    )
+    news = news.model_copy(update={"articles": [*news.articles[:-1], results]})
+
+    context = news_context(news, NOW)
+
+    assert len(context.articles) == CONTEXT_ARTICLES
+    assert context.articles[-1].headline == results.headline

@@ -135,6 +135,22 @@ LENSES: tuple[Lens, ...] = (
         15,
         filters=(_bounded("price_to_sales", low=0.05), _bounded("revenue_growth", low=0.1)),
     ),
+    Lens("net margin", "net_margin", True, 15),
+    Lens("smallest companies", "market_cap", False, 25),
+    Lens(
+        "value tilt",
+        "beta_value",
+        True,
+        15,
+        filters=(_bounded("factor_r_squared", low=0.1),),
+    ),
+    Lens(
+        "small-company tilt",
+        "beta_size",
+        True,
+        15,
+        filters=(_bounded("factor_r_squared", low=0.1),),
+    ),
     Lens("low volatility", "volatility", False, 25),
     Lens("small drawdown", "max_drawdown", True, 15),
     Lens(

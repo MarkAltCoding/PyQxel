@@ -19,7 +19,7 @@ from app.stats.markets import MAJOR_PUBLISHERS
 TOP_SOURCES: int = 8
 """Publishers listed in an overview."""
 CONTEXT_ARTICLES: int = 40
-"""Articles given to Claude, the newest."""
+"""Articles given to Claude: those that matter most, newest first."""
 CONTEXT_SUMMARY_CHARS: int = 300
 """Length each summary given to Claude is cut to."""
 
@@ -61,8 +61,16 @@ def _shorten(text: str | None) -> str | None:
 
 
 def news_context(news: CompanyNews, now: datetime) -> NewsContext:
-    """The newest of ``news``'s articles, as given to Claude, with the window's counts."""
+    """The :data:`CONTEXT_ARTICLES` of ``news``'s articles that look to matter most for the
+    shares (:func:`company_headline_importance`), newest first, as given to Claude, with
+    the window's counts. A busy company draws hundreds of articles in two weeks, so the
+    newest alone could be a single day's chatter."""
     overview = summarize_news(news, now)
+    ranked = sorted(
+        enumerate(news.articles),
+        key=lambda item: (-company_headline_importance(item[1], news.symbol, now), item[0]),
+    )[:CONTEXT_ARTICLES]
+    chosen = [article for _, article in sorted(ranked)]
     return NewsContext(
         start=news.start,
         end=news.end,
@@ -75,7 +83,7 @@ def news_context(news: CompanyNews, now: datetime) -> NewsContext:
                 headline=article.headline,
                 summary=_shorten(article.summary),
             )
-            for article in news.articles[:CONTEXT_ARTICLES]
+            for article in chosen
         ],
     )
 

@@ -865,7 +865,7 @@ const entries = {
   },
   claudesPicks: {
     title: 'Claude’s picks',
-    what: 'The securities Claude would buy now and hold for the period you choose. It starts from your screener: the leaders on market cap, momentum, recent returns, free cash flow yield, P/E, growth, return on equity, margins, and low volatility, and the most traded ETFs, each trading at least $5 million a day. From those candidates it picks five to ten for your holding period and risk tolerance, ranks them, and says how much of each to buy, why, how to buy it, and when to sell.',
+    what: 'The securities Claude would buy now and hold for the period you choose. It starts from your screener: the leaders on market cap (the largest and the smallest), momentum, recent returns, free cash flow yield, P/E, growth, return on equity, margins, a tilt toward value or small companies, and low volatility, and the most traded ETFs, each trading at least $5 million a day. From those candidates it picks five to ten for your holding period and risk tolerance, ranks them, and says how much of each to buy, why, how to buy it, and when to sell.',
     good: 'Use the picks as a shortlist to research: open each one’s page, read its report, and check the news before buying.',
     bad: 'Buying a list unread, or expecting a short-term pick to work: over a few weeks any stock is close to a coin toss.',
     note: 'An AI’s reading of historical figures, not a licensed adviser’s advice or a forecast. Claude is asked to take a view rather than default to index funds, so the picks can be concentrated and volatile; a broad fund appears only when Claude judges it the best answer for your profile.',

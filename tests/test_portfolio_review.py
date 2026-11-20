@@ -283,6 +283,51 @@ def test_without_fractions_orders_stay_in_whole_shares() -> None:
     assert all(not t.fractional for t in plan.trades)
 
 
+def test_cash_left_by_whole_shares_buys_the_extra_shares_that_help() -> None:
+    """Rounding down leaves $230; two more XOM shares bring the plan closer to its targets,
+    and a third would overshoot, so $90 stays as cash."""
+    targets = {"AAPL": Target(0.5, "market", None, ""), "XOM": Target(0.5, "market", None, "")}
+
+    plan = plan_trades({}, targets, {"AAPL": 300.0, "XOM": 70.0}, cash=10_000.0)
+
+    trades = {t.symbol: t.shares for t in plan.trades}
+    assert trades == {"AAPL": 16, "XOM": 73}  # 4,800 and 5,110 of 5,000 each
+    assert plan.cash_after == pytest.approx(90.0)
+    assert any("buys 2 more shares of XOM" in note for note in plan.notes)
+
+
+def test_extra_whole_shares_respect_the_cash_claude_keeps() -> None:
+    targets = {
+        "AAPL": Target(0.5, "market", None, ""),
+        "XOM": Target(0.3, "market", None, ""),
+        "Cash": Target(0.2, "market", None, ""),
+    }
+
+    plan = plan_trades({}, targets, {"AAPL": 300.0, "XOM": 70.0}, cash=10_000.0)
+
+    trades = {t.symbol: t.shares for t in plan.trades}
+    assert trades == {"AAPL": 17, "XOM": 42}
+    assert plan.cash_after == pytest.approx(1_960.0)
+
+
+def test_cash_stays_when_one_more_share_would_overshoot() -> None:
+    targets = {"AAPL": Target(0.5, "market", None, ""), "Cash": Target(0.5, "market", None, "")}
+
+    plan = plan_trades({}, targets, {"AAPL": 70.0}, cash=1_000.0)
+
+    assert [(t.symbol, t.shares) for t in plan.trades] == [("AAPL", 7)]
+    assert any(note.startswith("$10.00 is left as cash") for note in plan.notes)
+    assert not any("more:" in note for note in plan.notes)
+
+
+def test_a_broker_with_fractions_gets_no_extra_whole_shares() -> None:
+    targets = {"AAPL": Target(0.5, "market", None, ""), "XOM": Target(0.5, "market", None, "")}
+
+    plan = plan_trades({}, targets, {"AAPL": 300.0, "XOM": 70.0}, cash=10_000.0, fractional=True)
+
+    assert not any("Whole-share rounding" in note for note in plan.notes)
+
+
 # Routes.
 
 
@@ -880,3 +925,16 @@ def test_a_review_that_searches_the_web_is_written_from_its_findings(
     assert "AAPL" in tasks[0] and "XOM" in tasks[0]
     assert [name for name, _ in events] == ["context", "search", "result"]
     assert market[2].web_research == RESEARCH
+
+
+def test_selling_one_share_fewer_counts_as_a_top_up() -> None:
+    """A $1,000 share rounds XOM's buy down, leaving $500 over; keeping one more AAPL share
+    (selling 4, not 5) brings the plan closer to its targets than holding that cash."""
+    targets = {"AAPL": Target(0.5, "market", None, ""), "XOM": Target(0.5, "market", None, "")}
+
+    plan = plan_trades({"AAPL": (10.0, 300.0)}, targets, {"XOM": 1_000.0})
+
+    trades = {t.symbol: (t.action, t.shares) for t in plan.trades}
+    assert trades == {"AAPL": ("sell", 4), "XOM": ("buy", 1)}
+    assert plan.cash_after == pytest.approx(200.0)
+    assert any("sells 1 fewer share of AAPL" in note for note in plan.notes)

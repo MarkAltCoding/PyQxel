@@ -10235,7 +10235,7 @@
             "items": {
               "$ref": "#/components/schemas/PickCandidate"
             },
-            "maxItems": 450,
+            "maxItems": 520,
             "title": "Candidates",
             "type": "array"
           },

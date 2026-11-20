@@ -419,3 +419,18 @@ def test_scored_news_keeps_its_order() -> None:
     assert [article.headline for article in scored.articles] == ["Ten gadgets", "Fed hikes rates"]
     assert all(article.importance is not None for article in scored.articles)
     assert scored.articles[1].importance > scored.articles[0].importance  # type: ignore[operator]
+
+
+def test_claude_gets_the_most_market_moving_headlines_newest_first() -> None:
+    """A day-old Fed headline outranks an hour of filler, and the ones kept read newest
+    first."""
+    fed = _article("Fed signals rate cut as inflation cools", hours_old=20)
+    filler = [_article(f"Ten gadgets to buy, part {i}", "Blog", hours_old=i / 10) for i in range(5)]
+    news = MarketNews(category="general", articles=[*filler, fed], fetched_at=NOW)
+
+    context = market_context(TODAY, [], None, None, None, news, None, headlines=3)
+
+    assert [h.headline for h in context.headlines][-1] == fed.headline
+    assert len(context.headlines) == 3
+    times = [h.published_at for h in context.headlines]
+    assert times == sorted(times, reverse=True)

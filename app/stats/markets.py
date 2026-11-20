@@ -102,8 +102,18 @@ def market_context(
     headlines: int = CONTEXT_HEADLINES,
 ) -> MarketContext:
     """The upcoming FOMC meetings, holidays, major earnings reports, and IPOs, and the
-    newest ``headlines`` market headlines; parts passed as ``None`` are left empty."""
+    ``headlines`` market headlines that look most market-moving (:func:`headline_importance`),
+    newest first; parts passed as ``None`` are left empty."""
     soon = today + timedelta(days=CONTEXT_EVENT_DAYS)
+    articles = news.articles if news else []
+    ranked = sorted(
+        enumerate(articles),
+        key=lambda item: (
+            -headline_importance(item[1], news.fetched_at if news else item[1].published_at),
+            item[0],
+        ),
+    )[:headlines]
+    top = [article for _, article in sorted(ranked)]
     return MarketContext(
         as_of=today,
         market_open=None if status is None else status.is_open,
@@ -130,7 +140,7 @@ def market_context(
                 headline=article.headline,
                 summary=_shorten(article.summary),
             )
-            for article in (news.articles if news else [])[:headlines]
+            for article in top
         ],
     )
 

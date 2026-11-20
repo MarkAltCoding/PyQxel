@@ -7,6 +7,8 @@ prices, so the plan's arithmetic is exact.
 import math
 from dataclasses import dataclass
 
+from app.core.text import listed
+
 CASH: str = "Cash"
 """The key the planner files money left uninvested under: not a ticker, so it never
 collides with a stock's (CASH itself is one)."""
@@ -30,6 +32,16 @@ FRACTIONAL_NOTE: str = (
     "and many take them only as market orders. Stop and trailing-stop orders are not "
     "available for fractional shares at some brokers, including Fidelity. If yours does not "
     "take the fraction, sell it at market, or round the order to whole shares."
+)
+
+TOP_UP_NOTE: str = (
+    "Whole-share rounding left cash over, so the plan {changes}: each share brings the "
+    "portfolio closer to its targets than leaving that money as cash would."
+)
+
+LEFT_AS_CASH_NOTE: str = (
+    "{amount} is left as cash after rounding to whole shares: one more share of any "
+    "position would move the portfolio further from its targets than holding the cash does."
 )
 
 FRACTIONAL_LIMIT_NOTE: str = (
@@ -242,6 +254,10 @@ def plan_trades(
             spent += trade.value
     invested = math.fsum(shares * price for shares, price in holdings.values())
     cash_after = cash + raised - spent
+    if not fractional:
+        sells, buys, cash_after = _top_up(
+            holdings, weights, prices, total, sells, buys, cash_after, notes
+        )
     if invested + cash > 0 and cash_after < -MIN_TRADE_VALUE:
         notes.append("The buys cost more than the sells and new cash raise; trim them to fit.")
     trades = sells + buys
@@ -252,3 +268,126 @@ def plan_trades(
     if limits:
         notes.append(FRACTIONAL_LIMIT_NOTE.format(symbols=", ".join(limits)))
     return Plan(total_value=total, trades=trades, cash_after=cash_after, notes=notes)
+
+
+def _top_up(
+    holdings: dict[str, tuple[float, float]],
+    weights: dict[str, Target],
+    prices: dict[str, float | None],
+    total: float,
+    sells: list[Trade],
+    buys: list[Trade],
+    cash_after: float,
+    notes: list[str],
+) -> tuple[list[Trade], list[Trade], float]:
+    """Spend the cash that whole-share rounding left over on extra whole shares, but only
+    where that is better than keeping the cash.
+
+    Closeness to the targets is the sum of squared gaps between each position's value and
+    its target, cash included, whose target is the weight Claude left uninvested. One more
+    share worth ``v`` of a position ``under`` below its target, paid from cash ``over``
+    above its own, changes that sum by ``2v(v - under - over)``: it helps exactly when
+    the two gaps together exceed the share's price. Shares are added one at a time, each
+    the one that helps most, until none helps or the cash runs out. A share sold one
+    fewer counts the same as one bought.
+
+    Returns:
+        The sells and buys, with the extra shares in them, and the cash left after.
+    """
+    after: dict[str, float] = {symbol: shares for symbol, (shares, _) in holdings.items()}
+    for trade in sells:
+        after[trade.symbol] = after.get(trade.symbol, 0.0) - (trade.shares or 0.0)
+    for trade in buys:
+        after[trade.symbol] = after.get(trade.symbol, 0.0) + (trade.shares or 0.0)
+
+    def price_of(symbol: str) -> float | None:
+        if symbol in holdings:
+            return holdings[symbol][1]
+        return prices.get(symbol)
+
+    candidates: dict[str, float] = {}
+    for symbol, target in weights.items():
+        price = price_of(symbol)
+        if symbol == CASH or target.keep or target.weight <= 0 or not price or price <= 0:
+            continue
+        candidates[symbol] = price
+    invested_target = math.fsum(t.weight for s, t in weights.items() if s != CASH)
+    cash_target = max(1.0 - invested_target, 0.0) * total
+    added: dict[str, int] = {}
+    left = cash_after
+    while candidates:
+        over = left - cash_target
+        best: tuple[float, str] | None = None
+        for symbol, price in candidates.items():
+            if price > left + 1e-9:
+                continue
+            under = weights[symbol].weight * total - after.get(symbol, 0.0) * price
+            gain = under + over - price
+            if gain > 1e-9 and (best is None or gain * price > best[0]):
+                best = (gain * price, symbol)
+        if best is None:
+            break
+        symbol = best[1]
+        after[symbol] = after.get(symbol, 0.0) + 1
+        added[symbol] = added.get(symbol, 0) + 1
+        left -= candidates[symbol]
+
+    if added:
+        by_symbol = {t.symbol: t for t in sells + buys}
+        changes = []
+        for symbol, count in added.items():
+            shares_word = "share" if count == 1 else "shares"
+            if symbol in by_symbol and by_symbol[symbol].action == "sell":
+                changes.append(f"sells {count} fewer {shares_word} of {symbol}")
+            else:
+                changes.append(f"buys {count} more {shares_word} of {symbol}")
+        for symbol, count in added.items():
+            price = candidates[symbol]
+            existing = by_symbol.get(symbol)
+            if existing is None:
+                target = weights[symbol]
+                limit = None
+                if target.order_type == "limit":
+                    limit = round(price * (1 + (target.limit_offset_percent or 0.0) / 100), 2)
+                buys.append(
+                    Trade(
+                        symbol,
+                        "buy",
+                        float(count),
+                        price,
+                        count * price,
+                        target.order_type,
+                        limit,
+                        target.rationale,
+                    )
+                )
+                continue
+            change = count if existing.action == "buy" else -count
+            shares = round((existing.shares or 0.0) + change, SHARE_DECIMALS)
+            replaced = [
+                t for t in (sells if existing.action == "sell" else buys) if t is not existing
+            ]
+            if shares > 0:
+                updated = Trade(
+                    existing.symbol,
+                    existing.action,
+                    shares,
+                    existing.price,
+                    shares * price,
+                    existing.order_type,
+                    existing.limit_price,
+                    existing.rationale,
+                    fractional=not float(shares).is_integer(),
+                )
+                index = (sells if existing.action == "sell" else buys).index(existing)
+                replaced.insert(index, updated)
+            if existing.action == "sell":
+                sells = replaced
+            else:
+                buys = replaced
+        notes.append(TOP_UP_NOTE.format(changes=listed(changes)))
+    if left - cash_target >= max(MIN_TRADE_VALUE, 0.001 * total) and any(
+        price <= left for price in candidates.values()
+    ):
+        notes.append(LEFT_AS_CASH_NOTE.format(amount=f"${left - cash_target:,.2f}"))
+    return sells, buys, left

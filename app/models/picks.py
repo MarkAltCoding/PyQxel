@@ -32,8 +32,9 @@ MIN_PICKS: int = 3
 MAX_PICKS: int = 12
 """Most picks kept from an answer."""
 
-MAX_CANDIDATES: int = 450
-"""Most candidates the screener offers Claude for one list of picks."""
+MAX_CANDIDATES: int = 520
+"""Most candidates the screener offers Claude for one list of picks: room for every lens's
+leaders, so the lenses listed last (the ETFs') are never crowded out."""
 
 MAX_CANDIDATE_EVENTS: int = 40
 """Most candidates whose own news and SEC filings are given to Claude."""

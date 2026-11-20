@@ -279,9 +279,11 @@ months), and holding_events (for the largest holdings that are not funds: how ma
 articles named them in two weeks, their headlines that matter most, and their SEC \
 filings of the last month, an 8-K's items saying what it reports). After the snapshot \
 comes holding_figures, a table of comma-separated values under a header row, one line \
-per holding the screener holds: exchange, sector, industry, market_cap_rank, sp500 \
-(whether the S&P 500 holds it), next_earnings (its next report within four weeks), \
-price, market_cap and avg_dollar_volume in dollars; pe_ratio, price_to_sales, and \
+per holding the screener holds: exchange, sector, industry, market_cap_rank (the top \
+500 are the screener's large caps, the top 3,000 its broad market), sp500 (whether the \
+S&P 500 holds it), next_earnings (its next report within four weeks), price, market_cap \
+and avg_dollar_volume in dollars (under $5 million a day is below the screener's cutoff \
+for liquid); pe_ratio, price_to_sales, and \
 ev_to_ebitda as multiples (a negative P/E is a loss); fcf_yield, margins, \
 return_on_equity, revenue_growth and earnings_growth (trailing twelve months), \
 return_1m, return_6m, momentum_12_1, volatility, and max_drawdown as decimals; the \
@@ -385,7 +387,10 @@ too coarse; when round_shares is also true, each holding is then left at whole s
 a round fraction such as 3.5 where that keeps it within a quarter of a percent of the \
 portfolio of its target. When fractional_shares is false, trades are sized in whole \
 shares where they can be and in fractions only where they must be: to sell a holding \
-of a fraction of a share, or a change worth less than one share. For fractional \
+of a fraction of a share, or a change worth less than one share. Rounding down to \
+whole shares leaves some cash over; the app then buys extra whole shares with it only \
+where each brings the portfolio closer to its targets than keeping the cash does, and \
+leaves the rest as cash, so set the cash position to what you actually want held. For fractional \
 trades, prefer market orders: many \
 brokers take fractional orders only at market or as day limit orders, Fidelity among \
 them, and allow no stop or trailing-stop orders on fractions, so do not rest a plan on a \
@@ -424,12 +429,16 @@ is not a sign of no news.
 After the snapshot comes a table of candidates, one per line, as comma-separated values \
 under a header row. The candidates are the screener's securities that lead on some \
 measure: lenses names the measures each one led on (for example the largest companies, \
-12-month momentum, free cash flow yield, low EV/EBITDA, revenue growth, low volatility, \
-low market beta, or the most traded ETFs), so the table is a wide net, not a \
-recommendation, and most of it should not be picked. Its columns are everything the \
-screener lets a person filter on, so you can screen it as they would: exchange, sector, \
-and industry; market_cap_rank (the top 500 are large caps, the top 3,000 the broad \
-market); sp500 (whether the S&P 500 holds it); next_earnings (its next report within \
+the smallest companies, 12-month momentum, free cash flow yield, low EV/EBITDA, revenue \
+growth, net margin, a value or small-company tilt, low volatility, low market beta, or \
+the most traded ETFs), so the table is a wide net, not a recommendation, and most of it \
+should not be picked. Every candidate trades at least $5 million a day on average, the \
+screener's cutoff for liquid, and costs at least $2 a share, and every stock is worth at \
+least $300 million, so smaller and thinly traded securities are left out on purpose. Its \
+columns are everything the screener lets a person filter on, so you can screen it as \
+they would: exchange (Nasdaq for the screener's Nasdaq choice), sector, and industry; \
+market_cap_rank (the top 500 are large caps, the top 3,000 the broad market); sp500 \
+(whether the S&P 500 holds it); next_earnings (its next report within \
 four weeks, empty when none is scheduled or the calendar was missing); price, market_cap \
 and avg_dollar_volume in dollars; pe_ratio, price_to_sales, and ev_to_ebitda as \
 multiples (a negative P/E is a loss); fcf_yield, margins, return_on_equity, \

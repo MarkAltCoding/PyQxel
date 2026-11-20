@@ -778,3 +778,43 @@ def test_a_review_is_given_its_holdings_figures_news_and_filings(
     message = cast(str, review_messages(context)[0]["content"])
     assert "<holding_figures>\nsymbol,name,asset_type,exchange" in message
     assert "BIG beats estimates" in message and '"holding_figures"' not in message
+
+
+def test_the_copied_picks_prompt_holds_exactly_what_the_app_sends(
+    screener: list[PicksContext],
+) -> None:
+    """Claude outside the app gets the same request, data and all, as the app sends."""
+    request = {"profile": {"horizon": {"years": 1}}}
+    client.post(PICKS, json=request)
+    exported = client.post(f"{PICKS}/prompt", json=request).json()["prompt"]
+
+    sent = cast(str, picks_messages(screener[-1])[0]["content"])
+    assert f"## Request\n\n{sent}\n\n" in exported
+    assert PICKS_SYSTEM_PROMPT in exported
+
+
+def test_the_copied_review_prompt_holds_exactly_what_the_app_sends(
+    screener: list[PicksContext], market: list[PortfolioContext]  # noqa: F811
+) -> None:
+    _save({"AAPL": 10, "XOM": 20})
+    client.post("/api/v1/portfolio/analysis", json={})
+    exported = client.post("/api/v1/portfolio/analysis/prompt", json={}).json()["prompt"]
+
+    sent = cast(str, review_messages(market[-1])[0]["content"])
+    assert f"## Request\n\n{sent}\n\n" in exported
+    assert PORTFOLIO_SYSTEM_PROMPT in exported
+
+
+def test_every_lens_fits_and_the_prompt_states_the_baseline() -> None:
+    """The lenses' leaders all fit under the cap, so the ETF lenses listed last are never
+    cut, and the prompt's figures for the candidates' baseline are the code's."""
+    from app.models.picks import MAX_CANDIDATES
+    from app.stats.picks import MIN_DOLLAR_VOLUME, MIN_MARKET_CAP, MIN_PRICE
+
+    assert sum(lens.count for lens in LENSES) <= MAX_CANDIDATES
+    from app.models.screener import LIQUID_DOLLAR_VOLUME
+
+    assert MIN_DOLLAR_VOLUME == LIQUID_DOLLAR_VOLUME == 5e6
+    assert (MIN_PRICE, MIN_MARKET_CAP) == (2.0, 3e8)
+    for figure in ("$5 million a day", "at least $2 a share", "at least $300 million"):
+        assert figure in PICKS_SYSTEM_PROMPT
