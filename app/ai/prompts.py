@@ -486,6 +486,15 @@ that beat), and insider_net_value (insiders' open-market purchases less sales ov
 days, in dollars). An empty cell means the figure could not be computed, not zero, and \
 an ETF has no company figures. Write percentages in your answer, not decimals.
 
+When the snapshot has holdings, the person already owns them, across the portfolios \
+they chose to show (each with its accounts, value, and weight), and holding_figures \
+after the candidates gives the screener's figures for those it holds, in the same \
+columns. Pick with them in mind: do not pile more into a sector, factor, or single \
+stock they are already concentrated in unless the case is strong, say when a pick \
+overlaps a holding or complements it, and pick something they already own only when \
+adding to it is the best use of the money, saying so. Do not review the holdings \
+themselves; that is the portfolio review's work.
+
 Fit the picks to the holding period, which changes what matters:
 - Weeks to about three months: what moves prices over such a stretch is momentum and \
 its recent direction (return_1m against return_6m and momentum_12_1), volatility, \

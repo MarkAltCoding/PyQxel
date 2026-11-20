@@ -1531,7 +1531,11 @@ def _review_key(
         )
     # Added only when present, so reviews stored before either existed are still reused.
     web = "|web" if request.web_search else ""
-    picked = "" if picks is None else f"|picks={picks.id or picks.generated_at.isoformat()}"
+    picked = (
+        ""
+        if picks is None or not request.include_picks
+        else f"|picks={picks.id or picks.generated_at.isoformat()}"
+    )
     return holdings_key(
         covered.holdings, request.profile.model_dump_json() + months + split + web + picked
     )
@@ -1624,7 +1628,9 @@ async def prepare_portfolio_review(
         holdings, request.window, request.profile, request.history_months, covered.accounts
     )
     context = with_accounts(context, covered, request)
-    context = context.model_copy(update={"claude_picks": picks_for_review(picks)})
+    context = context.model_copy(
+        update={"claude_picks": picks_for_review(picks) if request.include_picks else None}
+    )
     try:
         async with get_sessionmaker()() as session:
             context = await with_holding_facts(session, user.id, context, request.wait_seconds)
@@ -2133,7 +2139,9 @@ async def export_portfolio_prompt(
         covered.accounts,
     )
     context = with_accounts(context, covered, request)
-    context = context.model_copy(update={"claude_picks": picks_for_review(picks)})
+    context = context.model_copy(
+        update={"claude_picks": picks_for_review(picks) if request.include_picks else None}
+    )
     context = await with_holding_facts(session, user.id, context, request.wait_seconds)
     return PortfolioPromptExport(
         prompt=render_prompt(

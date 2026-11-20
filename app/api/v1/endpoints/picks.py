@@ -70,6 +70,7 @@ from app.db.picks import (
     list_picks,
     save_picks,
 )
+from app.db.holdings import get_holdings, get_portfolio_name
 from app.db.screener import (
     Universe,
     index_symbols,
@@ -96,6 +97,7 @@ from app.models.picks import (
     Pick,
     PickCandidate,
     PicksContext,
+    PicksHolding,
     PicksList,
     PicksReport,
     PicksRequest,
@@ -109,6 +111,7 @@ from app.models.picks import (
     SectorSnapshot,
 )
 from app.models.research import AnalysisDelta, AnalysisStreamError
+from app.models.screener import ScreenedStock
 from app.models.stock import SYMBOL_PATTERN
 from app.models.web import WebSearchQuery
 from app.stats.picks_performance import ends_on, history_period, start_day, track
@@ -509,6 +512,52 @@ async def _sp500(session: AsyncSession, universe: Universe) -> set[str] | None:
     return await index_symbols(session, universe, classes) if classes else None
 
 
+async def _holdings(
+    session: AsyncSession,
+    user_id: str,
+    universe: Universe,
+    portfolios: list[int],
+    companies: list[ScreenedStock],
+) -> tuple[list[PicksHolding], list[ScreenerFacts]]:
+    """What the person holds in ``portfolios``, combined, largest first, priced and
+    described from the screener alone, so showing them costs no request."""
+    if not portfolios:
+        return [], []
+    shares: dict[str, float] = {}
+    accounts: dict[str, list[str]] = {}
+    for number in sorted(set(portfolios)):
+        name = await get_portfolio_name(session, user_id, number)
+        for holding in await get_holdings(session, user_id, number):
+            shares[holding.symbol] = shares.get(holding.symbol, 0.0) + holding.shares
+            accounts.setdefault(holding.symbol, []).append(f"{name} ({holding.shares:g})")
+    if not shares:
+        return [], []
+    found = await universe_stocks(session, universe, list(shares))
+    values = {
+        symbol: count * found[symbol].price
+        for symbol, count in shares.items()
+        if symbol in found and found[symbol].price
+    }
+    total = sum(values.values())
+    held = sorted(
+        (
+            PicksHolding(
+                symbol=symbol,
+                shares=count,
+                accounts=accounts[symbol],
+                value=values.get(symbol),
+                weight=None if symbol not in values or not total else values[symbol] / total,
+            )
+            for symbol, count in shares.items()
+        ),
+        key=lambda holding: -(holding.value or 0.0),
+    )
+    figures = with_sector_percentiles(
+        [screener_facts(found[h.symbol]) for h in held if h.symbol in found], companies
+    )
+    return held, figures
+
+
 async def picks_context(session: AsyncSession, user_id: str, request: PicksRequest) -> PicksContext:
     """Gather the candidates and the backdrop the picks are made from.
 
@@ -536,6 +585,9 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
     candidates = with_sector_percentiles(candidates, companies)
     sp500 = await _sp500(session, universe)
     ciks = {stock.symbol: stock.cik for stock in companies}
+    held, held_figures = await _holdings(
+        session, user_id, universe, request.holdings_portfolios, companies
+    )
     horizon_days = profile.horizon.total_weeks * 7
     wait = request.wait_seconds
     shortlist = events_shortlist(candidates)
@@ -591,6 +643,8 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
         crypto_headlines=[] if backdrop is None else backdrop.crypto,
         sectors=sector_snapshots(companies),
         candidate_events=events,
+        holdings=held,
+        holding_figures=held_figures,
         notice=" ".join(notice for notice in notices if notice) or None,
     )
 
@@ -1089,3 +1143,25 @@ async def remove_picks(picks_id: UUID, session: Session, user: CurrentUser) -> R
             status_code=status.HTTP_404_NOT_FOUND, detail=f"No picks with ID {picks_id}."
         )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def make_scheduled_picks(user_id: str, request: PicksRequest, api_key: SecretStr) -> None:
+    """Make and store a list of picks for ``request`` with no browser open, as a schedule
+    does, on the keys already set for the task (:func:`use_provider_keys`).
+
+    Raises:
+        HTTPException: When there is no screener to pick from (as the route would answer).
+        AnalysisError: When Claude's answer cannot be used.
+        sqlalchemy.exc.SQLAlchemyError: When the database cannot be read.
+    """
+    async with get_sessionmaker()() as session:
+        key = _request_key(request, await _universe(session, user_id))
+        context = await picks_context(session, user_id, request)
+    prepared = PreparedPicks(
+        user_id=user_id, request=request, key=key, context=context, api_key=api_key
+    )
+    async with anthropic_client(api_key) as client:
+        if request.web_search:
+            context = await add_web_research(context, picks_research_task(context), client=client)
+        report, model = await write_picks(context, client=client)
+    await _finish(prepared, context, Written(output=report, model=model))

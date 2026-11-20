@@ -2759,3 +2759,58 @@ main [id] {
   font-size: 0.85rem;
   line-height: 1.5;
 }
+
+/* A calendar of this month and the next for choosing refresh days. */
+.date-picker {
+  width: min(640px, calc(100vw - 32px));
+}
+
+.date-picker-months {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.date-picker-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.date-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 36px);
+  gap: 4px;
+}
+
+.date-picker-weekday {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.date-picker-day {
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.date-picker-day[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.date-picker-day:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.schedule-times summary,
+.saved-reviews summary,
+.picks-in-review summary {
+  cursor: pointer;
+}

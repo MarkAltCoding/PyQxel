@@ -107,12 +107,21 @@ export function PrivacyPage() {
             not there. Turning it on stores your Finnhub key and the Tiingo, Financial Modeling
             Prep, EODHD, and Alpha Vantage keys you choose to let it use on PyQxel’s server,
             encrypted, along with the time you chose, your time zone, and how many stocks it may
-            fetch prices for. Your Anthropic key is never stored. The keys are decrypted only to run
-            your refresh, used only for your own screener, and kept out of logs. Each time you
-            change a key in Settings, the stored copy is replaced. Turning the refresh off, or
-            deleting your account, deletes the stored keys at once. Your screener’s results, and a
-            record of each refresh (when it ran, how many stocks it found, and any error), are kept
-            with your account, seen only by you, until you delete it.
+            fetch prices for. The refresh never stores your Anthropic key. The keys are decrypted
+            only to run your refresh, used only for your own screener, and kept out of logs. Each
+            time you change a key in Settings, the stored copy is replaced. Turning the refresh off,
+            or deleting your account, deletes the stored keys at once. Your screener’s results, and
+            a record of each refresh (when it ran, how many stocks it found, and any error), are
+            kept with your account, seen only by you, until you delete it.
+          </p>
+          <p>
+            Scheduled Claude’s picks, also off unless you turn them on, have Claude make picks
+            weekly or monthly while your browser is closed. Turning them on stores your Anthropic
+            key and your market data keys on PyQxel’s server, encrypted, along with the days and
+            times you chose, your time zone, and the settings the picks are made with. The keys are
+            decrypted only to make your picks, which are billed to your Anthropic key and kept with
+            your other picks, and are kept out of logs. Turning scheduled picks off, or deleting
+            your account, deletes the stored keys at once.
           </p>
           <p>
             If you pay for the nightly refresh, you pay on Stripe’s pages, and your card or bank

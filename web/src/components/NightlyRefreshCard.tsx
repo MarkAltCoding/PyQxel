@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  checkScheduleConflicts,
   disableNightlyRefresh,
   enableNightlyRefresh,
   getBilling,
@@ -13,6 +14,7 @@ import type {
   NightlyTimeSlot,
   NightlyRefreshStatus,
   ProviderUsage,
+  RefreshSchedule,
   UsageResponse,
 } from '../api/types'
 import { BILLING_QUERY_KEY } from '../lib/billing'
@@ -41,10 +43,12 @@ import {
   type NightlyUniverse,
   type PriceKey,
 } from '../lib/nightlyRefresh'
+import { DEFAULT_SCHEDULE } from '../lib/schedule'
 import { requestLimit } from '../lib/usage'
 import { InfoTip } from './InfoTip'
 import { ErrorNotice, Notice } from './Notice'
 import { PresetOrCustom } from './PresetOrCustom'
+import { ScheduleFields } from './ScheduleFields'
 import { SearchBox } from './SearchBox'
 import { Stat } from './Stat'
 
@@ -61,6 +65,8 @@ export function NightlyRefreshCard({
   const status = useQuery({ queryKey: NIGHTLY_QUERY_KEY, queryFn: getNightlyRefresh })
   const billing = useQuery({ queryKey: BILLING_QUERY_KEY, queryFn: getBilling })
   const [time, setTime] = useState<string | null>(null)
+  const [schedule, setSchedule] = useState<RefreshSchedule | null>(null)
+  const [conflicts, setConflicts] = useState<string[]>([])
   const [zone, setZone] = useState<string | null>(null)
   const [keys, setKeys] = useState<PriceKey[] | null>(null)
   const [limits, setLimits] = useState<Partial<Record<PriceKey, number>>>({})
@@ -69,6 +75,8 @@ export function NightlyRefreshCard({
   const onChanged = (data: NightlyRefreshStatus) => {
     queryClient.setQueryData(NIGHTLY_QUERY_KEY, data)
     setTime(null)
+    setSchedule(null)
+    setConflicts([])
     setZone(null)
     setKeys(null)
     setLimits({})
@@ -85,7 +93,7 @@ export function NightlyRefreshCard({
   const turn = (on: boolean) => {
     enable.reset()
     disable.reset()
-    if (on) enable.mutate(choice)
+    if (on) void saveChecked()
     else disable.mutate()
   }
   const data = status.data
@@ -93,6 +101,10 @@ export function NightlyRefreshCard({
   const hasFinnhub = Boolean(account.finnhub?.configured)
   const shownTime = time ?? data?.refresh_time ?? '19:00'
   const shownZone = zone ?? data?.time_zone ?? DEFAULT_TIME_ZONE
+  const savedSchedule = data?.schedule ?? DEFAULT_SCHEDULE
+  const shownSchedule = schedule ?? savedSchedule
+  /** Chosen dates with none picked: it would never run. */
+  const noDates = shownSchedule.frequency === 'dates' && (shownSchedule.dates ?? []).length === 0
   // Until the user chooses, a new refresh uses Tiingo alone for prices, the free plan that
   // serves the most, and a refresh already on uses what it stored.
   const available = PRICE_KEYS.filter((key) => hasKey(account, key))
@@ -116,6 +128,7 @@ export function NightlyRefreshCard({
   const nothing = shownUniverses.length === 0 && shownCustom.length === 0
   const changed =
     (time !== null && time !== data?.refresh_time) ||
+    (schedule !== null && JSON.stringify(schedule) !== JSON.stringify(savedSchedule)) ||
     (zone !== null && zone !== data?.time_zone) ||
     (keys !== null && keys.join() !== savedKeys.join()) ||
     shownKeys.some((key) => shownLimit(key) !== savedLimit(key)) ||
@@ -124,6 +137,7 @@ export function NightlyRefreshCard({
   const choice = {
     refresh_time: shownTime,
     time_zone: shownZone,
+    schedule: shownSchedule,
     use_keys: ['finnhub' as const, ...shownKeys],
     price_history_limits: serverLimits,
     universes: shownUniverses,
@@ -147,6 +161,20 @@ export function NightlyRefreshCard({
     enabled: hasFinnhub && Boolean(data?.available),
     placeholderData: keepPreviousData,
   })
+  /** Save, unless the new times would run into scheduled picks: then say where, and let
+   * the person save anyway or change them. */
+  const saveChecked = async () => {
+    try {
+      const found = await checkScheduleConflicts({ nightly: choice })
+      if (found.warnings.length > 0) {
+        setConflicts(found.warnings)
+        return
+      }
+    } catch {
+      // The check is a courtesy: if it cannot run, saving goes ahead.
+    }
+    enable.mutate(choice)
+  }
   const error = enable.error ?? disable.error ?? status.error
   /** Off, and this browser has no Finnhub key to turn it on with. */
   const needsFinnhub = Boolean(data?.available && !data.enabled && !hasFinnhub)
@@ -159,16 +187,16 @@ export function NightlyRefreshCard({
           <InfoTip topic="nightlyRefresh" />
         </div>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
-          Builds your own screener of US stocks and ETFs every night from your keys: the SEC’s list
-          of stocks and their financials, Finnhub’s list of ETFs and its free metrics on your
-          Finnhub key, and price-history columns (momentum, volatility, drawdown, factor betas) from
-          the price-history keys you choose below, for as many stocks and ETFs as you choose. A
-          refresh of every stock and ETF takes about four hours at Finnhub’s free pace of 60
-          requests a minute, about an hour and a half on its paid plan of 150 a minute, and under 20
-          minutes on one of 900. Since you pay for the server’s time, a faster plan also makes each
-          refresh cheaper. A smaller choice, such as the S&P 500 and a few tickers of your own,
+          Builds your own screener of US stocks and ETFs on the schedule you choose, from your keys:
+          the SEC’s list of stocks and their financials, Finnhub’s list of ETFs and its free metrics
+          on your Finnhub key, and price-history columns (momentum, volatility, drawdown, factor
+          betas) from the price-history keys you choose below, for as many stocks and ETFs as you
+          choose. A refresh of every stock and ETF takes about four hours at Finnhub’s free pace of
+          60 requests a minute, about an hour and a half on its paid plan of 150 a minute, and under
+          20 minutes on one of 900. Since you pay for the server’s time, a faster plan also makes
+          each refresh cheaper. A smaller choice, such as the S&P 500 and a few tickers of your own,
           takes minutes. It runs while your browser is closed, so turning it on stores your market
-          data keys on PyQxel’s server, encrypted. Your Anthropic key is never stored. Turning it
+          data keys on PyQxel’s server, encrypted; it never stores your Anthropic key. Turning it
           off, or deleting your account, deletes them at once.
         </p>
       </div>
@@ -196,7 +224,7 @@ export function NightlyRefreshCard({
             aria-describedby={needsFinnhub ? 'nightly-needs-finnhub' : undefined}
             onChange={(event) => turn(event.target.checked)}
           />
-          <span>Refresh my own screener every night</span>
+          <span>Refresh my own screener on a schedule</span>
         </label>
         {needsFinnhub && (
           // On a line of its own, right under the box it explains.
@@ -245,13 +273,54 @@ export function NightlyRefreshCard({
           <button
             type="button"
             className="button primary"
-            disabled={busy || !shownTime || nothing}
-            onClick={() => enable.mutate(choice)}
+            disabled={busy || !shownTime || nothing || noDates}
+            onClick={() => void saveChecked()}
           >
             Save changes
           </button>
         )}
       </div>
+      <ScheduleFields
+        schedule={shownSchedule}
+        onChange={(next) => {
+          setConflicts([])
+          setSchedule(next)
+        }}
+        baseTime={shownTime}
+        disabled={!data?.available || busy || !hasFinnhub}
+      />
+      {noDates && (
+        <p className="disclaimer" style={{ margin: 0 }}>
+          Choose at least one date for it to run on.
+        </p>
+      )}
+      {conflicts.length > 0 && (
+        <Notice tone="warning">
+          <div className="stack" style={{ gap: 6 }}>
+            <span>This would run into your scheduled Claude’s picks:</span>
+            <ul style={{ margin: 0 }}>
+              {conflicts.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+            <div className="filter-row">
+              <button
+                type="button"
+                className="button small"
+                onClick={() => {
+                  setConflicts([])
+                  enable.mutate(choice)
+                }}
+              >
+                Save anyway
+              </button>
+              <button type="button" className="button ghost small" onClick={() => setConflicts([])}>
+                Change it
+              </button>
+            </div>
+          </div>
+        </Notice>
+      )}
       {data?.enabled &&
         data.latest_run?.status === 'running' &&
         savedKeys.some((key) => !shownKeys.includes(key)) && (

@@ -11,7 +11,13 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
   The one exception is the nightly refresh of a user's own screener (`jobs/nightly.py`),
   which runs with no request: users who opt in have their market data keys stored,
   Fernet-encrypted under `CREDENTIALS_ENCRYPTION_KEY` (`core/security.py`), in
-  `nightly_refreshes`, deleted on opt-out or account deletion (`db/nightly.py`).
+  `nightly_refreshes`, deleted on opt-out or account deletion (`db/nightly.py`). Scheduled
+  Claude's picks (`db/scheduled_picks.py`, `/me/picks-schedule`) store the Anthropic key
+  too, the same way, in `scheduled_picks`; the same job makes them (`jobs/nightly.py:
+  run_scheduled_picks`), never while the user's own refresh runs, and
+  `/me/schedule-conflicts` warns of overlaps before either is saved. The refresh's days
+  and per-weekday times are a `RefreshSchedule` (`models/schedule.py`, `stats/schedule.py`,
+  with the NYSE's holidays by rule).
 - **Market data:** `data/fetcher.py`. `fetch_price_history`, `fetch_ticker_info`, and
   quotes try `available_providers(kind, symbol)`: the user's keys in the order
   `PROVIDER_ORDER` sets for each kind of data (daily, intraday, quote, profile, exchange

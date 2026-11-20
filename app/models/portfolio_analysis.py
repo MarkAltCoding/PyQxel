@@ -144,6 +144,11 @@ class PortfolioAnalysisRequest(BaseModel):
         "tokens.",
     )
     wait_seconds: int = Field(default=0, ge=0, le=MAX_WAIT_SECONDS, description=WAIT_DESCRIPTION)
+    include_picks: bool = Field(
+        default=True,
+        description="Let the review see your latest stored Claude's picks, with their "
+        "figures, so it can weigh adding them; false to leave them out.",
+    )
     refresh: bool = Field(
         default=False,
         description="Write a new review even when one for the same holdings and period "

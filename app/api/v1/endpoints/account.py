@@ -38,6 +38,20 @@ from app.billing import stripe_api
 from app.core.config import get_settings
 from app.core.credentials import ProviderKeys, current_provider_keys
 from app.core.security import CredentialsUnavailableError, encryption_available, key_hint
+from app.db.scheduled_picks import (
+    MissingAnthropicKeyError,
+    NothingScheduledError,
+    schedule_conflicts,
+    schedule_status,
+)
+from app.db.scheduled_picks import disable as disable_picks_schedule
+from app.db.scheduled_picks import enable as enable_picks_schedule
+from app.models.picks import (
+    PicksScheduleSettings,
+    PicksScheduleStatus,
+    ScheduleConflictCheck,
+    ScheduleConflicts,
+)
 from app.db import billing
 from app.db.app_settings import (
     STYLE_FACTORS,
@@ -315,7 +329,7 @@ async def store_nightly_refresh(
     Finnhub's free metrics on your Finnhub key, and price-history columns from whichever
     price-history key you have (Tiingo, FMP, EODHD, or Alpha Vantage). It runs with no
     browser open, so the market data keys this request carries are stored, encrypted,
-    replacing any stored before; your Anthropic key is never stored. Send this again after
+    replacing any stored before; this refresh never stores your Anthropic key. Send this again after
     changing a key.
 
     Returns 422 without a Finnhub key, or for an unknown time zone; 503 when this server
@@ -352,6 +366,93 @@ async def remove_nightly_refresh(user: CurrentUser, session: Session) -> Nightly
     try:
         await disable(session, user.id)
         return await refresh_status(session, user.id, encryption_available())
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+
+
+@router.post(
+    "/schedule-conflicts",
+    response_model=ScheduleConflicts,
+    summary="Check scheduled picks against the screener refresh",
+)
+async def check_schedule_conflicts(
+    user: CurrentUser, session: Session, body: Annotated[ScheduleConflictCheck, Body()]
+) -> ScheduleConflicts:
+    """Say where scheduled picks would start while your screener refresh runs, over the
+    next two months, for a schedule about to be saved (either side; the other as stored).
+    Such picks wait for the refresh to finish, so they come later than set; the warnings
+    let you choose another time or keep it. Nothing is saved. Returns 503 when the
+    database is unavailable."""
+    try:
+        warnings = await schedule_conflicts(session, user.id, body.nightly, body.picks)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    return ScheduleConflicts(warnings=warnings)
+
+
+@router.get(
+    "/picks-schedule",
+    response_model=PicksScheduleStatus,
+    summary="Your scheduled Claude's picks",
+)
+async def read_picks_schedule(user: CurrentUser, session: Session) -> PicksScheduleStatus:
+    """Return whether Claude's picks are made on a schedule for you, when each schedule
+    runs next, and how the last run went. Returns 503 when the database is unavailable."""
+    try:
+        return await schedule_status(session, user.id, encryption_available())
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+
+
+@router.put(
+    "/picks-schedule",
+    response_model=PicksScheduleStatus,
+    summary="Make Claude's picks on a schedule",
+)
+async def store_picks_schedule(
+    user: CurrentUser, session: Session, settings: Annotated[PicksScheduleSettings, Body()]
+) -> PicksScheduleStatus:
+    """Have Claude's picks made weekly, monthly, or both, for a week's or a month's holding
+    period, with the rest of ``request`` (profile, web search, waiting, holdings shown).
+
+    Each runs at its day and time in ``time_zone``, on the next hourly check, and never
+    while your own screener refresh is running: it then waits for the refresh to finish.
+    Both falling due together run in one go. The picks are made with no browser open, so
+    the Anthropic key and market data keys this request carries are stored, encrypted,
+    replacing any stored before; send this again after changing a key. They are written
+    on your Anthropic key, within your AI limits, and stored with your other picks.
+
+    Returns 422 without an Anthropic key, with neither schedule, or for an unknown time
+    zone; 503 when this server cannot store keys or the database is unavailable.
+    """
+    try:
+        await enable_picks_schedule(session, user.id, settings, current_provider_keys())
+        return await schedule_status(session, user.id, encryption_available())
+    except (MissingAnthropicKeyError, NothingScheduledError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    except CredentialsUnavailableError as exc:
+        logger.error("Cannot store keys for scheduled picks: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="This server cannot store keys, so scheduled picks are not available.",
+        ) from None
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+
+
+@router.delete(
+    "/picks-schedule",
+    response_model=PicksScheduleStatus,
+    summary="Stop making Claude's picks on a schedule",
+)
+async def remove_picks_schedule(user: CurrentUser, session: Session) -> PicksScheduleStatus:
+    """Turn both schedules off: the stored keys are deleted at once. Picks already made
+    stay with your others. Returns 503 when the database is unavailable."""
+    try:
+        await disable_picks_schedule(session, user.id)
+        return await schedule_status(session, user.id, encryption_available())
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
 

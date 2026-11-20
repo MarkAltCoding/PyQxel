@@ -2,7 +2,11 @@
 import { api, ApiError, send } from './client'
 import type {
   Account,
+  PicksScheduleSettings,
+  PicksScheduleStatus,
   PortfolioReviewList,
+  ScheduleConflictCheck,
+  ScheduleConflicts,
   AccountSettings,
   ContributionLimits,
   GroupMode,
@@ -306,6 +310,15 @@ export const getLatestPicks = async (): Promise<PicksResponse | null> => {
   }
 }
 /** The account's stored lists of picks, newest first, without their reasons. */
+/** Claude's picks made on a schedule: what is set, when each runs next, and the last run. */
+export const getPicksSchedule = () => api<PicksScheduleStatus>(`${V1}/me/picks-schedule`)
+export const savePicksSchedule = (body: PicksScheduleSettings) =>
+  api<PicksScheduleStatus>(`${V1}/me/picks-schedule`, { method: 'PUT', body })
+export const deletePicksSchedule = () =>
+  api<PicksScheduleStatus>(`${V1}/me/picks-schedule`, { method: 'DELETE' })
+/** Where scheduled picks would start during the screener refresh, before either is saved. */
+export const checkScheduleConflicts = (body: ScheduleConflictCheck) =>
+  api<ScheduleConflicts>(`${V1}/me/schedule-conflicts`, { method: 'POST', body })
 /** The stored portfolio reviews, newest first, each with what it was tailored to. */
 export const listPortfolioReviews = () =>
   api<PortfolioReviewList>(`${V1}/portfolio/analyses`, { query: { limit: 30 } })

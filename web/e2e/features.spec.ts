@@ -256,3 +256,37 @@ test('the portfolio review keeps every review in its saved ones', async ({ page 
   await review.getByText(/^Saved reviews/).click()
   await expect(review.getByText('Every review Claude writes for you is saved here.')).toBeVisible()
 })
+
+test('picks can be scheduled, weekly on Sunday and monthly on the last day by default', async ({
+  page,
+}) => {
+  await signIn(page)
+  await page.goto('/screener/picks')
+  const schedule = page.locator('#picks-schedule')
+  await expect(schedule.getByRole('heading', { name: 'Make picks on a schedule' })).toBeVisible()
+  await schedule.getByRole('checkbox', { name: 'Every week, to hold for a week' }).check()
+  await expect(schedule.getByRole('combobox').first()).toHaveValue('6')
+  await schedule.getByRole('checkbox', { name: 'Every month, to hold for a month' }).check()
+  await expect(schedule.getByRole('combobox').nth(1)).toHaveValue('-1')
+  // No Anthropic key in this browser: it says so rather than store nothing.
+  await expect(schedule.getByText('Add an Anthropic key in Settings first.')).toBeVisible()
+})
+
+test('the portfolio review opens the same Claude’s picks as the screener', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === 'phone', 'The picks are checked at desktop width.')
+  await signIn(page)
+  await page.goto('/portfolio')
+  await openPortfolio(page, 1)
+  await page.locator('.picks-in-review > summary').click()
+  await expect(
+    page.locator('.picks-in-review').getByText('Cheap growth, with a bond fund to steady it.'),
+  ).toBeVisible()
+  await page.locator('#ai-review').getByText('Tailor the plan to your goals (optional)').click()
+  await expect(
+    page.locator('#ai-review').getByRole('checkbox', {
+      name: 'Let the review see my latest Claude’s picks',
+    }),
+  ).toBeVisible()
+})

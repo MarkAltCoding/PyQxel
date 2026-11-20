@@ -46,7 +46,9 @@ from app.models.nightly import (
     NightlyUniverse,
     RunStatus,
 )
+from app.models.schedule import RefreshSchedule
 from app.models.screener import ScreenedStock
+from app.stats.schedule import next_moment
 
 RUNNING, SUCCEEDED, FAILED, STOPPED = "running", "succeeded", "failed", "stopped"
 """States of a user's refresh run."""
@@ -162,6 +164,7 @@ async def enable(
     }
     record.universes = list(settings.universes)
     record.custom_symbols = list(settings.custom_symbols)
+    record.schedule = settings.schedule.model_dump(mode="json")
     record.keys_updated_at = now
     await session.commit()
 
@@ -241,19 +244,24 @@ def scheduled_moment(refresh_time: str, time_zone: str, day: date) -> datetime:
     return local.astimezone(timezone.utc)
 
 
-def next_run_at(
-    refresh_time: str, time_zone: str, now: datetime, last_started: datetime | None
-) -> datetime:
-    """When a refresh is next due: today's moment, unless a run has started since it.
+def schedule_of(record: NightlyRefreshRecord) -> RefreshSchedule:
+    """The schedule stored with ``record``; every night when none is, as before schedules."""
+    return RefreshSchedule.model_validate(record.schedule or {})
 
-    A moment already past today is due at once, so a user who opts in in the evening
-    gets their first universe that night.
-    """
-    today = now.astimezone(ZoneInfo(time_zone)).date()
-    moment = scheduled_moment(refresh_time, time_zone, today)
-    if last_started is not None and last_started >= moment:
-        return scheduled_moment(refresh_time, time_zone, today + timedelta(days=1))
-    return moment
+
+def next_run_at(
+    refresh_time: str,
+    time_zone: str,
+    now: datetime,
+    last_started: datetime | None,
+    schedule: RefreshSchedule | None = None,
+) -> datetime | None:
+    """When a refresh is next due: the schedule's first moment from today on that comes
+    after the last run started (:func:`app.stats.schedule.next_moment`), every night when
+    no schedule is given. A moment already past today is due at once, so a user who opts in
+    in the evening gets their first universe that night. ``None`` when it never runs again,
+    as when every chosen date has passed."""
+    return next_moment(schedule or RefreshSchedule(), refresh_time, time_zone, now, last_started)
 
 
 async def _runs(
@@ -428,13 +436,14 @@ async def time_slots(session: AsyncSession, user_id: str, now: datetime) -> list
     for record in list(await session.scalars(select(NightlyRefreshRecord))):
         if record.user_id == user_id or not await refresh_paid_for(session, record.user_id):
             continue
-        today = now.astimezone(ZoneInfo(record.time_zone)).date()
-        moment = scheduled_moment(record.refresh_time, record.time_zone, today)
-        if check_for(moment) < first:
-            moment = scheduled_moment(
-                record.refresh_time, record.time_zone, today + timedelta(days=1)
-            )
-        check = check_for(moment)
+        moment = next_run_at(
+            record.refresh_time,
+            record.time_zone,
+            now,
+            first - timedelta(hours=1),
+            schedule_of(record),
+        )
+        check = None if moment is None else check_for(moment)
         if check in counts:
             counts[check] += 1
     return [NightlyTimeSlot(checks_at=check, others=others) for check, others in counts.items()]
@@ -501,6 +510,19 @@ async def refresh_status(
                 record.time_zone,
                 now or datetime.now(timezone.utc),
                 started,
+                schedule_of(record),
+            ),
+            "schedule": schedule_of(record),
+            "typical_minutes": (
+                None
+                if success is None or success.finished_at is None
+                else max(
+                    1,
+                    round(
+                        (as_utc(success.finished_at) - as_utc(success.started_at)).total_seconds()
+                        / 60
+                    ),
+                )
             ),
         }
     )
@@ -515,7 +537,8 @@ def _is_due(
     if last is not None and last.status == RUNNING and now - as_utc(last.started_at) < STALE_AFTER:
         return False
     started = None if last is None else as_utc(last.started_at)
-    return next_run_at(record.refresh_time, record.time_zone, now, started) <= now
+    moment = next_run_at(record.refresh_time, record.time_zone, now, started, schedule_of(record))
+    return moment is not None and moment <= now
 
 
 async def any_due(session: AsyncSession, now: datetime) -> bool:

@@ -76,14 +76,15 @@ def candidates_table(
 def picks_messages(context: PicksContext) -> list[BetaMessageParam]:
     """The request: the task, the snapshot without its candidates, then the candidates as
     a table."""
-    snapshot = context.model_dump_json(exclude={"candidates"})
-    return [
-        {
-            "role": "user",
-            "content": f"{PICKS_TASK}\n\n<snapshot>\n{snapshot}\n</snapshot>\n\n"
-            f"<candidates>\n{candidates_table(context.candidates)}\n</candidates>",
-        }
-    ]
+    snapshot = context.model_dump_json(exclude={"candidates", "holding_figures"})
+    content = (
+        f"{PICKS_TASK}\n\n<snapshot>\n{snapshot}\n</snapshot>\n\n"
+        f"<candidates>\n{candidates_table(context.candidates)}\n</candidates>"
+    )
+    if context.holding_figures:
+        table = candidates_table(context.holding_figures, FACT_COLUMNS)
+        content += f"\n\n<holding_figures>\n{table}\n</holding_figures>"
+    return [{"role": "user", "content": content}]
 
 
 def picks_research_task(context: PicksContext) -> str:

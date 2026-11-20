@@ -75,6 +75,7 @@ describe('NightlyRefreshCard', () => {
       price_history_limits: {},
       universes: ['us_stocks', 'us_etfs'],
       custom_symbols: [],
+      schedule: { frequency: 'nightly', weekday: 6, month_day: -1, dates: [], times: {} },
     })
     expect(screen.getByText(/Stored, encrypted: Finnhub, Tiingo/)).toBeInTheDocument()
     expect(screen.getByText(/Finnhub rejected your API key/)).toBeInTheDocument()
@@ -127,6 +128,7 @@ describe('NightlyRefreshCard', () => {
         price_history_limits: {},
         universes: ['us_stocks', 'us_etfs'],
         custom_symbols: [],
+        schedule: { frequency: 'nightly', weekday: 6, month_day: -1, dates: [], times: {} },
       })
     })
   })

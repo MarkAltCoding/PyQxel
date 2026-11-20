@@ -14,7 +14,9 @@ from pydantic import BaseModel, Field, model_validator
 from app.core.text import listed
 from app.models.markets import MarketContext
 from app.models.news import NewsHeadline
+from app.models.nightly import NightlyRefreshSettings
 from app.models.research import MAX_WAIT_SECONDS, WAIT_DESCRIPTION, WRITTEN_BY_DESCRIPTION
+from app.models.schedule import TIME_PATTERN
 from app.models.screener import AssetType, ScreenedStock, ScreenMetrics
 from app.models.web import WebResearch
 
@@ -118,10 +120,88 @@ class PicksRequest(BaseModel):
         "each search to your key, on top of the tokens.",
     )
     wait_seconds: int = Field(default=0, ge=0, le=MAX_WAIT_SECONDS, description=WAIT_DESCRIPTION)
+    holdings_portfolios: list[int] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Saved portfolios whose holdings Claude is shown, so it picks with what "
+        "you already own in mind; empty for none. They come with what PyQxel already knows "
+        "of them (the screener's figures), at no extra request.",
+    )
     refresh: bool = Field(
         default=False,
         description="Pick anew even when picks for the same profile and screener data are "
         "recent enough to reuse.",
+    )
+
+
+class WeeklyPicksTime(BaseModel):
+    """When weekly picks are made: a day of the week and a local time."""
+
+    weekday: int = Field(default=6, ge=0, le=6, description="Monday 0 to Sunday 6.")
+    time: str = Field(default="09:00", pattern=TIME_PATTERN, description="HH:MM, 24-hour.")
+
+
+class MonthlyPicksTime(BaseModel):
+    """When monthly picks are made: a day of the month and a local time."""
+
+    month_day: int = Field(
+        default=-1,
+        ge=-1,
+        le=31,
+        description="1 to 31 (a shorter month's last day for 29 to 31), or -1 for the last "
+        "day of every month.",
+    )
+    time: str = Field(default="09:00", pattern=TIME_PATTERN, description="HH:MM, 24-hour.")
+
+
+class PicksScheduleSettings(BaseModel):
+    """Makes Claude's picks on a schedule, for a week's or a month's holding period.
+
+    The keys the request carries (Anthropic's and the market data keys) are encrypted and
+    stored with it, replacing any stored earlier, since the picks are made with no browser
+    open; turning both schedules off deletes them.
+    """
+
+    weekly: WeeklyPicksTime | None = Field(
+        default=None, description="Picks to hold for a week; null for none."
+    )
+    monthly: MonthlyPicksTime | None = Field(
+        default=None, description="Picks to hold for a month; null for none."
+    )
+    time_zone: str = Field(default="America/New_York", max_length=64)
+    request: PicksRequest = Field(
+        default_factory=PicksRequest,
+        description="How the picks are made: the profile (its horizon is each schedule's), "
+        "web search, waiting for data, and the portfolios whose holdings are shown.",
+    )
+
+    @model_validator(mode="after")
+    def _a_known_time_zone(self) -> Self:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(self.time_zone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"Unknown time zone {self.time_zone!r}.") from exc
+        return self
+
+
+class PicksScheduleStatus(BaseModel):
+    """Whether Claude's picks are made on a schedule, when next, and how the last went."""
+
+    available: bool = Field(description="Whether this server can store keys to run them.")
+    enabled: bool = Field(description="Whether either schedule is on.")
+    weekly: WeeklyPicksTime | None = None
+    monthly: MonthlyPicksTime | None = None
+    time_zone: str | None = None
+    request: PicksRequest | None = None
+    providers: list[str] = Field(default_factory=list, description="The keys stored.")
+    next_weekly_at: datetime | None = None
+    next_monthly_at: datetime | None = None
+    weekly_ran_at: datetime | None = None
+    monthly_ran_at: datetime | None = None
+    last_error: str | None = Field(
+        default=None, description="Why the last scheduled run made no picks; null if it did."
     )
 
 
@@ -268,6 +348,20 @@ class PicksUniverse(BaseModel):
     has_etfs: bool = Field(description="Whether the screener holds ETFs as well as stocks.")
 
 
+class PicksHolding(BaseModel):
+    """A security the person already holds, across the portfolios they chose to show."""
+
+    symbol: str
+    shares: float = Field(gt=0)
+    accounts: list[str] = Field(description="Each portfolio holding it, with its shares.")
+    value: float | None = Field(
+        default=None, description="Shares times the screener's price; null when unpriced."
+    )
+    weight: float | None = Field(
+        default=None, description="Its share of the priced holdings shown, as a decimal."
+    )
+
+
 class PicksContext(BaseModel):
     """The data a list of picks is written from. All of it is sent to Claude, the
     candidates as a table."""
@@ -305,6 +399,16 @@ class PicksContext(BaseModel):
         max_length=MAX_CANDIDATE_EVENTS,
         description="Recent news and SEC filings of the candidates likeliest to be picked: "
         "the stocks that led on the most measures, then the largest.",
+    )
+    holdings: list[PicksHolding] = Field(
+        default_factory=list,
+        description="What the person already holds in the portfolios they chose to show, "
+        "largest first; empty when they chose none.",
+    )
+    holding_figures: list[ScreenerFacts] = Field(
+        default_factory=list,
+        description="The screener's figures for those holdings it holds, sent to Claude "
+        "as a table.",
     )
     web_research: WebResearch | None = Field(
         default=None,
@@ -532,4 +636,26 @@ class SavedPicksList(BaseModel):
     items: list[SavedPicks]
     notice: str | None = Field(
         default=None, description="Why some lists have no performance, if any."
+    )
+
+
+class ScheduleConflictCheck(BaseModel):
+    """A schedule about to be saved, checked against the other kind: the screener refresh
+    against the scheduled picks, or the picks against the refresh. A side left out is
+    taken as stored."""
+
+    nightly: NightlyRefreshSettings | None = Field(
+        default=None, description="The screener refresh's schedule about to be saved."
+    )
+    picks: PicksScheduleSettings | None = Field(
+        default=None, description="The scheduled picks about to be saved."
+    )
+
+
+class ScheduleConflicts(BaseModel):
+    """Where scheduled picks would fall inside a screener refresh."""
+
+    warnings: list[str] = Field(
+        description="Each picks run that would start while the refresh runs, in words; "
+        "such a run waits for the refresh to finish. Empty when none would."
     )

@@ -507,9 +507,10 @@ class NightlyRefreshRecord(Base):
     """A user's opt-in to the nightly refresh of their own screener.
 
     The refresh runs while no browser is open, so it needs the user's keys: ``credentials``
-    holds them as JSON encrypted with :func:`app.core.security.encrypt_secret`. This is the
-    only place PyQxel stores provider keys, and the row is deleted when the user opts out
-    or deletes the account. ``refresh_time`` is a local ``HH:MM`` in ``time_zone``.
+    holds them as JSON encrypted with :func:`app.core.security.encrypt_secret`. This is one
+    of the two places PyQxel stores provider keys (scheduled picks are the other), and the
+    row is deleted when the user opts out or deletes the account. ``refresh_time`` is a
+    local ``HH:MM`` in ``time_zone``.
     """
 
     __tablename__ = "nightly_refreshes"
@@ -536,6 +537,45 @@ class NightlyRefreshRecord(Base):
     """The sets each refresh rebuilds, combined (:data:`app.models.nightly.NightlyUniverse`)."""
     custom_symbols: Mapped[list[str]] = mapped_column(JSON, server_default="[]")
     """Tickers each refresh adds to those sets."""
+    schedule: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    """Which days it runs on and each weekday's own time
+    (:class:`app.models.schedule.RefreshSchedule`); null for every night at
+    ``refresh_time``."""
+
+
+class ScheduledPicksRecord(Base):
+    """A user's opt-in to Claude's picks made on a schedule, weekly, monthly, or both.
+
+    The picks are made while no browser is open, so ``credentials`` holds the user's
+    Anthropic key and market data keys as JSON encrypted with
+    :func:`app.core.security.encrypt_secret`; the row is deleted when the user turns both
+    schedules off or deletes the account. ``weekly`` and ``monthly`` are each a day and a
+    local time, or null when that schedule is off; ``request`` is the picks request they
+    make, the holding period aside, which each schedule sets.
+    """
+
+    __tablename__ = "scheduled_picks"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    time_zone: Mapped[str] = mapped_column(String(64))
+    credentials: Mapped[str] = mapped_column(Text)
+    providers: Mapped[list[str]] = mapped_column(JSON)
+    """Which keys ``credentials`` holds, so they can be listed unencrypted."""
+    weekly: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    """``{"weekday": 0-6, "time": "HH:MM"}``, Monday 0; null when off."""
+    monthly: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    """``{"month_day": 1-31 or -1 for the last day, "time": "HH:MM"}``; null when off."""
+    request: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    keys_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    weekly_ran_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    monthly_ran_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    running_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    """When a run started that has not finished, so two jobs do not make the same picks."""
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """Why the last scheduled run made no picks; null when it did."""
 
 
 class UserScreenerRunRecord(Base):

@@ -68,9 +68,12 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, TypeVar
 
 import pandas as pd
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import sees_unlicensed_data, uses_restricted_sources, uses_yfinance
+from app.api.v1.endpoints.picks import make_scheduled_picks
+from app.api.v1.endpoints.research import check_ai_limits
 from app.core.config import get_settings
 from app.core.credentials import use_provider_keys
 from app.core.redact import install_log_redaction
@@ -90,7 +93,7 @@ from app.data.screener_metrics import (
     fetch_screen_metrics,
 )
 from app.data.universe import Listing
-from app.db.billing import MICROS_PER_DOLLAR, charge_usage
+from app.db.billing import MICROS_PER_DOLLAR, charge_usage, refresh_paid_for
 from app.db.nightly import (
     DueRefresh,
     PriceLimits,
@@ -103,6 +106,13 @@ from app.db.nightly import (
     start_run,
     stop_reason,
     user_etfs,
+)
+from app.db.scheduled_picks import (
+    DuePicks,
+    due_picks,
+    finish_picks_run,
+    horizon_for,
+    start_picks_run,
 )
 from app.db.screener import (
     foreign_companies,
@@ -765,13 +775,76 @@ async def _charge(session: AsyncSession, user: User | None, run_id: str, cost: i
     await charge_usage(session, user.id, cost, run_id)
 
 
+async def run_scheduled_picks(due: DuePicks, after: "asyncio.Task[None] | None" = None) -> None:
+    """Make one user's scheduled picks on their stored keys, after their screener refresh
+    ``after`` when one runs in the same job, so the picks come from the new universe.
+
+    When both the weekly and the monthly picks are due they are made one after the other,
+    the second reusing what the first gathered while it is cached. A failure is recorded
+    for the user to see, never raised. On a server that bills, the run needs credit or a
+    subscription, as a refresh does, and its time is charged at Cloud Run's rates, except
+    to the owner's account.
+    """
+    if after is not None:
+        await after
+    started_at = datetime.now(timezone.utc)
+    async with get_sessionmaker()() as session:
+        user = await get_user(session, due.user_id)
+        paid = await refresh_paid_for(session, due.user_id)
+        await start_picks_run(session, due.user_id, due.which, started_at)
+    if user is None:
+        return
+    if not paid or due.keys.anthropic is None:
+        async with get_sessionmaker()() as session:
+            await finish_picks_run(
+                session,
+                due.user_id,
+                (
+                    "Scheduled picks run in the nightly job, which needs credit or a subscription "
+                    "in Settings."
+                    if not paid
+                    else "No Anthropic key is stored: turn scheduled picks off and on again."
+                ),
+            )
+        return
+    use_provider_keys(
+        replace(
+            due.keys,
+            yfinance=uses_yfinance(user),
+            unlicensed=sees_unlicensed_data(user),
+            restricted_sources=uses_restricted_sources(user),
+            user_id=due.user_id,
+        )
+    )
+    errors: list[str] = []
+    clock = time.monotonic()
+    for which in due.which:
+        profile = due.request.profile.model_copy(update={"horizon": horizon_for(which)})
+        request = due.request.model_copy(update={"profile": profile})
+        try:
+            await check_ai_limits(user)
+            await make_scheduled_picks(user.id, request, due.keys.anthropic)
+        except HTTPException as exc:
+            errors.append(f"The {which} picks were not made: {exc.detail}")
+        except Exception as exc:  # Recorded for the user, never stopping anyone else's run.
+            logger.warning("User %s's %s picks failed: %s", due.user_id, which, exc)
+            errors.append(f"The {which} picks were not made: {exc or type(exc).__name__}")
+    cost = run_cost_micros(time.monotonic() - clock)
+    async with get_sessionmaker()() as session:
+        await finish_picks_run(session, due.user_id, " ".join(errors) or None)
+        if not user.is_admin:
+            await charge_usage(session, user.id, cost, None)
+    await usage.flush()
+
+
 async def refresh_due_users(now: datetime | None = None) -> int:
-    """Refresh every user whose refresh is due, ``NIGHTLY_REFRESH_CONCURRENCY`` at once;
-    return how many ran."""
+    """Refresh every user whose refresh is due, ``NIGHTLY_REFRESH_CONCURRENCY`` at once,
+    and make every user's scheduled picks that are due; return how many refreshes ran."""
     now = now or datetime.now(timezone.utc)
     await init_db()
     async with get_sessionmaker()() as session:
         due = await due_refreshes(session, now)
+        picks = await due_picks(session, now, {refresh.user_id for refresh in due})
     slots = asyncio.Semaphore(get_settings().nightly_refresh_concurrency)
     # The refreshes running at each moment share the job's CPU and memory, and its cost.
     clock = JobClock()
@@ -780,8 +853,14 @@ async def refresh_due_users(now: datetime | None = None) -> int:
         async with slots:
             await refresh_user(refresh, clock=clock)
 
-    # Each refresh is its own task, so the keys it sets are visible to it alone.
-    await asyncio.gather(*(asyncio.create_task(run(refresh)) for refresh in due))
+    # Each refresh is its own task, so the keys it sets are visible to it alone; a user's
+    # picks wait for their own refresh in the same job.
+    refreshes = {refresh.user_id: asyncio.create_task(run(refresh)) for refresh in due}
+    picking = [
+        asyncio.create_task(run_scheduled_picks(item, refreshes.get(item.user_id)))
+        for item in picks
+    ]
+    await asyncio.gather(*refreshes.values(), *picking)
     return len(due)
 
 

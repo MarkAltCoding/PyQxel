@@ -22,6 +22,8 @@ export interface PicksForm {
   amount: string
   kinds: PicksKinds
   notes: string
+  /** Saved portfolios whose holdings Claude is shown; none by default. */
+  holdings: number[]
 }
 
 export const DEFAULT_PICKS_FORM: PicksForm = {
@@ -32,6 +34,7 @@ export const DEFAULT_PICKS_FORM: PicksForm = {
   amount: '',
   kinds: '',
   notes: '',
+  holdings: [],
 }
 
 const KEY = 'pyqxel.picksProfile'
@@ -55,6 +58,9 @@ export function storedPicksForm(): PicksForm {
       amount: text(kept.amount, ''),
       kinds: kept.kinds === 'stock' || kept.kinds === 'etf' ? kept.kinds : '',
       notes: text(kept.notes, ''),
+      holdings: Array.isArray(kept.holdings)
+        ? kept.holdings.filter((n): n is number => Number.isInteger(n) && n >= 1 && n <= 5)
+        : [],
     }
   } catch {
     return DEFAULT_PICKS_FORM

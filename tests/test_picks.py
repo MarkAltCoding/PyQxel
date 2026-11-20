@@ -831,3 +831,42 @@ def test_every_lens_fits_and_the_prompt_states_the_baseline() -> None:
     assert (MIN_PRICE, MIN_MARKET_CAP) == (2.0, 3e8)
     for figure in ("$5 million a day", "at least $2 a share", "at least $300 million"):
         assert figure in PICKS_SYSTEM_PROMPT
+
+
+def test_picks_can_be_shown_the_holdings_with_what_the_screener_knows(
+    screener: list[PicksContext],
+    market: list[PortfolioContext],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Holdings come from the saved portfolios and the screener alone: no request."""
+    from tests import test_portfolio_review as review_tests
+
+    monkeypatch.setitem(review_tests.PRICES, "BIG", 50.0)
+    monkeypatch.setitem(review_tests.PRICES, "NOTHERE", 20.0)
+    monkeypatch.setitem(review_tests.SECTORS, "BIG", "Technology")
+    monkeypatch.setitem(review_tests.SECTORS, "NOTHERE", None)
+    _save({"BIG": 10, "NOTHERE": 3})
+
+    client.post(PICKS, json={"holdings_portfolios": [1]})
+
+    context = screener[-1]
+    assert [h.symbol for h in context.holdings][0] == "BIG"
+    big = next(h for h in context.holdings if h.symbol == "BIG")
+    assert big.value is not None and big.weight == 1.0 and big.accounts[0].endswith("(10)")
+    assert [f.symbol for f in context.holding_figures] == ["BIG"]
+    message = cast(str, picks_messages(context)[0]["content"])
+    assert "<holding_figures>" in message and '"holdings":[' in message
+
+    client.post(PICKS, json={"refresh": True})
+    assert screener[-1].holdings == [], "none unless asked"
+
+
+def test_a_review_can_be_kept_from_the_latest_picks(
+    screener: list[PicksContext], market: list[PortfolioContext]  # noqa: F811
+) -> None:
+    _save({"AAPL": 10, "XOM": 20})
+    client.post(PICKS, json={})
+
+    client.post("/api/v1/portfolio/analysis", json={"include_picks": False})
+
+    assert market[-1].claude_picks is None

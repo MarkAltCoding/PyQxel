@@ -21,6 +21,7 @@ from app.billing import stripe_api
 from app.core.cloud_run import JobStartError, run_job, verify_caller
 from app.core.config import get_settings
 from app.db.nightly import any_due
+from app.db.scheduled_picks import any_picks_due
 from app.db.session import get_sessionmaker
 from app.models.nightly import NightlyTriggerResponse
 
@@ -37,7 +38,7 @@ router = APIRouter(prefix="/internal", include_in_schema=False)
 async def start_nightly_refresh(
     authorization: Annotated[str | None, Header()] = None,
 ) -> NightlyTriggerResponse:
-    """Start the nightly refresh job if any user's refresh is due.
+    """Start the nightly refresh job if any user's refresh, or scheduled picks, are due.
 
     Answers 404 when the server has no nightly job configured, 401 unless the call carries
     Cloud Scheduler's identity token, 503 when the database cannot be read, and 502 when
@@ -55,7 +56,8 @@ async def start_nightly_refresh(
         async with get_sessionmaker()() as session:
             if stripe_api.billing_enabled():
                 await _report_usage(session)
-            due = await any_due(session, datetime.now(timezone.utc))
+            now = datetime.now(timezone.utc)
+            due = await any_due(session, now) or await any_picks_due(session, now)
     except SQLAlchemyError as exc:
         logger.warning("The nightly check could not read the database: %s", exc)
         raise HTTPException(

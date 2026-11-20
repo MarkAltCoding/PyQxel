@@ -97,9 +97,10 @@ side you are changing before searching the code.
 - The virtualenv is `venv/`, not `.venv/`. Python 3.14 allows `except A, B:` without
   parentheses, and the code uses it; it is not a bug.
 - The shell is zsh: an unquoted `$VAR` holding several words is not split into arguments.
-- Provider keys are never stored on the server. The browser sends them as
-  `X-FMP-Key`, `X-Finnhub-Key`, `X-Alpha-Vantage-Key`, and `X-Anthropic-Key` on each
-  request.
+- Provider keys are never stored on the server, except, encrypted, for work a user opts
+  in to that runs with no browser: the nightly refresh (market data keys only) and
+  scheduled picks (the Anthropic key too). The browser sends them as `X-FMP-Key`,
+  `X-Finnhub-Key`, `X-Alpha-Vantage-Key`, and `X-Anthropic-Key` on each request.
 - Everything must work on a free FMP plan, which prices only a sample of symbols, so
   production runs with the yfinance fallback on.
 - Tests patch names in the module that uses them, e.g.

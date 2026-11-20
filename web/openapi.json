@@ -8172,6 +8172,28 @@
         "title": "MeanReversion",
         "type": "object"
       },
+      "MonthlyPicksTime": {
+        "description": "When monthly picks are made: a day of the month and a local time.",
+        "properties": {
+          "month_day": {
+            "default": -1,
+            "description": "1 to 31 (a shorter month's last day for 29 to 31), or -1 for the last day of every month.",
+            "maximum": 31.0,
+            "minimum": -1.0,
+            "title": "Month Day",
+            "type": "integer"
+          },
+          "time": {
+            "default": "09:00",
+            "description": "HH:MM, 24-hour.",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Time",
+            "type": "string"
+          }
+        },
+        "title": "MonthlyPicksTime",
+        "type": "object"
+      },
       "MultiAssetCustomBacktestRequest": {
         "description": "Weights a custom strategy set across several symbols in the browser, to be scored on\nthe server.\n\n``weights[i][j]`` is the share of capital in ``symbols[j]`` set at the close of\n``dates[i]``, held over the next bar; the rest is cash. The dates are those every\nsymbol traded, each exchange's own calendar date.",
         "properties": {
@@ -8818,6 +8840,10 @@
             "title": "Refresh Time",
             "type": "string"
           },
+          "schedule": {
+            "$ref": "#/components/schemas/RefreshSchedule",
+            "description": "Which days it runs on, at most once a day, and a time of its own for some days of the week; every night at ``refresh_time`` by default."
+          },
           "time_zone": {
             "default": "America/New_York",
             "description": "IANA time zone ``refresh_time`` is in, e.g. America/Chicago.",
@@ -8997,6 +9023,17 @@
             "description": "Local HH:MM it starts at.",
             "title": "Refresh Time"
           },
+          "schedule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefreshSchedule"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which days it runs on, and any day's own time."
+          },
           "time_slots": {
             "description": "The next 24 hourly checks, soonest first, with how many other users' refreshes each will start, to choose a time that shares the server with others.",
             "items": {
@@ -9016,6 +9053,18 @@
             ],
             "description": "IANA time zone of refresh_time.",
             "title": "Time Zone"
+          },
+          "typical_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How long the last successful refresh took, in minutes, to keep other scheduled work clear of it; null before the first.",
+            "title": "Typical Minutes"
           },
           "universes": {
             "description": "The sets each refresh rebuilds; every US stock and ETF while it is off.",
@@ -10581,6 +10630,22 @@
             "title": "Forex Headlines",
             "type": "array"
           },
+          "holding_figures": {
+            "description": "The screener's figures for those holdings it holds, sent to Claude as a table.",
+            "items": {
+              "$ref": "#/components/schemas/ScreenerFacts"
+            },
+            "title": "Holding Figures",
+            "type": "array"
+          },
+          "holdings": {
+            "description": "What the person already holds in the portfolios they chose to show, largest first; empty when they chose none.",
+            "items": {
+              "$ref": "#/components/schemas/PicksHolding"
+            },
+            "title": "Holdings",
+            "type": "array"
+          },
           "horizon": {
             "description": "The holding period in words.",
             "title": "Horizon",
@@ -10717,6 +10782,59 @@
           "picks"
         ],
         "title": "PicksForReview",
+        "type": "object"
+      },
+      "PicksHolding": {
+        "description": "A security the person already holds, across the portfolios they chose to show.",
+        "properties": {
+          "accounts": {
+            "description": "Each portfolio holding it, with its shares.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "shares": {
+            "exclusiveMinimum": 0.0,
+            "title": "Shares",
+            "type": "number"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shares times the screener's price; null when unpriced.",
+            "title": "Value"
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its share of the priced holdings shown, as a decimal.",
+            "title": "Weight"
+          }
+        },
+        "required": [
+          "symbol",
+          "shares",
+          "accounts"
+        ],
+        "title": "PicksHolding",
         "type": "object"
       },
       "PicksImport": {
@@ -11064,6 +11182,15 @@
       "PicksRequest": {
         "description": "Options for a list of Claude's picks.",
         "properties": {
+          "holdings_portfolios": {
+            "description": "Saved portfolios whose holdings Claude is shown, so it picks with what you already own in mind; empty for none. They come with what PyQxel already knows of them (the screener's figures), at no extra request.",
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 5,
+            "title": "Holdings Portfolios",
+            "type": "array"
+          },
           "profile": {
             "$ref": "#/components/schemas/PicksProfile"
           },
@@ -11150,6 +11277,175 @@
           "generated_at"
         ],
         "title": "PicksResponse",
+        "type": "object"
+      },
+      "PicksScheduleSettings": {
+        "description": "Makes Claude's picks on a schedule, for a week's or a month's holding period.\n\nThe keys the request carries (Anthropic's and the market data keys) are encrypted and\nstored with it, replacing any stored earlier, since the picks are made with no browser\nopen; turning both schedules off deletes them.",
+        "properties": {
+          "monthly": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MonthlyPicksTime"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Picks to hold for a month; null for none."
+          },
+          "request": {
+            "$ref": "#/components/schemas/PicksRequest",
+            "description": "How the picks are made: the profile (its horizon is each schedule's), web search, waiting for data, and the portfolios whose holdings are shown."
+          },
+          "time_zone": {
+            "default": "America/New_York",
+            "maxLength": 64,
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "weekly": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WeeklyPicksTime"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Picks to hold for a week; null for none."
+          }
+        },
+        "title": "PicksScheduleSettings",
+        "type": "object"
+      },
+      "PicksScheduleStatus": {
+        "description": "Whether Claude's picks are made on a schedule, when next, and how the last went.",
+        "properties": {
+          "available": {
+            "description": "Whether this server can store keys to run them.",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "enabled": {
+            "description": "Whether either schedule is on.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the last scheduled run made no picks; null if it did.",
+            "title": "Last Error"
+          },
+          "monthly": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MonthlyPicksTime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "monthly_ran_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Ran At"
+          },
+          "next_monthly_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Monthly At"
+          },
+          "next_weekly_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Weekly At"
+          },
+          "providers": {
+            "description": "The keys stored.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PicksRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "time_zone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Zone"
+          },
+          "weekly": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WeeklyPicksTime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "weekly_ran_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekly Ran At"
+          }
+        },
+        "required": [
+          "available",
+          "enabled"
+        ],
+        "title": "PicksScheduleStatus",
         "type": "object"
       },
       "PicksSummary": {
@@ -11457,6 +11753,12 @@
             ],
             "description": "A custom window of daily returns, in months, used instead of ``period``.",
             "title": "History Months"
+          },
+          "include_picks": {
+            "default": true,
+            "description": "Let the review see your latest stored Claude's picks, with their figures, so it can weigh adding them; false to leave them out.",
+            "title": "Include Picks",
+            "type": "boolean"
           },
           "period": {
             "default": "1y",
@@ -13666,6 +13968,61 @@
         "title": "RecommendationMonth",
         "type": "object"
       },
+      "RefreshSchedule": {
+        "description": "Which days a refresh runs on, and at what time on each.",
+        "properties": {
+          "dates": {
+            "description": "For ``dates``: the days it runs on, each in the refresh's time zone.",
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "maxItems": 62,
+            "title": "Dates",
+            "type": "array"
+          },
+          "frequency": {
+            "default": "nightly",
+            "description": "How often it runs.",
+            "enum": [
+              "nightly",
+              "trading_days",
+              "weekdays",
+              "weekly",
+              "monthly",
+              "dates"
+            ],
+            "title": "Frequency",
+            "type": "string"
+          },
+          "month_day": {
+            "default": -1,
+            "description": "For ``monthly``: the day of the month, 1 to 31 (the last day of a shorter month for 29 to 31), or -1 for the last day of every month.",
+            "maximum": 31.0,
+            "minimum": -1.0,
+            "title": "Month Day",
+            "type": "integer"
+          },
+          "times": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "A time, HH:MM, for some days of the week (Monday 0 to Sunday 6) in place of the usual one.",
+            "title": "Times",
+            "type": "object"
+          },
+          "weekday": {
+            "default": 6,
+            "description": "For ``weekly``: the day of the week, Monday 0 to Sunday 6.",
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "Weekday",
+            "type": "integer"
+          }
+        },
+        "title": "RefreshSchedule",
+        "type": "object"
+      },
       "RenewedKey": {
         "description": "A sign-in key renewed for another full term, or none when it is not due.",
         "properties": {
@@ -14183,6 +14540,53 @@
           "items"
         ],
         "title": "SavedStateUpdate",
+        "type": "object"
+      },
+      "ScheduleConflictCheck": {
+        "description": "A schedule about to be saved, checked against the other kind: the screener refresh\nagainst the scheduled picks, or the picks against the refresh. A side left out is\ntaken as stored.",
+        "properties": {
+          "nightly": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NightlyRefreshSettings"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The screener refresh's schedule about to be saved."
+          },
+          "picks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PicksScheduleSettings"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scheduled picks about to be saved."
+          }
+        },
+        "title": "ScheduleConflictCheck",
+        "type": "object"
+      },
+      "ScheduleConflicts": {
+        "description": "Where scheduled picks would fall inside a screener refresh.",
+        "properties": {
+          "warnings": {
+            "description": "Each picks run that would start while the refresh runs, in words; such a run waits for the refresh to finish. Empty when none would.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "warnings"
+        ],
+        "title": "ScheduleConflicts",
         "type": "object"
       },
       "ScreenFilter": {
@@ -17463,6 +17867,28 @@
         "title": "WebSource",
         "type": "object"
       },
+      "WeeklyPicksTime": {
+        "description": "When weekly picks are made: a day of the week and a local time.",
+        "properties": {
+          "time": {
+            "default": "09:00",
+            "description": "HH:MM, 24-hour.",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Time",
+            "type": "string"
+          },
+          "weekday": {
+            "default": 6,
+            "description": "Monday 0 to Sunday 6.",
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "Weekday",
+            "type": "integer"
+          }
+        },
+        "title": "WeeklyPicksTime",
+        "type": "object"
+      },
       "YieldPoint": {
         "description": "The Treasury's par yield at one maturity on three dates.",
         "properties": {
@@ -19043,7 +19469,7 @@
         ]
       },
       "put": {
-        "description": "Opt in to a nightly refresh of your own screener, or change when it runs.\n\nEach night at ``refresh_time`` in ``time_zone``, your own universe (every US stock and\nETF, or the sets ``universes`` chooses, combined, with the tickers in\n``custom_symbols``) is rebuilt from the SEC's shared list of stocks and financials,\nFinnhub's free metrics on your Finnhub key, and price-history columns from whichever\nprice-history key you have (Tiingo, FMP, EODHD, or Alpha Vantage). It runs with no\nbrowser open, so the market data keys this request carries are stored, encrypted,\nreplacing any stored before; your Anthropic key is never stored. Send this again after\nchanging a key.\n\nReturns 422 without a Finnhub key, or for an unknown time zone; 503 when this server\ncannot store keys or the database is unavailable.",
+        "description": "Opt in to a nightly refresh of your own screener, or change when it runs.\n\nEach night at ``refresh_time`` in ``time_zone``, your own universe (every US stock and\nETF, or the sets ``universes`` chooses, combined, with the tickers in\n``custom_symbols``) is rebuilt from the SEC's shared list of stocks and financials,\nFinnhub's free metrics on your Finnhub key, and price-history columns from whichever\nprice-history key you have (Tiingo, FMP, EODHD, or Alpha Vantage). It runs with no\nbrowser open, so the market data keys this request carries are stored, encrypted,\nreplacing any stored before; this refresh never stores your Anthropic key. Send this again after\nchanging a key.\n\nReturns 422 without a Finnhub key, or for an unknown time zone; 503 when this server\ncannot store keys or the database is unavailable.",
         "operationId": "store_nightly_refresh_api_v1_me_nightly_refresh_put",
         "requestBody": {
           "content": {
@@ -19078,6 +19504,88 @@
           }
         },
         "summary": "Turn on your nightly screener refresh",
+        "tags": [
+          "account"
+        ]
+      }
+    },
+    "/api/v1/me/picks-schedule": {
+      "delete": {
+        "description": "Turn both schedules off: the stored keys are deleted at once. Picks already made\nstay with your others. Returns 503 when the database is unavailable.",
+        "operationId": "remove_picks_schedule_api_v1_me_picks_schedule_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PicksScheduleStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Stop making Claude's picks on a schedule",
+        "tags": [
+          "account"
+        ]
+      },
+      "get": {
+        "description": "Return whether Claude's picks are made on a schedule for you, when each schedule\nruns next, and how the last run went. Returns 503 when the database is unavailable.",
+        "operationId": "read_picks_schedule_api_v1_me_picks_schedule_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PicksScheduleStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Your scheduled Claude's picks",
+        "tags": [
+          "account"
+        ]
+      },
+      "put": {
+        "description": "Have Claude's picks made weekly, monthly, or both, for a week's or a month's holding\nperiod, with the rest of ``request`` (profile, web search, waiting, holdings shown).\n\nEach runs at its day and time in ``time_zone``, on the next hourly check, and never\nwhile your own screener refresh is running: it then waits for the refresh to finish.\nBoth falling due together run in one go. The picks are made with no browser open, so\nthe Anthropic key and market data keys this request carries are stored, encrypted,\nreplacing any stored before; send this again after changing a key. They are written\non your Anthropic key, within your AI limits, and stored with your other picks.\n\nReturns 422 without an Anthropic key, with neither schedule, or for an unknown time\nzone; 503 when this server cannot store keys or the database is unavailable.",
+        "operationId": "store_picks_schedule_api_v1_me_picks_schedule_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PicksScheduleSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PicksScheduleStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Make Claude's picks on a schedule",
         "tags": [
           "account"
         ]
@@ -19145,6 +19653,48 @@
         ]
       }
     },
+    "/api/v1/me/schedule-conflicts": {
+      "post": {
+        "description": "Say where scheduled picks would start while your screener refresh runs, over the\nnext two months, for a schedule about to be saved (either side; the other as stored).\nSuch picks wait for the refresh to finish, so they come later than set; the warnings\nlet you choose another time or keep it. Nothing is saved. Returns 503 when the\ndatabase is unavailable.",
+        "operationId": "check_schedule_conflicts_api_v1_me_schedule_conflicts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleConflictCheck"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleConflicts"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check scheduled picks against the screener refresh",
+        "tags": [
+          "account"
+        ]
+      }
+    },
     "/api/v1/picks": {
       "get": {
         "description": "Return your stored lists of picks, newest first, each with its tickers but not its\nreasons. Reading them costs nothing. Returns 503 when the database is unavailable.",
@@ -19199,6 +19749,7 @@
               "schema": {
                 "$ref": "#/components/schemas/PicksRequest",
                 "default": {
+                  "holdings_portfolios": [],
                   "profile": {
                     "asset_types": [],
                     "horizon": {
@@ -19382,6 +19933,7 @@
               "schema": {
                 "$ref": "#/components/schemas/PicksRequest",
                 "default": {
+                  "holdings_portfolios": [],
                   "profile": {
                     "asset_types": [],
                     "horizon": {
@@ -19436,6 +19988,7 @@
               "schema": {
                 "$ref": "#/components/schemas/PicksRequest",
                 "default": {
+                  "holdings_portfolios": [],
                   "profile": {
                     "asset_types": [],
                     "horizon": {
@@ -19911,6 +20464,7 @@
                 "default": {
                   "accounts": [],
                   "group_mode": "combined",
+                  "include_picks": true,
                   "period": "1y",
                   "portfolio": 1,
                   "portfolios": [],
@@ -20009,6 +20563,7 @@
                 "default": {
                   "accounts": [],
                   "group_mode": "combined",
+                  "include_picks": true,
                   "period": "1y",
                   "portfolio": 1,
                   "portfolios": [],
@@ -20065,6 +20620,7 @@
                 "default": {
                   "accounts": [],
                   "group_mode": "combined",
+                  "include_picks": true,
                   "period": "1y",
                   "portfolio": 1,
                   "portfolios": [],

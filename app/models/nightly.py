@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
+from app.models.schedule import RefreshSchedule
+
 NightlyProvider = Literal["finnhub", "tiingo", "fmp", "eodhd", "alpha_vantage"]
 """Providers whose keys the nightly refresh stores and uses. Anthropic's is never stored."""
 
@@ -76,6 +78,11 @@ class NightlyRefreshSettings(BaseModel):
         default="America/New_York",
         max_length=64,
         description="IANA time zone ``refresh_time`` is in, e.g. America/Chicago.",
+    )
+    schedule: RefreshSchedule = Field(
+        default_factory=RefreshSchedule,
+        description="Which days it runs on, at most once a day, and a time of its own for "
+        "some days of the week; every night at ``refresh_time`` by default.",
     )
 
     use_keys: list[NightlyProvider] | None = Field(
@@ -194,6 +201,14 @@ class NightlyRefreshStatus(BaseModel):
     enabled: bool = Field(description="Whether the user has opted in.")
     refresh_time: str | None = Field(default=None, description="Local HH:MM it starts at.")
     time_zone: str | None = Field(default=None, description="IANA time zone of refresh_time.")
+    schedule: RefreshSchedule | None = Field(
+        default=None, description="Which days it runs on, and any day's own time."
+    )
+    typical_minutes: int | None = Field(
+        default=None,
+        description="How long the last successful refresh took, in minutes, to keep other "
+        "scheduled work clear of it; null before the first.",
+    )
     providers: list[NightlyProvider] = Field(
         default_factory=list, description="Providers whose keys are stored, encrypted."
     )

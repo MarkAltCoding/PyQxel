@@ -786,7 +786,7 @@ export interface paths {
      *     Finnhub's free metrics on your Finnhub key, and price-history columns from whichever
      *     price-history key you have (Tiingo, FMP, EODHD, or Alpha Vantage). It runs with no
      *     browser open, so the market data keys this request carries are stored, encrypted,
-     *     replacing any stored before; your Anthropic key is never stored. Send this again after
+     *     replacing any stored before; this refresh never stores your Anthropic key. Send this again after
      *     changing a key.
      *
      *     Returns 422 without a Finnhub key, or for an unknown time zone; 503 when this server
@@ -802,6 +802,47 @@ export interface paths {
      *     Returns 503 when the database is unavailable.
      */
     delete: operations['remove_nightly_refresh_api_v1_me_nightly_refresh_delete']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/me/picks-schedule': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Your scheduled Claude's picks
+     * @description Return whether Claude's picks are made on a schedule for you, when each schedule
+     *     runs next, and how the last run went. Returns 503 when the database is unavailable.
+     */
+    get: operations['read_picks_schedule_api_v1_me_picks_schedule_get']
+    /**
+     * Make Claude's picks on a schedule
+     * @description Have Claude's picks made weekly, monthly, or both, for a week's or a month's holding
+     *     period, with the rest of ``request`` (profile, web search, waiting, holdings shown).
+     *
+     *     Each runs at its day and time in ``time_zone``, on the next hourly check, and never
+     *     while your own screener refresh is running: it then waits for the refresh to finish.
+     *     Both falling due together run in one go. The picks are made with no browser open, so
+     *     the Anthropic key and market data keys this request carries are stored, encrypted,
+     *     replacing any stored before; send this again after changing a key. They are written
+     *     on your Anthropic key, within your AI limits, and stored with your other picks.
+     *
+     *     Returns 422 without an Anthropic key, with neither schedule, or for an unknown time
+     *     zone; 503 when this server cannot store keys or the database is unavailable.
+     */
+    put: operations['store_picks_schedule_api_v1_me_picks_schedule_put']
+    post?: never
+    /**
+     * Stop making Claude's picks on a schedule
+     * @description Turn both schedules off: the stored keys are deleted at once. Picks already made
+     *     stay with your others. Returns 503 when the database is unavailable.
+     */
+    delete: operations['remove_picks_schedule_api_v1_me_picks_schedule_delete']
     options?: never
     head?: never
     patch?: never
@@ -832,6 +873,30 @@ export interface paths {
      */
     put: operations['store_saved_state_api_v1_me_saved_put']
     post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/me/schedule-conflicts': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Check scheduled picks against the screener refresh
+     * @description Say where scheduled picks would start while your screener refresh runs, over the
+     *     next two months, for a schedule about to be saved (either side; the other as stored).
+     *     Such picks wait for the refresh to finish, so they come later than set; the warnings
+     *     let you choose another time or keep it. Nothing is saved. Returns 503 when the
+     *     database is unavailable.
+     */
+    post: operations['check_schedule_conflicts_api_v1_me_schedule_conflicts_post']
     delete?: never
     options?: never
     head?: never
@@ -6318,6 +6383,24 @@ export interface components {
       window?: number
     }
     /**
+     * MonthlyPicksTime
+     * @description When monthly picks are made: a day of the month and a local time.
+     */
+    MonthlyPicksTime: {
+      /**
+       * Month Day
+       * @description 1 to 31 (a shorter month's last day for 29 to 31), or -1 for the last day of every month.
+       * @default -1
+       */
+      month_day?: number
+      /**
+       * Time
+       * @description HH:MM, 24-hour.
+       * @default 09:00
+       */
+      time?: string
+    }
+    /**
      * MultiAssetCustomBacktestRequest
      * @description Weights a custom strategy set across several symbols in the browser, to be scored on
      *     the server.
@@ -6678,6 +6761,8 @@ export interface components {
        * @default 19:00
        */
       refresh_time?: string
+      /** @description Which days it runs on, at most once a day, and a time of its own for some days of the week; every night at ``refresh_time`` by default. */
+      schedule?: components['schemas']['RefreshSchedule']
       /**
        * Time Zone
        * @description IANA time zone ``refresh_time`` is in, e.g. America/Chicago.
@@ -6751,6 +6836,8 @@ export interface components {
        * @description Local HH:MM it starts at.
        */
       refresh_time?: string | null
+      /** @description Which days it runs on, and any day's own time. */
+      schedule?: components['schemas']['RefreshSchedule'] | null
       /**
        * Time Slots
        * @description The next 24 hourly checks, soonest first, with how many other users' refreshes each will start, to choose a time that shares the server with others.
@@ -6761,6 +6848,11 @@ export interface components {
        * @description IANA time zone of refresh_time.
        */
       time_zone?: string | null
+      /**
+       * Typical Minutes
+       * @description How long the last successful refresh took, in minutes, to keep other scheduled work clear of it; null before the first.
+       */
+      typical_minutes?: number | null
       /**
        * Universes
        * @description The sets each refresh rebuilds; every US stock and ETF while it is off.
@@ -7487,6 +7579,16 @@ export interface components {
        */
       forex_headlines?: components['schemas']['NewsHeadline'][]
       /**
+       * Holding Figures
+       * @description The screener's figures for those holdings it holds, sent to Claude as a table.
+       */
+      holding_figures?: components['schemas']['ScreenerFacts'][]
+      /**
+       * Holdings
+       * @description What the person already holds in the portfolios they chose to show, largest first; empty when they chose none.
+       */
+      holdings?: components['schemas']['PicksHolding'][]
+      /**
        * Horizon
        * @description The holding period in words.
        */
@@ -7549,6 +7651,31 @@ export interface components {
       prices_as_of?: string | null
       /** @description What the picks were tailored to. */
       profile: components['schemas']['PicksProfile']
+    }
+    /**
+     * PicksHolding
+     * @description A security the person already holds, across the portfolios they chose to show.
+     */
+    PicksHolding: {
+      /**
+       * Accounts
+       * @description Each portfolio holding it, with its shares.
+       */
+      accounts: string[]
+      /** Shares */
+      shares: number
+      /** Symbol */
+      symbol: string
+      /**
+       * Value
+       * @description Shares times the screener's price; null when unpriced.
+       */
+      value?: number | null
+      /**
+       * Weight
+       * @description Its share of the priced holdings shown, as a decimal.
+       */
+      weight?: number | null
     }
     /**
      * PicksImport
@@ -7727,6 +7854,11 @@ export interface components {
      * @description Options for a list of Claude's picks.
      */
     PicksRequest: {
+      /**
+       * Holdings Portfolios
+       * @description Saved portfolios whose holdings Claude is shown, so it picks with what you already own in mind; empty for none. They come with what PyQxel already knows of them (the screener's figures), at no extra request.
+       */
+      holdings_portfolios?: number[]
       profile?: components['schemas']['PicksProfile']
       /**
        * Refresh
@@ -7785,6 +7917,66 @@ export interface components {
        * @description The screener's figures for each pick when the picks were made, in the picks' order; a pick the screener does not hold is left out.
        */
       securities?: components['schemas']['ScreenedStock'][]
+    }
+    /**
+     * PicksScheduleSettings
+     * @description Makes Claude's picks on a schedule, for a week's or a month's holding period.
+     *
+     *     The keys the request carries (Anthropic's and the market data keys) are encrypted and
+     *     stored with it, replacing any stored earlier, since the picks are made with no browser
+     *     open; turning both schedules off deletes them.
+     */
+    PicksScheduleSettings: {
+      /** @description Picks to hold for a month; null for none. */
+      monthly?: components['schemas']['MonthlyPicksTime'] | null
+      /** @description How the picks are made: the profile (its horizon is each schedule's), web search, waiting for data, and the portfolios whose holdings are shown. */
+      request?: components['schemas']['PicksRequest']
+      /**
+       * Time Zone
+       * @default America/New_York
+       */
+      time_zone?: string
+      /** @description Picks to hold for a week; null for none. */
+      weekly?: components['schemas']['WeeklyPicksTime'] | null
+    }
+    /**
+     * PicksScheduleStatus
+     * @description Whether Claude's picks are made on a schedule, when next, and how the last went.
+     */
+    PicksScheduleStatus: {
+      /**
+       * Available
+       * @description Whether this server can store keys to run them.
+       */
+      available: boolean
+      /**
+       * Enabled
+       * @description Whether either schedule is on.
+       */
+      enabled: boolean
+      /**
+       * Last Error
+       * @description Why the last scheduled run made no picks; null if it did.
+       */
+      last_error?: string | null
+      monthly?: components['schemas']['MonthlyPicksTime'] | null
+      /** Monthly Ran At */
+      monthly_ran_at?: string | null
+      /** Next Monthly At */
+      next_monthly_at?: string | null
+      /** Next Weekly At */
+      next_weekly_at?: string | null
+      /**
+       * Providers
+       * @description The keys stored.
+       */
+      providers?: string[]
+      request?: components['schemas']['PicksRequest'] | null
+      /** Time Zone */
+      time_zone?: string | null
+      weekly?: components['schemas']['WeeklyPicksTime'] | null
+      /** Weekly Ran At */
+      weekly_ran_at?: string | null
     }
     /**
      * PicksSummary
@@ -7964,6 +8156,12 @@ export interface components {
        * @description A custom window of daily returns, in months, used instead of ``period``.
        */
       history_months?: number | null
+      /**
+       * Include Picks
+       * @description Let the review see your latest stored Claude's picks, with their figures, so it can weigh adding them; false to leave them out.
+       * @default true
+       */
+      include_picks?: boolean
       /**
        * Period
        * @description Window of daily returns the statistics are computed on.
@@ -9057,6 +9255,43 @@ export interface components {
       strong_sell: number
     }
     /**
+     * RefreshSchedule
+     * @description Which days a refresh runs on, and at what time on each.
+     */
+    RefreshSchedule: {
+      /**
+       * Dates
+       * @description For ``dates``: the days it runs on, each in the refresh's time zone.
+       */
+      dates?: string[]
+      /**
+       * Frequency
+       * @description How often it runs.
+       * @default nightly
+       * @enum {string}
+       */
+      frequency?: 'nightly' | 'trading_days' | 'weekdays' | 'weekly' | 'monthly' | 'dates'
+      /**
+       * Month Day
+       * @description For ``monthly``: the day of the month, 1 to 31 (the last day of a shorter month for 29 to 31), or -1 for the last day of every month.
+       * @default -1
+       */
+      month_day?: number
+      /**
+       * Times
+       * @description A time, HH:MM, for some days of the week (Monday 0 to Sunday 6) in place of the usual one.
+       */
+      times?: {
+        [key: string]: string
+      }
+      /**
+       * Weekday
+       * @description For ``weekly``: the day of the week, Monday 0 to Sunday 6.
+       * @default 6
+       */
+      weekday?: number
+    }
+    /**
      * RenewedKey
      * @description A sign-in key renewed for another full term, or none when it is not due.
      */
@@ -9363,6 +9598,29 @@ export interface components {
       items: {
         [key: string]: string | null
       }
+    }
+    /**
+     * ScheduleConflictCheck
+     * @description A schedule about to be saved, checked against the other kind: the screener refresh
+     *     against the scheduled picks, or the picks against the refresh. A side left out is
+     *     taken as stored.
+     */
+    ScheduleConflictCheck: {
+      /** @description The screener refresh's schedule about to be saved. */
+      nightly?: components['schemas']['NightlyRefreshSettings'] | null
+      /** @description The scheduled picks about to be saved. */
+      picks?: components['schemas']['PicksScheduleSettings'] | null
+    }
+    /**
+     * ScheduleConflicts
+     * @description Where scheduled picks would fall inside a screener refresh.
+     */
+    ScheduleConflicts: {
+      /**
+       * Warnings
+       * @description Each picks run that would start while the refresh runs, in words; such a run waits for the refresh to finish. Empty when none would.
+       */
+      warnings: string[]
     }
     /**
      * ScreenFilter
@@ -10921,6 +11179,24 @@ export interface components {
       url: string
     }
     /**
+     * WeeklyPicksTime
+     * @description When weekly picks are made: a day of the week and a local time.
+     */
+    WeeklyPicksTime: {
+      /**
+       * Time
+       * @description HH:MM, 24-hour.
+       * @default 09:00
+       */
+      time?: string
+      /**
+       * Weekday
+       * @description Monday 0 to Sunday 6.
+       * @default 6
+       */
+      weekday?: number
+    }
+    /**
      * YieldPoint
      * @description The Treasury's par yield at one maturity on three dates.
      */
@@ -12006,6 +12282,79 @@ export interface operations {
       }
     }
   }
+  read_picks_schedule_api_v1_me_picks_schedule_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PicksScheduleStatus']
+        }
+      }
+    }
+  }
+  store_picks_schedule_api_v1_me_picks_schedule_put: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PicksScheduleSettings']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PicksScheduleStatus']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  remove_picks_schedule_api_v1_me_picks_schedule_delete: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PicksScheduleStatus']
+        }
+      }
+    }
+  }
   read_saved_state_api_v1_me_saved_get: {
     parameters: {
       query?: never
@@ -12046,6 +12395,39 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['SavedState']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  check_schedule_conflicts_api_v1_me_schedule_conflicts_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ScheduleConflictCheck']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ScheduleConflicts']
         }
       }
       /** @description Validation Error */

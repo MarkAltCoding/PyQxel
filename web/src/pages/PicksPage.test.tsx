@@ -89,6 +89,8 @@ function serve(routes: Record<string, Route>) {
 const json = (body: unknown) => new Response(JSON.stringify(body))
 const STATUS = {
   'GET /api/v1/screener/status': () => json({ stocks: 5200, own: true }),
+  'GET /api/v1/me/picks-schedule': () => json({ available: true, enabled: false }),
+  'GET /api/v1/portfolio/portfolios': () => json({ portfolios: [] }),
   'GET /api/v1/picks/performance': () =>
     json({ benchmark: 'SPY', benchmark_name: 'S&P 500 (SPY)', items: [] }),
 }
@@ -183,6 +185,7 @@ describe('PicksPage', () => {
       },
       web_search: false,
       wait_seconds: 300,
+      holdings_portfolios: [],
       refresh: false,
     })
     // The answers are kept for next time.

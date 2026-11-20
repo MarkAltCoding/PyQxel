@@ -200,6 +200,7 @@ function keptGroup(): KeptGroup {
 /** What the person last told the review about themselves, kept with their account so it
  * need not be typed again. */
 const PROFILE_KEY = 'pyqxel.reviewProfile'
+const WITH_PICKS_KEY = 'pyqxel.reviewWithPicks'
 
 interface KeptProfile {
   months: number
@@ -315,6 +316,8 @@ export function PortfolioReviewCard({
   const [wait, setWait] = useWaitChoice()
   // Most brokers trade fractions of a share now; the choice is remembered in this browser.
   const [fractional, setFractional] = useState(() => readStored(FRACTIONAL_KEY) !== 'off')
+  // Whether the review sees the latest Claude's picks: on until turned off.
+  const [withPicks, setWithPicks] = useState(() => readStored(WITH_PICKS_KEY) !== 'off')
   const [roundShares, setRoundShares] = useState(() => readStored(ROUND_KEY) !== 'off')
   const [progress, setProgress] = useState<AiProgress | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -402,6 +405,7 @@ export function PortfolioReviewCard({
       profile: profile(),
       web_search: webSearch,
       wait_seconds: wait,
+      include_picks: withPicks,
     }
     const exported = await exportPortfolioPrompt(request)
     keepExport(exportKey, { request, context: exported.context })
@@ -428,6 +432,7 @@ export function PortfolioReviewCard({
           profile: profile(),
           web_search: webSearch,
           wait_seconds: wait,
+          include_picks: withPicks,
           refresh:
             review !== null && (review.history_months ?? PERIOD_MONTHS[review.period]) === months,
         },
@@ -636,6 +641,20 @@ export function PortfolioReviewCard({
               My broker trades fractional shares
             </label>
             <InfoTip topic="fractionalBroker" />
+          </span>
+          <span className="heading-with-info">
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={withPicks}
+                onChange={(e) => {
+                  setWithPicks(e.target.checked)
+                  writeStored(WITH_PICKS_KEY, e.target.checked ? null : 'off')
+                }}
+              />
+              Let the review see my latest Claude’s picks
+            </label>
+            <InfoTip topic="reviewWithPicks" />
           </span>
           {fractional && (
             <span className="heading-with-info">

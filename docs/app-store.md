@@ -89,7 +89,7 @@ portfolio, using market data and AI on your own provider keys.
 > YOUR KEYS, YOUR DATA
 > PyQxel uses market data from Tiingo, Financial Modeling Prep, EODHD, Alpha Vantage and
 > Finnhub on keys you add, starting with their free plans. Your keys stay on your device
-> unless you turn on the nightly screener refresh. No ads, no tracking.
+> unless you turn on the nightly screener refresh or scheduled picks. No ads, no tracking.
 >
 > PyQxel is a research tool, not investment advice. It does not trade or hold money, and
 > past results do not predict future ones.
@@ -122,7 +122,7 @@ tracking, and every type below is linked to the user and used only for App Funct
 | Financial Info: Other Financial Info | Portfolio holdings. |
 | Purchases: Purchase History | Credit bought and the usage subscription for the nightly refresh, paid on the website through Stripe, and each refresh's cost. |
 | User Content: Other User Content | Saved backtests with strategy code, simulations, AI reports, portfolio reviews, and Claude's picks, with what their web searches found; and what the user enters in the app (strategy drafts, screens, the goals given for reviews and picks, display choices). |
-| Other Data | Provider API keys, stored encrypted only for users who turn on the nightly screener refresh. |
+| Other Data | Provider API keys, stored encrypted only for users who turn on the nightly screener refresh (market data keys) or scheduled Claude's picks (the Anthropic key too). |
 
 Not collected: name, location, contacts, browsing history, usage data, diagnostics.
 Card details and the billing address go to Stripe on the website, never to PyQxel or the app. Requests reach Google Cloud's access logs, which keep IP addresses for 30 days
@@ -201,8 +201,8 @@ look at.
    enter a small sample portfolio (for example SPY 10, AAPL 5, MSFT 5, TLT 10), run and
    save one built-in backtest and one Python backtest, and acknowledge the advice notice.
    The keys stay in that browser only; the reviewer pastes them in again from the notes.
-4. **Do not turn on the nightly refresh** for this account, so no keys are stored on the
-   server.
+4. **Do not turn on the nightly refresh or scheduled picks** for this account, so no keys
+   are stored on the server.
 5. **After each review** (approval or rejection): check that the account still works, and
    rotate the review keys if they appear anywhere but App Store Connect.
 6. **When review is no longer needed:** delete the account

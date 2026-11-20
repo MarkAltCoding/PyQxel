@@ -796,6 +796,32 @@ const entries = {
     good: 'Worth it when recent news matters: a stock around its earnings, a portfolio after a market move, or picks for a short holding period.',
     note: 'On by default. It costs a little more, billed by Anthropic to your key: about 1 cent per search, with up to six searches, plus the tokens to read the results, typically a few cents in all. It also takes a minute or so longer. A report that searches the web is always written anew, never reused. When you use Claude outside the app, this choice goes into the prompt: checked, Claude is told to search the web itself and name its sources; unchecked, to keep to PyQxel’s data.',
   },
+  refreshSchedule: {
+    title: 'How often it refreshes',
+    what: 'Which days the refresh runs, at most once a day: every night; each day the New York Stock Exchange is open, so each refresh has a new day of prices (weekends and NYSE holidays such as Thanksgiving are skipped); weeknights; one day a week or a month; or days you pick on a calendar of this month and the next. Under “A different time on some days” you can give any day of the week its own time.',
+    good: 'Each day the NYSE is open, in the evening after the 4 p.m. close, gets fresh figures without paying for nights when nothing changed.',
+    note: 'A refresh starts on the hourly check after its time and takes from minutes to a few hours, by how much it rebuilds and your Finnhub plan. Days the exchange closes for a one-off event cannot be known ahead, so they are taken as open.',
+  },
+  picksSchedule: {
+    title: 'Scheduled picks',
+    what: 'Has Claude make your picks by itself: weekly picks to hold for a week, monthly picks to hold for a month, or both, with the settings above (risk, amount, kinds, notes, holdings shown, web search, and waiting). Each new list joins your saved picks.',
+    good: 'Weekly picks on Sunday, before the market opens, and monthly picks on the last day of the month suit most people.',
+    note: 'They are made while your browser is closed, so turning this on stores your Anthropic key and market data keys on PyQxel’s server, encrypted; turning it off deletes them. Each list is billed to your Anthropic key as one you ask for would be, within your AI limits. A run never starts during your own screener refresh: it waits for it to finish. When both fall due together, they run together.',
+  },
+  picksInReview: {
+    title: 'Claude’s picks here',
+    what: 'The same Claude’s picks as under the Screener’s Claude’s picks tab, opened here beside your review: the latest list, your saved ones, and the schedule. A list made or changed in either place is the same list in both.',
+  },
+  reviewWithPicks: {
+    title: 'Let the review see my latest picks',
+    what: 'Gives the review your most recent stored Claude’s picks, with the screener’s figures for each, so it can weigh adding them to your portfolio. Unticked, the review works from your holdings alone.',
+    note: 'On by default. Nothing is fetched for it: the picks are already stored.',
+  },
+  picksHoldings: {
+    title: 'Show Claude my holdings',
+    what: 'Gives Claude what you already hold in the portfolios you choose: each security, its shares in each account, its value and weight, and the screener’s figures for it. Claude then picks with your holdings in mind, so it does not pile more into what you are already concentrated in, says when a pick overlaps or complements a holding, and adds to something you own only when that is the best use of the money.',
+    note: 'Nothing extra is fetched: prices and figures come from your screener. A holding the screener does not hold is listed without a value. To have your holdings themselves reviewed, use the portfolio review.',
+  },
   savedReviews: {
     title: 'Saved reviews',
     what: 'Every portfolio review Claude has written for you, newest first: when, which portfolios it covered and how, what you asked it to tailor the plan to, and which model wrote it. Choose one to read it again with the data it was written from; reading it costs nothing.',

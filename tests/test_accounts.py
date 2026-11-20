@@ -36,6 +36,7 @@ from app.db.tables import (
     HoldingRecord,
     IdentityRecord,
     NightlyRefreshRecord,
+    ScheduledPicksRecord,
     PicksRecord,
     SavedStateRecord,
     StoredHistoryRecord,
@@ -572,6 +573,18 @@ def _give_data(user: User) -> None:
                 )
             )
             session.add(
+                ScheduledPicksRecord(
+                    user_id=user.id,
+                    time_zone="America/New_York",
+                    credentials="encrypted",
+                    providers=["anthropic", "finnhub"],
+                    weekly={"weekday": 6, "time": "09:00"},
+                    request={},
+                    created_at=now,
+                    keys_updated_at=now,
+                )
+            )
+            session.add(
                 UserScreenerRunRecord(
                     id=f"run-{user.id}", user_id=user.id, started_at=now, status="succeeded"
                 )
@@ -693,6 +706,7 @@ def test_deleting_an_account_removes_everything_it_holds(
         "assistant_requests": 1,
         "simulations": 0,
         "nightly_refreshes": 1,
+        "scheduled_picks": 1,
         "user_screener_runs": 1,
         "user_screener_stocks": 1,
         "stored_price_history": 1,

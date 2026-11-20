@@ -10,6 +10,7 @@ import {
 } from '../api/endpoints'
 import { HoldingsTable, type HoldingRow } from '../components/HoldingsTable'
 import { AccountSettingsFields } from '../components/AccountSettings'
+import { ClaudesPicks } from '../components/ClaudesPicks'
 import { PortfolioReviewCard } from '../components/PortfolioReviewCard'
 import type {
   HoldingsResponse,
@@ -360,6 +361,17 @@ export function PortfolioPage() {
             portfolios={portfolios.data?.portfolios ?? []}
             stale={dirty || holdings.isPlaceholderData}
           />
+          <details className="card picks-in-review">
+            <summary>
+              <span className="heading-with-info">
+                <strong>Claude’s picks</strong>
+                <InfoTip topic="picksInReview" />
+              </span>
+            </summary>
+            <div className="stack" style={{ marginTop: 12 }}>
+              <ClaudesPicks />
+            </div>
+          </details>
         </>
       )}
     </div>
