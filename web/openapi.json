@@ -8842,7 +8842,7 @@
           },
           "schedule": {
             "$ref": "#/components/schemas/RefreshSchedule",
-            "description": "Which days it runs on, at most once a day, and a time of its own for some days of the week; every night at ``refresh_time`` by default."
+            "description": "Which days it runs on, at most once a day, and a time of its own for some days of the week; by default once after each NYSE session, at ``refresh_time``."
           },
           "time_zone": {
             "default": "America/New_York",
@@ -13982,7 +13982,7 @@
             "type": "array"
           },
           "frequency": {
-            "default": "nightly",
+            "default": "trading_days",
             "description": "How often it runs.",
             "enum": [
               "nightly",
