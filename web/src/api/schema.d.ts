@@ -537,13 +537,15 @@ export interface paths {
     }
     /**
      * Market news
-     * @description Return the latest market-wide news in ``category``, newest first, from Finnhub.
+     * @description Return the latest market-wide news in ``category``, newest first, from Finnhub, or
+     *     from Alpha Vantage's news feed (a paid plan) when Finnhub cannot supply it.
      *
      *     ``general`` is business and markets news, ``forex`` currencies, ``crypto``
      *     cryptocurrencies, and ``merger`` mergers and acquisitions. Each article's
      *     ``importance``, from 0 to 1, scores how market-moving it looks: the topics its
-     *     headline names, its publisher, and its age. Reused for five minutes. Returns 403
-     *     without a valid Finnhub key, and 502 when Finnhub fails.
+     *     headline names, its publisher, and its age. Reused for five minutes (Alpha Vantage's
+     *     feed for fifteen). Returns 403 when neither key can supply it, and 502 when Finnhub
+     *     fails and Alpha Vantage cannot stand in.
      */
     get: operations['get_market_news_api_v1_markets_news_get']
     put?: never
@@ -6006,28 +6008,33 @@ export interface components {
        */
       as_of: string
       /**
+       * Calendar Days
+       * @description Days ahead the earnings reports, IPOs, and holidays cover, for picks and reviews; null for a stock report's two weeks.
+       */
+      calendar_days?: number | null
+      /**
        * Fomc Meetings
-       * @description The next scheduled FOMC meetings.
+       * @description The next scheduled FOMC meetings: the next two, or, for Claude's picks and portfolio reviews, every one scheduled within the holding period.
        */
       fomc_meetings: components['schemas']['FomcMeeting'][]
       /**
        * Headlines
-       * @description The newest general market headlines, newest first.
+       * @description The general market headlines that look most market-moving, newest first.
        */
       headlines: components['schemas']['NewsHeadline'][]
       /**
        * Holidays
-       * @description Holidays in the next month.
+       * @description Market holidays ahead: the next month's, or for picks and reviews, those within the calendar window (up to 90 days).
        */
       holidays: components['schemas']['MarketHoliday'][]
       /**
        * Ipos
-       * @description IPOs in the next two weeks, largest first.
+       * @description IPOs in the next two weeks, or for picks and reviews within the calendar window, largest first.
        */
       ipos: components['schemas']['IpoEvent'][]
       /**
        * Major Earnings
-       * @description Major companies reporting in the next two weeks, largest first.
+       * @description Major companies reporting in the next two weeks, or for picks and reviews within the calendar window, largest first.
        */
       major_earnings: components['schemas']['EarningsEvent'][]
       /** Market Open */
@@ -6068,6 +6075,13 @@ export interface components {
        * Format: date-time
        */
       fetched_at: string
+      /**
+       * Provider
+       * @description Where the articles came from: Finnhub, or Alpha Vantage's feed (a paid plan) when Finnhub cannot supply them.
+       * @default finnhub
+       * @enum {string}
+       */
+      provider?: 'finnhub' | 'alpha_vantage'
     }
     /**
      * MarketSignals
@@ -6454,6 +6468,13 @@ export interface components {
        */
       notice?: string | null
       overview: components['schemas']['NewsOverview']
+      /**
+       * Provider
+       * @description Where the articles came from: Finnhub or Alpha Vantage.
+       * @default finnhub
+       * @enum {string}
+       */
+      provider?: 'finnhub' | 'alpha_vantage'
       /**
        * Start
        * Format: date

@@ -7,6 +7,7 @@ the user's own key. :func:`market_context` gathers the same data for AI analyses
 
 import asyncio
 import logging
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any
@@ -24,10 +25,11 @@ from app.data.fetcher import (
 )
 from app.data.fomc import fetch_fomc_meetings
 from app.data.markets import (
+    EARNINGS_CHUNK_DAYS,
     fetch_earnings_calendar,
     fetch_ipo_calendar,
     fetch_market_holidays,
-    fetch_market_news,
+    fetch_any_market_news,
     fetch_market_status,
 )
 from app.db.screener import market_caps, shows_universe
@@ -192,30 +194,32 @@ async def get_calendar(
 async def get_market_news(
     category: Annotated[MarketNewsCategory, Query(description="News category.")] = "general",
 ) -> MarketNews:
-    """Return the latest market-wide news in ``category``, newest first, from Finnhub.
+    """Return the latest market-wide news in ``category``, newest first, from Finnhub, or
+    from Alpha Vantage's news feed (a paid plan) when Finnhub cannot supply it.
 
     ``general`` is business and markets news, ``forex`` currencies, ``crypto``
     cryptocurrencies, and ``merger`` mergers and acquisitions. Each article's
     ``importance``, from 0 to 1, scores how market-moving it looks: the topics its
-    headline names, its publisher, and its age. Reused for five minutes. Returns 403
-    without a valid Finnhub key, and 502 when Finnhub fails.
+    headline names, its publisher, and its age. Reused for five minutes (Alpha Vantage's
+    feed for fifteen). Returns 403 when neither key can supply it, and 502 when Finnhub
+    fails and Alpha Vantage cannot stand in.
     """
     try:
-        news = await fetch_market_news(category)
+        news = await fetch_any_market_news(category)
     except DataFetchError as exc:
         raise upstream_error(exc) from exc
     return score_headlines(news, datetime.now(timezone.utc))
 
 
 async def _general_news(category: MarketNewsCategory = "general") -> MarketNews | None:
-    """The market news in ``category``, or ``None`` without a Finnhub key or when Finnhub
-    fails."""
-    if finnhub_key() is None:
-        return None
+    """The market news in ``category``, from Finnhub or Alpha Vantage's feed, or ``None``
+    when neither can supply it."""
     try:
-        return await fetch_market_news(category)
+        return await fetch_any_market_news(category)
     except ProviderNotConfiguredError:
-        raise
+        if finnhub_key() is not None:
+            raise
+        return None
     except DataFetchError as exc:
         logger.info("Market news (%s) was left out of an analysis: %s", category, exc)
         return None
@@ -240,8 +244,36 @@ async def fetch_market_context(today: date) -> MarketContext:
 
 
 PICKS_EARNINGS_DAYS: int = 28
-"""Days of every company's earnings reports gathered for Claude's picks: four of
-Finnhub's weekly calendar requests, the same ones the Markets page's calendar makes."""
+"""Fewest days of every company's earnings reports gathered for Claude's picks and
+portfolio reviews: four of Finnhub's weekly calendar requests, the same ones the Markets
+page's calendar makes."""
+
+BACKDROP_EARNINGS: int = 40
+"""Major earnings reports listed for picks and reviews, the largest companies'."""
+
+FOMC_MAX_DAYS: int = 2 * 365
+"""Furthest ahead FOMC meetings are listed; the Federal Reserve publishes about a year and
+a half of its schedule."""
+
+DEFAULT_REVIEW_HORIZON_DAYS: float = 365.0
+"""The horizon a portfolio review's calendar is set by when the person gave none."""
+
+
+def backdrop_days(horizon_days: float | None) -> int:
+    """Days of calendar for a holding period of ``horizon_days``: the period itself, from
+    :data:`PICKS_EARNINGS_DAYS` to the Markets page's longest, :data:`MAX_CALENDAR_DAYS`,
+    a quarter, in which every company reports once; ``None`` is the longest."""
+    if horizon_days is None:
+        return MAX_CALENDAR_DAYS
+    return int(min(max(math.ceil(horizon_days), PICKS_EARNINGS_DAYS), MAX_CALENDAR_DAYS))
+
+
+def backdrop_finnhub_requests(days: int) -> int:
+    """Finnhub requests the backdrop of ``days`` sends, before its caches: a weekly
+    earnings calendar for each week, the IPOs, holidays, market status, and the general and
+    merger news."""
+    return math.ceil(days / EARNINGS_CHUNK_DAYS) + 5
+
 
 PICKS_HEADLINES: int = 40
 """General market headlines given to Claude's picks."""
@@ -274,16 +306,20 @@ def _headline(article: Any) -> NewsHeadline:
     )
 
 
-async def fetch_picks_backdrop(today: date) -> PicksBackdrop:
-    """The market backdrop of :func:`fetch_market_context`, with more headlines, the news
-    on deals, and every company's earnings reports of the next four weeks, all in one
-    round of requests: eight to Finnhub, most of them shared with the Markets page and
-    cached, and the Federal Reserve's calendar.
+async def fetch_picks_backdrop(today: date, horizon_days: float | None = None) -> PicksBackdrop:
+    """The market backdrop of :func:`fetch_market_context` for a holding period of
+    ``horizon_days``, with more headlines, the news on deals, every FOMC meeting scheduled
+    within the period, and the earnings reports, IPOs, and holidays of a calendar as long
+    as the period (:func:`backdrop_days`, four weeks to a quarter), all in one round of
+    requests: :func:`backdrop_finnhub_requests` to Finnhub, shared with the Markets page
+    and cached, and the Federal Reserve's calendar.
 
     Raises:
         ProviderNotConfiguredError: If Finnhub rejects the user's key.
     """
-    end = today + timedelta(days=PICKS_EARNINGS_DAYS - 1)
+    days = backdrop_days(horizon_days)
+    fomc_days = int(min(horizon_days if horizon_days is not None else days, FOMC_MAX_DAYS))
+    end = today + timedelta(days=days - 1)
     meetings, (parts, _), news, deals = await asyncio.gather(
         fetch_fomc_meetings(),
         _finnhub_raw_parts(today, end),
@@ -294,8 +330,19 @@ async def fetch_picks_backdrop(today: date) -> PicksBackdrop:
     major = None if earnings is None else await _major(earnings, MAJOR_MARKET_CAP)
     return PicksBackdrop(
         market=market_context(
-            today, meetings, holidays, major, ipos, news, market_status, PICKS_HEADLINES
-        ),
+            today,
+            meetings,
+            holidays,
+            major,
+            ipos,
+            news,
+            market_status,
+            PICKS_HEADLINES,
+            event_days=days,
+            holiday_days=days,
+            fomc_days=max(fomc_days, days),
+            earnings_count=BACKDROP_EARNINGS,
+        ).model_copy(update={"calendar_days": days}),
         earnings=earnings,
         deals=[_headline(article) for article in (deals.articles if deals else [])][
             :PICKS_DEAL_HEADLINES

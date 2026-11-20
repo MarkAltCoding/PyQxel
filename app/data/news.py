@@ -22,6 +22,7 @@ from typing import Any
 import httpx2
 
 from app.core.cache import cache_get, cache_set
+from app.data import alpha_vantage_news
 from app.data.fetcher import (
     finnhub_abroad_hint,
     DataFetchError,
@@ -35,6 +36,10 @@ from app.data.fetcher import (
 from app.models.news import CompanyNews, NewsArticle
 
 logger = logging.getLogger(__name__)
+
+NEWS_PROVIDERS: tuple[str, ...] = ("finnhub", "alpha_vantage")
+"""Where news comes from, in the order tried: Finnhub's free plan, then Alpha Vantage's
+market-wide feed, which needs a paid plan (``web/src/lib/keyCoverage.ts`` mirrors it)."""
 
 NEWS_DAYS: int = 14
 """Days of news fetched for a company, today included."""
@@ -200,6 +205,26 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+NO_NEWS_KEY: str = (
+    "Company news comes from Finnhub on your own key (its free plan covers it): add it in "
+    "Settings. A paid Alpha Vantage plan can stand in."
+)
+
+
+async def _from_alpha_vantage(symbol: str) -> CompanyNews | None:
+    """``symbol``'s news from Alpha Vantage's shared feed, where Finnhub cannot supply it,
+    or ``None`` when the user has no Alpha Vantage key whose plan covers news. The feed is
+    one request for every company, cached for a quarter of an hour."""
+    if symbol.startswith("^"):
+        return None
+    try:
+        feed = await alpha_vantage_news.fetch_feed()
+    except DataFetchError as exc:
+        logger.info("No Alpha Vantage news for %s: %s", symbol, exc)
+        return None
+    return alpha_vantage_news.company_news_from_feed(feed, symbol, _now())
+
+
 async def fetch_company_news(symbol: str, client: httpx2.AsyncClient | None = None) -> CompanyNews:
     """Fetch the last :data:`NEWS_DAYS` days of news about ``symbol``.
 
@@ -220,9 +245,10 @@ async def fetch_company_news(symbol: str, client: httpx2.AsyncClient | None = No
     symbol = symbol.strip().upper()
     api_key = finnhub_key()
     if api_key is None:
-        raise NewsNotConfiguredError(
-            "Company news comes from Finnhub on your own key: add it in Settings."
-        )
+        stand_in = await _from_alpha_vantage(symbol)
+        if stand_in is not None:
+            return stand_in
+        raise NewsNotConfiguredError(NO_NEWS_KEY)
     now = _now()
     end = now.date()
     start = end - timedelta(days=NEWS_DAYS - 1)
@@ -247,9 +273,15 @@ async def fetch_company_news(symbol: str, client: httpx2.AsyncClient | None = No
             fetched_at=now,
         )
     except NewsNotConfiguredError, NewsPlanError:
+        stand_in = await _from_alpha_vantage(symbol)
+        if stand_in is not None:
+            return stand_in
         raise
     except NewsFetchError as exc:
         if kept is None:
+            stand_in = await _from_alpha_vantage(symbol)
+            if stand_in is not None:
+                return stand_in
             raise
         logger.warning("Serving kept news for %s: %s", symbol, exc)
         return kept.model_copy(update={"stale": True})

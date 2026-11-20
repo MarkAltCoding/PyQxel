@@ -1,9 +1,13 @@
-"""Schemas for company news from Finnhub, the overview built from it, and the news an
-analysis is written from."""
+"""Schemas for company news from Finnhub or Alpha Vantage, the overview built from it,
+and the news an analysis is written from."""
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+NewsProvider = Literal["finnhub", "alpha_vantage"]
+"""The providers news can come from: Finnhub first, then Alpha Vantage's paid feed."""
 
 
 class NewsArticle(BaseModel):
@@ -37,10 +41,16 @@ class CompanyNews(BaseModel):
     start: date = Field(description="First day of the window.")
     end: date = Field(description="Last day of the window, today.")
     articles: list[NewsArticle]
-    fetched_at: datetime = Field(description="When Finnhub was asked, in UTC.")
+    fetched_at: datetime = Field(description="When the provider was asked, in UTC.")
     stale: bool = Field(
         default=False,
         description="Whether Finnhub could not be reached and an earlier answer is shown.",
+    )
+    provider: NewsProvider = Field(
+        default="finnhub",
+        description="Where the articles came from: Finnhub's company news, or Alpha "
+        "Vantage's market-wide feed (a paid plan), which covers the companies the latest "
+        "thousand articles mention.",
     )
 
 
@@ -84,6 +94,9 @@ class NewsResponse(BaseModel):
     fetched_at: datetime
     notice: str | None = Field(
         default=None, description="Says when the news is older than requested, if it is."
+    )
+    provider: NewsProvider = Field(
+        default="finnhub", description="Where the articles came from: Finnhub or Alpha Vantage."
     )
 
 

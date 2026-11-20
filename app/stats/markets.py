@@ -100,11 +100,28 @@ def market_context(
     news: MarketNews | None,
     status: MarketStatus | None,
     headlines: int = CONTEXT_HEADLINES,
+    event_days: int = CONTEXT_EVENT_DAYS,
+    holiday_days: int = CONTEXT_HOLIDAY_DAYS,
+    fomc_days: int | None = None,
+    earnings_count: int = CONTEXT_EARNINGS,
 ) -> MarketContext:
     """The upcoming FOMC meetings, holidays, major earnings reports, and IPOs, and the
     ``headlines`` market headlines that look most market-moving (:func:`headline_importance`),
-    newest first; parts passed as ``None`` are left empty."""
-    soon = today + timedelta(days=CONTEXT_EVENT_DAYS)
+    newest first; parts passed as ``None`` are left empty.
+
+    Args:
+        event_days: Days ahead earnings reports and IPOs are listed.
+        holiday_days: Days ahead market holidays are listed.
+        fomc_days: Days ahead FOMC meetings are listed, at least the next
+            :data:`CONTEXT_FOMC_MEETINGS`; ``None`` lists just those.
+        earnings_count: Most major earnings reports listed, the largest companies'.
+    """
+    soon = today + timedelta(days=event_days)
+    upcoming = [meeting for meeting in fomc if meeting.end >= today]
+    meetings = upcoming[:CONTEXT_FOMC_MEETINGS]
+    if fomc_days is not None:
+        horizon = today + timedelta(days=fomc_days)
+        meetings += [m for m in upcoming[CONTEXT_FOMC_MEETINGS:] if m.start <= horizon]
     articles = news.articles if news else []
     ranked = sorted(
         enumerate(articles),
@@ -117,17 +134,17 @@ def market_context(
     return MarketContext(
         as_of=today,
         market_open=None if status is None else status.is_open,
-        fomc_meetings=[meeting for meeting in fomc if meeting.end >= today][:CONTEXT_FOMC_MEETINGS],
+        fomc_meetings=meetings,
         holidays=[
             holiday
             for holiday in holidays or []
-            if today <= holiday.date <= today + timedelta(days=CONTEXT_HOLIDAY_DAYS)
+            if today <= holiday.date <= today + timedelta(days=holiday_days)
         ],
         major_earnings=sorted(
             (event for event in earnings or [] if today <= event.date <= soon),
             key=_size,
             reverse=True,
-        )[:CONTEXT_EARNINGS],
+        )[:earnings_count],
         ipos=sorted(
             (ipo for ipo in ipos or [] if today <= ipo.date <= soon and ipo.status != "withdrawn"),
             key=lambda ipo: ipo.value or 0,

@@ -208,3 +208,19 @@ test('what is entered follows the account to another browser', async ({ page, br
   await cleared
   await other.close()
 })
+
+test('one switch turns off the warnings before every page spends requests', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/settings#plan-usage')
+  const all = page.getByRole('checkbox', { name: 'Warn me before a page spends my keys’ requests' })
+  const each = page.getByRole('checkbox', { name: /^Ask before loading / })
+  await expect(each).toHaveCount(3)
+
+  await all.uncheck()
+  for (const box of await each.all()) await expect(box).not.toBeChecked()
+
+  await each.first().check()
+  await expect(all).not.toBeChecked() // Some ask and some do not.
+  await all.check()
+  for (const box of await each.all()) await expect(box).toBeChecked()
+})

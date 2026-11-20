@@ -7650,8 +7650,20 @@
             "title": "As Of",
             "type": "string"
           },
+          "calendar_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days ahead the earnings reports, IPOs, and holidays cover, for picks and reviews; null for a stock report's two weeks.",
+            "title": "Calendar Days"
+          },
           "fomc_meetings": {
-            "description": "The next scheduled FOMC meetings.",
+            "description": "The next scheduled FOMC meetings: the next two, or, for Claude's picks and portfolio reviews, every one scheduled within the holding period.",
             "items": {
               "$ref": "#/components/schemas/FomcMeeting"
             },
@@ -7659,7 +7671,7 @@
             "type": "array"
           },
           "headlines": {
-            "description": "The newest general market headlines, newest first.",
+            "description": "The general market headlines that look most market-moving, newest first.",
             "items": {
               "$ref": "#/components/schemas/NewsHeadline"
             },
@@ -7667,7 +7679,7 @@
             "type": "array"
           },
           "holidays": {
-            "description": "Holidays in the next month.",
+            "description": "Market holidays ahead: the next month's, or for picks and reviews, those within the calendar window (up to 90 days).",
             "items": {
               "$ref": "#/components/schemas/MarketHoliday"
             },
@@ -7675,7 +7687,7 @@
             "type": "array"
           },
           "ipos": {
-            "description": "IPOs in the next two weeks, largest first.",
+            "description": "IPOs in the next two weeks, or for picks and reviews within the calendar window, largest first.",
             "items": {
               "$ref": "#/components/schemas/IpoEvent"
             },
@@ -7683,7 +7695,7 @@
             "type": "array"
           },
           "major_earnings": {
-            "description": "Major companies reporting in the next two weeks, largest first.",
+            "description": "Major companies reporting in the next two weeks, or for picks and reviews within the calendar window, largest first.",
             "items": {
               "$ref": "#/components/schemas/EarningsEvent"
             },
@@ -7768,6 +7780,16 @@
           "fetched_at": {
             "format": "date-time",
             "title": "Fetched At",
+            "type": "string"
+          },
+          "provider": {
+            "default": "finnhub",
+            "description": "Where the articles came from: Finnhub, or Alpha Vantage's feed (a paid plan) when Finnhub cannot supply them.",
+            "enum": [
+              "finnhub",
+              "alpha_vantage"
+            ],
+            "title": "Provider",
             "type": "string"
           }
         },
@@ -8463,6 +8485,16 @@
           },
           "overview": {
             "$ref": "#/components/schemas/NewsOverview"
+          },
+          "provider": {
+            "default": "finnhub",
+            "description": "Where the articles came from: Finnhub or Alpha Vantage.",
+            "enum": [
+              "finnhub",
+              "alpha_vantage"
+            ],
+            "title": "Provider",
+            "type": "string"
           },
           "start": {
             "format": "date",
@@ -17849,7 +17881,7 @@
     },
     "/api/v1/markets/news": {
       "get": {
-        "description": "Return the latest market-wide news in ``category``, newest first, from Finnhub.\n\n``general`` is business and markets news, ``forex`` currencies, ``crypto``\ncryptocurrencies, and ``merger`` mergers and acquisitions. Each article's\n``importance``, from 0 to 1, scores how market-moving it looks: the topics its\nheadline names, its publisher, and its age. Reused for five minutes. Returns 403\nwithout a valid Finnhub key, and 502 when Finnhub fails.",
+        "description": "Return the latest market-wide news in ``category``, newest first, from Finnhub, or\nfrom Alpha Vantage's news feed (a paid plan) when Finnhub cannot supply it.\n\n``general`` is business and markets news, ``forex`` currencies, ``crypto``\ncryptocurrencies, and ``merger`` mergers and acquisitions. Each article's\n``importance``, from 0 to 1, scores how market-moving it looks: the topics its\nheadline names, its publisher, and its age. Reused for five minutes (Alpha Vantage's\nfeed for fifteen). Returns 403 when neither key can supply it, and 502 when Finnhub\nfails and Alpha Vantage cannot stand in.",
         "operationId": "get_market_news_api_v1_markets_news_get",
         "parameters": [
           {

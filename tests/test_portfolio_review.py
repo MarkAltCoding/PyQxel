@@ -353,7 +353,7 @@ def market(monkeypatch: pytest.MonkeyPatch) -> list[PortfolioContext]:
         return REVIEW, "claude-opus-5-5"
 
     async def no_facts(
-        session: Any, user_id: str, symbols: list[str], funds: Any = ()
+        session: Any, user_id: str, symbols: list[str], funds: Any = (), horizon: Any = None
     ) -> HoldingFacts:
         return HoldingFacts(figures=[], sectors=[], events=[], backdrop=None, notices=[])
 

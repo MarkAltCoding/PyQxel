@@ -379,10 +379,13 @@ def test_settings_lists_providers_in_the_servers_order() -> None:
     }
     from app.data.funds import FUND_PROVIDERS
 
-    assert set(shown) == set(kinds) | {"funds"}
+    from app.data.news import NEWS_PROVIDERS
+
+    assert set(shown) == set(kinds) | {"funds", "news"}
     for feature, kind in kinds.items():
         assert tuple(shown[feature]) == PROVIDER_ORDER[kind], feature
     assert tuple(shown["funds"]) == FUND_PROVIDERS
+    assert tuple(shown["news"]) == NEWS_PROVIDERS
 
 
 @pytest.mark.asyncio

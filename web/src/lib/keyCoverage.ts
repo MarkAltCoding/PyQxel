@@ -209,6 +209,23 @@ export const DATA_FEATURES: DataFeature[] = [
       },
     ],
   },
+  {
+    id: 'news',
+    name: 'Company and market news, for the Stock and Markets pages and Claude’s reports',
+    steps: [
+      {
+        provider: 'finnhub',
+        free: 'two weeks of any US company’s news, and the market’s, 60 requests a minute',
+        freeIsFull: true,
+      },
+      {
+        provider: 'alpha_vantage',
+        free: null,
+        freeIsFull: false,
+        paid: 'Premium (from $49.99 a month): one feed of the latest 1,000 articles, which covers the most talked-about companies and the market',
+      },
+    ],
+  },
 ]
 
 /** Whether the request carried ``provider``'s key; older servers leave new ones out. */

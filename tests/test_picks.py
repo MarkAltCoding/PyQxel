@@ -125,7 +125,7 @@ def screener(monkeypatch: pytest.MonkeyPatch) -> list[PicksContext]:
     _store(STOCKS)
     asked: list[PicksContext] = []
 
-    async def no_calendar(today: object) -> PicksBackdrop:
+    async def no_calendar(today: object, horizon_days: object = None) -> PicksBackdrop:
         raise ProviderNotConfiguredError("No Finnhub key.")
 
     async def write(context: PicksContext, *, client: Any) -> tuple[PicksReport, str]:
@@ -278,7 +278,7 @@ def _rich_backdrop(today: object) -> PicksBackdrop:
 def test_picks_get_news_filings_earnings_dates_and_the_index(
     screener: list[PicksContext], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def backdrop(today: object) -> PicksBackdrop:
+    async def backdrop(today: object, horizon_days: object = None) -> PicksBackdrop:
         return _rich_backdrop(today)
 
     asked_news: list[str] = []
@@ -712,7 +712,7 @@ def test_a_review_is_given_its_holdings_figures_news_and_filings(
 ) -> None:
     """Portfolio reviews get what the picks get, for each holding."""
 
-    async def backdrop(today: object) -> PicksBackdrop:
+    async def backdrop(today: object, horizon_days: object = None) -> PicksBackdrop:
         return _rich_backdrop(today)
 
     async def news(symbol: str) -> CompanyNews:

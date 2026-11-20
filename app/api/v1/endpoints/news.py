@@ -76,4 +76,5 @@ async def get_news(
         articles=score_company_news(news.articles[:limit], news.symbol, datetime.now(timezone.utc)),
         fetched_at=news.fetched_at,
         notice=notice,
+        provider=news.provider,
     )

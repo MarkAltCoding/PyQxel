@@ -30,6 +30,7 @@ from app.ai.portfolio import (
 from app.ai.prompts import PORTFOLIO_SYSTEM_PROMPT
 from app.ai.web import add_web_research, with_web_research
 from app.api.auth import CurrentUser
+from app.api.v1.endpoints.markets import DEFAULT_REVIEW_HORIZON_DAYS
 from app.api.v1.endpoints.picks import holding_facts
 from app.api.v1.endpoints.research import ai_error, anthropic_key, check_ai_limits
 from app.core.config import get_settings
@@ -1439,8 +1440,15 @@ async def with_holding_facts(
     )
     symbols = list(dict.fromkeys(holding.symbol for holding in held))
     funds = {fund.symbol for fund in context.funds}
+    horizon = context.profile.horizon_years
     try:
-        facts = await holding_facts(session, user_id, symbols, funds)
+        facts = await holding_facts(
+            session,
+            user_id,
+            symbols,
+            funds,
+            DEFAULT_REVIEW_HORIZON_DAYS if horizon is None else horizon * 365.25,
+        )
     except SQLAlchemyError as exc:
         logger.error("Could not read the holdings' screener figures: %s", exc)
         return context

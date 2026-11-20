@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.models.news import NewsArticle, NewsHeadline
+from app.models.news import NewsArticle, NewsHeadline, NewsProvider
 
 MarketNewsCategory = Literal["general", "forex", "crypto", "merger"]
 """Finnhub's market news categories; ``merger`` is mergers and acquisitions."""
@@ -102,6 +102,11 @@ class MarketNews(BaseModel):
     category: MarketNewsCategory
     articles: list[NewsArticle]
     fetched_at: datetime
+    provider: NewsProvider = Field(
+        default="finnhub",
+        description="Where the articles came from: Finnhub, or Alpha Vantage's feed (a "
+        "paid plan) when Finnhub cannot supply them.",
+    )
 
 
 class MarketContext(BaseModel):
@@ -109,12 +114,27 @@ class MarketContext(BaseModel):
 
     as_of: date
     market_open: bool | None = None
-    fomc_meetings: list[FomcMeeting] = Field(description="The next scheduled FOMC meetings.")
-    holidays: list[MarketHoliday] = Field(description="Holidays in the next month.")
-    major_earnings: list[EarningsEvent] = Field(
-        description="Major companies reporting in the next two weeks, largest first."
+    fomc_meetings: list[FomcMeeting] = Field(
+        description="The next scheduled FOMC meetings: the next two, or, for Claude's picks "
+        "and portfolio reviews, every one scheduled within the holding period."
     )
-    ipos: list[IpoEvent] = Field(description="IPOs in the next two weeks, largest first.")
+    holidays: list[MarketHoliday] = Field(
+        description="Market holidays ahead: the next month's, or for picks and reviews, "
+        "those within the calendar window (up to 90 days)."
+    )
+    major_earnings: list[EarningsEvent] = Field(
+        description="Major companies reporting in the next two weeks, or for picks and "
+        "reviews within the calendar window, largest first."
+    )
+    ipos: list[IpoEvent] = Field(
+        description="IPOs in the next two weeks, or for picks and reviews within the "
+        "calendar window, largest first."
+    )
+    calendar_days: int | None = Field(
+        default=None,
+        description="Days ahead the earnings reports, IPOs, and holidays cover, for picks "
+        "and reviews; null for a stock report's two weeks.",
+    )
     headlines: list[NewsHeadline] = Field(
-        description="The newest general market headlines, newest first."
+        description="The general market headlines that look most market-moving, newest " "first."
     )

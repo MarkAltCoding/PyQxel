@@ -21,7 +21,8 @@ import { Segmented } from './Segmented'
 const PAGE_SIZE_KEY = 'pyqxel.marketNewsPerPage'
 
 /**
- * The last two weeks of news about a stock, from Finnhub on the account's own key: how
+ * The last two weeks of news about a stock, from Finnhub on the account's own key (or a
+ * paid Alpha Vantage plan's market-wide feed, which covers the most talked-about companies): how
  * much coverage it drew, from whom, and its headlines, the most important or the newest
  * first.
  */
@@ -49,7 +50,7 @@ export function NewsCard({ symbol }: { symbol: string }) {
       title="News"
       subtitle={
         overview
-          ? `Last two weeks from Finnhub · ${overview.total_articles} articles`
+          ? `Last two weeks from ${data.provider === 'alpha_vantage' ? 'Alpha Vantage' : 'Finnhub'} · ${overview.total_articles} articles`
           : 'Last two weeks of company news'
       }
       loading={news.isLoading}
@@ -60,7 +61,8 @@ export function NewsCard({ symbol }: { symbol: string }) {
         noKey ? (
           <>
             Add a Finnhub key in <Link to="/settings">Settings</Link> to see company news here and
-            give it to AI reports. The free plan is enough.
+            give it to AI reports. The free plan is enough. A paid Alpha Vantage plan also works;
+            its free plan has no news.
           </>
         ) : symbol.startsWith('^') ? (
           <>

@@ -85,6 +85,7 @@ ALPHA_VANTAGE_TTL_SECONDS: dict[str, float] = {
     "GLOBAL_QUOTE": 60,
     "CURRENCY_EXCHANGE_RATE": 60 * 60,
     "ETF_PROFILE": 24 * 60 * 60,
+    "NEWS_SENTIMENT": 15 * 60,
 }
 """How long each Alpha Vantage answer is reused, unknown symbols included. Its free plan
 allows 25 requests a day, so even quotes are kept a minute."""

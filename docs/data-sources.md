@@ -137,6 +137,7 @@ The cells below record what happened when each free key requested that kind of d
 | Exchange rates | Quote only | None | **Current rate**, plus 100 days of history | **Daily history, 5+ years** | Last 1 year |
 | Screener: bulk market caps or sectors | Refused | One call per stock (see below) | None | None | None |
 | Screener: per-stock metrics | None | **Yes: market cap, P/E, P/S, beta, 13/26/52-week returns, 3-month return volatility, average volume, 52-week high and low, margins, ROE**; for an ETF, the returns, volatility, beta, volume, and 52-week range | None | None | None |
+| News, company and market | Not tested | **Yes: two weeks of any US company's news, and the market's by category** | Premium only: `NEWS_SENTIMENT` answered "This is a premium endpoint" on a free key that served `GLOBAL_QUOTE` (November 20, 2026) | Not tested (an add-on) | Not tested |
 
 **Free-plan limits:**
 
@@ -314,6 +315,7 @@ and use the first one that covers the request. "Free" means the provider's free 
 | Screener: the US ETFs and their metrics | Each user's own Finnhub key (symbol list, then basic financials per ETF) | **Covered for that user** |
 | Company info, US: name, sector, industry | FMP profile (free sample) → Finnhub profile (free: industry, any US stock) → Tiingo meta (free: the Dow 30's sectors) → EODHD Fundamentals ($59.99) | **Name and industry covered**; a sector name for most stocks needs FMP's sample or a paid key |
 | Market cap, US | Finnhub (free) → FMP (free sample) | **Covered** |
+| News, company and market | Finnhub (free; one request per company, cached ten minutes) → Alpha Vantage (paid; one market-wide feed of the latest 1,000 articles, kept fifteen minutes, serves every company and the market at once) | **Covered by Finnhub.** Alpha Vantage's feed reaches the most talked-about companies only; a free Alpha Vantage key has no news, is asked at most once a day to find out, and not at all once known to be free |
 | Company info, international | FMP (paid) → EODHD (Fundamentals $59.99 for sector and market cap; free search for name, currency, and type) → Alpha Vantage (free search) → Finnhub (paid) | **Name, exchange, and currency covered**; sector and market cap need a paid key |
 | Exchange rates | ECB reference rates (public) → Federal Reserve H.10 rates (public) → FMP → Alpha Vantage | **Covered, with no key at all**, for every currency either publishes |
 | Risk-free rate (cash interest in backtests) | US Treasury daily bill rates (public, since 2002) → Ken French's one-month rate (before 2002) | **Covered, with no key** |
@@ -381,13 +383,21 @@ Each list of picks is made from data that is nearly all on hand already:
   screener.
 - **The S&P 500's members (keyless):** from the SEC's filings of a fund that tracks it,
   cached for a day and shared with the screener's S&P 500 choice.
-- **Finnhub (the user's key):** the market calendar (FOMC from the Federal Reserve, no
-  key), four weekly earnings calendars that also give every candidate's next report
-  date, the general and merger news, and the company news of the 30 stocks likeliest to
-  be picked (`events_shortlist`), six at a time. That is about 38 requests on a free
-  plan's 60 a minute; company news is cached for ten minutes and shared with the stock
-  page, and the calendars for six hours with the Markets page. Without a Finnhub key the
-  picks are still made, and the context's notice says what is missing.
+- **Finnhub (the user's key):** a calendar as long as the holding period, from four weeks
+  to a quarter (`backdrop_days`): one weekly earnings calendar per week, which also gives
+  every candidate's next report date, the IPOs, and the holidays, plus every FOMC meeting
+  in the period (from the Federal Reserve, no key), the general and merger news (the most
+  market-moving headlines), and the company news of the 30 stocks likeliest to be picked
+  (`events_shortlist`), six at a time. The company news is cut to what the key's minute has
+  left after the calendar (`news_requests_left`): 30 of a free plan's 55 PyQxel sends for
+  a quarter's calendar. Company news is cached for ten minutes and shared with the stock
+  page, and the calendars for six hours with the Markets page. Portfolio reviews get the
+  same, for up to 40 holdings and the person's horizon (a year when none is given).
+- **Alpha Vantage (a paid plan), without Finnhub:** the one shared news feed stands in for
+  both the market's news and each company's, a single request however many companies. Its
+  headlines are shared out: 25 in all, so 25 holdings get one each and six or fewer get
+  four (`headlines_each`). Without either key the picks are still made, and the context's
+  notice says what is missing.
 - **SEC EDGAR (keyless):** the last 30 days of filings of the same 30 stocks, four at a
   time, with an 8-K's items in words.
 

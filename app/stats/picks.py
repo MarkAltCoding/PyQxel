@@ -349,6 +349,20 @@ def events_shortlist(
 HEADLINES_PER_CANDIDATE: int = 4
 """Most headlines given for one candidate."""
 
+SHARED_FEED_HEADLINES: int = 25
+"""Headlines shared among the candidates whose news came from Alpha Vantage's one
+market-wide feed rather than a request of their own: 25 holdings get one each, ten get
+two, six or fewer get four."""
+
+
+def headlines_each(from_feed: int) -> int:
+    """Headlines each of ``from_feed`` candidates gets from a shared feed: an even share of
+    :data:`SHARED_FEED_HEADLINES`, at least one and at most :data:`HEADLINES_PER_CANDIDATE`."""
+    if from_feed <= 0:
+        return HEADLINES_PER_CANDIDATE
+    return max(1, min(HEADLINES_PER_CANDIDATE, SHARED_FEED_HEADLINES // from_feed))
+
+
 CANDIDATE_SUMMARY_CHARS: int = 200
 """Length a candidate headline's summary is cut to."""
 
@@ -371,6 +385,7 @@ def candidate_events(
     articles: list[NewsArticle] | None,
     filings: list[SecFiling] | None,
     now: datetime,
+    headlines_kept: int = HEADLINES_PER_CANDIDATE,
 ) -> CandidateEvents:
     """One candidate's news, its headlines that matter most first chosen then shown
     newest first, and its filings, without the forms in :data:`QUIET_FORMS`. ``None``
@@ -381,7 +396,7 @@ def candidate_events(
             articles,
             key=lambda article: company_headline_importance(article, symbol, now),
             reverse=True,
-        )[:HEADLINES_PER_CANDIDATE]
+        )[:headlines_kept]
         headlines = [
             NewsHeadline(
                 published_at=article.published_at,

@@ -260,7 +260,10 @@ function MarketNewsCard({
         <div>
           <h2>Market news</h2>
           <div className="subtitle">
-            The latest market-wide headlines, from Finnhub
+            The latest market-wide headlines, from{' '}
+            {results.some((result) => result.data?.provider === 'alpha_vantage')
+              ? 'Alpha Vantage'
+              : 'Finnhub'}
             {order === 'importance' ? ', the most market-moving first' : ', newest first'}
           </div>
         </div>
@@ -292,7 +295,8 @@ function MarketNewsCard({
         <div className="empty">Choose the kinds of news to show.</div>
       ) : noKey ? (
         <div className="empty">
-          Add a Finnhub key in <Link to="/settings">Settings</Link> to see market news.
+          Add a Finnhub key in <Link to="/settings">Settings</Link> to see market news (the free
+          plan is enough). A paid Alpha Vantage plan also works; its free plan has no news.
         </div>
       ) : failedAll ? (
         <ErrorNotice error={errors[0]} />

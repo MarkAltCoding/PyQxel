@@ -27,6 +27,14 @@ function account(keys: DataProvider[], fallback = false): Account {
 const feature = (id: string) => DATA_FEATURES.find((f) => f.id === id)!
 
 describe('market data coverage', () => {
+  it('counts news as covered by a free Finnhub key, not a free Alpha Vantage one', () => {
+    expect(coverage(feature('news'), account(['finnhub'])).level).toBe('full')
+
+    const alphaVantageOnly = coverage(feature('news'), account(['alpha_vantage']))
+    expect(alphaVantageOnly.level).toBe('none')
+    expect(alphaVantageOnly.next?.provider).toBe('finnhub')
+  })
+
   it('counts a free Tiingo key as full US history, and suggests it to anyone without', () => {
     expect(coverage(feature('history-us'), account(['tiingo'])).level).toBe('full')
 

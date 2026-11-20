@@ -13,7 +13,7 @@ from datetime import UTC, date, datetime
 
 from app.core.cache import cache_get
 from app.core.credentials import current_provider_keys
-from app.data import fetcher, usage
+from app.data import alpha_vantage_news, fetcher, usage
 from app.data.fetcher import (
     INTRADAY_INTERVALS,
     STORE_INTERVALS,
@@ -33,6 +33,23 @@ FINNHUB_COSTS: dict[str, int] = {
 }
 """Finnhub requests each Finnhub-backed section sends per symbol (or once, for the Markets
 page's), before its own caches, which keep answers for minutes to a day."""
+
+FEED_KINDS: frozenset[str] = frozenset({"news", "market_news"})
+"""Sections that, without a Finnhub key, read Alpha Vantage's one shared news feed
+(:mod:`app.data.alpha_vantage_news`): a single request however many there are."""
+
+
+async def _feed_would_be_asked() -> bool:
+    """Whether reading Alpha Vantage's news feed would send a request: the user has a key
+    not known to be refused it or paused, and the feed is not cached."""
+    keys = current_provider_keys()
+    if keys.alpha_vantage is None:
+        return False
+    api_key = keys.alpha_vantage.get_secret_value()
+    if await alpha_vantage_news.news_refused(api_key) or await paused("alpha_vantage", api_key):
+        return False
+    return not await alpha_vantage_news.feed_cached()
+
 
 PAUSE_PREFIXES: dict[Provider, str] = {
     "tiingo": "tiingo",
@@ -175,8 +192,15 @@ async def estimate(
     symbols: dict[Provider, set[str]] = {}
     from_store = 0
     keys = current_provider_keys()
+    feed_counted = False
     for kind, names, period, interval in fetches:
         cleaned = [name.strip().upper() for name in names if name.strip()]
+        if kind in FEED_KINDS and keys.finnhub is None and not feed_counted:
+            # News without Finnhub comes from Alpha Vantage's one shared feed, once.
+            feed_counted = True
+            if await _feed_would_be_asked():
+                requests["alpha_vantage"] += 1
+            continue
         if kind in FINNHUB_COSTS:
             if keys.finnhub is None:
                 continue

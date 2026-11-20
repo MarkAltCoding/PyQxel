@@ -30,12 +30,17 @@ from app.ai.picks import picks_messages, picks_research_task, stream_picks, writ
 from app.ai.prompts import PICKS_SYSTEM_PROMPT
 from app.ai.web import add_web_research, with_web_research
 from app.api.auth import CurrentUser
-from app.api.v1.endpoints.markets import PicksBackdrop, fetch_picks_backdrop
+from app.api.v1.endpoints.markets import (
+    PicksBackdrop,
+    backdrop_days,
+    backdrop_finnhub_requests,
+    fetch_picks_backdrop,
+)
 from app.api.v1.endpoints.research import ai_error, anthropic_key, check_ai_limits
 from app.api.v1.endpoints.stocks import upstream_error
 from app.core.config import get_settings
 from app.data.alternative import fetch_company_filings
-from app.data.fetcher import DataFetchError
+from app.data.fetcher import DataFetchError, finnhub_key, finnhub_requests_per_minute
 from app.data.index_members import cached_index_members
 from app.data.news import NewsFetchError, fetch_company_news
 from app.data.panel import fetch_close_panel
@@ -65,7 +70,7 @@ from app.db.screener import (
 from app.db.session import get_session, get_sessionmaker
 from app.models.external import PicksImport, PicksPromptExport
 from app.models.alternative import SecFiling
-from app.models.news import NewsArticle
+from app.models.news import CompanyNews
 from app.models.picks import (
     BENCHMARK_NAMES,
     MAX_CANDIDATE_EVENTS,
@@ -92,7 +97,10 @@ from app.models.stock import SYMBOL_PATTERN
 from app.models.web import WebSearchQuery
 from app.stats.picks_performance import ends_on, history_period, start_day, track
 from app.stats.picks import (
+    EVENTS_SHORTLIST,
+    HEADLINES_PER_CANDIDATE,
     candidate_events,
+    headlines_each,
     events_shortlist,
     lenses_for,
     merge_candidates,
@@ -133,10 +141,11 @@ async def _universe(session: AsyncSession, user_id: str) -> Universe | None:
     return await shared_universe(session) if await shows_universe(session) else None
 
 
-async def _market() -> tuple[PicksBackdrop | None, str | None]:
-    """The market backdrop, or a notice saying it is missing."""
+async def _market(horizon_days: float | None) -> tuple[PicksBackdrop | None, str | None]:
+    """The market backdrop for a holding period of ``horizon_days``, or a notice saying it
+    is missing."""
     try:
-        return await fetch_picks_backdrop(date.today()), None
+        return await fetch_picks_backdrop(date.today(), horizon_days), None
     except DataFetchError as exc:
         logger.info("No market backdrop for Claude's picks: %s", exc)
         return None, "The market calendar and headlines could not be fetched."
@@ -145,6 +154,22 @@ async def _market() -> tuple[PicksBackdrop | None, str | None]:
 FILING_DAYS: int = 30
 """Days of a candidate's SEC filings given to Claude."""
 
+NEWS_MARGIN: int = 2
+"""Finnhub requests a minute kept free besides the backdrop's and the news', for the pages
+the person has open."""
+
+
+def news_requests_left(horizon_days: float | None) -> int | None:
+    """How many companies' news can be asked of Finnhub within the key's minute once the
+    backdrop for ``horizon_days`` is fetched; ``None`` without a Finnhub key, when news comes
+    from Alpha Vantage's one shared feed and costs nothing per company."""
+    api_key = finnhub_key()
+    if api_key is None:
+        return None
+    used = backdrop_finnhub_requests(backdrop_days(horizon_days)) + NEWS_MARGIN
+    return max(0, finnhub_requests_per_minute(api_key) - used)
+
+
 NEWS_REQUESTS_AT_ONCE: int = 6
 """Company news requests to Finnhub in flight together, well inside its 30 a second."""
 
@@ -152,11 +177,11 @@ EDGAR_REQUESTS_AT_ONCE: int = 4
 """Requests to EDGAR in flight together, inside the SEC's ten a second."""
 
 
-async def _news(symbol: str, slots: asyncio.Semaphore) -> list[NewsArticle] | None:
+async def _news(symbol: str, slots: asyncio.Semaphore) -> CompanyNews | None:
     """A candidate's news of the last two weeks, or ``None`` when it cannot be had."""
     async with slots:
         try:
-            return (await fetch_company_news(symbol)).articles
+            return await fetch_company_news(symbol)
         except NewsFetchError as exc:
             logger.info("No news on %s for Claude's picks: %s", symbol, exc)
             return None
@@ -209,9 +234,21 @@ async def _candidate_events(
         if edgar is not None:
             await edgar.aclose()
     now = datetime.now(timezone.utc)
+    # News from Alpha Vantage's shared feed is split among the candidates it came for.
+    each = headlines_each(sum(1 for found in news if found and found.provider == "alpha_vantage"))
     return [
-        candidate_events(candidate.symbol, articles, found, now)
-        for candidate, articles, found in zip(shortlist, news, filings, strict=True)
+        candidate_events(
+            candidate.symbol,
+            None if found_news is None else found_news.articles,
+            found,
+            now,
+            (
+                each
+                if found_news is not None and found_news.provider == "alpha_vantage"
+                else HEADLINES_PER_CANDIDATE
+            ),
+        )
+        for candidate, found_news, found in zip(shortlist, news, filings, strict=True)
     ]
 
 
@@ -230,7 +267,11 @@ class HoldingFacts:
 
 
 async def holding_facts(
-    session: AsyncSession, user_id: str, symbols: list[str], funds: Collection[str] = ()
+    session: AsyncSession,
+    user_id: str,
+    symbols: list[str],
+    funds: Collection[str] = (),
+    horizon_days: float | None = None,
 ) -> HoldingFacts:
     """The screener's figures, sector ranks, next earnings dates, and index membership of
     ``symbols`` (most important first), the news and SEC filings of the first
@@ -259,9 +300,13 @@ async def holding_facts(
         PickCandidate(symbol=symbol, name=symbol, price=0.0, avg_dollar_volume=0.0, lenses=[])
         for symbol in symbols
         if symbol not in known_funds
-    ][:MAX_CANDIDATE_EVENTS]
+    ]
+    left = news_requests_left(horizon_days)
+    shortlist = shortlist[
+        : MAX_CANDIDATE_EVENTS if left is None else min(MAX_CANDIDATE_EVENTS, left)
+    ]
     (backdrop, market_notice), events = await asyncio.gather(
-        _market(), _candidate_events(shortlist, ciks)
+        _market(horizon_days), _candidate_events(shortlist, ciks)
     )
     figures = with_listing_facts(figures, None if backdrop is None else backdrop.earnings, sp500)
     notices = [
@@ -275,7 +320,8 @@ async def holding_facts(
                 "missing: your account has no screener yet."
             ),
             (
-                "No holding's own news could be fetched: it comes from Finnhub on your key."
+                "No holding's own news could be fetched: it comes from Finnhub on your key, "
+                "or a paid Alpha Vantage plan."
                 if events and all(event.news_articles is None for event in events)
                 else None
             ),
@@ -328,8 +374,13 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
     candidates = with_sector_percentiles(candidates, companies)
     sp500 = await _sp500(session, universe)
     ciks = {stock.symbol: stock.cik for stock in companies}
+    horizon_days = profile.horizon.total_weeks * 7
+    left = news_requests_left(horizon_days)
+    shortlist = events_shortlist(
+        candidates, EVENTS_SHORTLIST if left is None else min(left, EVENTS_SHORTLIST)
+    )
     (backdrop, market_notice), events = await asyncio.gather(
-        _market(), _candidate_events(events_shortlist(candidates), ciks)
+        _market(horizon_days), _candidate_events(shortlist, ciks)
     )
     candidates = with_listing_facts(
         candidates, None if backdrop is None else backdrop.earnings, sp500
@@ -343,7 +394,8 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
             else None
         ),
         (
-            "No candidate's own news could be fetched: it comes from Finnhub on your key."
+            "No candidate's own news could be fetched: it comes from Finnhub on your key, "
+            "or a paid Alpha Vantage plan."
             if events and all(event.news_articles is None for event in events)
             else None
         ),

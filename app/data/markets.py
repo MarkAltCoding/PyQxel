@@ -17,6 +17,8 @@ from typing import Any
 
 import httpx2
 
+from app.data import alpha_vantage_news
+from app.data.fetcher import DataFetchError, ProviderNotConfiguredError, finnhub_key
 from app.data.finnhub import cached_get
 from app.data.news import parse_articles
 from app.models.markets import (
@@ -78,6 +80,36 @@ async def fetch_market_news(
         articles=parse_articles(payload, now - timedelta(days=MARKET_NEWS_DAYS)),
         fetched_at=now,
     )
+
+
+NO_MARKET_NEWS_KEY: str = (
+    "Market news comes from Finnhub on your own key (its free plan covers it): add it in "
+    "Settings. A paid Alpha Vantage plan can stand in."
+)
+
+
+async def fetch_any_market_news(category: MarketNewsCategory) -> MarketNews:
+    """The latest market news in ``category``: Finnhub's, or, when there is no Finnhub key
+    or Finnhub fails, Alpha Vantage's shared feed (one cached request, a paid plan).
+
+    Raises:
+        ProviderNotConfiguredError: If neither key can supply it, and Finnhub's is missing
+            or rejected.
+        DataFetchError: If Finnhub fails and Alpha Vantage cannot stand in.
+    """
+    finnhub_error: DataFetchError | None = None
+    if finnhub_key() is not None:
+        try:
+            return await fetch_market_news(category)
+        except DataFetchError as exc:
+            finnhub_error = exc
+    try:
+        feed = await alpha_vantage_news.fetch_feed()
+    except DataFetchError:
+        if finnhub_error is not None:
+            raise finnhub_error from None
+        raise ProviderNotConfiguredError(NO_MARKET_NEWS_KEY) from None
+    return alpha_vantage_news.market_news_from_feed(feed, category, datetime.now(timezone.utc))
 
 
 def _earnings(row: dict[str, Any]) -> EarningsEvent | None:
