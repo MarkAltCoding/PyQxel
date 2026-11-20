@@ -248,6 +248,32 @@ test('Claude’s picks offer how long to wait for more data, and remember it', a
   await expect(after).toHaveValue('300')
 })
 
+test('tickers can be added to Claude’s picks, and every candidate searched', async ({
+  page,
+}, info) => {
+  // The added tickers follow the account, which the phone run shares.
+  test.skip(info.project.name === 'phone', 'Account choices are checked at desktop width.')
+  await signIn(page)
+  await page.goto('/screener/picks')
+  const form = page.locator('#picks-form')
+  await form.getByText(/^See every ticker Claude would weigh/).click()
+  await expect(form.getByRole('link', { name: 'ALFA', exact: true })).toBeVisible()
+  await form.getByRole('searchbox', { name: 'Search the list' }).fill('bravo')
+  await expect(form.getByRole('link', { name: 'BRAVO', exact: true })).toBeVisible()
+  await expect(form.getByRole('link', { name: 'ALFA', exact: true })).toHaveCount(0)
+
+  const add = form.getByRole('combobox', { name: 'Add a ticker for Claude to weigh' })
+  await add.fill('ALFB')
+  await page.getByRole('option', { name: /ALFB/ }).first().click()
+  await expect(form.getByRole('button', { name: 'Remove ALFB' })).toBeVisible()
+  await form.getByRole('searchbox', { name: 'Search the list' }).fill('ALFB')
+  await expect(form.locator('.picks-candidate-list')).toContainText('Added by you')
+
+  // Left as the other tests expect it: the list follows the account.
+  await form.getByRole('button', { name: 'Remove ALFB' }).click()
+  await expect(form.getByRole('button', { name: 'Remove ALFB' })).toHaveCount(0)
+})
+
 test('the portfolio review keeps every review in its saved ones', async ({ page }) => {
   await signIn(page)
   await page.goto('/portfolio')

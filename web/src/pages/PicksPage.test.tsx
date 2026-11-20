@@ -186,6 +186,7 @@ describe('PicksPage', () => {
       web_search: false,
       wait_seconds: 300,
       holdings_portfolios: [],
+      added_symbols: [],
       refresh: false,
     })
     // The answers are kept for next time.
@@ -194,6 +195,55 @@ describe('PicksPage', () => {
       weeks: '2',
       risk: 'aggressive',
       notes: 'no banks',
+    })
+  })
+
+  it('adds tickers to the candidates, lists every one searchably, and says which are missing', async () => {
+    window.localStorage.setItem(
+      'pyqxel.picksProfile',
+      JSON.stringify({ years: '1', added: ['ionq', 'QTUM', 'NOPE'] }),
+    )
+    const calls = serve({
+      ...STATUS,
+      'GET /api/v1/picks': () => json({ items: [] }),
+      'POST /api/v1/picks/candidates': () =>
+        json({
+          candidates: [
+            {
+              symbol: 'NVDA',
+              name: 'NVIDIA Corporation',
+              asset_type: 'stock',
+              sector: 'Technology',
+              lenses: ['largest companies', '12-month momentum'],
+              added: false,
+            },
+            { symbol: 'IONQ', name: 'IonQ, Inc.', asset_type: 'stock', lenses: [], added: true },
+            { symbol: 'QTUM', name: 'Quantum ETF', asset_type: 'etf', lenses: [], added: true },
+          ],
+          missing: ['NOPE'],
+          own: true,
+        }),
+      'POST /api/v1/picks/stream': () =>
+        new Response(
+          `event: result\ndata: ${JSON.stringify(picks('Quantum.', { cached: false }))}\n\n`,
+        ),
+    })
+    renderPage()
+
+    expect(await screen.findByText(/NOPE is not in your screener/)).toBeInTheDocument()
+    await userEvent.click(screen.getByText(/See every ticker Claude would weigh \(3\)/))
+    expect(screen.getByText('Leads on largest companies and 12-month momentum')).toBeInTheDocument()
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search the list' }), 'quantum')
+    expect(screen.getByRole('link', { name: 'QTUM' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'NVDA' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove NOPE' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Get Claude’s picks' }))
+    await screen.findByText('Quantum.')
+    const asked = calls.filter((call) => call.key === 'POST /api/v1/picks/candidates')
+    expect(asked[0]?.body).toMatchObject({ added_symbols: ['IONQ', 'QTUM', 'NOPE'] })
+    expect(calls.find((call) => call.key === 'POST /api/v1/picks/stream')?.body).toMatchObject({
+      added_symbols: ['IONQ', 'QTUM'],
     })
   })
 

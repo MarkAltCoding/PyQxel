@@ -23,6 +23,7 @@ import type {
 import { ExternalClaude } from './ExternalClaude'
 import { InfoTip } from './InfoTip'
 import { MultiToggle } from './MultiToggle'
+import { PicksCandidates } from './PicksCandidates'
 import { PicksSchedule } from './PicksSchedule'
 import { NoAnthropicKey } from './NoAnthropicKey'
 import { PicksPerformanceCard, SavedPicksCard } from './PicksPerformance'
@@ -141,6 +142,7 @@ export function ClaudesPicks() {
     web_search: webSearch,
     wait_seconds: wait,
     holdings_portfolios: form.holdings.filter((n) => withHoldings.some((p) => p.portfolio === n)),
+    added_symbols: form.added,
     refresh,
   })
   const keepLatest = (result: PicksResponse) => {
@@ -364,6 +366,12 @@ export function ClaudesPicks() {
             <InfoTip topic="picksHoldings" />
           </div>
         )}
+        <PicksCandidates
+          added={form.added}
+          onChange={(added) => change({ added })}
+          request={() => request(false)}
+          disabled={writing}
+        />
         <div style={{ marginTop: 8 }}>
           <WebSearchOption checked={webSearch} onChange={setWebSearch} disabled={writing} />
           <WaitForDataOption seconds={wait} onChange={setWait} disabled={writing} />

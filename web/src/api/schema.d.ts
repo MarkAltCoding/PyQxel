@@ -948,6 +948,31 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/picks/candidates': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * The securities your next picks would weigh
+     * @description The candidates a list of picks made with ``request`` would be chosen from: the
+     *     screener's leaders on each measure, with the measures each led on, then each ticker in
+     *     ``added_symbols`` the screener holds, and the added tickers it does not hold. It reads
+     *     only the stored screener, so it costs no request and no Anthropic tokens.
+     *
+     *     Returns 503 when you have no screener yet or the database is unavailable.
+     */
+    post: operations['read_picks_candidates_api_v1_picks_candidates_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/picks/import': {
     parameters: {
       query?: never
@@ -7551,6 +7576,55 @@ export interface components {
       weight: number
     }
     /**
+     * PicksCandidateList
+     * @description The securities the next list of picks would weigh, for the settings given.
+     */
+    PicksCandidateList: {
+      /**
+       * Candidates
+       * @description The screener's leaders, then the tickers added that it did not already offer.
+       */
+      candidates: components['schemas']['PicksCandidateRow'][]
+      /**
+       * Missing
+       * @description Tickers added that the screener does not hold, so they are left out.
+       */
+      missing?: string[]
+      /**
+       * Own
+       * @description Whether the screener is your own, built by your refresh.
+       */
+      own: boolean
+    }
+    /**
+     * PicksCandidateRow
+     * @description One security the next list of picks would weigh.
+     */
+    PicksCandidateRow: {
+      /**
+       * Added
+       * @description Whether it is one of the tickers you added.
+       */
+      added: boolean
+      /**
+       * Asset Type
+       * @default stock
+       * @enum {string}
+       */
+      asset_type?: 'stock' | 'etf'
+      /**
+       * Lenses
+       * @description The measures it led the screener on.
+       */
+      lenses: string[]
+      /** Name */
+      name: string
+      /** Sector */
+      sector?: string | null
+      /** Symbol */
+      symbol: string
+    }
+    /**
      * PicksContext
      * @description The data a list of picks is written from. All of it is sent to Claude, the
      *     candidates as a table.
@@ -7854,6 +7928,11 @@ export interface components {
      * @description Options for a list of Claude's picks.
      */
     PicksRequest: {
+      /**
+       * Added Symbols
+       * @description Tickers to weigh along with the screener's leaders, such as ones in a theme you follow. Each one the screener holds joins the candidates with its figures, as any other candidate does; one it does not hold is left out.
+       */
+      added_symbols?: string[]
       /**
        * Holdings Portfolios
        * @description Saved portfolios whose holdings Claude is shown, so it picks with what you already own in mind; empty for none. They come with what PyQxel already knows of them (the screener's figures), at no extra request.
@@ -12492,6 +12571,39 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['PicksResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_picks_candidates_api_v1_picks_candidates_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        'application/json': components['schemas']['PicksRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PicksCandidateList']
         }
       }
       /** @description Validation Error */

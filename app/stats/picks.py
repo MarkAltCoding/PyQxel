@@ -394,13 +394,18 @@ the list to what fits the time the person will wait."""
 
 
 def events_shortlist(
-    candidates: Sequence[PickCandidate], count: int = EVENTS_SHORTLIST
+    candidates: Sequence[PickCandidate],
+    count: int = EVENTS_SHORTLIST,
+    first: Collection[str] = (),
 ) -> list[PickCandidate]:
-    """The stocks likeliest to be picked, whose news is worth fetching: those that led on
-    the most measures, then the largest. ETFs are left out, since their news is the
-    market's."""
+    """The stocks whose news is worth fetching: those in ``first`` (the tickers the person
+    added, which no lens ranks), then the likeliest to be picked, those that led on the
+    most measures, then the largest. ETFs are left out, since their news is the market's."""
     stocks = [candidate for candidate in candidates if candidate.asset_type == "stock"]
-    ordered = sorted(stocks, key=lambda c: (-len(c.lenses), -(c.market_cap or 0.0), c.symbol))
+    ordered = sorted(
+        stocks,
+        key=lambda c: (c.symbol not in first, -len(c.lenses), -(c.market_cap or 0.0), c.symbol),
+    )
     return ordered[: min(count, MAX_CANDIDATE_EVENTS)]
 
 

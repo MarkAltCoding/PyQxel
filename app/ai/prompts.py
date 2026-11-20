@@ -458,10 +458,13 @@ EV/EBITDA, revenue growth, net margin, a value or small-company tilt, low volati
 low market beta, small and mid caps (under $10 billion, which fewer analysts follow) \
 with growth backed by cash, cash yield, momentum, or high returns at a low P/E, cheap \
 fast growers, stocks recovering after a down year, or the most traded ETFs), so the \
-table is a wide net, not a recommendation, and most of it should not be picked. Every \
-candidate trades at least $5 million a day on average, the screener's cutoff for \
-liquid, and costs at least $2 a share, and every stock is worth at least $300 million, \
-so smaller and thinly traded securities are left out on purpose. Its columns are \
+table is a wide net, not a recommendation, and most of it should not be picked. A \
+candidate with no lenses is in the table for another reason; weigh it on its figures \
+as you would any other. Every candidate found through a lens trades at least $5 \
+million a day on average, the screener's cutoff for liquid, and costs at least $2 a \
+share, and every such stock is worth at least $300 million, so smaller and thinly \
+traded securities are left out of the lenses on purpose; check the size and trading of \
+any other candidate in its own figures. Its columns are \
 everything the screener lets a person filter on, so you can screen it as they would: \
 exchange (Nasdaq for the screener's Nasdaq choice), sector, and industry; \
 market_cap_rank (the top 500 are large caps, the top 3,000 the broad market); sp500 \

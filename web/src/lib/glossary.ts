@@ -822,6 +822,11 @@ const entries = {
     what: 'Gives Claude what you already hold in the portfolios you choose: each security, its shares in each account, its value and weight, and the screener’s figures for it. Claude then picks with your holdings in mind, so it does not pile more into what you are already concentrated in, says when a pick overlaps or complements a holding, and adds to something you own only when that is the best use of the money.',
     note: 'Nothing extra is fetched: prices and figures come from your screener. A holding the screener does not hold is listed without a value. To have your holdings themselves reviewed, use the portfolio review.',
   },
+  picksAdded: {
+    title: 'Also weigh these tickers',
+    what: 'Tickers you want Claude to consider along with the screener’s leaders, such as companies in a theme you follow that no measure brought up. Each one joins the candidates with the screener’s figures for it, and Claude weighs it exactly as it weighs every other candidate: it is picked only if it is among the best for your holding period and profile. The list below shows every ticker the next picks would weigh, and you can search it to see whether one is already there.',
+    note: 'A ticker must be in your screener for Claude to see its figures; one that is not can be added to your nightly refresh in Settings. Added stocks get their news looked up first, and the screener’s cutoffs for size and trading do not apply to them, so check how thinly a small one trades. Up to 25.',
+  },
   savedReviews: {
     title: 'Saved reviews',
     what: 'Every portfolio review Claude has written for you, newest first: when, which portfolios it covered and how, what you asked it to tailor the plan to, and which model wrote it. Choose one to read it again with the data it was written from; reading it costs nothing.',

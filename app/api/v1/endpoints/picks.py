@@ -96,6 +96,8 @@ from app.models.picks import (
     CandidateEvents,
     Pick,
     PickCandidate,
+    PicksCandidateList,
+    PicksCandidateRow,
     PicksContext,
     PicksHolding,
     PicksList,
@@ -558,6 +560,29 @@ async def _holdings(
     return held, figures
 
 
+async def gather_candidates(
+    session: AsyncSession, universe: Universe, request: PicksRequest
+) -> tuple[list[PickCandidate], list[str]]:
+    """The candidates for ``request``: the screener's leaders on each lens for the kinds of
+    security asked for, then each added ticker the screener holds that they do not already
+    include, with its figures as any candidate has them; and the added tickers the screener
+    does not hold, which are left out. Reading the stored screener costs no request."""
+    found = [
+        (lens, (await screen(session, lens.request(), universe)).items)
+        for lens in lenses_for(request.profile.asset_types)
+    ]
+    candidates = merge_candidates(found)
+    offered = {candidate.symbol for candidate in candidates}
+    added = request.added_symbols
+    held = await universe_stocks(session, universe, added)
+    candidates += [
+        PickCandidate(**screener_facts(held[symbol]).model_dump(), lenses=[])
+        for symbol in added
+        if symbol in held and symbol not in offered
+    ]
+    return candidates, [symbol for symbol in added if symbol not in held]
+
+
 async def picks_context(session: AsyncSession, user_id: str, request: PicksRequest) -> PicksContext:
     """Gather the candidates and the backdrop the picks are made from.
 
@@ -569,11 +594,7 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
     if universe is None or universe.refreshed_at is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=NO_SCREENER)
     profile = request.profile
-    found = [
-        (lens, (await screen(session, lens.request(), universe)).items)
-        for lens in lenses_for(profile.asset_types)
-    ]
-    candidates = merge_candidates(found)
+    candidates, _ = await gather_candidates(session, universe, request)
     if not candidates:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -590,7 +611,7 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
     )
     horizon_days = profile.horizon.total_weeks * 7
     wait = request.wait_seconds
-    shortlist = events_shortlist(candidates)
+    shortlist = events_shortlist(candidates, first=request.added_symbols)
     plan = await plan_requests(len(shortlist), horizon_days, wait)
     shortlist = shortlist[: plan.news]
     with finnhub_patience(_patience(wait)):
@@ -654,7 +675,8 @@ def _request_key(request: PicksRequest, universe: Universe | None) -> str:
     picks are reused only while both are unchanged."""
     refreshed = "" if universe is None or universe.refreshed_at is None else universe.refreshed_at
     own = universe is not None and universe.own
-    text = f"{request.profile.model_dump_json()}|{request.web_search}|{refreshed}|{own}"
+    added = ",".join(sorted(request.added_symbols))
+    text = f"{request.profile.model_dump_json()}|{request.web_search}|{refreshed}|{own}|{added}"
     return hashlib.sha256(text.encode()).hexdigest()
 
 
@@ -892,6 +914,46 @@ async def stream_picks_events(prepared: Prepared) -> AsyncIterator[ServerSentEve
                 retry_after=exc.retry_after if isinstance(exc, AIRateLimitError) else None,
             ),
         )
+
+
+@router.post(
+    "/candidates",
+    response_model=PicksCandidateList,
+    summary="The securities your next picks would weigh",
+)
+async def read_picks_candidates(
+    session: Session, user: CurrentUser, request: Annotated[PicksRequest, Body()] = PicksRequest()
+) -> PicksCandidateList:
+    """The candidates a list of picks made with ``request`` would be chosen from: the
+    screener's leaders on each measure, with the measures each led on, then each ticker in
+    ``added_symbols`` the screener holds, and the added tickers it does not hold. It reads
+    only the stored screener, so it costs no request and no Anthropic tokens.
+
+    Returns 503 when you have no screener yet or the database is unavailable.
+    """
+    try:
+        universe = await _universe(session, user.id)
+        if universe is None or universe.refreshed_at is None:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=NO_SCREENER)
+        candidates, missing = await gather_candidates(session, universe, request)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    added = set(request.added_symbols)
+    return PicksCandidateList(
+        candidates=[
+            PicksCandidateRow(
+                symbol=candidate.symbol,
+                name=candidate.name,
+                asset_type=candidate.asset_type,
+                sector=candidate.sector,
+                lenses=candidate.lenses,
+                added=candidate.symbol in added,
+            )
+            for candidate in candidates
+        ],
+        missing=missing,
+        own=universe.own,
+    )
 
 
 @router.get("", response_model=PicksList, summary="Your stored lists of Claude's picks")

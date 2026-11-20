@@ -24,6 +24,8 @@ export interface PicksForm {
   notes: string
   /** Saved portfolios whose holdings Claude is shown; none by default. */
   holdings: number[]
+  /** Tickers weighed along with the screener's leaders, upper case. */
+  added: string[]
 }
 
 export const DEFAULT_PICKS_FORM: PicksForm = {
@@ -35,12 +37,19 @@ export const DEFAULT_PICKS_FORM: PicksForm = {
   kinds: '',
   notes: '',
   holdings: [],
+  added: [],
 }
 
 const KEY = 'pyqxel.picksProfile'
 
 /** The longest holding period, in years, as the API allows. */
 export const MAX_HORIZON_YEARS = 60
+
+/** Most tickers that may be added to one list's candidates, as the API allows. */
+export const MAX_ADDED_SYMBOLS = 25
+
+/** A ticker as the API takes one. */
+const TICKER = /^[A-Z0-9][A-Z0-9.-]{0,15}$/
 
 const RISKS: PicksRisk[] = ['unset', 'conservative', 'moderate', 'aggressive']
 
@@ -60,6 +69,15 @@ export function storedPicksForm(): PicksForm {
       notes: text(kept.notes, ''),
       holdings: Array.isArray(kept.holdings)
         ? kept.holdings.filter((n): n is number => Number.isInteger(n) && n >= 1 && n <= 5)
+        : [],
+      added: Array.isArray(kept.added)
+        ? [
+            ...new Set(
+              kept.added
+                .filter((s): s is string => typeof s === 'string' && TICKER.test(s.toUpperCase()))
+                .map((s) => s.toUpperCase()),
+            ),
+          ].slice(0, MAX_ADDED_SYMBOLS)
         : [],
     }
   } catch {

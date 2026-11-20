@@ -237,6 +237,43 @@ def test_the_kinds_asked_for_bound_the_candidates(screener: list[PicksContext]) 
     assert {c.symbol for c in screener[1].candidates} == {"MKT"}
 
 
+def test_added_tickers_join_the_candidates_as_any_other(screener: list[PicksContext]) -> None:
+    client.post(
+        PICKS,
+        json={"profile": {"asset_types": ["stock"]}, "added_symbols": ["thin", "BIG", "NOPE"]},
+    )
+
+    candidates = {c.symbol: c for c in screener[0].candidates}
+    assert "THIN" in candidates and candidates["THIN"].lenses == [], "added though illiquid"
+    assert candidates["THIN"].pe_ratio == 5.0, "with its figures"
+    assert "largest companies" in candidates["BIG"].lenses, "a leader keeps its lenses"
+    assert "NOPE" not in candidates
+    assert [c.symbol for c in screener[0].candidates].count("BIG") == 1
+
+
+def test_the_next_picks_candidates_can_be_listed_without_asking_claude(
+    screener: list[PicksContext],
+) -> None:
+    response = client.post(f"{PICKS}/candidates", json={"added_symbols": ["TINY", "BIG", "NOPE"]})
+
+    assert response.status_code == 200, response.text
+    listing = response.json()
+    rows = {row["symbol"]: row for row in listing["candidates"]}
+    assert rows["TINY"]["added"] and rows["TINY"]["lenses"] == []
+    assert rows["BIG"]["added"] and rows["BIG"]["lenses"]
+    assert not rows["CHEAP"]["added"]
+    assert listing["missing"] == ["NOPE"]
+    assert screener == [], "Claude is not asked"
+
+
+def test_added_tickers_are_given_news_first() -> None:
+    stocks = [_stock("A", 1), _stock("B", 2), _stock("C", 3)]
+    ranked = [RankedStock(**stock.model_dump(), rank=1) for stock in stocks]
+    candidates = merge_candidates([(LENSES[0], ranked), (LENSES[1], ranked[2:])])
+
+    assert [c.symbol for c in events_shortlist(candidates, 2, first={"B"})] == ["B", "C"]
+
+
 # Everything else Claude is given: the screener's filters, sectors, news, and filings.
 
 

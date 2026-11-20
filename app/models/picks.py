@@ -6,15 +6,15 @@ only plain types and literals.
 """
 
 from datetime import date, datetime
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
 from app.core.text import listed
 from app.models.markets import MarketContext
 from app.models.news import NewsHeadline
-from app.models.nightly import NightlyRefreshSettings
+from app.models.nightly import CUSTOM_SYMBOL_PATTERN, NightlyRefreshSettings
 from app.models.research import MAX_WAIT_SECONDS, WAIT_DESCRIPTION, WRITTEN_BY_DESCRIPTION
 from app.models.schedule import TIME_PATTERN
 from app.models.screener import AssetType, ScreenedStock, ScreenMetrics
@@ -38,6 +38,9 @@ MAX_PICKS: int = 12
 MAX_CANDIDATES: int = 640
 """Most candidates the screener offers Claude for one list of picks: room for every lens's
 leaders, so the lenses listed last (the ETFs') are never crowded out."""
+
+MAX_ADDED_SYMBOLS: int = 25
+"""Most tickers a person may add to the screener's candidates for one list of picks."""
 
 MAX_CANDIDATE_EVENTS: int = 100
 """Most candidates or holdings whose own news and SEC filings are given to Claude, when
@@ -127,11 +130,26 @@ class PicksRequest(BaseModel):
         "you already own in mind; empty for none. They come with what PyQxel already knows "
         "of them (the screener's figures), at no extra request.",
     )
+    added_symbols: list[Annotated[str, StringConstraints(pattern=CUSTOM_SYMBOL_PATTERN)]] = Field(
+        default_factory=list,
+        max_length=MAX_ADDED_SYMBOLS,
+        description="Tickers to weigh along with the screener's leaders, such as ones "
+        "in a theme you follow. Each one the screener holds joins the candidates with "
+        "its figures, as any other candidate does; one it does not hold is left out.",
+    )
     refresh: bool = Field(
         default=False,
         description="Pick anew even when picks for the same profile and screener data are "
         "recent enough to reuse.",
     )
+
+    @field_validator("added_symbols", mode="before")
+    @classmethod
+    def _upper_symbols(cls, value: object) -> object:
+        if isinstance(value, list):
+            cleaned = [item.strip().upper() if isinstance(item, str) else item for item in value]
+            return list(dict.fromkeys(cleaned))
+        return value
 
 
 class WeeklyPicksTime(BaseModel):
@@ -348,6 +366,31 @@ class PicksUniverse(BaseModel):
     has_etfs: bool = Field(description="Whether the screener holds ETFs as well as stocks.")
 
 
+class PicksCandidateRow(BaseModel):
+    """One security the next list of picks would weigh."""
+
+    symbol: str
+    name: str
+    asset_type: AssetType = "stock"
+    sector: str | None = None
+    lenses: list[str] = Field(description="The measures it led the screener on.")
+    added: bool = Field(description="Whether it is one of the tickers you added.")
+
+
+class PicksCandidateList(BaseModel):
+    """The securities the next list of picks would weigh, for the settings given."""
+
+    candidates: list[PicksCandidateRow] = Field(
+        description="The screener's leaders, then the tickers added that it did not "
+        "already offer."
+    )
+    missing: list[str] = Field(
+        default_factory=list,
+        description="Tickers added that the screener does not hold, so they are left out.",
+    )
+    own: bool = Field(description="Whether the screener is your own, built by your refresh.")
+
+
 class PicksHolding(BaseModel):
     """A security the person already holds, across the portfolios they chose to show."""
 
@@ -371,7 +414,7 @@ class PicksContext(BaseModel):
     horizon_weeks: float = Field(gt=0, description="The holding period in weeks.")
     today: date
     universe: PicksUniverse
-    candidates: list[PickCandidate] = Field(max_length=MAX_CANDIDATES)
+    candidates: list[PickCandidate] = Field(max_length=MAX_CANDIDATES + MAX_ADDED_SYMBOLS)
     market: MarketContext | None = Field(
         default=None,
         description="The market backdrop: upcoming FOMC meetings, market holidays, major "

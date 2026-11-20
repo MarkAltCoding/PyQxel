@@ -62,6 +62,7 @@ import type {
   PicksPerformance,
   SavedPicksList,
   PicksPromptExport,
+  PicksCandidateList,
   PicksRequest,
   PicksResponse,
   SavedState,
@@ -337,6 +338,9 @@ export const getPicksPerformance = (id: string, benchmark: PicksBenchmark) =>
 export const deletePicks = (id: string) => api<void>(`${V1}/picks/${id}`, { method: 'DELETE' })
 export const streamPicks = (body: PicksRequest, signal: AbortSignal) =>
   send(`${V1}/picks/stream`, { method: 'POST', body, signal })
+/** The securities the next picks would weigh, from the stored screener alone. */
+export const getPicksCandidates = (body: PicksRequest) =>
+  api<PicksCandidateList>(`${V1}/picks/candidates`, { method: 'POST', body })
 export const exportPicksPrompt = (body: PicksRequest) =>
   api<PicksPromptExport>(`${V1}/picks/prompt`, { method: 'POST', body })
 export const importPicks = (body: PicksImport) =>

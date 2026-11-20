@@ -10586,6 +10586,92 @@
         "title": "PickPerformance",
         "type": "object"
       },
+      "PicksCandidateList": {
+        "description": "The securities the next list of picks would weigh, for the settings given.",
+        "properties": {
+          "candidates": {
+            "description": "The screener's leaders, then the tickers added that it did not already offer.",
+            "items": {
+              "$ref": "#/components/schemas/PicksCandidateRow"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "missing": {
+            "description": "Tickers added that the screener does not hold, so they are left out.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "own": {
+            "description": "Whether the screener is your own, built by your refresh.",
+            "title": "Own",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "candidates",
+          "own"
+        ],
+        "title": "PicksCandidateList",
+        "type": "object"
+      },
+      "PicksCandidateRow": {
+        "description": "One security the next list of picks would weigh.",
+        "properties": {
+          "added": {
+            "description": "Whether it is one of the tickers you added.",
+            "title": "Added",
+            "type": "boolean"
+          },
+          "asset_type": {
+            "default": "stock",
+            "enum": [
+              "stock",
+              "etf"
+            ],
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "lenses": {
+            "description": "The measures it led the screener on.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Lenses",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "name",
+          "lenses",
+          "added"
+        ],
+        "title": "PicksCandidateRow",
+        "type": "object"
+      },
       "PicksContext": {
         "description": "The data a list of picks is written from. All of it is sent to Claude, the\ncandidates as a table.",
         "properties": {
@@ -10602,7 +10688,7 @@
             "items": {
               "$ref": "#/components/schemas/PickCandidate"
             },
-            "maxItems": 640,
+            "maxItems": 665,
             "title": "Candidates",
             "type": "array"
           },
@@ -11182,6 +11268,16 @@
       "PicksRequest": {
         "description": "Options for a list of Claude's picks.",
         "properties": {
+          "added_symbols": {
+            "description": "Tickers to weigh along with the screener's leaders, such as ones in a theme you follow. Each one the screener holds joins the candidates with its figures, as any other candidate does; one it does not hold is left out.",
+            "items": {
+              "pattern": "^[A-Z0-9][A-Z0-9.\\-]{0,15}$",
+              "type": "string"
+            },
+            "maxItems": 25,
+            "title": "Added Symbols",
+            "type": "array"
+          },
           "holdings_portfolios": {
             "description": "Saved portfolios whose holdings Claude is shown, so it picks with what you already own in mind; empty for none. They come with what PyQxel already knows of them (the screener's figures), at no extra request.",
             "items": {
@@ -19749,6 +19845,7 @@
               "schema": {
                 "$ref": "#/components/schemas/PicksRequest",
                 "default": {
+                  "added_symbols": [],
                   "holdings_portfolios": [],
                   "profile": {
                     "asset_types": [],
@@ -19789,6 +19886,62 @@
           }
         },
         "summary": "Claude's picks for a holding period",
+        "tags": [
+          "picks"
+        ]
+      }
+    },
+    "/api/v1/picks/candidates": {
+      "post": {
+        "description": "The candidates a list of picks made with ``request`` would be chosen from: the\nscreener's leaders on each measure, with the measures each led on, then each ticker in\n``added_symbols`` the screener holds, and the added tickers it does not hold. It reads\nonly the stored screener, so it costs no request and no Anthropic tokens.\n\nReturns 503 when you have no screener yet or the database is unavailable.",
+        "operationId": "read_picks_candidates_api_v1_picks_candidates_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PicksRequest",
+                "default": {
+                  "added_symbols": [],
+                  "holdings_portfolios": [],
+                  "profile": {
+                    "asset_types": [],
+                    "horizon": {
+                      "months": 0,
+                      "weeks": 0,
+                      "years": 1
+                    }
+                  },
+                  "refresh": false,
+                  "wait_seconds": 0,
+                  "web_search": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PicksCandidateList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The securities your next picks would weigh",
         "tags": [
           "picks"
         ]
@@ -19933,6 +20086,7 @@
               "schema": {
                 "$ref": "#/components/schemas/PicksRequest",
                 "default": {
+                  "added_symbols": [],
                   "holdings_portfolios": [],
                   "profile": {
                     "asset_types": [],
@@ -19988,6 +20142,7 @@
               "schema": {
                 "$ref": "#/components/schemas/PicksRequest",
                 "default": {
+                  "added_symbols": [],
                   "holdings_portfolios": [],
                   "profile": {
                     "asset_types": [],

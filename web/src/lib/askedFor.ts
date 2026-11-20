@@ -16,12 +16,15 @@ export function picksAskedFor(context: PicksContext): string[] {
   const kinds = profile.asset_types?.length
     ? listed(profile.asset_types.map((kind) => (kind === 'etf' ? 'ETFs' : 'stocks')))
     : 'stocks and ETFs'
+  // A candidate no measure brought up is one the person added.
+  const added = (context.candidates ?? []).filter((c) => !c.lenses?.length).map((c) => c.symbol)
   return [
     `held for ${context.horizon}`,
     profile.risk_tolerance ? `${profile.risk_tolerance} risk` : 'no risk level given',
     profile.amount ? `${money(profile.amount, 'USD', 0)} to invest` : 'no amount given',
     kinds,
     context.web_research ? 'searched the web' : 'without a web search',
+    ...(added.length ? [`also weighed ${listed(added)}`] : []),
     ...(profile.notes ? [`your notes: “${profile.notes}”`] : []),
   ]
 }
