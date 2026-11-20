@@ -18,7 +18,12 @@ from app.models.picks import (
     SectorSnapshot,
 )
 from app.models.portfolio import MAX_PORTFOLIOS, MAX_SYMBOLS, PortfolioNumber, PortfolioPeriod
-from app.models.research import MAX_WAIT_SECONDS, WAIT_DESCRIPTION, RiskFactor
+from app.models.research import (
+    MAX_WAIT_SECONDS,
+    WAIT_DESCRIPTION,
+    WRITTEN_BY_DESCRIPTION,
+    RiskFactor,
+)
 from app.models.stock import FundProfile
 from app.models.web import WebResearch
 
@@ -507,6 +512,7 @@ class PortfolioReview(BaseModel):
         "trading costs, timing, and what would change the recommendation."
     )
     data_limitations: list[str] = Field(description="What the provided data cannot show.")
+    written_by: str | None = Field(default=None, description=WRITTEN_BY_DESCRIPTION)
 
 
 class PlannedTrade(BaseModel):
@@ -590,3 +596,27 @@ class PortfolioAnalysisResponse(BaseModel):
         "prices of today's holdings and what you told it. Check prices, taxes, and trading "
         "costs before placing any order; the decision and its risk are yours."
     )
+
+
+class PortfolioReviewSummary(BaseModel):
+    """A stored portfolio review, without its plan or data: a row of the saved reviews."""
+
+    id: UUID
+    generated_at: datetime
+    portfolios: list[int] = Field(
+        description="The portfolios it reviews: one, or several reviewed together."
+    )
+    group_mode: GroupMode | None = Field(
+        default=None, description="How several were reviewed together; null for one."
+    )
+    model: str = Field(description="The Claude model that wrote it.")
+    headline: str
+    risk_tolerance: str | None = Field(default=None, description="The risk tolerance asked for.")
+    horizon_years: float | None = Field(default=None, description="The horizon asked for.")
+    notes: str | None = Field(default=None, description="The notes the person gave.")
+
+
+class PortfolioReviewList(BaseModel):
+    """An account's stored portfolio reviews, newest first."""
+
+    items: list[PortfolioReviewSummary]

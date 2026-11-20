@@ -936,3 +936,28 @@ def test_selling_one_share_fewer_counts_as_a_top_up() -> None:
     assert trades == {"AAPL": ("sell", 4), "XOM": ("buy", 1)}
     assert plan.cash_after == pytest.approx(200.0)
     assert any("sells 1 fewer share of AAPL" in note for note in plan.notes)
+
+
+def test_reviews_are_saved_listed_reopened_and_deleted(market: list[PortfolioContext]) -> None:
+    """Every review is kept, with what it was tailored to, and can be opened again."""
+    _save({"AAPL": 10, "XOM": 20})
+    first = client.post(
+        "/api/v1/portfolio/analysis",
+        json={"profile": {"risk_tolerance": "conservative", "notes": "keep AAPL"}},
+    ).json()
+    second = client.post(
+        "/api/v1/portfolio/analysis", json={"profile": {"horizon_years": 5}}
+    ).json()
+
+    listed = client.get("/api/v1/portfolio/analyses").json()["items"]
+    assert [item["id"] for item in listed] == [second["id"], first["id"]]
+    assert listed[1]["risk_tolerance"] == "conservative" and listed[1]["notes"] == "keep AAPL"
+    assert listed[0]["horizon_years"] == 5 and listed[0]["portfolios"] == [1]
+    assert listed[0]["model"]
+
+    opened = client.get(f"/api/v1/portfolio/analyses/{first['id']}").json()
+    assert opened["context"]["profile"]["notes"] == "keep AAPL"
+
+    assert client.delete(f"/api/v1/portfolio/analyses/{first['id']}").status_code == 204
+    assert client.get(f"/api/v1/portfolio/analyses/{first['id']}").status_code == 404
+    assert len(client.get("/api/v1/portfolio/analyses").json()["items"]) == 1

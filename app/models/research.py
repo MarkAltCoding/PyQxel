@@ -45,6 +45,11 @@ FilingForm = Literal["10-K", "10-Q"]
 """SEC forms read for an analysis: the annual and the quarterly report."""
 
 
+WRITTEN_BY_DESCRIPTION: str = (
+    "The Claude model writing this answer, by its name as you know it, such as Claude Opus "
+    "5.5, so the saved report says which model wrote it."
+)
+
 MAX_WAIT_SECONDS: int = 900
 """Longest a report may wait out data providers' per-minute limits: fifteen minutes."""
 
@@ -255,6 +260,7 @@ class InvestmentThesis(BaseModel):
         description="Observable developments that would invalidate the thesis."
     )
     data_limitations: list[str] = Field(description="What the provided data cannot show.")
+    written_by: str | None = Field(default=None, description=WRITTEN_BY_DESCRIPTION)
 
 
 class RiskFactor(BaseModel):
@@ -275,6 +281,7 @@ class RiskSummary(BaseModel):
     drawdown_assessment: str
     key_risks: list[RiskFactor]
     data_limitations: list[str] = Field(description="What the provided data cannot show.")
+    written_by: str | None = Field(default=None, description=WRITTEN_BY_DESCRIPTION)
 
 
 class AnalysisDelta(BaseModel):

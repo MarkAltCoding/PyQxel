@@ -25,6 +25,7 @@ import { NoAnthropicKey } from '../components/NoAnthropicKey'
 import { PicksPerformanceCard, SavedPicksCard } from '../components/PicksPerformance'
 import { ErrorNotice, Notice } from '../components/Notice'
 import {
+  AskedFor,
   FinePrint,
   PointColumn,
   ReportTabs,
@@ -56,6 +57,8 @@ import {
 } from '../lib/picks'
 import { providerKeys } from '../lib/providerKeys'
 import { badgeTone } from '../lib/tones'
+import { picksAskedFor } from '../lib/askedFor'
+import { modelName } from '../lib/modelName'
 import { useWaitChoice } from '../lib/waitForData'
 import { useWebSearchChoice } from '../lib/webSearch'
 
@@ -645,6 +648,7 @@ function PicksReportView({
   ]
   return (
     <article className="report">
+      <AskedFor items={picksAskedFor(context)} model={response.model} />
       <Verdict headline={report.headline}>
         <div className="picks-facts">
           <span className="badge">Hold for {context.horizon}</span>
@@ -667,7 +671,7 @@ function PicksReportView({
       )}
       <WebSources research={context.web_research} />
       <p className="disclaimer" style={{ marginTop: 16 }}>
-        {response.model} · {dateTime(response.generated_at)}
+        Written by {modelName(response.model)} · {dateTime(response.generated_at)}
         {response.cached && ' · stored, not billed again'} · {response.disclaimer}
       </p>
       {onDelete && response.id && (

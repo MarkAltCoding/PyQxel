@@ -397,15 +397,17 @@ Each list of picks is made from data that is nearly all on hand already:
   reviews get the same, for up to 40 holdings and the person's horizon (a year when none
   is given).
 - **Waiting for more (`wait_seconds`):** the person chooses how long they will wait,
-  from none to fifteen minutes (five by default in the app). `plan_requests` then spends
-  that many minutes of the key's limit, in order: every wanted stock's news (60 picks
-  candidates, or up to 100 holdings), the calendar up to a quarter (weeks already cached
-  cost nothing), then each stock's analysts' ratings, earnings surprises, and insiders'
-  trades (three requests each). Requests beyond a minute wait for the next one
-  (`fetcher.finnhub_patience`) instead of being refused. A full list of picks takes about
-  five minutes on a free plan, and a review of 40 holdings about four; without waiting,
-  the notice says what more waiting would add. The copied prompt for Claude outside the
-  app gathers the same.
+  from none to fifteen minutes (five by default in the app). `plan_requests` spends that
+  many minutes of the key's limit where each request adds the most, step by step: the
+  calendar's first four weeks (every stock's report date in the next month); the news of
+  the 25 likeliest picks or largest holdings; the signals (analysts' ratings, earnings
+  surprises, insiders' trades, three requests each) of the top five; the rest of the
+  calendar, up to a quarter; the other stocks' news; then their signals. Calendar weeks
+  already cached cost nothing. On a free plan, no waiting gives 25 stocks' news, five
+  stocks' signals, and six weeks of calendar; one minute, every stock's news and a
+  quarter's calendar; five minutes, all of it for 60 picks or 40 holdings. Requests beyond
+  a minute wait for the next one (`fetcher.finnhub_patience`) instead of being refused,
+  and the notice says what more waiting would add. The copied prompt gathers the same.
 - **What Claude is given of the news:** 240 company headlines shared evenly among the
   stocks whose news was fetched, from 4 to 12 each (30 picks get 8, 40 holdings 6), the
   ones that matter most for each company's shares; and the most market-moving 80

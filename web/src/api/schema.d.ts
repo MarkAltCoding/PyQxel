@@ -1086,6 +1086,58 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/portfolio/analyses': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Your stored portfolio reviews
+     * @description Return your stored portfolio reviews, newest first, each with the portfolios it
+     *     reviewed, the model that wrote it, and what it was tailored to, but not its plan.
+     *     Reading them costs nothing. Returns 503 when the database is unavailable.
+     */
+    get: operations['read_portfolio_reviews_api_v1_portfolio_analyses_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/portfolio/analyses/{analysis_id}': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * A stored portfolio review in full
+     * @description Return one of your stored reviews with the data it was written from.
+     *
+     *     Returns 404 for unknown IDs and other accounts' reviews, and 503 when the database is
+     *     unavailable.
+     */
+    get: operations['read_stored_portfolio_review_api_v1_portfolio_analyses__analysis_id__get']
+    put?: never
+    post?: never
+    /**
+     * Delete a stored portfolio review
+     * @description Delete one of your stored reviews.
+     *
+     *     Returns 404 for unknown IDs and other accounts' reviews, and 503 when the database is
+     *     unavailable.
+     */
+    delete: operations['remove_portfolio_review_api_v1_portfolio_analyses__analysis_id__delete']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/portfolio/analysis': {
     parameters: {
       query?: never
@@ -5624,6 +5676,11 @@ export interface components {
        * @description Observable developments that would invalidate the thesis.
        */
       what_would_change_the_view: string[]
+      /**
+       * Written By
+       * @description The Claude model writing this answer, by its name as you know it, such as Claude Opus 5.5, so the saved report says which model wrote it.
+       */
+      written_by?: string | null
     }
     /**
      * InvestorProfile
@@ -7659,6 +7716,11 @@ export interface components {
        * @description Five to ten picks, best first; weights sum to 1.
        */
       picks: components['schemas']['Pick'][]
+      /**
+       * Written By
+       * @description The Claude model writing this answer, by its name as you know it, such as Claude Opus 5.5, so the saved report says which model wrote it.
+       */
+      written_by?: string | null
     }
     /**
      * PicksRequest
@@ -8299,6 +8361,11 @@ export interface components {
        * @description Every current holding and any new investment with its target weight; a holding to sell entirely gets 0. Weights sum to 1. Empty when the review gives each account its own plan in account_plans.
        */
       target_allocation: components['schemas']['TargetPosition'][]
+      /**
+       * Written By
+       * @description The Claude model writing this answer, by its name as you know it, such as Claude Opus 5.5, so the saved report says which model wrote it.
+       */
+      written_by?: string | null
     }
     /**
      * PortfolioReviewImport
@@ -8311,6 +8378,62 @@ export interface components {
       request?: components['schemas']['PortfolioAnalysisRequest']
       /** Response */
       response: string
+    }
+    /**
+     * PortfolioReviewList
+     * @description An account's stored portfolio reviews, newest first.
+     */
+    PortfolioReviewList: {
+      /** Items */
+      items: components['schemas']['PortfolioReviewSummary'][]
+    }
+    /**
+     * PortfolioReviewSummary
+     * @description A stored portfolio review, without its plan or data: a row of the saved reviews.
+     */
+    PortfolioReviewSummary: {
+      /**
+       * Generated At
+       * Format: date-time
+       */
+      generated_at: string
+      /**
+       * Group Mode
+       * @description How several were reviewed together; null for one.
+       */
+      group_mode?: ('combined' | 'separate') | null
+      /** Headline */
+      headline: string
+      /**
+       * Horizon Years
+       * @description The horizon asked for.
+       */
+      horizon_years?: number | null
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string
+      /**
+       * Model
+       * @description The Claude model that wrote it.
+       */
+      model: string
+      /**
+       * Notes
+       * @description The notes the person gave.
+       */
+      notes?: string | null
+      /**
+       * Portfolios
+       * @description The portfolios it reviews: one, or several reviewed together.
+       */
+      portfolios: number[]
+      /**
+       * Risk Tolerance
+       * @description The risk tolerance asked for.
+       */
+      risk_tolerance?: string | null
     }
     /**
      * PortfolioRiskStats
@@ -9103,6 +9226,11 @@ export interface components {
       summary: string
       /** Volatility Assessment */
       volatility_assessment: string
+      /**
+       * Written By
+       * @description The Claude model writing this answer, by its name as you know it, such as Claude Opus 5.5, so the saved report says which model wrote it.
+       */
+      written_by?: string | null
     }
     /**
      * Rsi
@@ -12265,6 +12393,97 @@ export interface operations {
         content: {
           'application/json': components['schemas']['PortfolioSummary']
         }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_portfolio_reviews_api_v1_portfolio_analyses_get: {
+    parameters: {
+      query?: {
+        limit?: number
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PortfolioReviewList']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_stored_portfolio_review_api_v1_portfolio_analyses__analysis_id__get: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        analysis_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PortfolioAnalysisResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  remove_portfolio_review_api_v1_portfolio_analyses__analysis_id__delete: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        analysis_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
       }
       /** @description Validation Error */
       422: {

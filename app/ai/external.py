@@ -18,8 +18,18 @@ if TYPE_CHECKING:
     from anthropic.types.beta import BetaMessageParam, BetaTextBlockParam
 
 PASTED_MODEL: str = "claude (pasted)"
-"""What a pasted answer's model is recorded as; the app never reuses such an answer in
-place of writing a new one."""
+"""What a pasted answer's request is recorded as, so the app never reuses such an answer in
+place of writing a new one; and its model, when Claude did not say which it is."""
+
+OUTSIDE_SUFFIX: str = " (outside the app)"
+
+
+def pasted_model(written_by: str | None) -> str:
+    """The model a pasted answer was written by, as Claude named itself in ``written_by``,
+    marked as written outside the app; :data:`PASTED_MODEL` when it did not say."""
+    name = " ".join((written_by or "").split())[:60]
+    return f"{name}{OUTSIDE_SUFFIX}" if name else PASTED_MODEL
+
 
 MAX_RESPONSE_LENGTH: int = 200_000
 """Longest pasted answer accepted."""
@@ -94,7 +104,14 @@ def render_prompt(
         parts.append(OUTSIDE_WEB_ALLOWED if web_search else OUTSIDE_WEB_REFUSED)
     parts.append(
         "## Answer format\n\nReply with a single JSON object that matches this JSON Schema, "
-        "and nothing else: no Markdown fences, no text before or after it.\n\n"
+        "and nothing else: no Markdown fences, no text before or after it."
+        + (
+            " Set written_by to the name of the Claude model you are, such as Claude Opus "
+            "5.5, so the saved report says which model wrote it."
+            if "written_by" in schema.model_fields
+            else ""
+        )
+        + "\n\n"
         f"```json\n{json.dumps(schema.model_json_schema(), indent=2)}\n```"
     )
     return "\n\n".join(parts) + "\n"

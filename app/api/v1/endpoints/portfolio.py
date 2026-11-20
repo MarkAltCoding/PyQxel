@@ -20,7 +20,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.agent import AIRateLimitError, AnalysisError, Written, anthropic_client
-from app.ai.external import PASTED_MODEL, ExternalResponseError, parse_response, render_prompt
+from app.ai.external import (
+    PASTED_MODEL,
+    ExternalResponseError,
+    parse_response,
+    pasted_model,
+    render_prompt,
+)
 from app.ai.portfolio import (
     review_messages,
     review_research_task,
@@ -60,6 +66,9 @@ from app.db.holdings import (
 )
 from app.db.portfolio_analyses import (
     ReviewGroup,
+    delete_portfolio_analysis,
+    get_portfolio_analysis,
+    list_portfolio_analyses,
     find_recent_portfolio_analysis,
     holdings_key,
     latest_portfolio_analysis,
@@ -115,6 +124,7 @@ from app.models.accounts import (
 )
 from app.models.portfolio_analysis import (
     AccountOrders,
+    PortfolioReviewList,
     AccountPlan,
     AccountShares,
     AccountValue,
@@ -2169,7 +2179,7 @@ async def import_portfolio_review(
         portfolios=body.request.group,
         group_mode=body.request.group_mode if body.request.group else None,
         context=body.context,
-        model=PASTED_MODEL,
+        model=pasted_model(report.written_by),
         generated_at=datetime.now(timezone.utc),
     )
     try:
@@ -2185,3 +2195,66 @@ async def import_portfolio_review(
         )
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
+
+
+@router.get(
+    "/analyses", response_model=PortfolioReviewList, summary="Your stored portfolio reviews"
+)
+async def read_portfolio_reviews(
+    session: Session, user: CurrentUser, limit: Annotated[int, Query(ge=1, le=100)] = 30
+) -> PortfolioReviewList:
+    """Return your stored portfolio reviews, newest first, each with the portfolios it
+    reviewed, the model that wrote it, and what it was tailored to, but not its plan.
+    Reading them costs nothing. Returns 503 when the database is unavailable."""
+    try:
+        return await list_portfolio_analyses(session, user.id, limit)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+
+
+@router.get(
+    "/analyses/{analysis_id}",
+    response_model=PortfolioAnalysisResponse,
+    summary="A stored portfolio review in full",
+)
+async def read_stored_portfolio_review(
+    analysis_id: UUID, session: Session, user: CurrentUser
+) -> PortfolioAnalysisResponse:
+    """Return one of your stored reviews with the data it was written from.
+
+    Returns 404 for unknown IDs and other accounts' reviews, and 503 when the database is
+    unavailable.
+    """
+    try:
+        review = await get_portfolio_analysis(session, user.id, analysis_id)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    if review is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"No review with ID {analysis_id}."
+        )
+    return review.model_copy(update={"cached": True})
+
+
+@router.delete(
+    "/analyses/{analysis_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a stored portfolio review",
+)
+async def remove_portfolio_review(
+    analysis_id: UUID, session: Session, user: CurrentUser
+) -> Response:
+    """Delete one of your stored reviews.
+
+    Returns 404 for unknown IDs and other accounts' reviews, and 503 when the database is
+    unavailable.
+    """
+    try:
+        deleted = await delete_portfolio_analysis(session, user.id, analysis_id)
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"No review with ID {analysis_id}."
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

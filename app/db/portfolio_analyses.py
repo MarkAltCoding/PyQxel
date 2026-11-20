@@ -3,14 +3,18 @@
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.tables import AssistantRequestRecord, PortfolioAnalysisRecord
 from app.models.portfolio import HoldingShares
-from app.models.portfolio_analysis import PortfolioAnalysisResponse
+from app.models.portfolio_analysis import (
+    PortfolioAnalysisResponse,
+    PortfolioReviewList,
+    PortfolioReviewSummary,
+)
 
 
 def holdings_key(holdings: list[HoldingShares], profile: str = "") -> str:
@@ -131,6 +135,63 @@ async def latest_portfolio_analysis(
         .limit(1)
     )
     return None if record is None else _response(record)
+
+
+def _members(record: PortfolioAnalysisRecord) -> list[int]:
+    if record.group_members:
+        return [int(n) for n in record.group_members.strip(",").split(",") if n]
+    return [record.portfolio]
+
+
+async def list_portfolio_analyses(
+    session: AsyncSession, user_id: str, limit: int = 30
+) -> PortfolioReviewList:
+    """The account's stored reviews, newest first, each with what it was asked for."""
+    records = await session.scalars(
+        select(PortfolioAnalysisRecord)
+        .where(PortfolioAnalysisRecord.user_id == user_id)
+        .order_by(PortfolioAnalysisRecord.created_at.desc(), PortfolioAnalysisRecord.id)
+        .limit(limit)
+    )
+    items = []
+    for record in records:
+        profile = (record.result.get("context") or {}).get("profile") or {}
+        items.append(
+            PortfolioReviewSummary(
+                id=UUID(record.id),
+                generated_at=(
+                    record.created_at
+                    if record.created_at.tzinfo
+                    else record.created_at.replace(tzinfo=timezone.utc)
+                ),
+                portfolios=_members(record),
+                group_mode=record.group_mode,  # type: ignore[arg-type]
+                model=record.model,
+                headline=record.headline,
+                risk_tolerance=profile.get("risk_tolerance"),
+                horizon_years=profile.get("horizon_years"),
+                notes=profile.get("notes"),
+            )
+        )
+    return PortfolioReviewList(items=items)
+
+
+async def get_portfolio_analysis(
+    session: AsyncSession, user_id: str, analysis_id: UUID
+) -> PortfolioAnalysisResponse | None:
+    """``user_id``'s stored review with ``analysis_id``, or ``None`` if they have none."""
+    record = await session.get(PortfolioAnalysisRecord, str(analysis_id))
+    return None if record is None or record.user_id != user_id else _response(record)
+
+
+async def delete_portfolio_analysis(session: AsyncSession, user_id: str, analysis_id: UUID) -> bool:
+    """Delete ``user_id``'s stored review with ``analysis_id``; return whether it existed."""
+    record = await session.get(PortfolioAnalysisRecord, str(analysis_id))
+    if record is None or record.user_id != user_id:
+        return False
+    await session.delete(record)
+    await session.commit()
+    return True
 
 
 async def record_assistant_request(session: AsyncSession, user_id: str, model: str) -> None:

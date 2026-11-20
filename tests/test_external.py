@@ -195,3 +195,12 @@ def test_an_assistant_prompt_and_pasted_reply() -> None:
 
     assert "<editor" in exported["prompt"] and exported["prompt"].rstrip().endswith("```")
     assert imported == {"reply": reply, "model": PASTED_MODEL}
+
+
+def test_a_pasted_answer_records_the_model_claude_named() -> None:
+    from app.ai.external import PASTED_MODEL, pasted_model
+
+    assert pasted_model("Claude Opus 5.5") == "Claude Opus 5.5 (outside the app)"
+    assert pasted_model("  ") == PASTED_MODEL and pasted_model(None) == PASTED_MODEL
+    prompt = render_prompt("Be brief.", [{"role": "user", "content": "Hi"}], InvestmentThesis)
+    assert "Set written_by to the name of the Claude model you are" in prompt

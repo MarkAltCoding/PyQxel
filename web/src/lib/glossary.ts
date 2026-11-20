@@ -796,6 +796,16 @@ const entries = {
     good: 'Worth it when recent news matters: a stock around its earnings, a portfolio after a market move, or picks for a short holding period.',
     note: 'On by default. It costs a little more, billed by Anthropic to your key: about 1 cent per search, with up to six searches, plus the tokens to read the results, typically a few cents in all. It also takes a minute or so longer. A report that searches the web is always written anew, never reused. When you use Claude outside the app, this choice goes into the prompt: checked, Claude is told to search the web itself and name its sources; unchecked, to keep to PyQxel’s data.',
   },
+  savedReviews: {
+    title: 'Saved reviews',
+    what: 'Every portfolio review Claude has written for you, newest first: when, which portfolios it covered and how, what you asked it to tailor the plan to, and which model wrote it. Choose one to read it again with the data it was written from; reading it costs nothing.',
+    note: 'Prices and holdings have likely moved since an older review was written, so its orders are a record, not today’s plan.',
+  },
+  askedFor: {
+    title: 'Made for',
+    what: 'What this report was asked for: the settings and notes you gave when it was made, whether Claude searched the web, and which Claude model wrote it. A report opened again from your saved ones keeps them, so you can tell what each was tailored to.',
+    note: 'A report written outside the app names the model Claude said it is, marked “outside the app”; if Claude did not say, it shows as not given.',
+  },
   waitForData: {
     title: 'Wait for more data',
     what: 'How long you will wait for the data a provider’s per-minute limit holds back. A free Finnhub plan answers 60 requests a minute, and each stock’s news is one request, its analysts’ ratings, earnings surprises, and insider trades three more, and each week of the earnings calendar one. Waiting lets PyQxel ask for all of it, a minute’s worth at a time, so Claude gets every stock’s news and ratings and a full quarter’s calendar.',

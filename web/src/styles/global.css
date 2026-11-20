@@ -2751,3 +2751,11 @@ main [id] {
 .pick-card > .disclaimer {
   margin: 10px 0 0;
 }
+
+/* What a report was made for, and which model wrote it, above its verdict. */
+.asked-for {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}

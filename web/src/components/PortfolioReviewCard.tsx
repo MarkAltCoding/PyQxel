@@ -3,7 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NO_PROGRESS, readAiStream, type AiProgress } from '../api/aiStream'
 import {
   exportPortfolioPrompt,
+  deletePortfolioReview,
   getPortfolioReview,
+  getStoredPortfolioReview,
   importPortfolioReview,
   streamPortfolioReview,
 } from '../api/endpoints'
@@ -24,6 +26,9 @@ import { dateTime, listed, money, number, percent } from '../lib/format'
 import { keepExport, keptExport } from '../lib/exportedPrompts'
 import { readStored, writeStored } from '../lib/storage'
 import { useReportView } from '../lib/reportView'
+import { reviewAskedFor } from '../lib/askedFor'
+import { SAVED_REVIEWS_KEY } from '../lib/savedReviews'
+import { modelName } from '../lib/modelName'
 import { useWaitChoice } from '../lib/waitForData'
 import { useWebSearchChoice } from '../lib/webSearch'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
@@ -35,6 +40,7 @@ import { providerKeys } from '../lib/providerKeys'
 import { ErrorNotice, Notice } from './Notice'
 import { PresetOrCustom } from './PresetOrCustom'
 import {
+  AskedFor,
   FinePrint,
   FullText,
   LevelMeter,
@@ -53,6 +59,7 @@ import { paragraphs } from '../lib/reportText'
 import { Segmented } from './Segmented'
 import { Stat } from './Stat'
 import { InfoTip } from './InfoTip'
+import { SavedReviews } from './SavedReviews'
 import { WaitForDataOption } from './WaitForData'
 import { AiProgressDetail, WebSearchOption, WebSources } from './WebSearch'
 import { Link } from 'react-router'
@@ -319,7 +326,28 @@ export function PortfolioReviewCard({
     queryFn: () =>
       getPortfolioReview(portfolio, grouped ? { portfolios: members, mode } : undefined),
   })
-  const review = latest.data ?? null
+  // An earlier review opened from the saved ones, in place of the latest.
+  const [opened, setOpened] = useState<string | null>(null)
+  const earlier = useQuery({
+    queryKey: ['portfolio-review', 'stored', opened],
+    queryFn: () => getStoredPortfolioReview(opened!),
+    enabled: opened !== null,
+    staleTime: Infinity,
+  })
+  const review = opened !== null ? (earlier.data ?? null) : (latest.data ?? null)
+  const removeReview = async (id: string) => {
+    setError(null)
+    try {
+      await deletePortfolioReview(id)
+      if (id === opened) setOpened(null)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: SAVED_REVIEWS_KEY }),
+        queryClient.invalidateQueries({ queryKey: ['portfolio-review'] }),
+      ])
+    } catch (failure) {
+      setError(failure)
+    }
+  }
 
   const profile = (): InvestorProfile => ({
     risk_tolerance: risk === 'unset' ? null : risk,
@@ -356,6 +384,8 @@ export function PortfolioReviewCard({
       : { portfolio }
   const keepResult = (result: PortfolioAnalysisResponse) => {
     queryClient.setQueryData(reviewKey, result)
+    setOpened(null)
+    void queryClient.invalidateQueries({ queryKey: SAVED_REVIEWS_KEY })
     // A review giving each account its own plan is each one's latest too.
     if (result.group_mode === 'separate') {
       for (const number of result.portfolios ?? []) {
@@ -665,8 +695,18 @@ export function PortfolioReviewCard({
           <AiProgressDetail progress={progress} />
         </div>
       ) : review ? (
-        <Review response={review} />
-      ) : latest.isLoading ? (
+        <>
+          {opened !== null && (
+            <div className="filter-row" style={{ alignItems: 'center' }}>
+              <Notice>An earlier review, opened from your saved ones.</Notice>
+              <button type="button" className="button" onClick={() => setOpened(null)}>
+                Show the latest
+              </button>
+            </div>
+          )}
+          <Review response={review} />
+        </>
+      ) : latest.isLoading || earlier.isLoading ? (
         <div className="empty">
           <div className="spinner" style={{ margin: '0 auto' }} />
         </div>
@@ -679,6 +719,12 @@ export function PortfolioReviewCard({
               : 'No review yet.'}
         </div>
       )}
+      <SavedReviews
+        openedId={opened}
+        onOpen={setOpened}
+        onDelete={(id) => void removeReview(id)}
+        nameOf={nameOf}
+      />
       <ExternalClaude
         getPrompt={getPrompt}
         onPaste={pasteAnswer}
@@ -795,6 +841,7 @@ function Review({ response }: { response: PortfolioAnalysisResponse }) {
   const [view, setView] = useReportView()
   return (
     <article className="report">
+      <AskedFor items={reviewAskedFor(response.context)} model={response.model} />
       <ReportViewToggle view={view} onChange={setView} />
       {view === 'text' ? <TextReview response={response} /> : <VisualReview response={response} />}
       <WebSources research={response.context.web_research} />
@@ -803,8 +850,8 @@ function Review({ response }: { response: PortfolioAnalysisResponse }) {
           `Covers ${listed(response.context.accounts!.map((a) => `${a.account} (${money(a.value, 'USD', 0)})`))} together${response.group_mode === 'separate' ? ', each with its own plan' : ', as one portfolio'} · `}
         {response.context.claude_picks &&
           `Given your Claude’s picks of ${dateTime(response.context.claude_picks.generated_at)} for ${response.context.claude_picks.horizon} · `}
-        {response.model} · {dateTime(response.generated_at)} · {historyLabel(response)} of price
-        history
+        Written by {modelName(response.model)} · {dateTime(response.generated_at)} ·{' '}
+        {historyLabel(response)} of price history
         {response.cached && ' · reused, not billed again'} · {response.disclaimer}
       </p>
     </article>

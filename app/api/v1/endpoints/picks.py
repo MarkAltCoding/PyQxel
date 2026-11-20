@@ -26,7 +26,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.agent import AIRateLimitError, AnalysisError, Written, anthropic_client
-from app.ai.external import PASTED_MODEL, ExternalResponseError, parse_response, render_prompt
+from app.ai.external import (
+    PASTED_MODEL,
+    ExternalResponseError,
+    parse_response,
+    pasted_model,
+    render_prompt,
+)
 from app.ai.picks import picks_messages, picks_research_task, stream_picks, write_picks
 from app.ai.prompts import PICKS_SYSTEM_PROMPT
 from app.ai.web import add_web_research, with_web_research
@@ -208,18 +214,32 @@ def _minutes_for(requests: int, per_minute: int) -> int:
     return max(1, math.ceil(requests / per_minute))
 
 
+CORE_NEWS: int = 25
+"""Stocks, the likeliest picks or largest holdings first, whose news comes before the rest
+of the calendar and the other stocks' signals."""
+
+CORE_SIGNALS: int = 5
+"""Stocks whose analysts' ratings and earnings surprises come before the rest of the
+calendar and the other stocks' news."""
+
+
 async def plan_requests(
     news_wanted: int, horizon_days: float | None, wait_seconds: float = 0
 ) -> FetchPlan:
     """How much a report gathers from Finnhub when the person waits up to ``wait_seconds``
     beyond the key's first minute of requests.
 
-    In order: every wanted stock's news, then the calendar, at least
-    :data:`PICKS_EARNINGS_DAYS` and up to the holding period or a quarter (weeks already
-    cached cost nothing), then each stock's signals (:data:`SIGNAL_REQUESTS` each). FOMC
-    meetings, from the Federal Reserve with no key, cover the whole period either way.
-    Without a Finnhub key, news comes from Alpha Vantage's one shared feed, which costs
-    nothing per company, and there are no signals.
+    Requests go where each adds the most, step by step, each step taking what the budget
+    left allows: the calendar's first four weeks (every stock's report date in the next
+    month, four requests in all); the news of the :data:`CORE_NEWS` likeliest stocks; the
+    signals of the first :data:`CORE_SIGNALS` (:data:`SIGNAL_REQUESTS` each); the rest of
+    the calendar, up to the holding period or a quarter, when every company reports once;
+    the other stocks' news; then their signals. Calendar weeks already cached cost nothing.
+    So no wait gets news alone: a free plan's minute gives 25 stocks' news, five stocks'
+    signals, and six weeks of calendar, and a minute's wait more gives every stock's news
+    and a quarter's calendar. FOMC meetings, from the Federal Reserve with no key, cover the
+    whole period either way. Without a Finnhub key, news comes from Alpha Vantage's one
+    shared feed, which costs nothing per company, and there are no signals.
     """
     days = backdrop_days(horizon_days)
     api_key = finnhub_key()
@@ -227,26 +247,33 @@ async def plan_requests(
         return FetchPlan(news_wanted, days, 0, 1, None)
     per_minute = finnhub_requests_per_minute(api_key)
     minutes = 1 + int(max(wait_seconds, 0) // 60)
-    budget = per_minute * minutes - NEWS_MARGIN
-    fixed = backdrop_finnhub_requests(0)  # The IPOs, holidays, status, and news categories.
     today = date.today()
-    fewest = PICKS_EARNINGS_DAYS
-    full_weeks = await uncached_earnings_weeks(today, today + timedelta(days=days - 1))
-    fewest_weeks = await uncached_earnings_weeks(today, today + timedelta(days=fewest - 1))
+    fewest = min(PICKS_EARNINGS_DAYS, days)
+    first_weeks = await uncached_earnings_weeks(today, today + timedelta(days=fewest - 1))
+    all_weeks = await uncached_earnings_weeks(today, today + timedelta(days=days - 1))
+    later_weeks = max(0, all_weeks - first_weeks)
+    left = per_minute * minutes - NEWS_MARGIN - backdrop_finnhub_requests(0)
 
-    news = max(0, min(news_wanted, budget - fixed - fewest_weeks))
-    left = budget - fixed - news
-    if full_weeks <= left:
-        calendar_days, left = days, left - full_weeks
-    else:
-        # Every request left goes to the calendar's weeks, so none is left for signals.
-        calendar_days, left = max(fewest, min(days, left * 7)), 0
-    signals = max(0, min(news, left // SIGNAL_REQUESTS))
+    def take(wanted: int, cost: int) -> int:
+        nonlocal left
+        taken = max(0, min(wanted, left // cost)) if cost else wanted
+        left -= taken * cost
+        return taken
 
-    whole = fixed + news_wanted + full_weeks + news_wanted * SIGNAL_REQUESTS
+    take(first_weeks, 1)
+    news = take(min(news_wanted, CORE_NEWS), 1)
+    signals = take(min(news, CORE_SIGNALS), SIGNAL_REQUESTS)
+    later = take(later_weeks, 1)
+    news += take(news_wanted - news, 1)
+    signals += take(news - signals, SIGNAL_REQUESTS)
+    calendar_days = days if later == later_weeks else min(days, fewest + later * 7)
+
+    whole = (
+        backdrop_finnhub_requests(0) + all_weeks + news_wanted * (1 + SIGNAL_REQUESTS) + NEWS_MARGIN
+    )
     more = None
     if news < news_wanted or calendar_days < days or signals < news_wanted:
-        extra = _minutes_for(whole + NEWS_MARGIN, per_minute) - 1
+        extra = max(1, _minutes_for(whole, per_minute) - minutes)
         parts = []
         if news < news_wanted:
             parts.append(f"news for {news_wanted - news} more stocks")
@@ -256,7 +283,7 @@ async def plan_requests(
             parts.append(f"{days - calendar_days} more days of calendar")
         more = (
             f"Your Finnhub plan's {per_minute} requests a minute left out {listed(parts)}; "
-            f"waiting about {extra} {'minute' if extra == 1 else 'minutes'} for them would "
+            f"waiting about {extra} {'minute' if extra == 1 else 'minutes'} more would "
             "add them all."
         )
     return FetchPlan(news, calendar_days, signals, minutes, more)
@@ -1018,7 +1045,7 @@ async def import_picks(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
-    response = await _response(user.id, body.context, report, PASTED_MODEL)
+    response = await _response(user.id, body.context, report, pasted_model(report.written_by))
     try:
         key = _request_key(body.request, await _universe(session, user.id))
         return await save_picks(session, user.id, key, response, PASTED_MODEL, PASTED_MODEL)

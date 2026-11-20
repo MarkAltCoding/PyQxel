@@ -1,6 +1,7 @@
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { RiskFactor } from '../api/types'
 import type { InfoKey } from '../lib/glossary'
+import { modelName } from '../lib/modelName'
 import { paragraphs } from '../lib/reportText'
 import type { ReportView } from '../lib/reportView'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE, type Tone } from '../lib/tones'
@@ -381,5 +382,18 @@ export function TextRisks({ risks }: { risks: RiskFactor[] }) {
         </li>
       ))}
     </ul>
+  )
+}
+
+/** What a report was asked for and which model wrote it, so a saved one says both. */
+export function AskedFor({ items, model }: { items: string[]; model: string }) {
+  return (
+    <p className="asked-for">
+      <span className="heading-with-info">
+        <strong>Made for</strong>
+        <InfoTip topic="askedFor" />
+      </span>{' '}
+      {items.join(' · ')} · <strong>written by</strong> {modelName(model)}
+    </p>
   )
 }

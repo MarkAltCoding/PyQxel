@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.core.text import listed
 from app.models.markets import MarketContext
 from app.models.news import NewsHeadline
-from app.models.research import MAX_WAIT_SECONDS, WAIT_DESCRIPTION
+from app.models.research import MAX_WAIT_SECONDS, WAIT_DESCRIPTION, WRITTEN_BY_DESCRIPTION
 from app.models.screener import AssetType, ScreenedStock, ScreenMetrics
 from app.models.web import WebResearch
 
@@ -360,6 +360,7 @@ class PicksReport(BaseModel):
         "concentration, and what would change the picks."
     )
     data_limitations: list[str] = Field(description="What the provided data cannot show.")
+    written_by: str | None = Field(default=None, description=WRITTEN_BY_DESCRIPTION)
 
 
 class PicksResponse(BaseModel):

@@ -149,6 +149,9 @@ test('Claude’s picks are shown, and the screener can list them alone', async (
   await expect(page.getByText('Cheap growth, with a bond fund to steady it.')).toBeVisible()
   await expect(page.getByRole('link', { name: 'BRAVO', exact: true })).toBeVisible()
   await expect(page.getByText(/Not in your screener/)).toBeVisible()
+  // What the list was made for, and which model wrote it, here and among the saved ones.
+  await expect(page.locator('#picks .asked-for')).toContainText('written by Claude Opus 5.5')
+  await expect(page.locator('#saved-picks')).toContainText('Claude Opus 5.5')
 
   await page.getByRole('link', { name: 'Show in the screener' }).click()
   await expect(page).toHaveURL(/\/screener\?picks=latest/)
@@ -243,4 +246,13 @@ test('Claude’s picks offer how long to wait for more data, and remember it', a
   // Left as the other tests expect it: the choice follows the account.
   await after.selectOption({ label: 'Up to 5 minutes' })
   await expect(after).toHaveValue('300')
+})
+
+test('the portfolio review keeps every review in its saved ones', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/portfolio')
+  await openPortfolio(page, 1)
+  const review = page.locator('#ai-review')
+  await review.getByText(/^Saved reviews/).click()
+  await expect(review.getByText('Every review Claude writes for you is saved here.')).toBeVisible()
 })

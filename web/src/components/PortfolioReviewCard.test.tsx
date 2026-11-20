@@ -212,7 +212,10 @@ describe('PortfolioReviewCard', () => {
     ).toBeInTheDocument()
     expect(posted[0]).toMatchObject({ portfolios: [1, 2], group_mode: 'combined', accounts: [] })
     expect(posted[0]).not.toHaveProperty('portfolio')
-    expect(read.at(-1)).toContain('portfolios=1&portfolios=2&mode=combined')
+    // The review of the group, not the saved reviews' list.
+    expect(read.filter((url) => url.includes('/analysis?')).at(-1)).toContain(
+      'portfolios=1&portfolios=2&mode=combined',
+    )
   })
 
   it('gives each account its own goals and cash, with new cash entered once', async () => {
@@ -328,7 +331,10 @@ describe('PortfolioReviewCard', () => {
       },
       plan: { ...stored.plan, cash_symbol: 'SPAXX', cash_after: 50 },
     }
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(withCash)))
+    // A fresh response for each request: a body can be read only once.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () => new Response(JSON.stringify(withCash)),
+    )
     renderCard({ hasHoldings: true, stale: false })
 
     await screen.findByText('Cash and holds.')

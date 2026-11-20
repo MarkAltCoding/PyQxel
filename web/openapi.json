@@ -6704,6 +6704,18 @@
             },
             "title": "What Would Change The View",
             "type": "array"
+          },
+          "written_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Claude model writing this answer, by its name as you know it, such as Claude Opus 5.5, so the saved report says which model wrote it.",
+            "title": "Written By"
           }
         },
         "required": [
@@ -11023,6 +11035,18 @@
             },
             "title": "Picks",
             "type": "array"
+          },
+          "written_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Claude model writing this answer, by its name as you know it, such as Claude Opus 5.5, so the saved report says which model wrote it.",
+            "title": "Written By"
           }
         },
         "required": [
@@ -12257,6 +12281,18 @@
             },
             "title": "Target Allocation",
             "type": "array"
+          },
+          "written_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Claude model writing this answer, by its name as you know it, such as Claude Opus 5.5, so the saved report says which model wrote it.",
+            "title": "Written By"
           }
         },
         "required": [
@@ -12297,6 +12333,116 @@
           "response"
         ],
         "title": "PortfolioReviewImport",
+        "type": "object"
+      },
+      "PortfolioReviewList": {
+        "description": "An account's stored portfolio reviews, newest first.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PortfolioReviewSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "PortfolioReviewList",
+        "type": "object"
+      },
+      "PortfolioReviewSummary": {
+        "description": "A stored portfolio review, without its plan or data: a row of the saved reviews.",
+        "properties": {
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "group_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "combined",
+                  "separate"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How several were reviewed together; null for one.",
+            "title": "Group Mode"
+          },
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "horizon_years": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The horizon asked for.",
+            "title": "Horizon Years"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "model": {
+            "description": "The Claude model that wrote it.",
+            "title": "Model",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The notes the person gave.",
+            "title": "Notes"
+          },
+          "portfolios": {
+            "description": "The portfolios it reviews: one, or several reviewed together.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Portfolios",
+            "type": "array"
+          },
+          "risk_tolerance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The risk tolerance asked for.",
+            "title": "Risk Tolerance"
+          }
+        },
+        "required": [
+          "id",
+          "generated_at",
+          "portfolios",
+          "model",
+          "headline"
+        ],
+        "title": "PortfolioReviewSummary",
         "type": "object"
       },
       "PortfolioRiskStats": {
@@ -13771,6 +13917,18 @@
           "volatility_assessment": {
             "title": "Volatility Assessment",
             "type": "string"
+          },
+          "written_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Claude model writing this answer, by its name as you know it, such as Claude Opus 5.5, so the saved report says which model wrote it.",
+            "title": "Written By"
           }
         },
         "required": [
@@ -19532,6 +19690,131 @@
           }
         },
         "summary": "Say what kind of account a portfolio is",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/v1/portfolio/analyses": {
+      "get": {
+        "description": "Return your stored portfolio reviews, newest first, each with the portfolios it\nreviewed, the model that wrote it, and what it was tailored to, but not its plan.\nReading them costs nothing. Returns 503 when the database is unavailable.",
+        "operationId": "read_portfolio_reviews_api_v1_portfolio_analyses_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioReviewList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Your stored portfolio reviews",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/v1/portfolio/analyses/{analysis_id}": {
+      "delete": {
+        "description": "Delete one of your stored reviews.\n\nReturns 404 for unknown IDs and other accounts' reviews, and 503 when the database is\nunavailable.",
+        "operationId": "remove_portfolio_review_api_v1_portfolio_analyses__analysis_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "analysis_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Analysis Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete a stored portfolio review",
+        "tags": [
+          "portfolio"
+        ]
+      },
+      "get": {
+        "description": "Return one of your stored reviews with the data it was written from.\n\nReturns 404 for unknown IDs and other accounts' reviews, and 503 when the database is\nunavailable.",
+        "operationId": "read_stored_portfolio_review_api_v1_portfolio_analyses__analysis_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "analysis_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Analysis Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioAnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "A stored portfolio review in full",
         "tags": [
           "portfolio"
         ]

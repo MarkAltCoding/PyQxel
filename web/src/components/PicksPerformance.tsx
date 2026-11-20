@@ -5,6 +5,7 @@ import { ChartCard, Legend } from '../charts/ChartCard'
 import { EquityChart, EquityTable } from '../charts/EquityChart'
 import { useChartTheme } from '../charts/theme'
 import { dateTime, money, percent, shortDate, signedPercent, tone } from '../lib/format'
+import { modelName } from '../lib/modelName'
 import { PICKS_BENCHMARKS, PICKS_LIST_KEY } from '../lib/picks'
 import { InfoTip } from './InfoTip'
 import { ErrorNotice, Notice } from './Notice'
@@ -232,6 +233,7 @@ export function SavedPicksCard({
                 <th>Made</th>
                 <th>Held for</th>
                 <th>Picks</th>
+                <th>Written by</th>
                 <th className="num">
                   <span className="heading-with-info">
                     Return
@@ -288,6 +290,7 @@ export function SavedPicksCard({
                     {item.risk_tolerance ? ` · ${item.risk_tolerance}` : ''}
                   </td>
                   <td>{item.symbols.join(', ')}</td>
+                  <td>{modelName(item.model)}</td>
                   <td className={`num ${tone(item.total_return) ?? ''}`}>
                     {signedPercent(item.total_return)}
                   </td>

@@ -174,9 +174,11 @@ def test_fomc_meetings_run_through_the_horizon() -> None:
     assert len(year.fomc_meetings) == 4
 
 
-def test_news_comes_first_then_the_calendar_then_signals(
+def test_every_wait_gets_the_requests_that_add_the_most(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The calendar's first weeks, the likeliest stocks' news and a few stocks' signals
+    come first, so even no waiting gets some of each; waiting fills in the rest."""
     import asyncio
 
     def plan(wanted: int, horizon: float, wait: float = 0) -> tuple[int, int, int]:
@@ -190,13 +192,13 @@ def test_news_comes_first_then_the_calendar_then_signals(
     monkeypatch.setattr(fetcher, "finnhub_minute_limit", lambda key: None)
 
     # 55 a minute, 2 kept free, 7 for the IPOs, holidays, status, and news categories.
-    assert plan(30, 365) == (30, 90, 1)  # 16 weeks left: a quarter, and one stock's signals.
-    assert plan(40, 365) == (40, 42, 0)  # Six weeks left.
-    assert plan(60, 365) == (42, 28, 0)  # The calendar keeps four weeks.
-    # Waiting four more minutes: 273 requests, enough for every part.
-    assert plan(60, 365, 240) == (60, 90, 60)
+    assert plan(60, 365) == (25, 42, 5)
+    assert plan(60, 365, 60) == (60, 90, 9)
+    assert plan(40, 365, 120) == (40, 90, 34)
+    assert plan(60, 365, 300) == (60, 90, 60)
+    assert plan(10, 14) == (10, 28, 10)  # A short list fits the first minute whole.
     found = asyncio.run(picks_route.plan_requests(60, 365))
-    assert found.more is not None and "waiting about 4 minutes" in found.more
+    assert found.more is not None and "waiting about 4 minutes more" in found.more
 
 
 def test_waiting_requests_take_the_next_minute(monkeypatch: pytest.MonkeyPatch) -> None:

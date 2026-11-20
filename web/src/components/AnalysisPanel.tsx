@@ -21,6 +21,7 @@ import type {
 import { keepExport, keptExport } from '../lib/exportedPrompts'
 import { dateTime, percent, signedPercent, tone } from '../lib/format'
 import { useReportView } from '../lib/reportView'
+import { modelName } from '../lib/modelName'
 import { useWaitChoice } from '../lib/waitForData'
 import { useWebSearchChoice } from '../lib/webSearch'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
@@ -271,7 +272,7 @@ function Report({ response }: { response: AnalysisResponse }) {
         (view === 'text' ? <TextRisk report={risk} /> : <Risk report={risk} prices={prices} />)}
       <WebSources research={response.context.web_research} />
       <p className="disclaimer" style={{ marginTop: 16 }}>
-        {response.model} · {dateTime(response.generated_at)}
+        Written by {modelName(response.model)} · {dateTime(response.generated_at)}
         {response.cached && ' · reused, not billed again'} · {response.disclaimer}
       </p>
     </article>

@@ -39,7 +39,13 @@ from app.ai.agent import (
     write_analysis,
 )
 from app.ai.cache import analysis_slot, cached_analysis, remember_analysis
-from app.ai.external import PASTED_MODEL, ExternalResponseError, parse_response, render_prompt
+from app.ai.external import (
+    PASTED_MODEL,
+    ExternalResponseError,
+    parse_response,
+    pasted_model,
+    render_prompt,
+)
 from app.ai.prompts import SYSTEM_PROMPT
 from app.ai.web import add_web_research, with_web_research
 from app.api.auth import CurrentUser
@@ -921,7 +927,7 @@ async def import_analysis(
         kind=body.request.kind,
         report=report,
         context=body.context,
-        model=PASTED_MODEL,
+        model=pasted_model(report.written_by),
         generated_at=datetime.now(timezone.utc),
     )
     try:
