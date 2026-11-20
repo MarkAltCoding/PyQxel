@@ -82,7 +82,8 @@ class NightlyRefreshSettings(BaseModel):
     schedule: RefreshSchedule = Field(
         default_factory=RefreshSchedule,
         description="Which days it runs on, at most once a day, and a time of its own for "
-        "some days of the week; every night at ``refresh_time`` by default.",
+        "some days of the week; by default once after each NYSE session, at "
+        "``refresh_time``.",
     )
 
     use_keys: list[NightlyProvider] | None = Field(

@@ -189,8 +189,10 @@ def test_a_picks_time_inside_the_refresh_is_flagged_and_a_clear_one_is_not(key: 
         headers=_headers(key, finnhub=FINNHUB),
         json={"refresh_time": "08:00", "time_zone": "America/New_York"},
     )
-    clash = SETTINGS | {"weekly": {"weekday": 6, "time": "09:00"}, "monthly": None}
-    clear = SETTINGS | {"weekly": {"weekday": 6, "time": "18:00"}, "monthly": None}
+    # After each NYSE session, at 08:00: Saturday's run takes Friday's close, and on Sunday
+    # none runs, since no session closed since Saturday's.
+    clash = SETTINGS | {"weekly": {"weekday": 5, "time": "09:00"}, "monthly": None}
+    clear = SETTINGS | {"weekly": {"weekday": 6, "time": "09:00"}, "monthly": None}
 
     flagged = client.post(
         "/api/v1/me/schedule-conflicts", headers=_headers(key), json={"picks": clash}
@@ -199,5 +201,5 @@ def test_a_picks_time_inside_the_refresh_is_flagged_and_a_clear_one_is_not(key: 
         "/api/v1/me/schedule-conflicts", headers=_headers(key), json={"picks": clear}
     ).json()["warnings"]
 
-    assert flagged and "weekly picks on Sunday" in flagged[0] and "8:00 AM" in flagged[0]
+    assert flagged and "weekly picks on Saturday" in flagged[0] and "8:00 AM" in flagged[0]
     assert fine == []

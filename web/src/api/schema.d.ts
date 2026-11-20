@@ -6761,7 +6761,7 @@ export interface components {
        * @default 19:00
        */
       refresh_time?: string
-      /** @description Which days it runs on, at most once a day, and a time of its own for some days of the week; every night at ``refresh_time`` by default. */
+      /** @description Which days it runs on, at most once a day, and a time of its own for some days of the week; by default once after each NYSE session, at ``refresh_time``. */
       schedule?: components['schemas']['RefreshSchedule']
       /**
        * Time Zone
@@ -9267,7 +9267,7 @@ export interface components {
       /**
        * Frequency
        * @description How often it runs.
-       * @default nightly
+       * @default trading_days
        * @enum {string}
        */
       frequency?: 'nightly' | 'trading_days' | 'weekdays' | 'weekly' | 'monthly' | 'dates'

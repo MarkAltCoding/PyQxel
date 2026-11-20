@@ -81,7 +81,9 @@ def _last_day(day: date) -> int:
 
 
 def runs_on(schedule: RefreshSchedule, day: date) -> bool:
-    """Whether ``schedule`` picks ``day`` (a day in its own time zone)."""
+    """Whether ``schedule`` picks ``day`` (a day in its own time zone). For
+    ``trading_days`` this is whether the NYSE is open that day; when it runs also depends
+    on the time, as :func:`scheduled_at` decides."""
     match schedule.frequency:
         case "nightly":
             return True
@@ -112,6 +114,43 @@ def moment_on(schedule: RefreshSchedule, base_time: str, time_zone: str, day: da
     return local.astimezone(timezone.utc)
 
 
+NYSE_ZONE: ZoneInfo = ZoneInfo("America/New_York")
+
+SESSION_READY_HOUR: int = 18
+"""The hour in New York a trading day's closing prices are taken to be ready: two hours
+after the 4 p.m. close, as :data:`app.data.fetcher.DAILY_BAR_READY_HOUR` takes them."""
+
+
+def session_ready(day: date) -> datetime:
+    """When ``day``'s NYSE session's prices are ready, as UTC."""
+    return datetime.combine(day, time(SESSION_READY_HOUR), tzinfo=NYSE_ZONE).astimezone(
+        timezone.utc
+    )
+
+
+def scheduled_at(
+    schedule: RefreshSchedule, base_time: str, time_zone: str, day: date
+) -> datetime | None:
+    """When on ``day`` (in its own time zone) the schedule runs, or ``None`` if not that day.
+
+    ``trading_days`` runs once after each NYSE session: at the day's time only if some
+    trading day's prices became ready since the time the day before, so whatever the time
+    zone and time of day, every session is picked up once, and no run repeats a weekend or
+    holiday with nothing new. With a time before the prices are ready, as early morning in
+    New York, each run takes the session before; in Tokyo, Saturday evening takes Friday's.
+    """
+    moment = moment_on(schedule, base_time, time_zone, day)
+    if schedule.frequency != "trading_days":
+        return moment if runs_on(schedule, day) else None
+    previous = moment_on(schedule, base_time, time_zone, day - timedelta(days=1))
+    session = previous.astimezone(NYSE_ZONE).date() - timedelta(days=1)
+    while session <= moment.astimezone(NYSE_ZONE).date():
+        if is_trading_day(session) and previous < session_ready(session) <= moment:
+            return moment
+        session += timedelta(days=1)
+    return None
+
+
 def next_moment(
     schedule: RefreshSchedule,
     base_time: str,
@@ -125,11 +164,8 @@ def next_moment(
     as when every chosen date has passed."""
     today = now.astimezone(ZoneInfo(time_zone)).date()
     for offset in range(LOOK_AHEAD_DAYS):
-        day = today + timedelta(days=offset)
-        if not runs_on(schedule, day):
-            continue
-        moment = moment_on(schedule, base_time, time_zone, day)
-        if last_started is None or moment > last_started:
+        moment = scheduled_at(schedule, base_time, time_zone, today + timedelta(days=offset))
+        if moment is not None and (last_started is None or moment > last_started):
             return moment
     return None
 
@@ -146,11 +182,11 @@ def moments(
 ) -> list[datetime]:
     """Every moment the schedule runs from today through ``days`` days ahead, as UTC."""
     today = now.astimezone(ZoneInfo(time_zone)).date()
-    return [
-        moment_on(schedule, base_time, time_zone, today + timedelta(days=offset))
+    found = (
+        scheduled_at(schedule, base_time, time_zone, today + timedelta(days=offset))
         for offset in range(days)
-        if runs_on(schedule, today + timedelta(days=offset))
-    ]
+    )
+    return [moment for moment in found if moment is not None]
 
 
 def overlaps(

@@ -54,6 +54,8 @@ def _opt_in(user: User, refresh_time: str) -> None:
                     time_zone="UTC",
                     credentials="unread here",
                     providers=["finnhub"],
+                    # Every night: these tests are of the hourly check, not of the days.
+                    schedule={"frequency": "nightly"},
                     created_at=now,
                     keys_updated_at=now,
                 )

@@ -10,8 +10,9 @@ Frequency = Literal["nightly", "trading_days", "weekdays", "weekly", "monthly", 
 """How often a refresh runs, at most once a day:
 
 * ``nightly``: every day.
-* ``trading_days``: the days the New York Stock Exchange is open, so each refresh has a new
-  day of prices; weekends and NYSE holidays are skipped.
+* ``trading_days`` (the default): once after each New York Stock Exchange session, so
+  each refresh has a new day of prices and none repeats a weekend or holiday; whatever the
+  time zone and time of day (:func:`app.stats.schedule.scheduled_at`).
 * ``weekdays``: Monday to Friday, holidays included.
 * ``weekly``: one day of the week, ``weekday``.
 * ``monthly``: one day of the month, ``month_day``.
@@ -24,7 +25,7 @@ TIME_PATTERN: str = r"^([01]\d|2[0-3]):[0-5]\d$"
 class RefreshSchedule(BaseModel):
     """Which days a refresh runs on, and at what time on each."""
 
-    frequency: Frequency = Field(default="nightly", description="How often it runs.")
+    frequency: Frequency = Field(default="trading_days", description="How often it runs.")
     weekday: int = Field(
         default=6,
         ge=0,

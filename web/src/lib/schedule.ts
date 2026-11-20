@@ -16,8 +16,8 @@ export const WEEKDAYS = [
 ] as const
 
 export const FREQUENCIES: { value: Frequency; label: string }[] = [
+  { value: 'trading_days', label: 'After each NYSE trading day' },
   { value: 'nightly', label: 'Every night' },
-  { value: 'trading_days', label: 'Each day the NYSE is open' },
   { value: 'weekdays', label: 'Weeknights, Monday to Friday' },
   { value: 'weekly', label: 'Once a week' },
   { value: 'monthly', label: 'Once a month' },
@@ -41,8 +41,9 @@ export function ordinal(day: number): string {
   return `${day}${suffixes[day % 10] ?? 'th'}`
 }
 
+/** Once after each NYSE session, the server's default too. */
 export const DEFAULT_SCHEDULE: RefreshSchedule = {
-  frequency: 'nightly',
+  frequency: 'trading_days',
   weekday: 6,
   month_day: -1,
   dates: [],

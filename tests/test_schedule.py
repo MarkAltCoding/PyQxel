@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.schedule import RefreshSchedule
-from app.stats.schedule import is_trading_day, next_moment, nyse_holidays, runs_on
+from app.stats.schedule import is_trading_day, next_moment, nyse_holidays, runs_on, scheduled_at
 
 
 def test_the_nyse_holidays_follow_its_rules() -> None:
@@ -23,9 +23,7 @@ def test_the_nyse_holidays_follow_its_rules() -> None:
 
 
 def test_each_frequency_picks_its_days() -> None:
-    friday, saturday = date(2026, 11, 27), date(2026, 11, 28)
-    assert runs_on(RefreshSchedule(frequency="trading_days"), friday)
-    assert not runs_on(RefreshSchedule(frequency="trading_days"), saturday)
+    saturday = date(2026, 11, 28)
     assert runs_on(RefreshSchedule(frequency="weekly", weekday=5), saturday)
     last = RefreshSchedule(frequency="monthly", month_day=-1)
     assert runs_on(last, date(2026, 11, 30)) and not runs_on(last, date(2026, 11, 29))
@@ -58,3 +56,29 @@ def test_impossible_days_and_times_are_refused() -> None:
         RefreshSchedule(times={1: "25:00"})
     with pytest.raises(ValidationError):
         RefreshSchedule(frequency="monthly", month_day=0)
+
+
+def _runs(time: str, zone: str, days: range) -> list[str]:
+    """The days of late November 2026 a trading-days schedule runs on at ``time``."""
+    schedule = RefreshSchedule(frequency="trading_days")
+    return [
+        f"{d:%a %d}"
+        for day in days
+        if scheduled_at(schedule, time, zone, d := date(2026, 11, day)) is not None
+    ]
+
+
+def test_trading_days_run_once_after_each_session_whatever_the_time_and_zone() -> None:
+    # Thanksgiving (Thursday the 26th) is closed; the weekend after it is the 28th and 29th.
+    # An evening in New York: each session's own evening, none on the closed days.
+    assert _runs("19:00", "America/New_York", range(23, 31)) == [
+        "Mon 23", "Tue 24", "Wed 25", "Fri 27", "Mon 30",
+    ]  # fmt: skip
+    # Early morning in New York: each run takes the session before, so Saturday takes
+    # Friday's and Friday takes Wednesday's, and Monday has nothing new.
+    assert _runs("02:00", "America/New_York", range(23, 31)) == [
+        "Tue 24", "Wed 25", "Thu 26", "Sat 28",
+    ]  # fmt: skip
+    # Saturday evening in Tokyo is Saturday morning in New York, just after Friday's close.
+    assert "Sat 28" in _runs("19:00", "Asia/Tokyo", range(23, 31))
+    assert "Fri 27" not in _runs("19:00", "Asia/Tokyo", range(23, 31))

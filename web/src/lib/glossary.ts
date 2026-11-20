@@ -798,9 +798,9 @@ const entries = {
   },
   refreshSchedule: {
     title: 'How often it refreshes',
-    what: 'Which days the refresh runs, at most once a day: every night; each day the New York Stock Exchange is open, so each refresh has a new day of prices (weekends and NYSE holidays such as Thanksgiving are skipped); weeknights; one day a week or a month; or days you pick on a calendar of this month and the next. Under “A different time on some days” you can give any day of the week its own time.',
-    good: 'Each day the NYSE is open, in the evening after the 4 p.m. close, gets fresh figures without paying for nights when nothing changed.',
-    note: 'A refresh starts on the hourly check after its time and takes from minutes to a few hours, by how much it rebuilds and your Finnhub plan. Days the exchange closes for a one-off event cannot be known ahead, so they are taken as open.',
+    what: 'Which days the refresh runs, at most once a day. “After each NYSE trading day”, the default, runs once after every session of the New York Stock Exchange, at your time, so each refresh has a new day of prices and none repeats a weekend or a holiday such as Thanksgiving. It works whatever your time zone and time: with an early-morning time each run takes the day before’s session, so Saturday’s takes Friday’s. The other choices run every night, on weeknights, one day a week or a month, or on days you pick on a calendar of this month and the next. Under “A different time on some days” any day of the week can have its own time.',
+    good: 'After each NYSE trading day, in the evening: a day’s closing prices are ready about two hours after the 4 p.m. Eastern close.',
+    note: 'Nothing a refresh holds changes on a day the exchange is closed, apart from the rare company filing on Good Friday, when the SEC is open; news is never part of it, since reports fetch their own. A refresh starts on the hourly check after its time. Days the exchange closes for a one-off event cannot be known ahead, so they are taken as open.',
   },
   picksSchedule: {
     title: 'Scheduled picks',

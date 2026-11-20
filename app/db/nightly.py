@@ -245,7 +245,8 @@ def scheduled_moment(refresh_time: str, time_zone: str, day: date) -> datetime:
 
 
 def schedule_of(record: NightlyRefreshRecord) -> RefreshSchedule:
-    """The schedule stored with ``record``; every night when none is, as before schedules."""
+    """The schedule stored with ``record``; the default, once after each NYSE session, when
+    none is."""
     return RefreshSchedule.model_validate(record.schedule or {})
 
 
@@ -257,10 +258,10 @@ def next_run_at(
     schedule: RefreshSchedule | None = None,
 ) -> datetime | None:
     """When a refresh is next due: the schedule's first moment from today on that comes
-    after the last run started (:func:`app.stats.schedule.next_moment`), every night when
-    no schedule is given. A moment already past today is due at once, so a user who opts in
-    in the evening gets their first universe that night. ``None`` when it never runs again,
-    as when every chosen date has passed."""
+    after the last run started (:func:`app.stats.schedule.next_moment`), once after each
+    NYSE session when no schedule is given. A moment already past today is due at once, so
+    a user who opts in in the evening gets their first universe that night. ``None`` when it
+    never runs again, as when every chosen date has passed."""
     return next_moment(schedule or RefreshSchedule(), refresh_time, time_zone, now, last_started)
 
 
