@@ -1,4 +1,4 @@
-"""Claude's picks: the securities Claude would buy now and hold for a period you choose.
+"""Claude's Picks: the securities Claude would buy now and hold for a period you choose.
 
 The picks come from the screener: its leaders on value, growth, quality, momentum, and
 steadiness are the candidates, Claude picks among them for the holding period and profile
@@ -138,7 +138,7 @@ router = APIRouter()
 Session = Annotated[AsyncSession, Depends(get_session)]
 
 NO_SCREENER: str = (
-    "Claude's picks are chosen from the screener, which has no securities for your account "
+    "Claude's Picks are chosen from the screener, which has no securities for your account "
     "yet. Turn on the nightly screener refresh in Settings to build your own; the picks are "
     "available once it has run."
 )
@@ -170,7 +170,7 @@ async def _market(
     try:
         return await fetch_picks_backdrop(date.today(), horizon_days, calendar_days), None
     except DataFetchError as exc:
-        logger.info("No market backdrop for Claude's picks: %s", exc)
+        logger.info("No market backdrop for Claude's Picks: %s", exc)
         return None, "The market calendar and headlines could not be fetched."
 
 
@@ -307,7 +307,7 @@ async def _news(symbol: str, slots: asyncio.Semaphore) -> CompanyNews | None:
         try:
             return await fetch_company_news(symbol)
         except NewsFetchError as exc:
-            logger.info("No news on %s for Claude's picks: %s", symbol, exc)
+            logger.info("No news on %s for Claude's Picks: %s", symbol, exc)
             return None
 
 
@@ -321,7 +321,7 @@ async def _filings(
         try:
             return await fetch_company_filings(cik, since, client)
         except DataFetchError as exc:
-            logger.info("No SEC filings of CIK %s for Claude's picks: %s", cik, exc)
+            logger.info("No SEC filings of CIK %s for Claude's Picks: %s", cik, exc)
             return None
 
 
@@ -340,7 +340,7 @@ async def _candidate_events(
     try:
         edgar = edgar_client()
     except FilingFetchError as exc:
-        logger.info("No SEC filings for Claude's picks: %s", exc)
+        logger.info("No SEC filings for Claude's Picks: %s", exc)
         edgar = None
     try:
         news, filings = await asyncio.gather(
@@ -414,7 +414,7 @@ async def _signals(symbols: list[str]) -> dict[str, dict[str, float | int | None
 @dataclass(frozen=True)
 class HoldingFacts:
     """What a portfolio review is given of its holdings beyond their prices, gathered as
-    for Claude's picks."""
+    for Claude's Picks."""
 
     figures: list[ScreenerFacts]
     """The screener's facts on each holding it holds, in the order asked."""
@@ -509,7 +509,7 @@ async def _sp500(session: AsyncSession, universe: Universe) -> set[str] | None:
             listings = await universe_listings(session, universe)
         classes = (await cached_index_members("sp500", listings)).classes
     except (DataFetchError, FilingFetchError) as exc:
-        logger.info("No S&P 500 members for Claude's picks: %s", exc)
+        logger.info("No S&P 500 members for Claude's Picks: %s", exc)
         return None
     return await index_symbols(session, universe, classes) if classes else None
 
@@ -796,7 +796,7 @@ async def _remember(
         async with get_sessionmaker()() as session:
             return await save_picks(session, user_id, key, response, model, effort)
     except SQLAlchemyError as exc:
-        logger.error("Could not store Claude's picks: %s", exc)
+        logger.error("Could not store Claude's Picks: %s", exc)
         return response
 
 
@@ -822,7 +822,7 @@ async def _finish(
     )
 
 
-@router.post("", response_model=PicksResponse, summary="Claude's picks for a holding period")
+@router.post("", response_model=PicksResponse, summary="Claude's Picks for a holding period")
 async def create_picks(prepared: Prepared) -> PicksResponse:
     """Have Claude pick the securities to buy now and hold for ``profile.horizon``.
 
@@ -865,7 +865,7 @@ async def create_picks(prepared: Prepared) -> PicksResponse:
 @router.post(
     "/stream",
     response_class=EventSourceResponse,
-    summary="Stream Claude's picks as Server-Sent Events",
+    summary="Stream Claude's Picks as Server-Sent Events",
 )
 async def stream_picks_events(prepared: Prepared) -> AsyncIterator[ServerSentEvent]:
     """Stream the picks of ``create_picks`` as Claude makes them.
@@ -956,7 +956,7 @@ async def read_picks_candidates(
     )
 
 
-@router.get("", response_model=PicksList, summary="Your stored lists of Claude's picks")
+@router.get("", response_model=PicksList, summary="Your stored lists of Claude's Picks")
 async def read_picks_list(
     session: Session, user: CurrentUser, limit: Annotated[int, Query(ge=1, le=100)] = 20
 ) -> PicksList:
@@ -968,7 +968,7 @@ async def read_picks_list(
         raise _database_error(exc) from exc
 
 
-@router.get("/latest", response_model=PicksResponse, summary="Your latest Claude's picks")
+@router.get("/latest", response_model=PicksResponse, summary="Your latest Claude's Picks")
 async def read_latest_picks(session: Session, user: CurrentUser) -> PicksResponse:
     """Return your newest stored picks, whatever they were made for, so they can be shown
     again without a charge. Returns 404 when you have none, and 503 when the database is

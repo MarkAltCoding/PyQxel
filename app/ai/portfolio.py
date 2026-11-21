@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 def review_messages(context: PortfolioContext) -> list[BetaMessageParam]:
     """The request: the task, the snapshot without the holdings' screener figures, then
-    those figures as a table, as Claude's picks give their candidates."""
+    those figures as a table, as Claude's Picks give their candidates."""
     snapshot = context.model_dump_json(exclude={"holding_figures"})
     content = f"{PORTFOLIO_TASK}\n\n<snapshot>\n{snapshot}\n</snapshot>"
     if context.holding_figures:

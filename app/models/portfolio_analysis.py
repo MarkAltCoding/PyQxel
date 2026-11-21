@@ -146,7 +146,7 @@ class PortfolioAnalysisRequest(BaseModel):
     wait_seconds: int = Field(default=0, ge=0, le=MAX_WAIT_SECONDS, description=WAIT_DESCRIPTION)
     include_picks: bool = Field(
         default=True,
-        description="Let the review see your latest stored Claude's picks, with their "
+        description="Let the review see your latest stored Claude's Picks, with their "
         "figures, so it can weigh adding them; false to leave them out.",
     )
     refresh: bool = Field(
@@ -363,7 +363,7 @@ class PortfolioContext(BaseModel):
     )
     claude_picks: PicksForReview | None = Field(
         default=None,
-        description="The account's latest Claude's picks, with the screener's figures for "
+        description="The account's latest Claude's Picks, with the screener's figures for "
         "each when it was picked, as candidates for new investments; null when the account "
         "has none.",
     )

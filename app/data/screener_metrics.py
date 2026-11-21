@@ -15,6 +15,7 @@ their own licensed keys and the SEC's public data.
 import asyncio
 import logging
 import math
+import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import date
@@ -39,7 +40,7 @@ from app.data.fetcher import (
 )
 from app.core.credentials import current_provider_keys, use_provider_keys
 from app.data.exchange_rates import fetch_exchange_rates
-from app.data.universe import RequestPacer
+from app.data.universe import NON_COMMON_NAME, RequestPacer
 from app.models.screener import ProviderScreenMetrics
 
 logger = logging.getLogger(__name__)
@@ -141,6 +142,58 @@ def parse_etf_listings(rows: Any) -> list[EtfListing]:
         name = str(row.get("description") or symbol).strip()
         found[symbol] = EtfListing(symbol=symbol, name=name, exchange=exchange)
     return sorted(found.values(), key=lambda listing: listing.symbol)
+
+
+NON_COMMON_TYPES: frozenset[str] = frozenset(
+    {"Preference", "Preferred", "PFD", "Unit", "Right", "Warrant", "Equity WRT", "Receipt"}
+)
+"""Finnhub's security types for listings that are not common shares."""
+
+NON_COMMON_DESCRIPTION: re.Pattern[str] = re.compile(
+    r"\bpfd\b|\bpref\b|depositary|\bdep\b|convertible", re.IGNORECASE
+)
+"""Words in Finnhub's description of a listing, beyond :data:`NON_COMMON_NAME`, that mark
+preferred or depositary shares, as Finnhub abbreviates them."""
+
+
+def parse_non_common(rows: Any) -> set[str]:
+    """The symbols in Finnhub's list of US symbols that are not common shares: preferreds
+    (such as Alphabet's depositary shares GOOGM, under the company's own name in the
+    SEC's list), units, rights, and warrants, by their type or their description. An
+    ADR of common shares counts as common."""
+    found: set[str] = set()
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        symbol = str(row.get("symbol") or "").strip().upper()
+        kind = str(row.get("type") or "")
+        description = str(row.get("description") or "")
+        if symbol and (
+            kind in NON_COMMON_TYPES
+            or NON_COMMON_NAME.search(description)
+            or NON_COMMON_DESCRIPTION.search(description)
+        ):
+            # The SEC writes share classes with a dash, Finnhub with a dot.
+            found.add(symbol.replace(".", "-"))
+    return found
+
+
+async def fetch_non_common() -> set[str]:
+    """The US listings Finnhub describes as something other than common shares, on the
+    user's key: one request.
+
+    Raises:
+        ProviderNotConfiguredError: If the user has no Finnhub key, or it is rejected.
+        DataFetchError: If Finnhub fails.
+    """
+    api_key = finnhub_key()
+    if api_key is None:
+        raise ProviderNotConfiguredError("The nightly refresh needs your Finnhub key.")
+    async with httpx2.AsyncClient(
+        timeout=SYMBOL_LIST_TIMEOUT_SECONDS, follow_redirects=True
+    ) as client:
+        rows = await finnhub_get("stock/symbol", {"exchange": "US"}, api_key, client)
+    return parse_non_common(rows)
 
 
 async def fetch_etf_listings() -> list[EtfListing]:

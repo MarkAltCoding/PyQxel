@@ -338,7 +338,7 @@ and use the first one that covers the request. "Free" means the provider's free 
 
 ## Web search for Claude's reports
 
-Stock reports, portfolio reviews, and Claude's picks can let Claude search the web
+Stock reports, portfolio reviews, and Claude's Picks can let Claude search the web
 first ("Let Claude search the web"), for what no key here supplies: the latest news,
 guidance, analyst actions, and the economic backdrop. It is Anthropic's web search tool
 (`web_search_20250305`, `app/ai/web.py`), run on the user's own Anthropic key, so it
@@ -373,7 +373,7 @@ announces it (HSA limits come in the spring), and update `CHECKED_ON`. Once the 
 year passes the newest year there, `contribution_limits()` sets `outdated` and the app
 warns that the figures are likely too low.
 
-## What Claude's picks are given, and what it costs
+## What Claude's Picks are given, and what it costs
 
 Each list of picks is made from data that is nearly all on hand already:
 

@@ -44,7 +44,7 @@ function draftOf(status: PicksScheduleStatus | undefined): Draft {
 }
 
 /**
- * Claude's picks made by themselves, weekly (to hold a week; Sunday by default), monthly
+ * Claude's Picks made by themselves, weekly (to hold a week; Sunday by default), monthly
  * (to hold a month; the last day by default), or both, with the settings of the form
  * above. Saving checks the times against the screener refresh and says where they would
  * meet, letting the person keep them anyway.

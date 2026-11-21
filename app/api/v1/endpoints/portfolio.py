@@ -1441,7 +1441,7 @@ async def _portfolio_context(
 async def with_holding_facts(
     session: AsyncSession, user_id: str, context: PortfolioContext, wait_seconds: float = 0
 ) -> PortfolioContext:
-    """``context`` with what Claude's picks are given of each holding: the screener's
+    """``context`` with what Claude's Picks are given of each holding: the screener's
     figures and sector ranks, the next earnings date, news, SEC filings, and the market
     backdrop (:func:`app.api.v1.endpoints.picks.holding_facts`). A database failure
     leaves the context as it was."""
@@ -1491,7 +1491,7 @@ async def with_holding_facts(
 
 
 def picks_for_review(picks: PicksResponse | None) -> PicksForReview | None:
-    """The account's latest Claude's picks as a review is given them: each pick with the
+    """The account's latest Claude's Picks as a review is given them: each pick with the
     screener's figures for it when it was picked."""
     if picks is None:
         return None
@@ -1515,7 +1515,7 @@ def _review_key(
     covered: ReviewHoldings, request: PortfolioAnalysisRequest, picks: PicksResponse | None = None
 ) -> str:
     """Fingerprint the holdings, which account holds what, what the review was asked to
-    tailor to and cover, and the Claude's picks it is given."""
+    tailor to and cover, and the Claude's Picks it is given."""
     months = "" if request.history_months is None else f"|{request.history_months}mo"
     split = "".join(f"|{name}=" + holdings_key(held) for name, held in covered.accounts)
     if covered.settings:
@@ -1961,7 +1961,7 @@ async def create_portfolio_review(prepared: PreparedPortfolioReview) -> Portfoli
     and statistics of today's weights over ``period`` of daily returns: each holding's
     return, volatility, drawdown, and share of the portfolio's risk, the portfolio's
     volatility, drawdowns and diversification, and the most and least correlated pairs.
-    Your latest Claude's picks, when you have any, are given to it as candidates for new
+    Your latest Claude's Picks, when you have any, are given to it as candidates for new
     investments, with the screener's figures for each (``context.claude_picks``). With
     ``web_search``, Claude searches the web first, and every fact it brings back is in
     ``context.web_research`` with its sources. All of it is in ``context``.

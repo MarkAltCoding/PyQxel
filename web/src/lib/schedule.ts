@@ -1,4 +1,4 @@
-// Choices for when a scheduled refresh runs, the screener's or Claude's picks', as the
+// Choices for when a scheduled refresh runs, the screener's or Claude's Picks', as the
 // server's RefreshSchedule takes them: Monday is 0 and Sunday 6.
 
 import type { RefreshSchedule } from '../api/types'

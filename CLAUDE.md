@@ -24,7 +24,7 @@ side you are changing before searching the code.
 | `app/db/` | SQLAlchemy async tables (`tables.py`), storage helpers, Alembic `migrations/` |
 | `app/jobs/` | CLIs: `users` (accounts, keys), `screener` (the shared screener's nightly refresh), `nightly` (each user's own screener, started by the service when one is due), `billing` (Stripe's catalog and webhook, usage reports), `openapi` |
 | `tests/` | pytest, offline: every provider is monkeypatched |
-| `web/src/pages/` | One component per route: Stock, Markets, Portfolio, Backtest, Screener (with Claude's picks), Settings |
+| `web/src/pages/` | One component per route: Stock, Markets, Portfolio, Backtest, Screener (with Claude's Picks), Settings |
 | `web/src/runners/` | In-browser Python/C++ strategy runners (Web Workers) |
 | `web/src-tauri/` | The native app (Tauri 2): macOS now, iOS next, then Windows, Android, Linux |
 | `web/openapi.json`, `web/src/api/schema.d.ts` | Generated from the API; never edit by hand |

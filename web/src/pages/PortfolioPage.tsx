@@ -364,7 +364,7 @@ export function PortfolioPage() {
           <details className="card picks-in-review">
             <summary>
               <span className="heading-with-info">
-                <strong>Claude’s picks</strong>
+                <strong>Claude’s Picks</strong>
                 <InfoTip topic="picksInReview" />
               </span>
             </summary>

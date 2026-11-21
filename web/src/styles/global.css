@@ -1238,6 +1238,10 @@ table.data .muted {
   min-width: 140px;
 }
 
+.picks-candidate-lenses {
+  flex-basis: 100%;
+}
+
 .chip-remove {
   border: 0;
   background: transparent;
@@ -2076,7 +2080,7 @@ li code {
   font-size: 0.85rem;
 }
 
-/* ── Claude's picks ── */
+/* ── Claude's Picks ── */
 .horizon-fields {
   min-width: 0;
   margin: 0;

@@ -86,7 +86,7 @@ export function PicksPerformanceCard({
       legend={
         <Legend
           items={[
-            { label: 'Claude’s picks', color: theme.series1 },
+            { label: 'Claude’s Picks', color: theme.series1 },
             { label: data?.benchmark_name ?? short, color: theme.series2 },
           ]}
         />
@@ -95,7 +95,7 @@ export function PicksPerformanceCard({
         data && (data.series ?? []).length > 0 ? (
           <EquityChart
             points={points(data)}
-            strategyLabel="Claude’s picks"
+            strategyLabel="Claude’s Picks"
             benchmarkLabel={data.benchmark_name}
             benchmarkShort={short}
           />
@@ -105,7 +105,7 @@ export function PicksPerformanceCard({
         data && (data.series ?? []).length > 0 ? (
           <EquityTable
             points={points(data)}
-            strategyLabel="Claude’s picks"
+            strategyLabel="Claude’s Picks"
             benchmarkLabel={data.benchmark_name}
           />
         ) : undefined
@@ -206,7 +206,7 @@ export function SavedPicksCard({
     <section id="saved-picks" className="card" aria-busy={saved.isFetching}>
       <div className="card-header">
         <div className="heading-with-info">
-          <h2>Saved Claude’s picks</h2>
+          <h2>Saved Claude’s Picks</h2>
           <InfoTip topic="savedPicks" />
         </div>
         <BenchmarkChoice

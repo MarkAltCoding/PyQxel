@@ -87,6 +87,7 @@ from app.data.index_members import INDEX_NAMES, index_members
 from app.data.screener_metrics import (
     EtfListing,
     fetch_etf_listings,
+    fetch_non_common,
     fetch_etf_metrics,
     fetch_histories,
     fetch_quote_prices,
@@ -347,6 +348,31 @@ class _Chosen:
     notes: list[str] = field(default_factory=list)
 
 
+async def _common_only(chosen: _Chosen) -> _Chosen:
+    """``chosen`` without the listings Finnhub describes as preferreds, units, rights, or
+    warrants, which the SEC lists under the company's own name (Alphabet's preferred
+    depositary shares GOOGM beside GOOGL), unless the person added the ticker themselves.
+    All are kept, with a warning, when Finnhub's symbol list fails.
+
+    Raises:
+        ProviderNotConfiguredError: If the user's Finnhub key is missing or rejected.
+    """
+    try:
+        non_common = await fetch_non_common()
+    except ProviderNotConfiguredError:
+        raise
+    except DataFetchError as exc:
+        logger.warning("Preferred shares may be included: Finnhub's symbol list failed: %s", exc)
+        return chosen
+    dropped = non_common - chosen.added
+    return replace(
+        chosen,
+        listings=[
+            (listing, count) for listing, count in chosen.listings if listing.symbol not in dropped
+        ],
+    )
+
+
 async def choose_listings(
     choice: UniverseChoice, listings: list[tuple[Listing, float | None]]
 ) -> _Chosen:
@@ -482,6 +508,7 @@ async def build_user_universe(
         raise RuntimeError("The shared SEC stage has not run yet; try again tomorrow.")
     every_symbol = {listing.symbol for listing, _ in listings}
     chosen = await choose_listings(choice, listings)
+    chosen = await _common_only(chosen)
     notes = list(chosen.notes)
     shares = {listing.symbol: count for listing, count in chosen.listings}
     by_symbol = {listing.symbol: listing for listing, _ in chosen.listings}

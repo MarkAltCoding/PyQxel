@@ -1,4 +1,4 @@
-// What Claude's picks are tailored to, as the form holds it, kept with the account so it
+// What Claude's Picks are tailored to, as the form holds it, kept with the account so it
 // need not be entered again; and the shared names of the picks' queries.
 
 import type { PicksBenchmark, PicksProfile } from '../api/types'

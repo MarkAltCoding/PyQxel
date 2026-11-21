@@ -297,7 +297,7 @@ export function NightlyRefreshCard({
       {conflicts.length > 0 && (
         <Notice tone="warning">
           <div className="stack" style={{ gap: 6 }}>
-            <span>This would run into your scheduled Claude’s picks:</span>
+            <span>This would run into your scheduled Claude’s Picks:</span>
             <ul style={{ margin: 0 }}>
               {conflicts.map((warning) => (
                 <li key={warning}>{warning}</li>

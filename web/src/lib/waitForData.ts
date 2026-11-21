@@ -1,6 +1,6 @@
 // How long the person will wait for more data where a provider's per-minute limit holds it
 // back, remembered for this account: the same choice is offered for stock reports,
-// portfolio reviews, and Claude's picks, and goes into the prompt taken outside the app too.
+// portfolio reviews, and Claude's Picks, and goes into the prompt taken outside the app too.
 // A free Finnhub plan answers 60 requests a minute, so the news, analysts' ratings, and
 // calendar of many stocks take several minutes; the report's notice says what more waiting
 // would have added.

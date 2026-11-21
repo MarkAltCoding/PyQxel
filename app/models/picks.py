@@ -1,4 +1,4 @@
-"""Schemas for Claude's picks: the securities Claude would buy now and hold for a period
+"""Schemas for Claude's Picks: the securities Claude would buy now and hold for a period
 the person chooses, picked from the screener's universe.
 
 :class:`PicksReport` doubles as the structured-output schema Claude fills in, so it uses
@@ -113,7 +113,7 @@ class PicksProfile(BaseModel):
 
 
 class PicksRequest(BaseModel):
-    """Options for a list of Claude's picks."""
+    """Options for a list of Claude's Picks."""
 
     profile: PicksProfile = Field(default_factory=PicksProfile)
     web_search: bool = Field(
@@ -173,7 +173,7 @@ class MonthlyPicksTime(BaseModel):
 
 
 class PicksScheduleSettings(BaseModel):
-    """Makes Claude's picks on a schedule, for a week's or a month's holding period.
+    """Makes Claude's Picks on a schedule, for a week's or a month's holding period.
 
     The keys the request carries (Anthropic's and the market data keys) are encrypted and
     stored with it, replacing any stored earlier, since the picks are made with no browser
@@ -205,7 +205,7 @@ class PicksScheduleSettings(BaseModel):
 
 
 class PicksScheduleStatus(BaseModel):
-    """Whether Claude's picks are made on a schedule, when next, and how the last went."""
+    """Whether Claude's Picks are made on a schedule, when next, and how the last went."""
 
     available: bool = Field(description="Whether this server can store keys to run them.")
     enabled: bool = Field(description="Whether either schedule is on.")
@@ -487,7 +487,7 @@ class Pick(BaseModel):
 
 
 class PicksReport(BaseModel):
-    """Claude's picks for a holding period, ranked, with how they were chosen."""
+    """Claude's Picks for a holding period, ranked, with how they were chosen."""
 
     headline: str = Field(description="One sentence naming the idea behind the picks.")
     market_view: str = Field(
@@ -511,7 +511,7 @@ class PicksReport(BaseModel):
 
 
 class PicksResponse(BaseModel):
-    """A list of Claude's picks together with the data it was written from."""
+    """A list of Claude's Picks together with the data it was written from."""
 
     id: UUID | None = Field(
         default=None, description="ID of the stored picks; null if they could not be saved."
@@ -556,7 +556,7 @@ class PicksList(BaseModel):
 
 
 class ReviewedPick(Pick):
-    """One of Claude's picks as a portfolio review is given it, with the screener's
+    """One of Claude's Picks as a portfolio review is given it, with the screener's
     figures for it when it was picked."""
 
     metrics: ScreenedStock | None = Field(
@@ -567,7 +567,7 @@ class ReviewedPick(Pick):
 
 
 class PicksForReview(BaseModel):
-    """The account's latest Claude's picks, given to a portfolio review as candidates for
+    """The account's latest Claude's Picks, given to a portfolio review as candidates for
     new investments."""
 
     generated_at: datetime

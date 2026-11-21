@@ -65,14 +65,14 @@ export function PrivacyPage() {
             <li>
               What you save: your portfolio holdings, backtests (with the code of custom
               strategies), simulations, AI research reports, AI reviews of your portfolio, and
-              Claude’s picks, including answers you paste from Claude outside the app, and what
+              Claude’s Picks, including answers you paste from Claude outside the app, and what
               those reports found on the web when you let Claude search it. Only your account can
               see them.
             </li>
             <li>
               What you enter and choose in the app, so it is there on every device and after every
               update: the strategy code you are writing, your screens, the goals you give for a
-              review or for Claude’s picks, and choices such as your theme and which pages load
+              review or for Claude’s Picks, and choices such as your theme and which pages load
               without asking. Your keys are never among them.
             </li>
             <li>
@@ -115,7 +115,7 @@ export function PrivacyPage() {
             kept with your account, seen only by you, until you delete it.
           </p>
           <p>
-            Scheduled Claude’s picks, also off unless you turn them on, have Claude make picks
+            Scheduled Claude’s Picks, also off unless you turn them on, have Claude make picks
             weekly or monthly while your browser is closed. Turning them on stores your Anthropic
             key and your market data keys on PyQxel’s server, encrypted, along with the days and
             times you chose, your time zone, and the settings the picks are made with. The keys are
@@ -159,7 +159,7 @@ export function PrivacyPage() {
               When you use an AI feature, what it needs is sent to Anthropic with your own key,
               under Anthropic’s terms: a company’s data for a research report, your holdings, their
               statistics, and the goals you enter for a portfolio review, the screener’s figures and
-              the goals you enter for Claude’s picks, and your strategy code, its last run’s output,
+              the goals you enter for Claude’s Picks, and your strategy code, its last run’s output,
               and your questions for the coding assistant. When you let Claude search the web,
               Anthropic runs the searches, on queries Claude writes from that same data.
             </li>

@@ -7865,7 +7865,7 @@
             "description": "The yield curve, inflation, and jobs; null when neither the Treasury nor the Bureau of Labor Statistics could be reached."
           },
           "fomc_meetings": {
-            "description": "The next scheduled FOMC meetings: the next two, or, for Claude's picks and portfolio reviews, every one scheduled within the holding period.",
+            "description": "The next scheduled FOMC meetings: the next two, or, for Claude's Picks and portfolio reviews, every one scheduled within the holding period.",
             "items": {
               "$ref": "#/components/schemas/FomcMeeting"
             },
@@ -10809,7 +10809,7 @@
         "type": "object"
       },
       "PicksForReview": {
-        "description": "The account's latest Claude's picks, given to a portfolio review as candidates for\nnew investments.",
+        "description": "The account's latest Claude's Picks, given to a portfolio review as candidates for\nnew investments.",
         "properties": {
           "approach": {
             "title": "Approach",
@@ -10924,7 +10924,7 @@
         "type": "object"
       },
       "PicksImport": {
-        "description": "An answer Claude wrote outside the app to an exported Claude's picks prompt.",
+        "description": "An answer Claude wrote outside the app to an exported Claude's Picks prompt.",
         "properties": {
           "context": {
             "$ref": "#/components/schemas/PicksContext",
@@ -11166,7 +11166,7 @@
         "type": "object"
       },
       "PicksPromptExport": {
-        "description": "A Claude's picks prompt and the data it holds; send ``context`` back with the answer.",
+        "description": "A Claude's Picks prompt and the data it holds; send ``context`` back with the answer.",
         "properties": {
           "context": {
             "$ref": "#/components/schemas/PicksContext"
@@ -11191,7 +11191,7 @@
         "type": "object"
       },
       "PicksReport": {
-        "description": "Claude's picks for a holding period, ranked, with how they were chosen.",
+        "description": "Claude's Picks for a holding period, ranked, with how they were chosen.",
         "properties": {
           "approach": {
             "description": "A paragraph on how the picks were chosen for this period and risk tolerance, the assumptions made, and what the picks have in common.",
@@ -11266,7 +11266,7 @@
         "type": "object"
       },
       "PicksRequest": {
-        "description": "Options for a list of Claude's picks.",
+        "description": "Options for a list of Claude's Picks.",
         "properties": {
           "added_symbols": {
             "description": "Tickers to weigh along with the screener's leaders, such as ones in a theme you follow. Each one the screener holds joins the candidates with its figures, as any other candidate does; one it does not hold is left out.",
@@ -11315,7 +11315,7 @@
         "type": "object"
       },
       "PicksResponse": {
-        "description": "A list of Claude's picks together with the data it was written from.",
+        "description": "A list of Claude's Picks together with the data it was written from.",
         "properties": {
           "cached": {
             "default": false,
@@ -11376,7 +11376,7 @@
         "type": "object"
       },
       "PicksScheduleSettings": {
-        "description": "Makes Claude's picks on a schedule, for a week's or a month's holding period.\n\nThe keys the request carries (Anthropic's and the market data keys) are encrypted and\nstored with it, replacing any stored earlier, since the picks are made with no browser\nopen; turning both schedules off deletes them.",
+        "description": "Makes Claude's Picks on a schedule, for a week's or a month's holding period.\n\nThe keys the request carries (Anthropic's and the market data keys) are encrypted and\nstored with it, replacing any stored earlier, since the picks are made with no browser\nopen; turning both schedules off deletes them.",
         "properties": {
           "monthly": {
             "anyOf": [
@@ -11415,7 +11415,7 @@
         "type": "object"
       },
       "PicksScheduleStatus": {
-        "description": "Whether Claude's picks are made on a schedule, when next, and how the last went.",
+        "description": "Whether Claude's Picks are made on a schedule, when next, and how the last went.",
         "properties": {
           "available": {
             "description": "Whether this server can store keys to run them.",
@@ -11852,7 +11852,7 @@
           },
           "include_picks": {
             "default": true,
-            "description": "Let the review see your latest stored Claude's picks, with their figures, so it can weigh adding them; false to leave them out.",
+            "description": "Let the review see your latest stored Claude's Picks, with their figures, so it can weigh adding them; false to leave them out.",
             "title": "Include Picks",
             "type": "boolean"
           },
@@ -12348,7 +12348,7 @@
                 "type": "null"
               }
             ],
-            "description": "The account's latest Claude's picks, with the screener's figures for each when it was picked, as candidates for new investments; null when the account has none."
+            "description": "The account's latest Claude's Picks, with the screener's figures for each when it was picked, as candidates for new investments; null when the account has none."
           },
           "contribution_limits": {
             "anyOf": [
@@ -14142,7 +14142,7 @@
         "type": "object"
       },
       "ReviewedPick": {
-        "description": "One of Claude's picks as a portfolio review is given it, with the screener's\nfigures for it when it was picked.",
+        "description": "One of Claude's Picks as a portfolio review is given it, with the screener's\nfigures for it when it was picked.",
         "properties": {
           "conviction": {
             "description": "How firmly the evidence supports this pick for this period.",
@@ -14807,7 +14807,7 @@
             "$ref": "#/components/schemas/ScreenSort"
           },
           "symbols": {
-            "description": "Keep only these tickers, such as Claude's picks; every security when empty. Symbols the universe does not hold match nothing.",
+            "description": "Keep only these tickers, such as Claude's Picks; every security when empty. Symbols the universe does not hold match nothing.",
             "items": {
               "type": "string"
             },
@@ -19621,13 +19621,13 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Stop making Claude's picks on a schedule",
+        "summary": "Stop making Claude's Picks on a schedule",
         "tags": [
           "account"
         ]
       },
       "get": {
-        "description": "Return whether Claude's picks are made on a schedule for you, when each schedule\nruns next, and how the last run went. Returns 503 when the database is unavailable.",
+        "description": "Return whether Claude's Picks are made on a schedule for you, when each schedule\nruns next, and how the last run went. Returns 503 when the database is unavailable.",
         "operationId": "read_picks_schedule_api_v1_me_picks_schedule_get",
         "responses": {
           "200": {
@@ -19641,13 +19641,13 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Your scheduled Claude's picks",
+        "summary": "Your scheduled Claude's Picks",
         "tags": [
           "account"
         ]
       },
       "put": {
-        "description": "Have Claude's picks made weekly, monthly, or both, for a week's or a month's holding\nperiod, with the rest of ``request`` (profile, web search, waiting, holdings shown).\n\nEach runs at its day and time in ``time_zone``, on the next hourly check, and never\nwhile your own screener refresh is running: it then waits for the refresh to finish.\nBoth falling due together run in one go. The picks are made with no browser open, so\nthe Anthropic key and market data keys this request carries are stored, encrypted,\nreplacing any stored before; send this again after changing a key. They are written\non your Anthropic key, within your AI limits, and stored with your other picks.\n\nReturns 422 without an Anthropic key, with neither schedule, or for an unknown time\nzone; 503 when this server cannot store keys or the database is unavailable.",
+        "description": "Have Claude's Picks made weekly, monthly, or both, for a week's or a month's holding\nperiod, with the rest of ``request`` (profile, web search, waiting, holdings shown).\n\nEach runs at its day and time in ``time_zone``, on the next hourly check, and never\nwhile your own screener refresh is running: it then waits for the refresh to finish.\nBoth falling due together run in one go. The picks are made with no browser open, so\nthe Anthropic key and market data keys this request carries are stored, encrypted,\nreplacing any stored before; send this again after changing a key. They are written\non your Anthropic key, within your AI limits, and stored with your other picks.\n\nReturns 422 without an Anthropic key, with neither schedule, or for an unknown time\nzone; 503 when this server cannot store keys or the database is unavailable.",
         "operationId": "store_picks_schedule_api_v1_me_picks_schedule_put",
         "requestBody": {
           "content": {
@@ -19681,7 +19681,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Make Claude's picks on a schedule",
+        "summary": "Make Claude's Picks on a schedule",
         "tags": [
           "account"
         ]
@@ -19831,7 +19831,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Your stored lists of Claude's picks",
+        "summary": "Your stored lists of Claude's Picks",
         "tags": [
           "picks"
         ]
@@ -19885,7 +19885,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Claude's picks for a holding period",
+        "summary": "Claude's Picks for a holding period",
         "tags": [
           "picks"
         ]
@@ -20005,7 +20005,7 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Your latest Claude's picks",
+        "summary": "Your latest Claude's Picks",
         "tags": [
           "picks"
         ]
@@ -20197,7 +20197,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Stream Claude's picks as Server-Sent Events",
+        "summary": "Stream Claude's Picks as Server-Sent Events",
         "tags": [
           "picks"
         ]
@@ -20609,7 +20609,7 @@
         ]
       },
       "post": {
-        "description": "Have Claude review your saved portfolio's construction and risk.\n\nThe review is grounded in your holdings valued at the latest prices, their sectors,\nand statistics of today's weights over ``period`` of daily returns: each holding's\nreturn, volatility, drawdown, and share of the portfolio's risk, the portfolio's\nvolatility, drawdowns and diversification, and the most and least correlated pairs.\nYour latest Claude's picks, when you have any, are given to it as candidates for new\ninvestments, with the screener's figures for each (``context.claude_picks``). With\n``web_search``, Claude searches the web first, and every fact it brings back is in\n``context.web_research`` with its sources. All of it is in ``context``.\n\nIt is written with, and billed to, your own Anthropic key (the ``X-Anthropic-Key``\nheader), within your AI limits, and stored under your account. A review of the same\nholdings and period within ``ANALYSIS_CACHE_TTL_SECONDS`` is returned again with\n``cached`` set and no charge, unless ``refresh`` is true.\n\nReturns 403 without a valid Anthropic key, 422 with no saved holdings, a window too\nshort, or when the model declines, 429 beyond your AI limits, 502 when a provider\nfails, and 503 when Anthropic rate limits your account.",
+        "description": "Have Claude review your saved portfolio's construction and risk.\n\nThe review is grounded in your holdings valued at the latest prices, their sectors,\nand statistics of today's weights over ``period`` of daily returns: each holding's\nreturn, volatility, drawdown, and share of the portfolio's risk, the portfolio's\nvolatility, drawdowns and diversification, and the most and least correlated pairs.\nYour latest Claude's Picks, when you have any, are given to it as candidates for new\ninvestments, with the screener's figures for each (``context.claude_picks``). With\n``web_search``, Claude searches the web first, and every fact it brings back is in\n``context.web_research`` with its sources. All of it is in ``context``.\n\nIt is written with, and billed to, your own Anthropic key (the ``X-Anthropic-Key``\nheader), within your AI limits, and stored under your account. A review of the same\nholdings and period within ``ANALYSIS_CACHE_TTL_SECONDS`` is returned again with\n``cached`` set and no charge, unless ``refresh`` is true.\n\nReturns 403 without a valid Anthropic key, 422 with no saved holdings, a window too\nshort, or when the model declines, 429 beyond your AI limits, 502 when a provider\nfails, and 503 when Anthropic rate limits your account.",
         "operationId": "create_portfolio_review_api_v1_portfolio_analysis_post",
         "requestBody": {
           "content": {

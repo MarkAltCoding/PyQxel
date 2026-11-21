@@ -33,7 +33,7 @@ class PortfolioPromptExport(PromptExport):
 
 
 class PicksPromptExport(PromptExport):
-    """A Claude's picks prompt and the data it holds; send ``context`` back with the answer."""
+    """A Claude's Picks prompt and the data it holds; send ``context`` back with the answer."""
 
     context: PicksContext
 
@@ -58,7 +58,7 @@ class PortfolioReviewImport(BaseModel):
 
 
 class PicksImport(BaseModel):
-    """An answer Claude wrote outside the app to an exported Claude's picks prompt."""
+    """An answer Claude wrote outside the app to an exported Claude's Picks prompt."""
 
     request: PicksRequest = Field(
         default_factory=PicksRequest, description="The options the prompt was exported with."

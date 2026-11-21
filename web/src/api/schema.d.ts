@@ -815,14 +815,14 @@ export interface paths {
       cookie?: never
     }
     /**
-     * Your scheduled Claude's picks
-     * @description Return whether Claude's picks are made on a schedule for you, when each schedule
+     * Your scheduled Claude's Picks
+     * @description Return whether Claude's Picks are made on a schedule for you, when each schedule
      *     runs next, and how the last run went. Returns 503 when the database is unavailable.
      */
     get: operations['read_picks_schedule_api_v1_me_picks_schedule_get']
     /**
-     * Make Claude's picks on a schedule
-     * @description Have Claude's picks made weekly, monthly, or both, for a week's or a month's holding
+     * Make Claude's Picks on a schedule
+     * @description Have Claude's Picks made weekly, monthly, or both, for a week's or a month's holding
      *     period, with the rest of ``request`` (profile, web search, waiting, holdings shown).
      *
      *     Each runs at its day and time in ``time_zone``, on the next hourly check, and never
@@ -838,7 +838,7 @@ export interface paths {
     put: operations['store_picks_schedule_api_v1_me_picks_schedule_put']
     post?: never
     /**
-     * Stop making Claude's picks on a schedule
+     * Stop making Claude's Picks on a schedule
      * @description Turn both schedules off: the stored keys are deleted at once. Picks already made
      *     stay with your others. Returns 503 when the database is unavailable.
      */
@@ -911,14 +911,14 @@ export interface paths {
       cookie?: never
     }
     /**
-     * Your stored lists of Claude's picks
+     * Your stored lists of Claude's Picks
      * @description Return your stored lists of picks, newest first, each with its tickers but not its
      *     reasons. Reading them costs nothing. Returns 503 when the database is unavailable.
      */
     get: operations['read_picks_list_api_v1_picks_get']
     put?: never
     /**
-     * Claude's picks for a holding period
+     * Claude's Picks for a holding period
      * @description Have Claude pick the securities to buy now and hold for ``profile.horizon``.
      *
      *     The candidates are the leaders of your screener (your own, when your nightly refresh
@@ -1005,7 +1005,7 @@ export interface paths {
       cookie?: never
     }
     /**
-     * Your latest Claude's picks
+     * Your latest Claude's Picks
      * @description Return your newest stored picks, whatever they were made for, so they can be shown
      *     again without a charge. Returns 404 when you have none, and 503 when the database is
      *     unavailable.
@@ -1082,7 +1082,7 @@ export interface paths {
     get?: never
     put?: never
     /**
-     * Stream Claude's picks as Server-Sent Events
+     * Stream Claude's Picks as Server-Sent Events
      * @description Stream the picks of ``create_picks`` as Claude makes them.
      *
      *     The same failures return the same statuses before the stream opens. Then it sends
@@ -1252,7 +1252,7 @@ export interface paths {
      *     and statistics of today's weights over ``period`` of daily returns: each holding's
      *     return, volatility, drawdown, and share of the portfolio's risk, the portfolio's
      *     volatility, drawdowns and diversification, and the most and least correlated pairs.
-     *     Your latest Claude's picks, when you have any, are given to it as candidates for new
+     *     Your latest Claude's Picks, when you have any, are given to it as candidates for new
      *     investments, with the screener's figures for each (``context.claude_picks``). With
      *     ``web_search``, Claude searches the web first, and every fact it brings back is in
      *     ``context.web_research`` with its sources. All of it is in ``context``.
@@ -6242,7 +6242,7 @@ export interface components {
       economy?: components['schemas']['EconomyContext'] | null
       /**
        * Fomc Meetings
-       * @description The next scheduled FOMC meetings: the next two, or, for Claude's picks and portfolio reviews, every one scheduled within the holding period.
+       * @description The next scheduled FOMC meetings: the next two, or, for Claude's Picks and portfolio reviews, every one scheduled within the holding period.
        */
       fomc_meetings: components['schemas']['FomcMeeting'][]
       /**
@@ -7696,7 +7696,7 @@ export interface components {
     }
     /**
      * PicksForReview
-     * @description The account's latest Claude's picks, given to a portfolio review as candidates for
+     * @description The account's latest Claude's Picks, given to a portfolio review as candidates for
      *     new investments.
      */
     PicksForReview: {
@@ -7753,7 +7753,7 @@ export interface components {
     }
     /**
      * PicksImport
-     * @description An answer Claude wrote outside the app to an exported Claude's picks prompt.
+     * @description An answer Claude wrote outside the app to an exported Claude's Picks prompt.
      */
     PicksImport: {
       /** @description The context the export returned. */
@@ -7862,7 +7862,7 @@ export interface components {
     }
     /**
      * PicksPromptExport
-     * @description A Claude's picks prompt and the data it holds; send ``context`` back with the answer.
+     * @description A Claude's Picks prompt and the data it holds; send ``context`` back with the answer.
      */
     PicksPromptExport: {
       context: components['schemas']['PicksContext']
@@ -7879,7 +7879,7 @@ export interface components {
     }
     /**
      * PicksReport
-     * @description Claude's picks for a holding period, ranked, with how they were chosen.
+     * @description Claude's Picks for a holding period, ranked, with how they were chosen.
      */
     PicksReport: {
       /**
@@ -7925,7 +7925,7 @@ export interface components {
     }
     /**
      * PicksRequest
-     * @description Options for a list of Claude's picks.
+     * @description Options for a list of Claude's Picks.
      */
     PicksRequest: {
       /**
@@ -7960,7 +7960,7 @@ export interface components {
     }
     /**
      * PicksResponse
-     * @description A list of Claude's picks together with the data it was written from.
+     * @description A list of Claude's Picks together with the data it was written from.
      */
     PicksResponse: {
       /**
@@ -7999,7 +7999,7 @@ export interface components {
     }
     /**
      * PicksScheduleSettings
-     * @description Makes Claude's picks on a schedule, for a week's or a month's holding period.
+     * @description Makes Claude's Picks on a schedule, for a week's or a month's holding period.
      *
      *     The keys the request carries (Anthropic's and the market data keys) are encrypted and
      *     stored with it, replacing any stored earlier, since the picks are made with no browser
@@ -8020,7 +8020,7 @@ export interface components {
     }
     /**
      * PicksScheduleStatus
-     * @description Whether Claude's picks are made on a schedule, when next, and how the last went.
+     * @description Whether Claude's Picks are made on a schedule, when next, and how the last went.
      */
     PicksScheduleStatus: {
       /**
@@ -8237,7 +8237,7 @@ export interface components {
       history_months?: number | null
       /**
        * Include Picks
-       * @description Let the review see your latest stored Claude's picks, with their figures, so it can weigh adding them; false to leave them out.
+       * @description Let the review see your latest stored Claude's Picks, with their figures, so it can weigh adding them; false to leave them out.
        * @default true
        */
       include_picks?: boolean
@@ -8467,7 +8467,7 @@ export interface components {
        * @description The accounts reviewed together as one portfolio, with their values; empty when one portfolio is reviewed. Weights are shares of all of them combined.
        */
       accounts?: components['schemas']['AccountValue'][]
-      /** @description The account's latest Claude's picks, with the screener's figures for each when it was picked, as candidates for new investments; null when the account has none. */
+      /** @description The account's latest Claude's Picks, with the screener's figures for each when it was picked, as candidates for new investments; null when the account has none. */
       claude_picks?: components['schemas']['PicksForReview'] | null
       /** @description The IRS's yearly contribution limits, given when an account reviewed is one they cap. */
       contribution_limits?: components['schemas']['ContributionLimits'] | null
@@ -9383,7 +9383,7 @@ export interface components {
     }
     /**
      * ReviewedPick
-     * @description One of Claude's picks as a portfolio review is given it, with the screener's
+     * @description One of Claude's Picks as a portfolio review is given it, with the screener's
      *     figures for it when it was picked.
      */
     ReviewedPick: {
@@ -9779,7 +9779,7 @@ export interface components {
       sort?: components['schemas']['ScreenSort']
       /**
        * Symbols
-       * @description Keep only these tickers, such as Claude's picks; every security when empty. Symbols the universe does not hold match nothing.
+       * @description Keep only these tickers, such as Claude's Picks; every security when empty. Symbols the universe does not hold match nothing.
        */
       symbols?: string[]
       /**

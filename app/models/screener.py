@@ -242,7 +242,7 @@ class ScreenRequest(BaseModel):
     symbols: list[str] = Field(
         default_factory=list,
         max_length=100,
-        description="Keep only these tickers, such as Claude's picks; every security when "
+        description="Keep only these tickers, such as Claude's Picks; every security when "
         "empty. Symbols the universe does not hold match nothing.",
     )
     filters: list[ScreenFilter] = Field(default_factory=list, max_length=len(get_args(ScreenField)))

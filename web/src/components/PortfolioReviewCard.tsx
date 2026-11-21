@@ -317,7 +317,7 @@ export function PortfolioReviewCard({
   const [wait, setWait] = useWaitChoice()
   // Most brokers trade fractions of a share now; the choice is remembered in this browser.
   const [fractional, setFractional] = useState(() => readStored(FRACTIONAL_KEY) !== 'off')
-  // Whether the review sees the latest Claude's picks: on until turned off.
+  // Whether the review sees the latest Claude's Picks: on until turned off.
   const [withPicks, setWithPicks] = useState(() => readStored(WITH_PICKS_KEY) !== 'off')
   const [roundShares, setRoundShares] = useState(() => readStored(ROUND_KEY) !== 'off')
   const [progress, setProgress] = useState<AiProgress | null>(null)
@@ -461,7 +461,7 @@ export function PortfolioReviewCard({
           </div>
           <div className="subtitle">
             Written by Claude from your saved holdings and your latest{' '}
-            <Link to="/screener/picks">Claude’s picks</Link>: where the risk comes from, how well
+            <Link to="/screener/picks">Claude’s Picks</Link>: where the risk comes from, how well
             the holdings diversify one another, and a specific plan with the orders to carry it out.
             Billed to your Anthropic key.
           </div>
@@ -653,7 +653,7 @@ export function PortfolioReviewCard({
                   writeStored(WITH_PICKS_KEY, e.target.checked ? null : 'off')
                 }}
               />
-              Let the review see my latest Claude’s picks
+              Let the review see my latest Claude’s Picks
             </label>
             <InfoTip topic="reviewWithPicks" />
           </span>
@@ -873,7 +873,7 @@ function Review({ response }: { response: PortfolioAnalysisResponse }) {
         {(response.context.accounts?.length ?? 0) > 1 &&
           `Covers ${listed(response.context.accounts!.map((a) => `${a.account} (${money(a.value, 'USD', 0)})`))} together${response.group_mode === 'separate' ? ', each with its own plan' : ', as one portfolio'} · `}
         {response.context.claude_picks &&
-          `Given your Claude’s picks of ${dateTime(response.context.claude_picks.generated_at)} for ${response.context.claude_picks.horizon} · `}
+          `Given your Claude’s Picks of ${dateTime(response.context.claude_picks.generated_at)} for ${response.context.claude_picks.horizon} · `}
         Written by {modelName(response.model)} · {dateTime(response.generated_at)} ·{' '}
         {historyLabel(response)} of price history
         {response.cached && ' · reused, not billed again'} · {response.disclaimer}

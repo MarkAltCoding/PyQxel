@@ -310,7 +310,7 @@ class PortfolioAnalysisRecord(Base):
 
 
 class PicksRecord(Base):
-    """One list of Claude's picks made for an account.
+    """One list of Claude's Picks made for an account.
 
     ``request_key`` fingerprints the profile and the screener data they were made from, so
     picks are reused only while both are unchanged. The full response is kept as JSON in
@@ -544,7 +544,7 @@ class NightlyRefreshRecord(Base):
 
 
 class ScheduledPicksRecord(Base):
-    """A user's opt-in to Claude's picks made on a schedule, weekly, monthly, or both.
+    """A user's opt-in to Claude's Picks made on a schedule, weekly, monthly, or both.
 
     The picks are made while no browser is open, so ``credentials`` holds the user's
     Anthropic key and market data keys as JSON encrypted with

@@ -382,7 +382,7 @@ async def update_own_restricted_sources(session: AsyncSession, user_id: str, ena
 
 async def ai_usage(session: AsyncSession, user_id: str) -> AiUsage:
     """New AI requests made for the account in the last hour and day: stock analyses,
-    portfolio reviews, lists of Claude's picks, and coding assistant answers."""
+    portfolio reviews, lists of Claude's Picks, and coding assistant answers."""
     now = datetime.now(timezone.utc)
 
     async def since(window: timedelta) -> int:
@@ -422,7 +422,7 @@ async def delete_user(session: AsyncSession, user_id: str) -> bool:
     """Delete the account and everything it holds; return whether it existed.
 
     Its API keys, sign-ins waiting for the native app, sign-in identities, portfolios and
-    their holdings, stored backtests, analyses, portfolio reviews, Claude's picks, and
+    their holdings, stored backtests, analyses, portfolio reviews, Claude's Picks, and
     simulations, what it entered in the app (its saved state), its
     count of assistant answers, and its nightly screener refresh, with the encrypted keys
     it stored, its runs, and its own screened universe, the price history kept for it, and

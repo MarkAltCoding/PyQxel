@@ -1,4 +1,4 @@
-"""Prompt templates for Claude: stock research, portfolio reviews, Claude's picks, the web
+"""Prompt templates for Claude: stock research, portfolio reviews, Claude's Picks, the web
 search made for them, and the strategy coding assistant."""
 
 from app.models.research import AnalysisKind, Filing
@@ -273,7 +273,7 @@ weight times the company's weight in that fund), and sector exposure through the
 funds. sectors counts each fund under its own holdings' sectors where they are known.
 
 Where they could be had, the snapshot also holds what the screener knows of the \
-holdings and what is in the news, as Claude's picks are given: market (the Markets \
+holdings and what is in the news, as Claude's Picks are given: market (the Markets \
 page's calendar for calendar_days ahead, from four weeks up to a quarter, within the \
 horizon: every FOMC meeting within the horizon, major companies' earnings reports with \
 their day, time, and EPS and revenue estimates, IPOs, and holidays, plus whether the \
@@ -334,7 +334,7 @@ plan to it and follow the notes. Where it is silent, choose a reasonable assumpt
 how the plan would differ under another.
 
 The snapshot may also hold claude_picks: the securities you picked for this person in \
-the app's Claude's picks, at generated_at, for the horizon and profile it states, each \
+the app's Claude's Picks, at generated_at, for the horizon and profile it states, each \
 with your conviction, suggested share of the money invested, reasons, risks, and how to \
 buy and when to sell, and with the screener's figures for it at the time (valuation, \
 growth, margins, momentum, volatility, and factor betas, as decimals). They are your own \

@@ -7,7 +7,7 @@ export function ScreenerTabs() {
       <NavLink to="/screener" end>
         Screen
       </NavLink>
-      <NavLink to="/screener/picks">Claude’s picks</NavLink>
+      <NavLink to="/screener/picks">Claude’s Picks</NavLink>
     </nav>
   )
 }

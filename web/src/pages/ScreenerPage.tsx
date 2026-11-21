@@ -115,7 +115,7 @@ const UNIVERSES = [
   { value: 'large_cap', label: 'Large cap (top 500 stocks)' },
   { value: 'broad_market', label: 'Broad market (top 3,000 stocks)' },
   { value: 'liquid', label: 'Liquid ($5M+ a day)' },
-  { value: PICKS, label: 'Claude’s picks' },
+  { value: PICKS, label: 'Claude’s Picks' },
 ] as const
 
 const BASE_COLUMNS: ScreenField[] = [
@@ -192,7 +192,7 @@ function loadScreen(): Screen {
 
 export function ScreenerPage() {
   const navigate = useNavigate()
-  // A link from Claude's picks (?picks=latest, or a stored list's ID) opens the screener
+  // A link from Claude's Picks (?picks=latest, or a stored list's ID) opens the screener
   // on those picks alone.
   const [params] = useSearchParams()
   const linkedPicks = params.get('picks')
@@ -487,7 +487,7 @@ export function ScreenerPage() {
         {onlyPicks && picks.data === null && (
           <Notice>
             Claude has not made any picks for you yet.{' '}
-            <Link to="/screener/picks">Get Claude’s picks</Link>, and they can be screened here.
+            <Link to="/screener/picks">Get Claude’s Picks</Link>, and they can be screened here.
           </Notice>
         )}
         <div className={`table-wrap${results.isPlaceholderData ? ' card-body refreshing' : ''}`}>

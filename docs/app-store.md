@@ -121,8 +121,8 @@ tracking, and every type below is linked to the user and used only for App Funct
 | Identifiers: User ID | The account ID, and the GitHub, Google, or Apple ID it signs in with. |
 | Financial Info: Other Financial Info | Portfolio holdings. |
 | Purchases: Purchase History | Credit bought and the usage subscription for the nightly refresh, paid on the website through Stripe, and each refresh's cost. |
-| User Content: Other User Content | Saved backtests with strategy code, simulations, AI reports, portfolio reviews, and Claude's picks, with what their web searches found; and what the user enters in the app (strategy drafts, screens, the goals given for reviews and picks, display choices). |
-| Other Data | Provider API keys, stored encrypted only for users who turn on the nightly screener refresh (market data keys) or scheduled Claude's picks (the Anthropic key too). |
+| User Content: Other User Content | Saved backtests with strategy code, simulations, AI reports, portfolio reviews, and Claude's Picks, with what their web searches found; and what the user enters in the app (strategy drafts, screens, the goals given for reviews and picks, display choices). |
+| Other Data | Provider API keys, stored encrypted only for users who turn on the nightly screener refresh (market data keys) or scheduled Claude's Picks (the Anthropic key too). |
 
 Not collected: name, location, contacts, browsing history, usage data, diagnostics.
 Card details and the billing address go to Stripe on the website, never to PyQxel or the app. Requests reach Google Cloud's access logs, which keep IP addresses for 30 days

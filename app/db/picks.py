@@ -1,4 +1,4 @@
-"""Storage of Claude's picks."""
+"""Storage of Claude's Picks."""
 
 from datetime import datetime
 from uuid import UUID, uuid4

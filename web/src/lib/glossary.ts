@@ -809,12 +809,12 @@ const entries = {
     note: 'They are made while your browser is closed, so turning this on stores your Anthropic key and market data keys on PyQxel’s server, encrypted; turning it off deletes them. Each list is billed to your Anthropic key as one you ask for would be, within your AI limits. A run never starts during your own screener refresh: it waits for it to finish. When both fall due together, they run together.',
   },
   picksInReview: {
-    title: 'Claude’s picks here',
-    what: 'The same Claude’s picks as under the Screener’s Claude’s picks tab, opened here beside your review: the latest list, your saved ones, and the schedule. A list made or changed in either place is the same list in both.',
+    title: 'Claude’s Picks here',
+    what: 'The same Claude’s Picks as under the Screener’s Claude’s Picks tab, opened here beside your review: the latest list, your saved ones, and the schedule. A list made or changed in either place is the same list in both.',
   },
   reviewWithPicks: {
     title: 'Let the review see my latest picks',
-    what: 'Gives the review your most recent stored Claude’s picks, with the screener’s figures for each, so it can weigh adding them to your portfolio. Unticked, the review works from your holdings alone.',
+    what: 'Gives the review your most recent stored Claude’s Picks, with the screener’s figures for each, so it can weigh adding them to your portfolio. Unticked, the review works from your holdings alone.',
     note: 'On by default. Nothing is fetched for it: the picks are already stored.',
   },
   picksHoldings: {
@@ -867,7 +867,7 @@ const entries = {
     what: 'Give each account its own risk tolerance, horizon, notes, and the cash already in it to trade with, or use the same goals for all of them. New cash to invest is entered once: the review decides how much of it goes into each account, within each one’s contribution room.',
   },
   savedPicks: {
-    title: 'Saved Claude’s picks',
+    title: 'Saved Claude’s Picks',
     what: 'Every list of picks Claude made for you, newest first, with how it has done since: the list’s gain or loss, the benchmark’s over the same days, and the difference. Open one to see it in full, pick by pick.',
     note: 'A list is tracked until its holding period ends; after that its record stays as it was on the last day of the period.',
   },
@@ -911,7 +911,7 @@ const entries = {
     note: 'Web pages can be wrong or out of date, and Claude’s one-sentence statement of a page can lose detail. Open the source before acting on a fact that matters.',
   },
   claudesPicks: {
-    title: 'Claude’s picks',
+    title: 'Claude’s Picks',
     what: 'The securities Claude would buy now and hold for the period you choose. It starts from your screener: the leaders on market cap (the largest and the smallest), momentum, recent returns, free cash flow yield, P/E, growth, return on equity, margins, a tilt toward value or small companies, and low volatility, and the most traded ETFs, each trading at least $5 million a day. From those candidates it picks five to ten for your holding period and risk tolerance, ranks them, and says how much of each to buy, why, how to buy it, and when to sell.',
     good: 'Use the picks as a shortlist to research: open each one’s page, read its report, and check the news before buying.',
     bad: 'Buying a list unread, or expecting a short-term pick to work: over a few weeks any stock is close to a coin toss.',
@@ -947,17 +947,17 @@ const entries = {
   },
   pickOutsideScreener: {
     title: 'Not in your screener',
-    what: 'Claude may pick a security the screener does not hold, such as a bond fund or a broad market fund, when it is clearly a better fit for your profile than any candidate. The screener has no figures for it, and it will not appear when you screen for Claude’s picks.',
+    what: 'Claude may pick a security the screener does not hold, such as a bond fund or a broad market fund, when it is clearly a better fit for your profile than any candidate. The screener has no figures for it, and it will not appear when you screen for Claude’s Picks.',
     note: 'Look it up by its ticker to see its price, costs, and holdings before buying.',
   },
   picksUniverse: {
     title: 'Universe',
-    what: 'Which part of the screener to search: an index or size group, everything, or only Claude’s picks. Choosing Claude’s picks lists the securities Claude last picked for you, so you can compare them side by side on any metric and narrow them with the filters.',
+    what: 'Which part of the screener to search: an index or size group, everything, or only Claude’s Picks. Choosing Claude’s Picks lists the securities Claude last picked for you, so you can compare them side by side on any metric and narrow them with the filters.',
     note: 'A pick the screener does not hold, such as a fund outside it, is not listed.',
   },
   portfolioReview: {
     title: 'AI portfolio review',
-    what: 'Claude reviews your saved holdings (where the risk comes from and how well they diversify) and recommends specific changes, which the app turns into exact orders. When you have Claude’s picks, the review is given the latest ones, with the screener’s figures for each, as candidates for anything it suggests adding.',
+    what: 'Claude reviews your saved holdings (where the risk comes from and how well they diversify) and recommends specific changes, which the app turns into exact orders. When you have Claude’s Picks, the review is given the latest ones, with the screener’s figures for each, as candidates for anything it suggests adding.',
     note: 'An AI’s recommendation from past prices, not a licensed adviser’s; check taxes, costs, and prices before trading.',
   },
   reviewHistory: {

@@ -155,7 +155,7 @@ export function PicksCandidates({
                     {row.symbol}
                   </Link>
                   <span className="picks-candidate-name">{row.name}</span>
-                  <span className="muted">
+                  <span className="muted picks-candidate-lenses">
                     {row.added && <span className="badge">Added by you</span>}{' '}
                     {row.lenses.length > 0 ? `Leads on ${listed(row.lenses)}` : ''}
                   </span>

@@ -172,7 +172,7 @@ describe('PicksPage', () => {
     const web = screen.getByRole('checkbox', { name: /Let Claude search the web/ })
     expect(web).toBeChecked() // On until the person turns it off.
     await userEvent.click(web)
-    await userEvent.click(screen.getByRole('button', { name: 'Get Claude’s picks' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Get Claude’s Picks' }))
 
     expect(await screen.findByText('Two-week momentum.')).toBeInTheDocument()
     expect(calls.find((call) => call.key === 'POST /api/v1/picks/stream')?.body).toEqual({
@@ -238,7 +238,7 @@ describe('PicksPage', () => {
     expect(screen.queryByRole('link', { name: 'NVDA' })).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Remove NOPE' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Get Claude’s picks' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Get Claude’s Picks' }))
     await screen.findByText('Quantum.')
     const asked = calls.filter((call) => call.key === 'POST /api/v1/picks/candidates')
     expect(asked[0]?.body).toMatchObject({ added_symbols: ['IONQ', 'QTUM', 'NOPE'] })
@@ -255,7 +255,7 @@ describe('PicksPage', () => {
     await userEvent.clear(screen.getByRole('spinbutton', { name: 'Hold for, years' }))
 
     expect(screen.getByRole('alert')).toHaveTextContent('Hold for at least one week.')
-    expect(screen.getByRole('button', { name: 'Get Claude’s picks' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Get Claude’s Picks' })).toBeDisabled()
   })
 
   it('says where to turn on the screener when there is nothing to pick from', async () => {
@@ -270,7 +270,7 @@ describe('PicksPage', () => {
       'href',
       '/settings#nightly-refresh',
     )
-    expect(screen.getByRole('button', { name: 'Get Claude’s picks' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Get Claude’s Picks' })).toBeDisabled()
   })
 
   it('lists saved picks with how they did, opens one with its performance, and deletes it', async () => {
@@ -342,7 +342,7 @@ describe('PicksPage', () => {
 
     await screen.findByText('The latest.')
     const savedCard = () => document.getElementById('saved-picks')!
-    await screen.findByRole('heading', { name: 'Saved Claude’s picks' })
+    await screen.findByRole('heading', { name: 'Saved Claude’s Picks' })
     const table = await within(savedCard()).findByRole('table')
     expect(within(table).getByText('+5.0%')).toBeInTheDocument()
     expect(within(table).getByText(/\(ended\)/)).toBeInTheDocument()

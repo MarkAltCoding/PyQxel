@@ -301,7 +301,7 @@ export const screen = (body: ScreenRequest) =>
   api<ScreenResponse>(`${V1}/screener`, { method: 'POST', body })
 export const getUniverseStatus = () => api<UniverseStatus>(`${V1}/screener/status`)
 
-/** The account's newest Claude's picks, or null when it has none yet. */
+/** The account's newest Claude's Picks, or null when it has none yet. */
 export const getLatestPicks = async (): Promise<PicksResponse | null> => {
   try {
     return await api<PicksResponse>(`${V1}/picks/latest`)
@@ -311,7 +311,7 @@ export const getLatestPicks = async (): Promise<PicksResponse | null> => {
   }
 }
 /** The account's stored lists of picks, newest first, without their reasons. */
-/** Claude's picks made on a schedule: what is set, when each runs next, and the last run. */
+/** Claude's Picks made on a schedule: what is set, when each runs next, and the last run. */
 export const getPicksSchedule = () => api<PicksScheduleStatus>(`${V1}/me/picks-schedule`)
 export const savePicksSchedule = (body: PicksScheduleSettings) =>
   api<PicksScheduleStatus>(`${V1}/me/picks-schedule`, { method: 'PUT', body })

@@ -11,7 +11,7 @@ interface Props {
   benchmarkLabel?: string
   /** The benchmark's short name, at the end of its line. */
   benchmarkShort?: string
-  /** What the first line is, such as Claude's picks. */
+  /** What the first line is, such as Claude's Picks. */
   strategyLabel?: string
 }
 

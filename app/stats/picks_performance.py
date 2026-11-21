@@ -1,4 +1,4 @@
-"""How a stored list of Claude's picks has done since it was made.
+"""How a stored list of Claude's Picks has done since it was made.
 
 A list is measured as if bought at the last close before it was made, in Claude's
 weights, and held without rebalancing: each pick's value grows with its own price, so

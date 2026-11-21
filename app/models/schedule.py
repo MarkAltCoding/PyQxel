@@ -1,4 +1,4 @@
-"""How often a scheduled refresh runs: the screener's nightly refresh, or Claude's picks."""
+"""How often a scheduled refresh runs: the screener's nightly refresh, or Claude's Picks."""
 
 import re
 from datetime import date

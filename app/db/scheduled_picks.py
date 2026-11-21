@@ -1,4 +1,4 @@
-"""Storage of Claude's picks made on a schedule: who opted in, their encrypted keys, when
+"""Storage of Claude's Picks made on a schedule: who opted in, their encrypted keys, when
 each schedule runs, and when it last did.
 
 The picks are made while no browser is open, so turning a schedule on stores the user's

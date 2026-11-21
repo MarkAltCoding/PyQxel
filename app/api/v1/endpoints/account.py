@@ -393,10 +393,10 @@ async def check_schedule_conflicts(
 @router.get(
     "/picks-schedule",
     response_model=PicksScheduleStatus,
-    summary="Your scheduled Claude's picks",
+    summary="Your scheduled Claude's Picks",
 )
 async def read_picks_schedule(user: CurrentUser, session: Session) -> PicksScheduleStatus:
-    """Return whether Claude's picks are made on a schedule for you, when each schedule
+    """Return whether Claude's Picks are made on a schedule for you, when each schedule
     runs next, and how the last run went. Returns 503 when the database is unavailable."""
     try:
         return await schedule_status(session, user.id, encryption_available())
@@ -407,12 +407,12 @@ async def read_picks_schedule(user: CurrentUser, session: Session) -> PicksSched
 @router.put(
     "/picks-schedule",
     response_model=PicksScheduleStatus,
-    summary="Make Claude's picks on a schedule",
+    summary="Make Claude's Picks on a schedule",
 )
 async def store_picks_schedule(
     user: CurrentUser, session: Session, settings: Annotated[PicksScheduleSettings, Body()]
 ) -> PicksScheduleStatus:
-    """Have Claude's picks made weekly, monthly, or both, for a week's or a month's holding
+    """Have Claude's Picks made weekly, monthly, or both, for a week's or a month's holding
     period, with the rest of ``request`` (profile, web search, waiting, holdings shown).
 
     Each runs at its day and time in ``time_zone``, on the next hourly check, and never
@@ -445,7 +445,7 @@ async def store_picks_schedule(
 @router.delete(
     "/picks-schedule",
     response_model=PicksScheduleStatus,
-    summary="Stop making Claude's picks on a schedule",
+    summary="Stop making Claude's Picks on a schedule",
 )
 async def remove_picks_schedule(user: CurrentUser, session: Session) -> PicksScheduleStatus:
     """Turn both schedules off: the stored keys are deleted at once. Picks already made

@@ -171,7 +171,7 @@ class MarketContext(BaseModel):
     as_of: date
     market_open: bool | None = None
     fomc_meetings: list[FomcMeeting] = Field(
-        description="The next scheduled FOMC meetings: the next two, or, for Claude's picks "
+        description="The next scheduled FOMC meetings: the next two, or, for Claude's Picks "
         "and portfolio reviews, every one scheduled within the holding period."
     )
     holidays: list[MarketHoliday] = Field(

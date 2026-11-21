@@ -93,10 +93,10 @@ const CONVICTION_TONE = { low: 'warning', medium: 'neutral', high: 'good' } as c
 const EXPORT_NAME = 'picks'
 
 /**
- * Claude's picks: the securities Claude would buy now and hold for a period the person
+ * Claude's Picks: the securities Claude would buy now and hold for a period the person
  * chooses, picked from their screener. The latest list is shown, earlier ones can be
  * opened, and a new one is made only when asked for, since it is billed to the account's
- * own Anthropic key, or on a schedule. The Screener's Claude's picks tab and the
+ * own Anthropic key, or on a schedule. The Screener's Claude's Picks tab and the
  * Portfolio page's review both show this one component, so they share every query and
  * the form's saved answers: the same picks, wherever they are opened.
  */
@@ -236,7 +236,7 @@ export function ClaudesPicks() {
               disabled={problem !== null || !providerKeys().anthropic || noScreener}
               onClick={() => void write()}
             >
-              {latest.data ? 'Pick again' : 'Get Claude’s picks'}
+              {latest.data ? 'Pick again' : 'Get Claude’s Picks'}
             </button>
           )}
         </div>
@@ -454,7 +454,7 @@ export function ClaudesPicks() {
           </div>
         ) : (
           <div className="empty">
-            No picks yet. Say how long you would hold them, then get Claude’s picks.
+            No picks yet. Say how long you would hold them, then get Claude’s Picks.
           </div>
         )}
       </section>

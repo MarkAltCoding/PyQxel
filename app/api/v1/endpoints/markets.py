@@ -291,7 +291,7 @@ async def fetch_market_context(today: date) -> MarketContext:
 
 
 PICKS_EARNINGS_DAYS: int = 28
-"""Fewest days of every company's earnings reports gathered for Claude's picks and
+"""Fewest days of every company's earnings reports gathered for Claude's Picks and
 portfolio reviews: four of Finnhub's weekly calendar requests, the same ones the Markets
 page's calendar makes."""
 
@@ -341,7 +341,7 @@ PICKS_CRYPTO_HEADLINES: int = 10
 
 @dataclass(frozen=True)
 class PicksBackdrop:
-    """The market backdrop of Claude's picks, with what only the picks use."""
+    """The market backdrop of Claude's Picks, with what only the picks use."""
 
     market: MarketContext
     earnings: list[EarningsEvent] | None

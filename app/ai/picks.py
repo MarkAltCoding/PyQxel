@@ -1,4 +1,4 @@
-"""Claude's picks: the securities Claude would buy and hold for a period, chosen from the
+"""Claude's Picks: the securities Claude would buy and hold for a period, chosen from the
 screener's candidates."""
 
 import csv

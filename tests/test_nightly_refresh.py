@@ -29,6 +29,7 @@ from app.data.screener_metrics import (
     EtfListing,
     parse_etf_listings,
     parse_etf_metrics,
+    parse_non_common,
     parse_quote_price,
     parse_screen_metrics,
 )
@@ -41,6 +42,7 @@ from app.db.tables import NightlyRefreshRecord, ScreenerFundamentalsRecord
 from app.db.users import User, create_api_key
 from app.jobs import nightly as job
 from app.main import app
+from app.models.schedule import RefreshSchedule
 from app.models.nightly import NightlyRefreshSettings, NightlyUniverse
 from app.models.screener import ProviderScreenMetrics
 from app.stats.screening import user_screen_metrics
@@ -193,8 +195,11 @@ def test_due_refreshes_skip_users_already_refreshed_or_running(user: User) -> No
     # Noon, so that jumping past STALE_AFTER and a day lands on the next calendar day
     # whatever time the test runs.
     now = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
+    # Every night, so the test does not depend on today being a trading day.
     settings = NightlyRefreshSettings(
-        refresh_time=(now - timedelta(minutes=1)).strftime("%H:%M"), time_zone="UTC"
+        refresh_time=(now - timedelta(minutes=1)).strftime("%H:%M"),
+        time_zone="UTC",
+        schedule=RefreshSchedule(frequency="nightly"),
     )
     keys = ProviderKeys(finnhub=SecretStr(FINNHUB))
 
@@ -334,7 +339,11 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
         }
         return {symbol: metrics for symbol, metrics in known.items() if symbol in asked}
 
+    async def non_common() -> set[str]:
+        return {"GOOGM"}
+
     monkeypatch.setattr(job, "fetch_etf_listings", etf_listings)
+    monkeypatch.setattr(job, "fetch_non_common", non_common)
     monkeypatch.setattr(job, "fetch_etf_metrics", etf_metrics)
 
     monkeypatch.setattr(job, "fetch_quote_prices", quotes)
@@ -361,6 +370,8 @@ def _opt_in(
                     time_zone="UTC",
                     universes=universes if universes is not None else ["us_stocks", "us_etfs"],
                     custom_symbols=list(custom),
+                    # Every night, so a test does not depend on today being a trading day.
+                    schedule=RefreshSchedule(frequency="nightly"),
                 ),
                 ProviderKeys(finnhub=SecretStr(FINNHUB)),
             )
@@ -1203,7 +1214,11 @@ def _opt_in_at(user: User, refresh_time: str, time_zone: str) -> None:
             await storage.enable(
                 session,
                 user.id,
-                NightlyRefreshSettings(refresh_time=refresh_time, time_zone=time_zone),
+                NightlyRefreshSettings(
+                    refresh_time=refresh_time,
+                    time_zone=time_zone,
+                    schedule=RefreshSchedule(frequency="nightly"),
+                ),
                 ProviderKeys(finnhub=SecretStr(FINNHUB)),
             )
 
@@ -1271,3 +1286,16 @@ def test_one_keys_price_histories_are_fetched_several_at_once(
     # one start just before the one claimed ahead of it.
     assert sorted(started) == symbols[:15] and sorted(found) == symbols[:15]
     assert 1 < most <= screener_metrics.HISTORY_WORKERS
+
+
+def test_preferreds_units_and_warrants_are_told_apart_from_common_shares() -> None:
+    rows = [
+        {"symbol": "GOOGL", "type": "Common Stock", "description": "ALPHABET INC-CL A"},
+        {"symbol": "GOOGM", "type": "Common Stock", "description": "ALPHABET INC - DEP PFD"},
+        {"symbol": "JPM.PRC", "type": "Preference", "description": "JPMORGAN CHASE & CO"},
+        {"symbol": "ABCDU", "type": "Unit", "description": "ABC ACQUISITION CORP"},
+        {"symbol": "BRK.B", "type": "Common Stock", "description": "BERKSHIRE HATHAWAY INC-CL B"},
+        {"symbol": "ASML", "type": "ADR", "description": "ASML HOLDING NV-NY REG SHS"},
+    ]
+
+    assert parse_non_common(rows) == {"GOOGM", "JPM-PRC", "ABCDU"}

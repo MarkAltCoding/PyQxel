@@ -142,7 +142,7 @@ test('a portfolio is set as a Roth IRA, and several are reviewed each with its o
   await openPortfolio(page, 1)
 })
 
-test('Claude’s picks are shown, and the screener can list them alone', async ({ page }, info) => {
+test('Claude’s Picks are shown, and the screener can list them alone', async ({ page }, info) => {
   test.skip(info.project.name === 'phone', 'The results table is checked at desktop width.')
   await page.goto('/screener/picks')
 
@@ -169,7 +169,7 @@ test('saved picks are listed, and outside Claude is told it may search the web',
   await page.goto('/screener/picks')
 
   const saved = page.locator('#saved-picks')
-  await expect(saved.getByRole('heading', { name: 'Saved Claude’s picks' })).toBeVisible()
+  await expect(saved.getByRole('heading', { name: 'Saved Claude’s Picks' })).toBeVisible()
   await expect(saved.locator('tbody tr')).toHaveCount(1)
   await expect(saved.getByRole('cell', { name: 'BRAVO, CHARL, BNDX' })).toBeVisible()
   // The test server has no price keys, so the lists stay listed without their returns.
@@ -228,7 +228,7 @@ test('one switch turns off the warnings before every page spends requests', asyn
   for (const box of await each.all()) await expect(box).toBeChecked()
 })
 
-test('Claude’s picks offer how long to wait for more data, and remember it', async ({
+test('Claude’s Picks offer how long to wait for more data, and remember it', async ({
   page,
 }, info) => {
   // The choice follows the account, which the phone run shares: checked at desktop width.
@@ -248,7 +248,7 @@ test('Claude’s picks offer how long to wait for more data, and remember it', a
   await expect(after).toHaveValue('300')
 })
 
-test('tickers can be added to Claude’s picks, and every candidate searched', async ({
+test('tickers can be added to Claude’s Picks, and every candidate searched', async ({
   page,
 }, info) => {
   // The added tickers follow the account, which the phone run shares.
@@ -298,7 +298,7 @@ test('picks can be scheduled, weekly on Sunday and monthly on the last day by de
   await expect(schedule.getByText('Add an Anthropic key in Settings first.')).toBeVisible()
 })
 
-test('the portfolio review opens the same Claude’s picks as the screener', async ({
+test('the portfolio review opens the same Claude’s Picks as the screener', async ({
   page,
 }, info) => {
   test.skip(info.project.name === 'phone', 'The picks are checked at desktop width.')
@@ -312,7 +312,7 @@ test('the portfolio review opens the same Claude’s picks as the screener', asy
   await page.locator('#ai-review').getByText('Tailor the plan to your goals (optional)').click()
   await expect(
     page.locator('#ai-review').getByRole('checkbox', {
-      name: 'Let the review see my latest Claude’s picks',
+      name: 'Let the review see my latest Claude’s Picks',
     }),
   ).toBeVisible()
 })

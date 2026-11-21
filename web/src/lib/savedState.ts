@@ -1,6 +1,6 @@
 // What a person enters or chooses in the app, saved to their account so it is there in
 // every browser, on every device, and after every update or reinstall: strategy drafts,
-// a screen's filters, the answers given for a review or for Claude's picks, and display
+// a screen's filters, the answers given for a review or for Claude's Picks, and display
 // choices. Holdings, backtests, reports, reviews, and picks are already kept by the
 // server in tables of their own; this covers the rest, which once lived in one browser.
 //
