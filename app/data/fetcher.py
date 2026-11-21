@@ -365,6 +365,18 @@ class FinnhubRateLimitError(ProviderLimitError):
         self.retry_after = retry_after
 
 
+def finnhub_limit_message(api_key: str) -> str:
+    """Why a Finnhub request was refused for now, in words a beginner can act on."""
+    per_minute = finnhub_requests_per_minute(api_key)
+    return (
+        f"Your Finnhub key has used all {per_minute} of its requests for this minute. "
+        "Everything PyQxel asks Finnhub for on your key shares them: each holding's price "
+        "and news on the Portfolio page, a page of market news, a report's research, and "
+        "your nightly refresh while it runs. Finnhub starts counting again every minute, "
+        "so this loads again within a minute."
+    )
+
+
 def _normalize_symbol(symbol: str) -> str:
     """Return ``symbol`` stripped and upper-cased, rejecting empty input."""
     cleaned = symbol.strip().upper()
@@ -833,8 +845,7 @@ async def _finnhub_slot(api_key: str) -> None:
             return
         if not await _wait_for(60 - now % 60 + FINNHUB_MINUTE_SLACK_SECONDS):
             raise FinnhubRateLimitError(
-                "Your Finnhub plan's rate limit was reached; try again shortly.",
-                retry_after=60 - int(now % 60),
+                finnhub_limit_message(api_key), retry_after=60 - int(now % 60)
             )
 
 
@@ -858,9 +869,7 @@ async def finnhub_get(
     if (ends := await _recall(paused)) is not None:
         left = (ends - datetime.now(timezone.utc)).total_seconds()
         if not await _wait_for(max(left, 0.0) + FINNHUB_MINUTE_SLACK_SECONDS):
-            raise FinnhubRateLimitError(
-                "Your Finnhub plan's rate limit was reached; try again shortly.", resets_at=ends
-            )
+            raise FinnhubRateLimitError(finnhub_limit_message(api_key), resets_at=ends)
     if await _recall(refused):
         raise ProviderPlanError(
             f"Your Finnhub plan does not cover this request ({path} for {symbol}).",
@@ -893,7 +902,7 @@ async def finnhub_get(
         await _remember(paused, FINNHUB_LIMIT_PAUSE_SECONDS)
         value = response.headers.get("retry-after")
         raise FinnhubRateLimitError(
-            "Your Finnhub plan's rate limit was reached; try again shortly.",
+            finnhub_limit_message(api_key),
             int(value) if value is not None and value.isdigit() else None,
         )
     if response.status_code >= 400:

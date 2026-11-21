@@ -63,6 +63,7 @@ import type {
   SavedPicksList,
   PicksPromptExport,
   PicksCandidateList,
+  FeatureUsage,
   PicksRequest,
   PicksResponse,
   SavedState,
@@ -338,6 +339,8 @@ export const getPicksPerformance = (id: string, benchmark: PicksBenchmark) =>
 export const deletePicks = (id: string) => api<void>(`${V1}/picks/${id}`, { method: 'DELETE' })
 export const streamPicks = (body: PicksRequest, signal: AbortSignal) =>
   send(`${V1}/picks/stream`, { method: 'POST', body, signal })
+/** Today's requests on each key by each part of the app, against the daily limits set. */
+export const getFeatureUsage = () => api<FeatureUsage>(`${V1}/usage/features`)
 /** The securities the next picks would weigh, from the stored screener alone. */
 export const getPicksCandidates = (body: PicksRequest) =>
   api<PicksCandidateList>(`${V1}/picks/candidates`, { method: 'POST', body })

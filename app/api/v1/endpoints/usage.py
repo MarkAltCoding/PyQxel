@@ -16,6 +16,7 @@ from app.data.fetcher import eodhd_account, forget_stored_prices
 from app.db.price_store import delete_histories, store_summary
 from app.db.session import get_session
 from app.models.usage import (
+    FeatureUsage,
     ProviderEstimate,
     ProviderUsage,
     StoredPrices,
@@ -195,3 +196,16 @@ async def remove_stored_prices(user: CurrentUser, session: Session) -> Response:
         ) from exc
     forget_stored_prices(user.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/features",
+    response_model=FeatureUsage,
+    summary="Today's use of each key by each part of the app",
+)
+async def read_feature_usage(user: CurrentUser) -> FeatureUsage:
+    """How many requests PyQxel sent today on each key you send, for each part of the app
+    (the Stock page, Markets, Portfolio, Backtest, the screener, Claude's Picks, and ticker
+    search), counted by the provider's own day, against which the daily limits you set in
+    Settings are kept. The nightly refresh and scheduled picks are not counted here."""
+    return FeatureUsage(used=await usage.feature_counts(_keys()))

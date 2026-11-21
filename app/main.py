@@ -21,7 +21,8 @@ from app.api.v1.endpoints import account, password_signin, signin
 from app.core.cache import close_cache
 from app.core.config import get_settings
 from app.core.redact import install_log_redaction, redact
-from app.core.request_limits import BodySizeLimit
+from app.core.credentials import HELD_BACK_HEADER
+from app.core.request_limits import BodySizeLimit, HeldBackHeader
 from app.db.session import close_database, init_db
 from app.stats.r_bridge import start_r
 from app.version import __version__
@@ -129,11 +130,14 @@ def create_app() -> FastAPI:
 
     application.add_middleware(CompressApiResponses, prefix=settings.api_v1_prefix)
     application.add_middleware(BodySizeLimit)
+    application.add_middleware(HeldBackHeader)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_methods=["*"],
         allow_headers=["*"],
+        # The native app is another origin, so it reads these only when listed.
+        expose_headers=["Retry-After", HELD_BACK_HEADER],
     )
 
     # Every API route needs a PyQxel API key; the health checks and the docs stay open.

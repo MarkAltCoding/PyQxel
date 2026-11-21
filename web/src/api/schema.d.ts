@@ -2307,6 +2307,29 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/usage/features': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Today's use of each key by each part of the app
+     * @description How many requests PyQxel sent today on each key you send, for each part of the app
+     *     (the Stock page, Markets, Portfolio, Backtest, the screener, Claude's Picks, and ticker
+     *     search), counted by the provider's own day, against which the daily limits you set in
+     *     Settings are kept. The nightly refresh and scheduled picks are not counted here.
+     */
+    get: operations['read_feature_usage_api_v1_usage_features_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/usage/stored-prices': {
     parameters: {
       query?: never
@@ -4684,6 +4707,22 @@ export interface components {
       p75: number
       /** P95 */
       p95: number
+    }
+    /**
+     * FeatureUsage
+     * @description Requests PyQxel sent today on each of your keys for each part of the app, so the
+     *     daily limits you set on them in Settings can be seen against what was used.
+     */
+    FeatureUsage: {
+      /**
+       * Used
+       * @description By provider (fmp, finnhub, ...), then by part of the app (stock, markets, portfolio, backtest, screener, picks, search): today's requests, by the provider's own day. Keys you did not send are left out.
+       */
+      used?: {
+        [key: string]: {
+          [key: string]: number
+        }
+      }
     }
     /**
      * FilingReference
@@ -14251,6 +14290,26 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_feature_usage_api_v1_usage_features_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['FeatureUsage']
         }
       }
     }

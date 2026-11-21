@@ -1,7 +1,7 @@
+import { retryDelay, retryQuery } from './lib/retry'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ApiError } from './api/client'
 import { App } from './App'
 import { AuthProvider } from './auth/AuthContext'
 import { loadSecureStorage } from './lib/secureStorage'
@@ -15,9 +15,10 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 60_000,
       refetchOnWindowFocus: false,
-      // Client errors (bad symbol, missing key, plan limits) will not fix themselves.
-      retry: (failures, error) =>
-        failures < 2 && !(error instanceof ApiError && error.status < 500),
+      // Client errors (bad symbol, missing key, plan limits) will not fix themselves; a
+      // key out of requests for the minute is tried again once the minute turns.
+      retry: retryQuery,
+      retryDelay,
     },
   },
 })

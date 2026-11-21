@@ -165,6 +165,23 @@ Checked against the providers' documentation on November 5, 2026:
 | FMP | Not known: its documentation refuses automated reading. PyQxel counts its own requests. |
 | Alpha Vantage | Nothing: no usage endpoint or headers. |
 
+### Each part of the app's share of a key
+
+Under each key in Settings, a dropdown lists the parts of the app that can use it (Stock
+pages, Markets, Portfolio, Backtest, Claude's Picks, and ticker search), each with a
+checkbox, on by default, and a daily limit on its requests. The browser tags each request
+with its part (`X-PyQxel-Feature`), leaves out a key turned off for it, and sends that
+part's limits (`X-PyQxel-Key-Limits`). The server counts each part's requests on each key
+by the provider's own day (`provider_feature_usage`), leaves a key out once that part has
+made its day's limit as each request starts, and names it in `X-PyQxel-Held-Back`, so the
+error the page shows says why. The nightly refresh and scheduled picks run on the keys
+stored for them, with their own limits, and are not counted.
+
+A key that has used its plan's requests for the moment answers 429 with `Retry-After`, and
+its message says which key, why (for Finnhub: everything PyQxel asks on the key shares its
+requests a minute, including the nightly refresh while it runs), and when it works again.
+The browser waits that long and tries once more by itself when it is a minute or less.
+
 ## Listings abroad
 
 A symbol abroad carries its exchange's Yahoo-style suffix (SAP.DE, VOD.L, 7203.T), and
@@ -408,8 +425,9 @@ Each list of picks is made from data that is nearly all on hand already:
   quarter's calendar; five minutes, all of it for 60 picks or 40 holdings. Requests beyond
   a minute wait for the next one (`fetcher.finnhub_patience`) instead of being refused,
   and the notice says what more waiting would add. The copied prompt gathers the same.
-- **What Claude is given of the news:** 240 company headlines shared evenly among the
-  stocks whose news was fetched, from 4 to 12 each (30 picks get 8, 40 holdings 6), the
+- **What Claude is given of the news:** 480 company headlines shared evenly among the
+  stocks whose news was fetched, from 6 to 20 each (10 holdings get 20, 30 picks
+  candidates 16, 40 holdings 12, 60 picks candidates 8, and 100 holdings 6), the
   ones that matter most for each company's shares; and the most market-moving 80
   general, 30 deal, 20 currency, and 10 crypto headlines. They cost tokens, about 70 a
   headline, not requests: the articles are already fetched.

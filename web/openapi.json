@@ -4504,6 +4504,24 @@
         "title": "FanPoint",
         "type": "object"
       },
+      "FeatureUsage": {
+        "description": "Requests PyQxel sent today on each of your keys for each part of the app, so the\ndaily limits you set on them in Settings can be seen against what was used.",
+        "properties": {
+          "used": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "description": "By provider (fmp, finnhub, ...), then by part of the app (stock, markets, portfolio, backtest, screener, picks, search): today's requests, by the provider's own day. Keys you did not send are left out.",
+            "title": "Used",
+            "type": "object"
+          }
+        },
+        "title": "FeatureUsage",
+        "type": "object"
+      },
       "FilingReference": {
         "description": "A filing an analysis read, without its text.",
         "properties": {
@@ -22689,6 +22707,28 @@
           }
         },
         "summary": "What loading a page would use",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/api/v1/usage/features": {
+      "get": {
+        "description": "How many requests PyQxel sent today on each key you send, for each part of the app\n(the Stock page, Markets, Portfolio, Backtest, the screener, Claude's Picks, and ticker\nsearch), counted by the provider's own day, against which the daily limits you set in\nSettings are kept. The nightly refresh and scheduled picks are not counted here.",
+        "operationId": "read_feature_usage_api_v1_usage_features_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureUsage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Today's use of each key by each part of the app",
         "tags": [
           "usage"
         ]

@@ -170,3 +170,15 @@ class HistoryShortfall(BaseModel):
         default=None, description="For ``limit``: when PyQxel will ask the provider again."
     )
     message: str
+
+
+class FeatureUsage(BaseModel):
+    """Requests PyQxel sent today on each of your keys for each part of the app, so the
+    daily limits you set on them in Settings can be seen against what was used."""
+
+    used: dict[str, dict[str, int]] = Field(
+        default_factory=dict,
+        description="By provider (fmp, finnhub, ...), then by part of the app (stock, "
+        "markets, portfolio, backtest, screener, picks, search): today's requests, by the "
+        "provider's own day. Keys you did not send are left out.",
+    )

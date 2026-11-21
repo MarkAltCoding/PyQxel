@@ -624,6 +624,24 @@ class ProviderUsageRecord(Base):
     bytes: Mapped[int] = mapped_column(BigInteger)
 
 
+class ProviderFeatureUsageRecord(Base):
+    """Requests PyQxel sent on one provider key for one part of the app in one day, by the
+    provider's own day (Tiingo's ends at midnight Eastern Standard Time, the rest at UTC
+    midnight), so a daily limit the user sets on that part can be kept.
+
+    ``key_id`` is a one-way hash of the key, never the key. Rows older than
+    :data:`app.data.usage.KEEP_DAYS` are deleted.
+    """
+
+    __tablename__ = "provider_feature_usage"
+
+    key_id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(16), primary_key=True)
+    feature: Mapped[str] = mapped_column(String(16), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    requests: Mapped[int] = mapped_column(Integer)
+
+
 class ProviderSymbolRecord(Base):
     """A symbol requested on one provider key in a month, for plans that limit the number
     of different symbols a month, such as Tiingo's free plan."""

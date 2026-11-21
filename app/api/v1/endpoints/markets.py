@@ -81,7 +81,10 @@ def _missing(name: str, error: BaseException) -> str:
     if isinstance(error, ProviderPlanError):
         return f"your Finnhub plan does not cover {name}"
     if isinstance(error, FinnhubRateLimitError):
-        return f"{name} hit Finnhub's rate limit"
+        return (
+            f"{name} waited for Finnhub: your key had used its requests for the minute, "
+            "so reload in a minute to add them"
+        )
     return f"{name} could not be fetched"
 
 

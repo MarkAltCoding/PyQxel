@@ -822,6 +822,12 @@ const entries = {
     what: 'Gives Claude what you already hold in the portfolios you choose: each security, its shares in each account, its value and weight, and the screener’s figures for it. Claude then picks with your holdings in mind, so it does not pile more into what you are already concentrated in, says when a pick overlaps or complements a holding, and adds to something you own only when that is the best use of the money.',
     note: 'Nothing extra is fetched: prices and figures come from your screener. A holding the screener does not hold is listed without a value. To have your holdings themselves reviewed, use the portfolio review.',
   },
+  keyFeatures: {
+    title: 'Where this key is used',
+    what: 'Each part of PyQxel that can use this key, with a switch and a daily limit. Untick a part to keep it from using the key at all; it then uses your other keys where they can serve it, or says which key it needs. A daily limit caps the requests that part may make on the key in a day, so, for example, browsing stocks cannot use up what your nightly refresh or Claude’s Picks will need. Used today counts PyQxel’s requests for that part since the provider’s day began (midnight UTC, or Eastern Standard Time for Tiingo).',
+    good: 'Leave everything on with no limit unless a key runs out. Free plans run out fastest on Financial Modeling Prep (250 a day), Alpha Vantage (25 a day), and EODHD (20 a day).',
+    note: 'A limit is checked as each request starts, so one page may go a few requests past it. The nightly screener refresh and scheduled picks use the keys stored for them, with their own limits in their cards, and are not counted here. These choices follow your account to every device.',
+  },
   picksAdded: {
     title: 'Also weigh these tickers',
     what: 'Tickers you want Claude to consider along with the screener’s leaders, such as companies in a theme you follow that no measure brought up. Each one joins the candidates with the screener’s figures for it, and Claude weighs it exactly as it weighs every other candidate: it is picked only if it is among the best for your holding period and profile. The list below shows every ticker the next picks would weigh, and you can search it to see whether one is already there.',

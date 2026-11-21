@@ -33,6 +33,7 @@ import { BillingCard } from '../components/BillingCard'
 import { NightlyRefreshCard } from '../components/NightlyRefreshCard'
 import { NIGHTLY_QUERY_KEY, resyncNightlyKeys } from '../lib/nightlyRefresh'
 import { setProviderKey, type ProviderName } from '../lib/providerKeys'
+import { KeyFeatures } from '../components/KeyFeatures'
 import { KeyUsage } from '../components/KeyUsage'
 import {
   ASKING_PAGES,
@@ -451,6 +452,7 @@ function KeyForm({
         )}
       </div>
       {current.configured && report && <KeyUsage report={report} onPlan={onPlan} />}
+      {current.configured && <KeyFeatures provider={provider.account} name={provider.name} />}
     </form>
   )
 }

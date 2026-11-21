@@ -1,3 +1,4 @@
+import { retryDelay, retryQuery } from '../lib/retry'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query'
@@ -13,7 +14,7 @@ import { Pager } from '../components/Pager'
 import { PresetOrCustom } from '../components/PresetOrCustom'
 import { Segmented } from '../components/Segmented'
 import { NEWS_ORDERS, sortNews, type NewsOrder } from '../lib/newsOrder'
-import { timeAgo } from '../lib/format'
+import { listed, timeAgo } from '../lib/format'
 import { safeUrl } from '../lib/safeUrl'
 import { PAGE_SIZES, storedPageSize } from '../lib/paging'
 import { writeStored } from '../lib/storage'
@@ -238,8 +239,8 @@ function MarketNewsCard({
       queryKey: ['market-news', category],
       queryFn: () => getMarketNews(category),
       placeholderData: keepPreviousData,
-      retry: (count: number, error: Error) =>
-        !(error instanceof ApiError && error.status < 500) && count < 2,
+      retry: retryQuery,
+      retryDelay,
     })),
   })
   const errors = results.map((result) => result.error).filter((error) => error !== null)
@@ -309,7 +310,17 @@ function MarketNewsCard({
       ) : (
         <div className={`stack${refreshing ? ' refreshing' : ''}`} style={{ gap: 12 }}>
           {errors.length > 0 && (
-            <Notice tone="warning">Some categories could not be loaded and are left out.</Notice>
+            <Notice tone="warning">
+              {listed(
+                categories
+                  .filter((_, index) => results[index]?.error)
+                  .map(
+                    (category) => CATEGORIES.find((c) => c.value === category)?.label ?? category,
+                  ),
+              )}{' '}
+              could not be loaded and {errors.length === 1 ? 'is' : 'are'} left out:{' '}
+              {errors[0] instanceof Error ? errors[0].message : String(errors[0])}
+            </Notice>
           )}
           <ul className="news-list">
             {shown.map((article) => (

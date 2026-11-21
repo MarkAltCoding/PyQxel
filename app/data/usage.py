@@ -35,7 +35,8 @@ from typing import Any, Literal
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from app.db.tables import ProviderSymbolRecord, ProviderUsageRecord
+from app.core.credentials import current_feature
+from app.db.tables import ProviderFeatureUsageRecord, ProviderSymbolRecord, ProviderUsageRecord
 from app.models.usage import PlanChoice, ProviderUsage, UsageLimit
 
 logger = logging.getLogger(__name__)
@@ -352,6 +353,9 @@ class _Pending:
         default_factory=lambda: defaultdict(lambda: [0, 0])
     )
     symbols: set[tuple[str, str, date, str]] = field(default_factory=set)
+    features: dict[tuple[str, str, str, date], int] = field(
+        default_factory=lambda: defaultdict(int)
+    )
 
 
 _pending = _Pending()
@@ -383,6 +387,9 @@ def record(
     counts = _pending.hours[(kid, provider, window_start(provider, "hour", now))]
     counts[0] += 1
     counts[1] += max(0, size)
+    feature = current_feature()
+    if feature is not None:
+        _pending.features[(kid, provider, feature, _feature_day(provider, now))] += 1
     if provider in SYMBOL_LIMITED:
         month = month_of(provider, now)
         for symbol in symbols:
@@ -465,7 +472,7 @@ async def flush() -> None:
         _flush_lock = (loop, asyncio.Lock())
     async with _flush_lock[1]:
         pending, _pending = _pending, _Pending()
-        if not pending.hours and not pending.symbols:
+        if not pending.hours and not pending.symbols and not pending.features:
             return
         try:
             async with get_sessionmaker()() as session:
@@ -494,6 +501,21 @@ async def flush() -> None:
                             None,
                         )
                     )
+                for (kid, provider, feature, day), requests in pending.features.items():
+                    await session.execute(
+                        _upsert(
+                            dialect,
+                            ProviderFeatureUsageRecord,
+                            {
+                                "key_id": kid,
+                                "provider": provider,
+                                "feature": feature,
+                                "day": day,
+                                "requests": requests,
+                            },
+                            {"requests": requests},
+                        )
+                    )
                 if time.monotonic() - _last_prune > 6 * 60 * 60:
                     _last_prune = time.monotonic()
                     cutoff = datetime.now(UTC) - timedelta(days=KEEP_DAYS)
@@ -505,6 +527,11 @@ async def flush() -> None:
                             ProviderSymbolRecord.month < cutoff.date()
                         )
                     )
+                    await session.execute(
+                        delete(ProviderFeatureUsageRecord).where(
+                            ProviderFeatureUsageRecord.day < cutoff.date()
+                        )
+                    )
                 await session.commit()
         except (SQLAlchemyError, IntegrityError, OSError) as exc:
             logger.warning("Could not save provider usage counts; will retry: %s", exc)
@@ -513,7 +540,50 @@ async def flush() -> None:
                 counts[0] += requests
                 counts[1] += size
             _pending.symbols |= pending.symbols
+            for feature_entry, requests in pending.features.items():
+                _pending.features[feature_entry] += requests
             _schedule_flush()
+
+
+def _feature_day(provider: UsageProvider, now: datetime) -> date:
+    """The provider's day ``now`` falls in, by which a part of the app's daily limit on
+    its key is counted."""
+    return window_start(provider, "day", now).date()
+
+
+async def feature_counts(
+    keys: Mapping[UsageProvider, str], now: datetime | None = None
+) -> dict[str, dict[str, int]]:
+    """Requests PyQxel sent today on each of ``keys`` (by provider) for each part of the
+    app, by provider and then part: what the database holds plus what this process has
+    not written yet. A database failure counts as none, since a limit is a convenience."""
+    from app.db.session import get_sessionmaker
+
+    now = now or datetime.now(UTC)
+    found: dict[str, dict[str, int]] = {}
+    wanted: dict[tuple[str, str, date], str] = {
+        (key_id(api_key), name, _feature_day(name, now)): name for name, api_key in keys.items()
+    }
+    if not wanted:
+        return found
+    try:
+        async with get_sessionmaker()() as session:
+            for (kid, name, day), _ in wanted.items():
+                rows = await session.execute(
+                    select(ProviderFeatureUsageRecord.feature, ProviderFeatureUsageRecord.requests)
+                    .where(ProviderFeatureUsageRecord.key_id == kid)
+                    .where(ProviderFeatureUsageRecord.provider == name)
+                    .where(ProviderFeatureUsageRecord.day == day)
+                )
+                for part, requests in rows:
+                    found.setdefault(name, {})[part] = requests
+    except SQLAlchemyError as exc:
+        logger.warning("Could not read each part's use of the keys: %s", exc)
+    for (kid, name, part, day), requests in _pending.features.items():
+        if (kid, name, day) in wanted:
+            counts = found.setdefault(name, {})
+            counts[part] = counts.get(part, 0) + requests
+    return found
 
 
 async def counted(provider: UsageProvider, api_key: str, since: datetime) -> tuple[int, int]:

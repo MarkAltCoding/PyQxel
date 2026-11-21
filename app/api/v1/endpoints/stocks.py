@@ -1,6 +1,7 @@
 """Stock quote and price history routes."""
 
 import math
+from datetime import datetime, timezone
 from typing import Annotated, cast
 
 import pandas as pd
@@ -20,6 +21,7 @@ from app.data.fetcher import (
     ProviderNotConfiguredError,
     ProviderPlanError,
     SourceTurnedOffError,
+    ProviderLimitError,
     SymbolNotFoundError,
     fetch_price_history,
     fetch_ticker_info,
@@ -202,7 +204,8 @@ def upstream_error(exc: DataFetchError) -> HTTPException:
 
     403 when the user has no usable FMP key, 402 when their FMP plan does not cover the
     request, 404 for unknown symbols, 503 when the data's only source is not used by this
-    server, and 502 for other provider failures.
+    server, 429 when a key has used its plan's requests for now, and 502 for other
+    provider failures.
     """
     if isinstance(exc, ProviderNotConfiguredError):
         return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
@@ -212,7 +215,21 @@ def upstream_error(exc: DataFetchError) -> HTTPException:
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     if isinstance(exc, SourceTurnedOffError):
         return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    if isinstance(exc, ProviderLimitError):
+        return limit_error(exc)
     return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
+def limit_error(exc: ProviderLimitError) -> HTTPException:
+    """A 429 for a key that has used its plan's requests for now, with ``Retry-After`` the
+    seconds until it may be asked again, so the browser can wait and try by itself."""
+    headers = None
+    if exc.resets_at is not None:
+        seconds = math.ceil((exc.resets_at - datetime.now(timezone.utc)).total_seconds())
+        headers = {"Retry-After": str(max(1, seconds))}
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc), headers=headers
+    )
 
 
 @router.get("/{symbol}", response_model=TickerInfo, summary="Ticker snapshot")

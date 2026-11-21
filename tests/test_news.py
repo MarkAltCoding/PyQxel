@@ -378,7 +378,7 @@ def test_route_notes_stale_news(user: object, monkeypatch: pytest.MonkeyPatch) -
     [
         (NewsNotConfiguredError("no key"), 403, None),
         (NewsPlanError("plan"), 402, None),
-        (NewsRateLimitError("limited", 30), 503, "30"),
+        (NewsRateLimitError("limited", 30), 429, "30"),
         (NewsFetchError("down"), 502, None),
     ],
 )

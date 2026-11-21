@@ -147,7 +147,7 @@ def test_a_key_known_to_be_free_is_never_asked(
 
 
 def test_the_headline_budget_is_shared_out_evenly() -> None:
-    assert [headlines_each(n) for n in (1, 10, 20, 30, 40, 60, 100)] == [12, 12, 12, 8, 6, 4, 4]
+    assert [headlines_each(n) for n in (1, 10, 20, 30, 40, 60, 100)] == [20, 20, 20, 16, 12, 8, 6]
 
 
 def test_the_calendar_follows_the_holding_period() -> None:

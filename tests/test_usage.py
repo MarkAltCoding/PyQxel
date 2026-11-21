@@ -549,3 +549,55 @@ async def test_a_free_alpha_vantage_key_spends_nothing_on_profiles_others_can_gi
         await fetcher._alpha_vantage_info("MU", "av-user-key", None)
 
     assert [request.url.params["function"] for request in seen] == ["OVERVIEW"]
+
+
+# Each part of the app's use of a key.
+
+
+@pytest.mark.asyncio
+async def test_each_part_of_the_app_counts_its_own_use_and_a_daily_limit_holds_a_key_back() -> None:
+    from app.api.auth import within_daily_limits
+    from app.core.credentials import key_limits_from, use_feature
+
+    use_feature("stock")
+    for _ in range(3):
+        usage.record("tiingo", TIINGO_KEY)
+    use_feature("markets")
+    usage.record("tiingo", TIINGO_KEY)
+    use_feature(None)
+    usage.record("tiingo", TIINGO_KEY)  # The nightly refresh: no part of the app.
+    await usage.flush()
+
+    counts = await usage.feature_counts({"tiingo": TIINGO_KEY})
+    assert counts == {"tiingo": {"stock": 3, "markets": 1}}
+
+    limits = key_limits_from({"X-PyQxel-Key-Limits": "tiingo=3,nonsense=4,fmp=x"})
+    assert limits == {"tiingo": 3}
+    kept, held = await within_daily_limits(_keys(), "stock", limits)
+    assert held == ["tiingo"] and kept.tiingo is None
+    kept, held = await within_daily_limits(_keys(), "markets", limits)
+    assert held == [] and kept.tiingo is not None
+
+
+@pytest.mark.usefixtures("real_auth")
+def test_a_held_back_key_is_named_in_the_response(
+    user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.test_nightly_refresh import _key_for
+
+    async def used(keys: object, now: object = None) -> dict[str, dict[str, int]]:
+        return {"finnhub": {"markets": 50}}
+
+    monkeypatch.setattr(usage, "feature_counts", used)
+    response = TestClient(app).get(
+        "/api/v1/usage/features",
+        headers={
+            "Authorization": f"Bearer {_key_for(user)}",
+            "X-Finnhub-Key": "finnhub-key-123",
+            "X-PyQxel-Feature": "markets",
+            "X-PyQxel-Key-Limits": "finnhub=50",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.headers["X-PyQxel-Held-Back"] == "finnhub"

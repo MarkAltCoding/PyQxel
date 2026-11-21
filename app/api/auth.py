@@ -10,14 +10,23 @@ the ones its data is fetched with (see :mod:`app.core.credentials`); none are st
 """
 
 import logging
-from typing import Annotated
+from dataclasses import replace
+from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, WebSocketException, status
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.requests import HTTPConnection
 
 from app.core.config import get_settings
-from app.core.credentials import provider_keys_from, use_provider_keys
+from app.core.credentials import (
+    ProviderKeys,
+    feature_from,
+    key_limits_from,
+    provider_keys_from,
+    use_feature,
+    use_provider_keys,
+)
+from app.data import usage
 from app.core.rate_limit import RateLimitExceeded, check_rate_limit
 from app.core.security import API_KEY_PREFIX
 from app.db.session import get_sessionmaker
@@ -93,16 +102,46 @@ async def authenticate(connection: HTTPConnection) -> User:
             {"Retry-After": str(exc.retry_after)},
         ) from exc
 
-    use_provider_keys(
-        provider_keys_from(
-            connection.headers,
-            yfinance=uses_yfinance(user),
-            unlicensed=sees_unlicensed_data(user),
-            user_id=user.id,
-            restricted_sources=uses_restricted_sources(user),
-        )
+    keys = provider_keys_from(
+        connection.headers,
+        yfinance=uses_yfinance(user),
+        unlicensed=sees_unlicensed_data(user),
+        user_id=user.id,
+        restricted_sources=uses_restricted_sources(user),
     )
+    feature = feature_from(connection.headers)
+    use_feature(feature)
+    if feature is not None:
+        keys, held = await within_daily_limits(keys, feature, key_limits_from(connection.headers))
+        if held:
+            # Read by HeldBackHeader, so the browser can say why a key was not used.
+            connection.state.held_back = held
+    use_provider_keys(keys)
     return user
+
+
+async def within_daily_limits(
+    keys: ProviderKeys, feature: str, limits: dict[str, int]
+) -> tuple[ProviderKeys, list[str]]:
+    """``keys`` without those whose ``feature`` has already made its day's ``limits`` of
+    requests on them, as the user set in Settings, and the providers left out. It is
+    checked as each request starts, so one request may take a key a little past its
+    limit."""
+    sent: dict[usage.UsageProvider, str] = {
+        provider: key.get_secret_value()
+        for provider in usage.PROVIDER_NAMES
+        if provider in limits and (key := getattr(keys, provider, None)) is not None
+    }
+    if not sent:
+        return keys, []
+    counts = await usage.feature_counts(sent)
+    held: list[str] = [
+        provider
+        for provider in sent
+        if counts.get(provider, {}).get(feature, 0) >= limits[provider]
+    ]
+    cleared: dict[str, Any] = {provider: None for provider in held}
+    return (replace(keys, **cleared) if held else keys), held
 
 
 def sees_unlicensed_data(user: User) -> bool:

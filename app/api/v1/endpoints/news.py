@@ -23,7 +23,7 @@ router = APIRouter()
 def news_http_error(exc: NewsFetchError) -> HTTPException:
     """Translate a Finnhub failure into an HTTP error.
 
-    403 without a usable Finnhub key, 402 when the plan does not cover the company, 503
+    403 without a usable Finnhub key, 402 when the plan does not cover the company, 429
     when the key is rate limited (with ``Retry-After`` when known), and 502 otherwise.
     """
     if isinstance(exc, NewsNotConfiguredError):
@@ -33,7 +33,7 @@ def news_http_error(exc: NewsFetchError) -> HTTPException:
     if isinstance(exc, NewsRateLimitError):
         headers = None if exc.retry_after is None else {"Retry-After": str(exc.retry_after)}
         return HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc), headers=headers
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc), headers=headers
         )
     return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 

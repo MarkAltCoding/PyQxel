@@ -1,7 +1,13 @@
 // A small fetch wrapper: sends the API key and this browser's provider keys, encodes
 // JSON, and turns error responses into ApiError with the server's message.
 
-import { providerKeyHeaders } from '../lib/providerKeys'
+import { featureOf, heldBackNote, keysOff, limitsHeader } from '../lib/keyFeatures'
+import {
+  PROVIDER_HEADERS,
+  providerKeyHeaders,
+  providerKeys,
+  type ProviderName,
+} from '../lib/providerKeys'
 
 /** The server's origin, empty when the server also serves the app (see `env.d.ts`). */
 const API_ORIGIN = (import.meta.env.VITE_API_ORIGIN ?? '').replace(/\/+$/, '')
@@ -78,8 +84,27 @@ export async function errorMessage(response: Response): Promise<string> {
   return response.statusText || `Request failed with status ${response.status}.`
 }
 
+/** The page the app shows, by which a request's part of the app is told. */
+function currentPage(): string {
+  try {
+    return window.location.pathname
+  } catch {
+    return ''
+  }
+}
+
+const HELD_BACK_HEADER = 'X-PyQxel-Held-Back'
+
 export async function send(path: string, options: RequestOptions = {}): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json', ...providerKeyHeaders() }
+  // A part of the app may be kept from some keys, or capped in what it spends of them a
+  // day, in Settings: those keys are not sent, and the server keeps the caps.
+  const feature = featureOf(path, currentPage())
+  const held = keysOff(feature).filter((name) => providerKeys()[name])
+  for (const name of held) delete headers[PROVIDER_HEADERS[name]]
+  const limits = limitsHeader(feature)
+  if (feature !== null) headers['X-PyQxel-Feature'] = feature
+  if (limits !== null) headers['X-PyQxel-Key-Limits'] = limits
   const key = options.key ?? apiKey
   if (key) headers.Authorization = `Bearer ${key}`
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
@@ -93,9 +118,14 @@ export async function send(path: string, options: RequestOptions = {}): Promise<
   if (!response.ok) {
     if (response.status === 401 && options.key === undefined) onUnauthorized?.()
     const retry = Number(response.headers.get('Retry-After'))
+    const limited = (response.headers.get(HELD_BACK_HEADER) ?? '')
+      .split(',')
+      .filter((name): name is ProviderName => name in PROVIDER_HEADERS)
+    const note = heldBackNote(feature, held, limited)
+    const message = await errorMessage(response)
     throw new ApiError(
       response.status,
-      await errorMessage(response),
+      note ? `${message} ${note}` : message,
       Number.isFinite(retry) && retry > 0 ? retry : null,
     )
   }

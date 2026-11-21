@@ -416,17 +416,18 @@ def events_shortlist(
     return likeliest_stocks(candidates, first)[: min(count, MAX_CANDIDATE_EVENTS)]
 
 
-HEADLINES_PER_CANDIDATE: int = 12
+HEADLINES_PER_CANDIDATE: int = 20
 """Most headlines given for one candidate or holding."""
 
-FEWEST_HEADLINES: int = 4
+FEWEST_HEADLINES: int = 6
 """Fewest headlines given for each one whose news was fetched, however many there are."""
 
-HEADLINE_BUDGET: int = 240
+HEADLINE_BUDGET: int = 480
 """Company headlines given to Claude in all, shared evenly among the stocks whose news was
-fetched: 30 picks get eight each, 40 holdings six, and ten holdings twelve. The articles
-are already fetched (one request per company, or one shared feed), so a larger share costs
-tokens, about 70 a headline, not requests."""
+fetched: 10 holdings get 20 each, 30 picks candidates 16, 40 holdings 12, 60 picks
+candidates 8, and 100 holdings 6. The articles are already fetched (one request per
+company, or one shared feed), so a larger share costs tokens, about 70 a headline, not
+requests."""
 
 
 def headlines_each(stocks: int) -> int:

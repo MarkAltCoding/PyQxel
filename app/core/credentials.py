@@ -11,6 +11,7 @@ another, and they are gone when the request ends.
 from collections.abc import Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
+from typing import Literal, get_args
 
 from pydantic import SecretStr
 
@@ -102,3 +103,54 @@ def current_provider_keys() -> ProviderKeys:
 def use_provider_keys(keys: ProviderKeys) -> None:
     """Make ``keys`` the current request's provider keys."""
     _current.set(keys)
+
+
+Feature = Literal["stock", "markets", "portfolio", "backtest", "screener", "picks", "search"]
+"""The parts of the app a request can be made for, as the browser names them, so a user
+can keep a key away from some or cap what each part spends of it in a day."""
+
+FEATURES: tuple[Feature, ...] = get_args(Feature)
+
+FEATURE_HEADER: str = "X-PyQxel-Feature"
+"""The header naming the part of the app a request is for."""
+
+KEY_LIMITS_HEADER: str = "X-PyQxel-Key-Limits"
+"""The header carrying, for that part, the requests a day each provider's key may make,
+as ``fmp=100,finnhub=500``."""
+
+HELD_BACK_HEADER: str = "X-PyQxel-Held-Back"
+"""The response header naming the keys left out because that part had used its day's
+share of them, so the browser can say why."""
+
+_feature: ContextVar[Feature | None] = ContextVar("feature", default=None)
+
+
+def feature_from(headers: Mapping[str, str]) -> Feature | None:
+    """The part of the app a request's ``headers`` say it is for; ``None`` when none is
+    named or the name is unknown, as for a script."""
+    value = (headers.get(FEATURE_HEADER) or "").strip().lower()
+    for feature in FEATURES:
+        if feature == value:
+            return feature
+    return None
+
+
+def key_limits_from(headers: Mapping[str, str]) -> dict[str, int]:
+    """The daily request limits a request's ``headers`` set on its keys, by provider;
+    an unknown provider or a malformed number is ignored."""
+    limits: dict[str, int] = {}
+    for part in (headers.get(KEY_LIMITS_HEADER) or "").split(","):
+        name, _, number = part.strip().partition("=")
+        if name in PROVIDER_HEADERS and number.strip().isdigit():
+            limits[name] = int(number)
+    return limits
+
+
+def current_feature() -> Feature | None:
+    """The part of the app the request being served is for; ``None`` outside one."""
+    return _feature.get()
+
+
+def use_feature(feature: Feature | None) -> None:
+    """Make ``feature`` the current request's part of the app."""
+    _feature.set(feature)

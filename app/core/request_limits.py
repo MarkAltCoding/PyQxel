@@ -8,6 +8,8 @@ pass the cap.
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.credentials import HELD_BACK_HEADER
+
 MAX_BODY_BYTES: int = 4 * 1024 * 1024
 """Largest request body accepted."""
 
@@ -75,3 +77,28 @@ class BodySizeLimit:
             # The app may raise on the disconnect it was told of; the refusal is sent.
             if not refused:
                 raise
+
+
+class HeldBackHeader:
+    """ASGI middleware naming, in a response's :data:`~app.core.credentials.HELD_BACK_HEADER`,
+    the keys the request left out because its part of the app had used its daily share of
+    them (set on the request's state by :func:`app.api.auth.authenticate`)."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_header(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                held = (scope.get("state") or {}).get("held_back")
+                if held:
+                    headers = list(message.get("headers", []))
+                    headers.append((HELD_BACK_HEADER.lower().encode(), ",".join(held).encode()))
+                    message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_header)
