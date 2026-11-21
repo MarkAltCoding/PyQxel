@@ -50,8 +50,11 @@ WRITTEN_BY_DESCRIPTION: str = (
     "5.5, so the saved report says which model wrote it."
 )
 
-MAX_WAIT_SECONDS: int = 900
-"""Longest a report may wait out data providers' per-minute limits: fifteen minutes."""
+MAX_WAIT_SECONDS: int = 1800
+"""Longest a report may wait out data providers' per-minute limits: thirty minutes, about
+what a free Finnhub plan needs to give every one of Claude's Picks' candidates its
+analysts' ratings, earnings surprises, and insiders' trades. Claude's own writing still
+fits within the server's hour-long request limit."""
 
 WAIT_DESCRIPTION: str = (
     "How long, in seconds, you will wait beyond the first minute for more data where a "

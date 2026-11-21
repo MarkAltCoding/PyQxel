@@ -200,6 +200,13 @@ def test_every_wait_gets_the_requests_that_add_the_most(
     found = asyncio.run(picks_route.plan_requests(60, 365))
     assert found.more is not None and "waiting about 4 minutes more" in found.more
 
+    # A long wait fills in the signals of every candidate stock, beyond those with news.
+    longer = asyncio.run(picks_route.plan_requests(60, 365, 300, 400))
+    longest = asyncio.run(picks_route.plan_requests(60, 365, 1800, 400))
+    assert (longer.news, longer.signals) == (60, 82)
+    assert longer.more is not None and "318 more stocks" in longer.more
+    assert (longest.news, longest.signals, longest.more) == (60, 400, None)
+
 
 def test_waiting_requests_take_the_next_minute(monkeypatch: pytest.MonkeyPatch) -> None:
     """Within the time allowed, a request beyond the minute's limit waits for the next

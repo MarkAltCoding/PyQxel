@@ -69,10 +69,11 @@ from typing import Any, TypeVar
 
 import pandas as pd
 from fastapi import HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import sees_unlicensed_data, uses_restricted_sources, uses_yfinance
-from app.api.v1.endpoints.picks import make_scheduled_picks
+from app.api.v1.endpoints.picks import gather_candidates, make_scheduled_picks
 from app.api.v1.endpoints.research import check_ai_limits
 from app.core.config import get_settings
 from app.core.credentials import use_provider_keys
@@ -115,16 +116,19 @@ from app.db.scheduled_picks import (
     horizon_for,
     start_picks_run,
 )
+from app.db.holdings import get_holdings
 from app.db.screener import (
     foreign_companies,
     load_companies,
     load_fundamentals,
     load_listings,
+    user_universe,
 )
 from app.db.session import close_database, get_sessionmaker, init_db
 from app.db.users import User, get_user
 from app.jobs.screener import PRICE_HISTORY_DAYS, completed_sessions
 from app.models.fundamentals import Financials
+from app.models.picks import PicksRequest
 from app.models.screener import ProviderScreenMetrics, ScreenedStock, ScreenMetrics
 from app.stats.screening import etf_screen_metrics, market_cap_ranks, user_screen_metrics
 from app.stats.sectors import industry_name, sector_for_sic
@@ -484,6 +488,36 @@ async def _added_etfs(symbols: list[str], notes: list[str]) -> list[_Etf]:
     return [_Etf(found[symbol], metrics) for symbol, metrics in provided.items()]
 
 
+PORTFOLIOS: int = 5
+"""Saved portfolios an account may hold, whose holdings get price histories first."""
+
+
+async def history_priorities(user_id: str) -> list[str]:
+    """The symbols whose price histories matter most, when free plans allow only some a
+    night: what the person holds in any portfolio, then the candidates Claude's Picks
+    would weigh in the screener as last built, those that led on the most measures first,
+    then the largest. Their momentum, volatility, drawdown, and betas are then measured
+    rather than estimated. Empty when the database cannot be read."""
+    try:
+        async with get_sessionmaker()() as session:
+            held = [
+                holding.symbol
+                for number in range(1, PORTFOLIOS + 1)
+                for holding in await get_holdings(session, user_id, number)
+            ]
+            universe = await user_universe(session, user_id)
+            candidates = (
+                []
+                if universe is None or universe.refreshed_at is None
+                else (await gather_candidates(session, universe, PicksRequest()))[0]
+            )
+    except SQLAlchemyError as exc:
+        logger.warning("Price histories go to the largest first: %s", exc)
+        return []
+    likeliest = sorted(candidates, key=lambda c: (-len(c.lenses), -(c.market_cap or 0.0), c.symbol))
+    return list(dict.fromkeys([*held, *(candidate.symbol for candidate in likeliest)]))
+
+
 async def build_user_universe(
     user_id: str,
     now: datetime,
@@ -549,13 +583,16 @@ async def build_user_universe(
 
     # The user chose how many stocks and ETFs each price-history key fetches histories
     # for: one request each, which free plans allow only so many of a day. Those they
-    # added by ticker come first.
+    # added by ticker come first, then their holdings and the picks' likeliest candidates,
+    # then the largest stocks and most traded ETFs.
     ranked = interleave(
         [stock.listing.symbol for stock in stocks], [etf.listing.symbol for etf in etfs]
     )
-    priced_first = [symbol for symbol in ranked if symbol in added] + [
-        symbol for symbol in ranked if symbol not in added
-    ]
+    listed_now = set(ranked)
+    important = [s for s in await history_priorities(user_id) if s in listed_now]
+    first = list(dict.fromkeys([*(s for s in ranked if s in added), *important]))
+    chosen_first = set(first)
+    priced_first = [*first, *(symbol for symbol in ranked if symbol not in chosen_first)]
     histories = await fetch_histories(
         priced_first, today - timedelta(days=PRICE_HISTORY_DAYS), price_history_limits
     )

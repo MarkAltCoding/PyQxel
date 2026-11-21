@@ -17,6 +17,8 @@ export const WAIT_CHOICES: { value: number; label: string }[] = [
   { value: 300, label: 'Up to 5 minutes' },
   { value: 600, label: 'Up to 10 minutes' },
   { value: 900, label: 'Up to 15 minutes' },
+  { value: 1200, label: 'Up to 20 minutes' },
+  { value: 1800, label: 'Up to 30 minutes' },
 ]
 
 /** Five minutes unless the person chose otherwise: enough for a full picks list or a

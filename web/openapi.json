@@ -1027,7 +1027,7 @@
           "wait_seconds": {
             "default": 0,
             "description": "How long, in seconds, you will wait beyond the first minute for more data where a provider's per-minute limit holds it back: a free Finnhub plan answers 60 requests a minute, so the news, analysts' ratings, and calendar of many stocks take several. 0 waits for nothing and leaves out what does not fit; the report's notice says what waiting would add.",
-            "maximum": 900.0,
+            "maximum": 1800.0,
             "minimum": 0.0,
             "title": "Wait Seconds",
             "type": "integer"
@@ -11299,7 +11299,7 @@
           "wait_seconds": {
             "default": 0,
             "description": "How long, in seconds, you will wait beyond the first minute for more data where a provider's per-minute limit holds it back: a free Finnhub plan answers 60 requests a minute, so the news, analysts' ratings, and calendar of many stocks take several. 0 waits for nothing and leaves out what does not fit; the report's notice says what waiting would add.",
-            "maximum": 900.0,
+            "maximum": 1800.0,
             "minimum": 0.0,
             "title": "Wait Seconds",
             "type": "integer"
@@ -11899,7 +11899,7 @@
           "wait_seconds": {
             "default": 0,
             "description": "How long, in seconds, you will wait beyond the first minute for more data where a provider's per-minute limit holds it back: a free Finnhub plan answers 60 requests a minute, so the news, analysts' ratings, and calendar of many stocks take several. 0 waits for nothing and leaves out what does not fit; the report's notice says what waiting would add.",
-            "maximum": 900.0,
+            "maximum": 1800.0,
             "minimum": 0.0,
             "title": "Wait Seconds",
             "type": "integer"

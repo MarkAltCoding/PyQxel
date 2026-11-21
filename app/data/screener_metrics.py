@@ -24,6 +24,7 @@ from typing import Any, TypeVar
 import httpx2
 import pandas as pd
 
+from app.core.text import tidy_name
 from app.data.fetcher import (
     HTTP_TIMEOUT_SECONDS,
     FINNHUB_FREE_PER_MINUTE,
@@ -139,7 +140,7 @@ def parse_etf_listings(rows: Any) -> list[EtfListing]:
         exchange = ETF_EXCHANGES.get(str(row.get("mic") or ""))
         if not symbol or exchange is None or not symbol.isalpha() or len(symbol) > 5:
             continue
-        name = str(row.get("description") or symbol).strip()
+        name = tidy_name(str(row.get("description") or symbol).strip())
         found[symbol] = EtfListing(symbol=symbol, name=name, exchange=exchange)
     return sorted(found.values(), key=lambda listing: listing.symbol)
 

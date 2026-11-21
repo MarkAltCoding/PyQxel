@@ -10,6 +10,7 @@ from sqlalchemy import ColumnElement, and_, case, delete, func, or_, select, tru
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
+from app.core.text import tidy_name
 from app.core.credentials import current_provider_keys
 from app.data.universe import Listing
 from app.db.nightly import latest_success
@@ -123,7 +124,8 @@ async def load_listings(session: AsyncSession) -> list[tuple[Listing, float | No
     )
     return [
         (
-            Listing(symbol=r.symbol, cik=r.cik, name=r.name, exchange=r.exchange),
+            # Listings stored before names were tidied are tidied as they are read.
+            Listing(symbol=r.symbol, cik=r.cik, name=tidy_name(r.name), exchange=r.exchange),
             r.shares_outstanding,
         )
         for r in records

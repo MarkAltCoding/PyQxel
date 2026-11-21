@@ -4,6 +4,7 @@ stores, when it runs, and the universe it builds from the user's keys alone."""
 import asyncio
 import json
 from collections.abc import Awaitable, Callable, Iterable, Mapping
+from types import SimpleNamespace
 from typing import Any
 from datetime import date, datetime, timedelta, timezone
 
@@ -749,8 +750,8 @@ def test_finnhub_symbol_list_gives_the_exchange_listed_etfs() -> None:
     listings = parse_etf_listings(rows)
 
     assert listings == [
-        EtfListing("QQQM", "INVESCO NASDAQ 100 ETF", "Nasdaq"),
-        EtfListing("VOO", "VANGUARD S&P 500 ETF", "NYSE Arca"),
+        EtfListing("QQQM", "Invesco Nasdaq 100 ETF", "Nasdaq"),
+        EtfListing("VOO", "Vanguard S&P 500 ETF", "NYSE Arca"),
     ]
 
 
@@ -1299,3 +1300,27 @@ def test_preferreds_units_and_warrants_are_told_apart_from_common_shares() -> No
     ]
 
     assert parse_non_common(rows) == {"GOOGM", "JPM-PRC", "ABCDU"}
+
+
+def test_holdings_and_the_likeliest_candidates_get_price_histories_first(
+    user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    held = {1: ["ZED"], 3: ["ACME", "ZED"]}
+
+    async def holdings(session: object, user_id: str, number: int) -> list[Any]:
+        return [SimpleNamespace(symbol=symbol) for symbol in held.get(number, [])]
+
+    async def universe(session: object, user_id: str) -> Any:
+        return SimpleNamespace(refreshed_at=datetime.now(timezone.utc))
+
+    def candidate(symbol: str, lenses: int, cap: float) -> Any:
+        return SimpleNamespace(symbol=symbol, lenses=["x"] * lenses, market_cap=cap)
+
+    async def candidates(session: object, found: object, request: object) -> Any:
+        return [candidate("BIG", 1, 9e11), candidate("MANY", 3, 1e9), candidate("ACME", 1, 1)], []
+
+    monkeypatch.setattr(job, "get_holdings", holdings)
+    monkeypatch.setattr(job, "user_universe", universe)
+    monkeypatch.setattr(job, "gather_candidates", candidates)
+
+    assert asyncio.run(job.history_priorities(user.id)) == ["ZED", "ACME", "MANY", "BIG"]

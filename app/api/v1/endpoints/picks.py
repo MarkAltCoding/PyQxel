@@ -123,6 +123,7 @@ from app.stats.picks import (
     candidate_events,
     headlines_each,
     events_shortlist,
+    likeliest_stocks,
     lenses_for,
     merge_candidates,
     screener_facts,
@@ -229,7 +230,10 @@ calendar and the other stocks' news."""
 
 
 async def plan_requests(
-    news_wanted: int, horizon_days: float | None, wait_seconds: float = 0
+    news_wanted: int,
+    horizon_days: float | None,
+    wait_seconds: float = 0,
+    signals_wanted: int | None = None,
 ) -> FetchPlan:
     """How much a report gathers from Finnhub when the person waits up to ``wait_seconds``
     beyond the key's first minute of requests.
@@ -239,7 +243,9 @@ async def plan_requests(
     month, four requests in all); the news of the :data:`CORE_NEWS` likeliest stocks; the
     signals of the first :data:`CORE_SIGNALS` (:data:`SIGNAL_REQUESTS` each); the rest of
     the calendar, up to the holding period or a quarter, when every company reports once;
-    the other stocks' news; then their signals. Calendar weeks already cached cost nothing.
+    the other stocks' news; then their signals, and those of up to ``signals_wanted``
+    stocks in all (by default the stocks with news), which only long waits reach, since
+    each costs three requests. Calendar weeks already cached cost nothing.
     So no wait gets news alone: a free plan's minute gives 25 stocks' news, five stocks'
     signals, and six weeks of calendar, and a minute's wait more gives every stock's news
     and a quarter's calendar. FOMC meetings, from the Federal Reserve with no key, cover the
@@ -247,6 +253,7 @@ async def plan_requests(
     shared feed, which costs nothing per company, and there are no signals.
     """
     days = backdrop_days(horizon_days)
+    signals_wanted = max(news_wanted, signals_wanted or 0)
     api_key = finnhub_key()
     if api_key is None:
         return FetchPlan(news_wanted, days, 0, 1, None)
@@ -271,19 +278,28 @@ async def plan_requests(
     later = take(later_weeks, 1)
     news += take(news_wanted - news, 1)
     signals += take(news - signals, SIGNAL_REQUESTS)
+    if news == news_wanted:
+        signals += take(signals_wanted - signals, SIGNAL_REQUESTS)
     calendar_days = days if later == later_weeks else min(days, fewest + later * 7)
 
     whole = (
-        backdrop_finnhub_requests(0) + all_weeks + news_wanted * (1 + SIGNAL_REQUESTS) + NEWS_MARGIN
+        backdrop_finnhub_requests(0)
+        + all_weeks
+        + news_wanted
+        + signals_wanted * SIGNAL_REQUESTS
+        + NEWS_MARGIN
     )
     more = None
-    if news < news_wanted or calendar_days < days or signals < news_wanted:
+    if news < news_wanted or calendar_days < days or signals < signals_wanted:
         extra = max(1, _minutes_for(whole, per_minute) - minutes)
         parts = []
         if news < news_wanted:
             parts.append(f"news for {news_wanted - news} more stocks")
-        if signals < news_wanted:
-            parts.append(f"analysts' ratings and earnings surprises for {news_wanted - signals}")
+        if signals < signals_wanted:
+            parts.append(
+                f"analysts' ratings and earnings surprises for {signals_wanted - signals} "
+                "more stocks"
+            )
         if calendar_days < days:
             parts.append(f"{days - calendar_days} more days of calendar")
         more = (
@@ -611,14 +627,17 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
     )
     horizon_days = profile.horizon.total_weeks * 7
     wait = request.wait_seconds
+    # Every stock's signals fit in the table at little cost in tokens, so a long wait
+    # fills them in for the candidates beyond those whose news is fetched.
+    likeliest = likeliest_stocks(candidates, first=request.added_symbols)
     shortlist = events_shortlist(candidates, first=request.added_symbols)
-    plan = await plan_requests(len(shortlist), horizon_days, wait)
+    plan = await plan_requests(len(shortlist), horizon_days, wait, len(likeliest))
     shortlist = shortlist[: plan.news]
     with finnhub_patience(_patience(wait)):
         (backdrop, market_notice), events, signals = await asyncio.gather(
             _market(horizon_days, plan.calendar_days),
             _candidate_events(shortlist, ciks),
-            _signals([c.symbol for c in shortlist[: plan.signals]]),
+            _signals([c.symbol for c in likeliest[: plan.signals]]),
         )
     candidates = with_listing_facts(
         candidates, None if backdrop is None else backdrop.earnings, sp500

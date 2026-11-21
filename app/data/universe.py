@@ -34,6 +34,7 @@ import httpx2
 import pandas as pd
 import yfinance as yf
 
+from app.core.text import tidy_name
 from app.data.fetcher import (
     FMP_BASE_URL,
     DataFetchError,
@@ -148,7 +149,7 @@ def parse_listings(payload: dict[str, Any]) -> list[Listing]:
         listings[symbol] = Listing(
             symbol=symbol,
             cik=int(row[index["cik"]]),
-            name=str(row[index["name"]]),
+            name=tidy_name(str(row[index["name"]])),
             exchange=str(exchange),
         )
     return sorted(listings.values(), key=lambda listing: listing.symbol)

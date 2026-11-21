@@ -393,20 +393,27 @@ Finnhub requests for the signals; :func:`app.api.v1.endpoints.picks.plan_request
 the list to what fits the time the person will wait."""
 
 
+def likeliest_stocks(
+    candidates: Sequence[PickCandidate], first: Collection[str] = ()
+) -> list[PickCandidate]:
+    """Every stock among ``candidates``, in the order their own data is fetched: those in
+    ``first`` (the tickers the person added, which no lens ranks), then the likeliest to
+    be picked, those that led on the most measures, then the largest. ETFs are left out,
+    since their news is the market's and they have no analysts or insiders."""
+    stocks = [candidate for candidate in candidates if candidate.asset_type == "stock"]
+    return sorted(
+        stocks,
+        key=lambda c: (c.symbol not in first, -len(c.lenses), -(c.market_cap or 0.0), c.symbol),
+    )
+
+
 def events_shortlist(
     candidates: Sequence[PickCandidate],
     count: int = EVENTS_SHORTLIST,
     first: Collection[str] = (),
 ) -> list[PickCandidate]:
-    """The stocks whose news is worth fetching: those in ``first`` (the tickers the person
-    added, which no lens ranks), then the likeliest to be picked, those that led on the
-    most measures, then the largest. ETFs are left out, since their news is the market's."""
-    stocks = [candidate for candidate in candidates if candidate.asset_type == "stock"]
-    ordered = sorted(
-        stocks,
-        key=lambda c: (c.symbol not in first, -len(c.lenses), -(c.market_cap or 0.0), c.symbol),
-    )
-    return ordered[: min(count, MAX_CANDIDATE_EVENTS)]
+    """The stocks whose news is worth fetching: the first of :func:`likeliest_stocks`."""
+    return likeliest_stocks(candidates, first)[: min(count, MAX_CANDIDATE_EVENTS)]
 
 
 HEADLINES_PER_CANDIDATE: int = 12
