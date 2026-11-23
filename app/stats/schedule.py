@@ -121,6 +121,70 @@ SESSION_READY_HOUR: int = 18
 after the 4 p.m. close, as :data:`app.data.fetcher.DAILY_BAR_READY_HOUR` takes them."""
 
 
+SESSION_OPEN: time = time(9, 30)
+"""When an NYSE session opens, New York time."""
+
+REGULAR_CLOSE: time = time(16)
+EARLY_CLOSE: time = time(13)
+"""When the NYSE closes early: the day after Thanksgiving, and July 3 and December 24
+when they fall Monday to Thursday (a Friday one is the observed holiday itself)."""
+
+AFTER_HOURS_END: time = time(20)
+"""When US after-hours trading ends, New York time."""
+
+
+def early_closes(year: int) -> frozenset[date]:
+    """The days in ``year`` the NYSE closes at 1 p.m."""
+    days = {_nth_weekday(year, 11, 3, 4) + timedelta(days=1)}
+    for month, day in ((7, 3), (12, 24)):
+        candidate = date(year, month, day)
+        if candidate.weekday() < 4:
+            days.add(candidate)
+    return frozenset(days)
+
+
+def session_open(day: date) -> datetime:
+    """When ``day``'s NYSE session opens, in New York time."""
+    return datetime.combine(day, SESSION_OPEN, tzinfo=NYSE_ZONE)
+
+
+def session_close(day: date) -> datetime:
+    """When ``day``'s NYSE session closes, in New York time: 4 p.m., or 1 p.m. on an early
+    close."""
+    closes = EARLY_CLOSE if day in early_closes(day.year) else REGULAR_CLOSE
+    return datetime.combine(day, closes, tzinfo=NYSE_ZONE)
+
+
+def holding_window(now: datetime, days: int) -> tuple[datetime, datetime]:
+    """When a holding of ``days`` calendar days bought at ``now`` begins and ends, in New
+    York time.
+
+    It begins now while the NYSE is open, or else at the next session's open. Bought at a
+    later open, it ends at the close of the last session before the same day of the week
+    ``days`` later, so a week chosen over a weekend runs from Monday's open to Friday's
+    close: one full trading week. Bought during a session, it ends at the close ``days``
+    later, or the last session before. Holidays and early closes are kept.
+    """
+    local = now.astimezone(NYSE_ZONE)
+    today = local.date()
+    if is_trading_day(today) and session_open(today) <= local < session_close(today):
+        starts, entry, inclusive = local, today, True
+    else:
+        # Before today's open it is bought at that open; after the close, at the next one.
+        entry = today
+        if not (is_trading_day(today) and local < session_open(today)):
+            entry = today + timedelta(days=1)
+            while not is_trading_day(entry):
+                entry += timedelta(days=1)
+        starts, inclusive = session_open(entry), False
+    last = entry + timedelta(days=max(1, days))
+    if not inclusive:
+        last -= timedelta(days=1)
+    while last > entry and not is_trading_day(last):
+        last -= timedelta(days=1)
+    return starts, session_close(last)
+
+
 def session_ready(day: date) -> datetime:
     """When ``day``'s NYSE session's prices are ready, as UTC."""
     return datetime.combine(day, time(SESSION_READY_HOUR), tzinfo=NYSE_ZONE).astimezone(

@@ -7697,6 +7697,16 @@ export interface components {
        */
       holding_figures?: components['schemas']['ScreenerFacts'][]
       /**
+       * Holding From
+       * @description When the holding begins, New York time: now while the NYSE is open, else the next session's open.
+       */
+      holding_from?: string | null
+      /**
+       * Holding Until
+       * @description When it ends, New York time: the close of the period's last trading session (a 1 p.m. early close on some days before holidays). A week chosen over a weekend runs from Monday's open to Friday's close.
+       */
+      holding_until?: string | null
+      /**
        * Holdings
        * @description What the person already holds in the portfolios they chose to show, largest first; empty when they chose none.
        */

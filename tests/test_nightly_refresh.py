@@ -490,7 +490,9 @@ def test_unticking_a_key_stops_a_refresh_using_it(
         async with get_sessionmaker()() as session:
             await storage.enable(session, user.id, settings, both)
 
-    settings = NightlyRefreshSettings(refresh_time="00:00", time_zone="UTC")
+    settings = NightlyRefreshSettings(
+        refresh_time="00:00", time_zone="UTC", schedule=RefreshSchedule(frequency="nightly")
+    )
     both = ProviderKeys(finnhub=SecretStr(FINNHUB), tiingo=SecretStr(TIINGO))
     asyncio.run(with_tiingo())
     finnhub_only = settings.model_copy(update={"use_keys": ["finnhub"]})
@@ -709,7 +711,10 @@ def test_a_refresh_fetches_only_as_many_histories_as_chosen_and_records_its_use(
                 session,
                 user.id,
                 NightlyRefreshSettings(
-                    refresh_time="00:00", time_zone="UTC", price_history_limits={"tiingo": 1}
+                    refresh_time="00:00",
+                    time_zone="UTC",
+                    price_history_limits={"tiingo": 1},
+                    schedule=RefreshSchedule(frequency="nightly"),
                 ),
                 ProviderKeys(finnhub=SecretStr(FINNHUB), tiingo=SecretStr(TIINGO)),
             )

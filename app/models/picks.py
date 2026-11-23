@@ -413,6 +413,17 @@ class PicksContext(BaseModel):
     horizon: str = Field(description="The holding period in words.")
     horizon_weeks: float = Field(gt=0, description="The holding period in weeks.")
     today: date
+    holding_from: datetime | None = Field(
+        default=None,
+        description="When the holding begins, New York time: now while the NYSE is open, "
+        "else the next session's open.",
+    )
+    holding_until: datetime | None = Field(
+        default=None,
+        description="When it ends, New York time: the close of the period's last trading "
+        "session (a 1 p.m. early close on some days before holidays). A week chosen over a "
+        "weekend runs from Monday's open to Friday's close.",
+    )
     universe: PicksUniverse
     candidates: list[PickCandidate] = Field(max_length=MAX_CANDIDATES + MAX_ADDED_SYMBOLS)
     market: MarketContext | None = Field(

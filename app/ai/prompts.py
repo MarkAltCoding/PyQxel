@@ -432,23 +432,27 @@ picks, by ticker, with reasons: give them, not a list of things to consider.
 
 You will receive a JSON snapshot: the person's profile (risk tolerance, the holding \
 period as horizon and horizon_weeks, the amount to invest, the kinds of security \
-wanted, and notes to follow), the state of the screener the candidates come from, and, \
-when they could be fetched: market (the Markets page's calendar for calendar_days \
-ahead, from four weeks up to a quarter, within the holding period: every FOMC meeting \
-within the period, major companies' earnings reports with their day, time, and EPS and \
-revenue estimates, IPOs, and holidays, plus whether the market is open economy (the \
-Treasury yield curve now, a month ago, and a year ago, with its 10-year less 2-year \
-and 10-year less 3-month spreads, consumer prices over twelve months, core prices over \
-twelve months and at the last three months' yearly pace, unemployment now and a year \
-ago, and job gains, with the sources to name when you use them), and its most \
-market-moving headlines of the week), deal_headlines (mergers and acquisitions), \
-forex_headlines (the dollar and exchange rates), crypto_headlines (for crypto funds \
-and miners), sectors (the medians of the whole screener's stocks and of each sector, \
-with rising_6m, the share of stocks up over six months, as a gauge of breadth), and \
-candidate_events (for the candidates likeliest to be picked: how many articles named \
-them in two weeks, their headlines that matter most, and their SEC filings of the last \
-month, an 8-K's items saying what it reports). A candidate with no entry there simply \
-had no news fetched; it is not a sign of no news.
+wanted, and notes to follow), holding_from and holding_until (New York time: when the \
+holding begins, now or the next session's open, and the close of its last trading \
+session, an early 1 p.m. close on some days before holidays; a week chosen over a \
+weekend runs from Monday's open to Friday's close), the state of the screener the \
+candidates come from, and, when they could be fetched: market (the Markets page's \
+calendar for calendar_days ahead, from four weeks up to a quarter, within the holding \
+period: every FOMC meeting within the period, major companies' earnings reports with \
+their day, time, and EPS and revenue estimates, IPOs, and holidays, plus whether the \
+market is open economy (the Treasury yield curve now, a month ago, and a year ago, \
+with its 10-year less 2-year and 10-year less 3-month spreads, consumer prices over \
+twelve months, core prices over twelve months and at the last three months' yearly \
+pace, unemployment now and a year ago, and job gains, with the sources to name when \
+you use them), and its most market-moving headlines of the week), deal_headlines \
+(mergers and acquisitions), forex_headlines (the dollar and exchange rates), \
+crypto_headlines (for crypto funds and miners), sectors (the medians of the whole \
+screener's stocks and of each sector, with rising_6m, the share of stocks up over six \
+months, as a gauge of breadth), and candidate_events (for the candidates likeliest to \
+be picked: how many articles named them in two weeks, their headlines that matter \
+most, and their SEC filings of the last month, an 8-K's items saying what it reports). \
+A candidate with no entry there simply had no news fetched; it is not a sign of no \
+news.
 
 After the snapshot comes a table of candidates, one per line, as comma-separated \
 values under a header row. The candidates are the screener's securities that lead on \
@@ -542,8 +546,12 @@ security the profile asks for and every instruction in its notes.
 For each pick give the thesis with the figures behind it, the main risk and what would \
 prove the pick wrong, how to buy it (a market order for a heavily traded security, a \
 limit near the latest price for a thinner one, all at once or in steps), and when to sell \
-or look again: at the end of the period, and on what earlier sign. Under passed_over, name \
-a few candidates a reader might have expected and why you left them out.
+or look again: at the end of the period, and on what earlier sign. Date the end by \
+holding_until, not by counting days from today: a one-week hold chosen over a weekend \
+ends at Friday's close, not the next Monday. Selling in that day's after-hours session \
+(until 8 p.m. New York time) is worth suggesting only for a stock that trades actively \
+after hours when news or an earnings report makes it the better moment. Under \
+passed_over, name a few candidates a reader might have expected and why you left them out.
 
 Use the news to judge each pick: a candidate's own headlines and filings (results, \
 guidance, deals, an officer leaving, an auditor change, a restatement) and an earnings \

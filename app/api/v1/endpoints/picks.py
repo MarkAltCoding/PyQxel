@@ -116,6 +116,7 @@ from app.models.research import AnalysisDelta, AnalysisStreamError
 from app.models.screener import ScreenedStock
 from app.models.stock import SYMBOL_PATTERN
 from app.models.web import WebSearchQuery
+from app.stats.schedule import holding_window
 from app.stats.picks_performance import ends_on, history_period, start_day, track
 from app.stats.picks import (
     signal_facts,
@@ -626,6 +627,7 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
         session, user_id, universe, request.holdings_portfolios, companies
     )
     horizon_days = profile.horizon.total_weeks * 7
+    window = holding_window(datetime.now(timezone.utc), round(horizon_days))
     wait = request.wait_seconds
     # Every stock's signals fit in the table at little cost in tokens, so a long wait
     # fills them in for the candidates beyond those whose news is fetched.
@@ -669,6 +671,8 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
         horizon=profile.horizon.label,
         horizon_weeks=round(profile.horizon.total_weeks, 1),
         today=date.today(),
+        holding_from=window[0],
+        holding_until=window[1],
         universe=PicksUniverse(
             securities=securities,
             own=universe.own,

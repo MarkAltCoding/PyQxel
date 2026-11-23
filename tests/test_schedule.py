@@ -82,3 +82,37 @@ def test_trading_days_run_once_after_each_session_whatever_the_time_and_zone() -
     # Saturday evening in Tokyo is Saturday morning in New York, just after Friday's close.
     assert "Sat 28" in _runs("19:00", "Asia/Tokyo", range(23, 31))
     assert "Fri 27" not in _runs("19:00", "Asia/Tokyo", range(23, 31))
+
+
+def test_early_closes_and_holding_windows_follow_the_trading_week() -> None:
+    from zoneinfo import ZoneInfo
+
+    from app.stats.schedule import early_closes, holding_window
+
+    new_york = ZoneInfo("America/New_York")
+    assert early_closes(2026) == {date(2026, 11, 27), date(2026, 12, 24)}
+    assert date(2025, 7, 3) in early_closes(2025)
+
+    def window(when: datetime, days: int = 7) -> tuple[str, str]:
+        starts, ends = holding_window(when, days)
+        return starts.strftime("%a %d %H:%M"), ends.strftime("%a %d %H:%M")
+
+    # A week chosen over the weekend: Monday's open to Friday's close, early on Black Friday.
+    assert window(datetime(2026, 11, 22, 22, 15, tzinfo=new_york)) == (
+        "Mon 23 09:30",
+        "Fri 27 13:00",
+    )
+    assert window(datetime(2026, 11, 20, 17, 0, tzinfo=new_york)) == (
+        "Mon 23 09:30",
+        "Fri 27 13:00",
+    )
+    # Christmas week ends on Thursday's early close.
+    assert window(datetime(2026, 12, 20, 12, 0, tzinfo=new_york)) == (
+        "Mon 21 09:30",
+        "Thu 24 13:00",
+    )
+    # During a session it starts now and ends a week later at the close.
+    assert window(datetime(2026, 11, 24, 11, 0, tzinfo=new_york)) == (
+        "Tue 24 11:00",
+        "Tue 01 16:00",
+    )
