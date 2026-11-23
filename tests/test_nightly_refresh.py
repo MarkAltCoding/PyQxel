@@ -49,6 +49,7 @@ from app.models.screener import ProviderScreenMetrics
 from app.stats.screening import user_screen_metrics
 from app.stats.sectors import industry_name, sector_for_sic
 from tests.conftest import make_user
+from tests.financials import flow, sample_financials
 
 client = TestClient(app)
 
@@ -630,7 +631,7 @@ async def test_a_home_listings_market_cap_is_converted_to_dollars(
     assert converted["AAPL"].average_volume == pytest.approx(31e6)
 
 
-def test_price_history_fills_its_columns_and_the_provider_comes_first() -> None:
+def test_price_history_fills_its_columns_and_the_provider_fills_gaps() -> None:
     provider = _metrics(5e9)
     today = date(2026, 10, 30)
 
@@ -641,6 +642,36 @@ def test_price_history_fills_its_columns_and_the_provider_comes_first() -> None:
     assert with_history.momentum_12_1 is not None and with_history.volatility is not None
     assert with_history.pe_ratio == 25.0
     assert with_history.return_6m != provider.return_6m
+
+
+def test_sec_financials_come_before_finnhubs_and_keep_a_banks_blanks() -> None:
+    """Finnhub's figures for banks are wrong (JPMorgan's revenue "grew" 109%, and its free
+    cash flow yield was 18%): a company's current SEC financials come first, and the
+    free cash flow and EBITDA a bank does not report stay empty rather than take
+    Finnhub's. A company without SEC financials takes Finnhub's figures."""
+    provider = _metrics(5e9).model_copy(
+        update={"revenue_growth": 1.09, "fcf_yield": 0.183, "ev_to_ebitda": 9.0}
+    )
+    bank = sample_financials(
+        revenue=flow("RevenuesNetOfInterestExpense", 400.0, growth=0.13),
+        gross_profit=None,
+        operating_income=None,
+        capital_expenditure=None,
+        depreciation_amortization=None,
+        free_cash_flow=None,
+        ebitda=None,
+    )
+    today = date.today()
+
+    from_sec = user_screen_metrics(provider, _history(), None, bank, None, today)
+    from_finnhub = user_screen_metrics(provider, _history(), None, None, None, today)
+
+    assert from_sec is not None and from_finnhub is not None
+    assert from_sec.revenue_growth == pytest.approx(0.13)
+    assert from_sec.fcf_yield is None and from_sec.ev_to_ebitda is None
+    assert from_sec.pe_ratio == pytest.approx(5e9 / 100.0)
+    assert from_sec.gross_margin == 0.4  # the SEC has none, so Finnhub's fills it
+    assert from_finnhub.revenue_growth == 1.09 and from_finnhub.fcf_yield == 0.183
 
 
 def test_sic_codes_map_to_sectors_and_readable_industries() -> None:

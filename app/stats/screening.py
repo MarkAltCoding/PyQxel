@@ -101,6 +101,12 @@ def _ttm_growth(item: FlowItem | None) -> float | None:
     return None if item is None else item.ttm_growth
 
 
+def _is_current(financials: Financials | None, today: date) -> bool:
+    """Whether ``financials`` have a latest period recent enough to compute ratios from."""
+    latest = None if financials is None else financials.latest_period_end
+    return latest is not None and today - latest <= timedelta(days=STALE_FUNDAMENTALS_DAYS)
+
+
 def fundamental_metrics(
     financials: Financials | None,
     price: float,
@@ -125,10 +131,7 @@ def fundamental_metrics(
     ]
     empty: dict[str, float | None] = {field: None for field in fields}
     empty |= {"revenue_growth": None, "earnings_growth": None}
-    latest = None if financials is None else financials.latest_period_end
-    if financials is None or latest is None:
-        return empty
-    if today - latest > timedelta(days=STALE_FUNDAMENTALS_DAYS):
+    if financials is None or not _is_current(financials, today):
         return empty
     rate = (exchange_rates or {}).get(financials.currency)
     valuation = value_company(financials, price, market_cap, "USD", rate)
@@ -194,7 +197,14 @@ PROVIDER_FIELDS: tuple[str, ...] = (
     "earnings_growth",
     "return_6m",
 )
-"""Metrics a provider's basic financials report, taken from them before SEC data."""
+"""Metrics a provider's basic financials report, used where the SEC's financials give none."""
+
+SEC_LEFT_BLANK: tuple[str, ...] = ("ev_to_ebitda", "fcf_yield")
+"""Metrics a company's SEC financials, once they value it, leave empty on purpose, which a
+provider's figure must not fill: the company reports no operating income, depreciation,
+or capital expenditure, as banks and insurers do not, and for them EBITDA and free cash
+flow mean nothing. Finnhub's figures for banks fill them anyway, giving JPMorgan a free cash flow
+yield of 18%."""
 
 
 def user_screen_metrics(
@@ -208,9 +218,14 @@ def user_screen_metrics(
 ) -> ScreenMetrics | None:
     """One stock's metrics in a user's own universe, from three sources in turn.
 
-    1. The provider's metrics (Finnhub's free basic financials) come first, for market
-       cap, valuation, margins, growth, and the six-month return.
-    2. The SEC financials fill what the provider left out, valued at its market cap.
+    1. The SEC financials, when current, come first for valuation, margins, and growth,
+       valued at the provider's market cap: they are public and keyless, and computed
+       the same way as the shared universe's. Finnhub's figures for banks are wrong
+       (JPMorgan's revenue "grew" 109% in a year it grew 13%).
+    2. The provider's metrics (Finnhub's free basic financials) give the market cap and
+       six-month return, and fill what the SEC left out, except for the metrics in
+       :data:`SEC_LEFT_BLANK`. A company without current SEC financials, as a foreign
+       one filing only abroad, takes all of them from the provider.
     3. Price history, when the user's keys could fetch it, gives the price-history
        columns (returns, momentum, volatility, drawdown, factor betas), the price and the
        dollar volume, computed as for the shared universe.
@@ -249,13 +264,12 @@ def user_screen_metrics(
             "volatility": provider.volatility_3m,
             "beta_market": provider.beta,
         }
-    metrics: dict[str, float | None] = {
-        field: getattr(provider, field) for field in PROVIDER_FIELDS
-    }
     sec = fundamental_metrics(financials, price, market_cap, today, exchange_rates)
-    for field, value in sec.items():
-        if metrics.get(field) is None:
-            metrics[field] = value
+    sec_valued = sec["pe_ratio"] is not None or sec["price_to_sales"] is not None
+    metrics: dict[str, float | None] = dict(sec)
+    for field in PROVIDER_FIELDS:
+        if metrics.get(field) is None and not (sec_valued and field in SEC_LEFT_BLANK):
+            metrics[field] = getattr(provider, field)
     for field, value in history.items():
         if value is not None or field not in metrics:
             metrics[field] = value

@@ -163,9 +163,10 @@ def holding_window(now: datetime, days: int) -> tuple[datetime, datetime]:
     later open, it ends at the close of the last session before the same day of the week
     ``days`` later, so a week chosen over a weekend runs from Monday's open to Friday's
     close: one full trading week. Bought during a session, it ends at the close ``days``
-    later, or the last session before. Holidays and early closes are kept.
+    later, or the last session before. Holidays and early closes are kept. A holding begun
+    now begins at the minute, since seconds mean nothing to it.
     """
-    local = now.astimezone(NYSE_ZONE)
+    local = now.astimezone(NYSE_ZONE).replace(second=0, microsecond=0)
     today = local.date()
     if is_trading_day(today) and session_open(today) <= local < session_close(today):
         starts, entry, inclusive = local, today, True

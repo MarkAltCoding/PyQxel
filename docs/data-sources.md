@@ -339,7 +339,7 @@ and use the first one that covers the request. "Free" means the provider's free 
 | Sector and industry, US companies | SEC industry codes (public) → FMP → Finnhub → Tiingo → Alpha Vantage | **Covered, with no key**, for every SEC filer |
 | A company's SEC filings | SEC EDGAR (public) | **Covered, with no key** |
 | Screener: listings, sectors, financials | SEC EDGAR (public), shared by every account | **Covered** |
-| Screener: market cap, P/E, returns, beta, volatility, volume | Each user's own Finnhub key (basic financials, 1 request per stock, about 70 minutes for 4,000 stocks) | **Covered for that user** |
+| Screener: market cap, returns, beta, volatility, volume, and ratios the SEC financials lack | Each user's own Finnhub key (basic financials, 1 request per stock, about 70 minutes for 4,000 stocks); the SEC financials come first for valuation, margins, and growth, since Finnhub's are wrong for banks | **Covered for that user** |
 | Screener: daily prices for every stock (12-1 momentum, max drawdown, factor betas) | EODHD Historian ($19.99; a bulk call returns a whole exchange's day) → FMP Starter ($29; one request per stock) | **No free source** |
 
 ## What has no free source

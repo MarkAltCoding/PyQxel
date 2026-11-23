@@ -38,6 +38,7 @@ from app.models.portfolio_analysis import PortfolioContext
 from app.models.research import AnalysisDelta
 from app.models.screener import RankedStock, ScreenedStock, ScreenField
 from app.models.web import WebSearchQuery
+from app.stats.schedule import holding_window
 from app.stats.picks import (
     LENSES,
     candidate_events,
@@ -831,9 +832,14 @@ def test_a_review_is_given_its_holdings_figures_news_and_filings(
 
 
 def test_the_copied_picks_prompt_holds_exactly_what_the_app_sends(
-    screener: list[PicksContext],
+    screener: list[PicksContext], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Claude outside the app gets the same request, data and all, as the app sends."""
+    # While the market is open a holding begins now, so both requests are asked at once.
+    opened = datetime(2026, 11, 23, 15, 30, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        picks_route, "holding_window", lambda _now, days: holding_window(opened, days)
+    )
     request = {"profile": {"horizon": {"years": 1}}}
     client.post(PICKS, json=request)
     exported = client.post(f"{PICKS}/prompt", json=request).json()["prompt"]
