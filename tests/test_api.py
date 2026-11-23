@@ -2321,13 +2321,13 @@ def test_analysis_context_carries_signals(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_analysis_context_carries_finnhub_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Finnhub's key metrics and peers are given to the model."""
+    """Finnhub's key metrics and peers are given to the model, with the filed revenue
+    growth in place of Finnhub's, which is far off for banks."""
     calls = _serve_analysis(monkeypatch, ANALYZABLE, _recent_frame(), THESIS)
 
     async def fake_metrics(symbol: str) -> CompanyMetrics:
-        return CompanyMetrics(
-            symbol=symbol.upper(), metrics=KeyMetrics(forward_pe=25.0), peers=["MSFT"]
-        )
+        found = KeyMetrics(forward_pe=25.0, revenue_growth_ttm=1.09)
+        return CompanyMetrics(symbol=symbol.upper(), metrics=found, peers=["MSFT"])
 
     monkeypatch.setattr(research, "fetch_company_metrics", fake_metrics)
 
@@ -2335,6 +2335,7 @@ def test_analysis_context_carries_finnhub_metrics(monkeypatch: pytest.MonkeyPatc
 
     metrics = response.json()["context"]["metrics"]
     assert metrics["metrics"]["forward_pe"] == 25.0 and metrics["peers"] == ["MSFT"]
+    assert metrics["metrics"]["revenue_growth_ttm"] == pytest.approx(0.1)
     context, _, _ = calls[0]
     assert context.notice is None
 

@@ -7,7 +7,7 @@ universe can be scored without further requests.
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 
 import pandas as pd
 
@@ -15,7 +15,7 @@ from app.models.factors import FactorName
 from app.models.fundamentals import Financials, FlowItem
 from app.models.screener import ProviderScreenMetrics, ScreenMetrics
 from app.stats.factors import fit_factor_model
-from app.stats.valuation import value_company
+from app.stats.valuation import is_current, value_company
 from app.stats.volatility import InsufficientDataError
 
 MONTH_DAYS: int = 21
@@ -26,9 +26,6 @@ YEAR_DAYS: int = 252
 DOLLAR_VOLUME_DAYS: int = 63
 """Trading days the average dollar volume covers: about three months."""
 
-STALE_FUNDAMENTALS_DAYS: int = 550
-"""Financials whose latest period ended longer ago than this are not used for ratios; the
-company has stopped filing on time."""
 
 BETA_FIELDS: dict[FactorName, str] = {
     "Mkt-RF": "beta_market",
@@ -101,12 +98,6 @@ def _ttm_growth(item: FlowItem | None) -> float | None:
     return None if item is None else item.ttm_growth
 
 
-def _is_current(financials: Financials | None, today: date) -> bool:
-    """Whether ``financials`` have a latest period recent enough to compute ratios from."""
-    latest = None if financials is None else financials.latest_period_end
-    return latest is not None and today - latest <= timedelta(days=STALE_FUNDAMENTALS_DAYS)
-
-
 def fundamental_metrics(
     financials: Financials | None,
     price: float,
@@ -131,7 +122,7 @@ def fundamental_metrics(
     ]
     empty: dict[str, float | None] = {field: None for field in fields}
     empty |= {"revenue_growth": None, "earnings_growth": None}
-    if financials is None or not _is_current(financials, today):
+    if financials is None or not is_current(financials, today):
         return empty
     rate = (exchange_rates or {}).get(financials.currency)
     valuation = value_company(financials, price, market_cap, "USD", rate)

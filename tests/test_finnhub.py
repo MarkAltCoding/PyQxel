@@ -30,11 +30,14 @@ from app.data.fetcher import (
     finnhub_get,
 )
 from app.data.finnhub import fetch_company_metrics, fetch_signals, search_symbols
+from app.data.sec_edgar import CompanyNotFoundError
 from app.main import app
+from app.models.fundamentals import Financials
 from app.models.screener import SearchMatch
 from app.models.signals import InsiderTrade, MarketSignals
 from app.models.stock import TickerInfo
 from app.stats.signals import summarize_insiders, summarize_signals
+from tests.financials import flow, sample_financials
 
 KEY = "fh-user-key"
 TODAY = date(2026, 10, 22)
@@ -619,6 +622,7 @@ def test_metrics_route(user: object, monkeypatch: pytest.MonkeyPatch) -> None:
         return CompanyMetrics(symbol=symbol, metrics=KeyMetrics(beta=1.2), peers=["MSFT"])
 
     monkeypatch.setattr(metrics_route, "fetch_company_metrics", fake)
+    monkeypatch.setattr(metrics_route, "fetch_financials", _no_filings)
 
     ok = client.get("/api/v1/stocks/AAPL/metrics")
     refused = client.get("/api/v1/stocks/SAP.DE/metrics")
@@ -649,10 +653,57 @@ def test_a_us_listings_52_week_range_comes_from_its_own_prices(
 
     monkeypatch.setattr(metrics_route, "fetch_company_metrics", fake)
     monkeypatch.setattr(metrics_route, "fetch_price_history", history)
+    monkeypatch.setattr(metrics_route, "fetch_financials", _no_filings)
 
     metrics = client.get("/api/v1/stocks/TSM/metrics").json()["metrics"]
 
     assert (metrics["week_52_low"], metrics["week_52_high"]) == (290.0, 330.0)
+
+
+async def _no_filings(symbol: str) -> object:
+    raise CompanyNotFoundError(f"No SEC registrant has {symbol}.")
+
+
+def test_a_banks_metrics_take_the_filed_revenue_growth(
+    user: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Finnhub's revenue growth for banks is far off (JPMorgan's read 109% in a year its
+    filings show 13%), and a bank has no free cash flow: the filed growth replaces
+    Finnhub's, and its price to free cash flow is left out. Finnhub's other figures stay."""
+    from app.api.v1.endpoints import metrics as metrics_route
+    from app.models.metrics import CompanyMetrics, KeyMetrics
+
+    async def fake(symbol: str) -> CompanyMetrics:
+        found = KeyMetrics(
+            week_52_high=330.0,
+            week_52_low=200.0,
+            pe_ttm=12.5,
+            revenue_growth_ttm=1.09,
+            price_to_fcf_ttm=5.4,
+            revenue_growth_5y=0.077,
+        )
+        return CompanyMetrics(symbol=symbol, metrics=found, peers=[])
+
+    async def filed(symbol: str) -> Financials:
+        if symbol == "AAPL":
+            return sample_financials(revenue=flow("Revenues", 400.0, growth=0.15))
+        return sample_financials(
+            revenue=flow("RevenuesNetOfInterestExpense", 400.0, growth=0.13),
+            capital_expenditure=None,
+            free_cash_flow=None,
+        )
+
+    monkeypatch.setattr(metrics_route, "fetch_company_metrics", fake)
+    monkeypatch.setattr(metrics_route, "fetch_financials", filed)
+
+    bank = client.get("/api/v1/stocks/JPM/metrics").json()["metrics"]
+    company = client.get("/api/v1/stocks/AAPL/metrics").json()["metrics"]
+
+    assert bank["revenue_growth_ttm"] == pytest.approx(0.13)
+    assert bank["price_to_fcf_ttm"] is None
+    assert (bank["pe_ttm"], bank["revenue_growth_5y"]) == (12.5, 0.077)
+    assert company["revenue_growth_ttm"] == pytest.approx(0.15)
+    assert company["price_to_fcf_ttm"] == 5.4
 
 
 def test_search_adds_finnhub_matches_after_the_universe(

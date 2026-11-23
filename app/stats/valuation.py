@@ -1,6 +1,19 @@
 """Valuation multiples, margins, and returns from a market value and financial statements."""
 
+from datetime import date, timedelta
+
 from app.models.fundamentals import Financials, FlowItem, MarketCapSource, Valuation
+from app.models.metrics import KeyMetrics
+
+STALE_FUNDAMENTALS_DAYS: int = 550
+"""Financials whose latest period ended longer ago than this are not used for ratios; the
+company has stopped filing on time."""
+
+
+def is_current(financials: Financials | None, today: date) -> bool:
+    """Whether ``financials`` have a latest period recent enough to compute ratios from."""
+    latest = None if financials is None else financials.latest_period_end
+    return latest is not None and today - latest <= timedelta(days=STALE_FUNDAMENTALS_DAYS)
 
 
 def _ttm(item: FlowItem | None) -> float | None:
@@ -146,3 +159,32 @@ def value_company(
         exchange_rate=None if same_currency else rate,
         notes=notes,
     )
+
+
+def with_filed_figures(
+    metrics: KeyMetrics, financials: Financials | None, today: date
+) -> KeyMetrics:
+    """Finnhub's key ``metrics`` with the figures it gets wrong replaced from ``financials``,
+    when they are current.
+
+    Finnhub's revenue growth for banks is far off: JPMorgan's twelve months "grew" 109%,
+    while its filings show 13% and Finnhub's own three-year rate is 3% a year (Bank of
+    America's read 99%, and Wells Fargo's 73%). The filed growth replaces it whenever the
+    SEC financials have one; for other companies the two agree. A company whose filings
+    report no capital expenditure and so no free cash flow, as banks and insurers do not,
+    has no meaningful price to free cash flow either, so Finnhub's (5.4 for JPMorgan) is
+    dropped.
+    """
+    if financials is None or not is_current(financials, today):
+        return metrics
+    update: dict[str, float | None] = {}
+    revenue = financials.revenue
+    if revenue is not None and revenue.ttm_growth is not None:
+        update["revenue_growth_ttm"] = revenue.ttm_growth
+    if (
+        revenue is not None
+        and financials.free_cash_flow is None
+        and financials.capital_expenditure is None
+    ):
+        update["price_to_fcf_ttm"] = None
+    return metrics.model_copy(update=update)

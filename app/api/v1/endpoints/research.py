@@ -129,6 +129,7 @@ from app.stats.news import news_context
 from app.stats.signals import signals_context, summarize_signals
 from app.stats.peers import compare_to_peers
 from app.stats.r_bridge import RUnavailableError
+from app.stats.valuation import with_filed_figures
 from app.stats.volatility import InsufficientDataError
 
 logger = logging.getLogger(__name__)
@@ -625,6 +626,9 @@ async def gather_analysis_data(
     news, news_notice = _news_context(symbol, news_result)
     signals, signals_notice = _signals_context(signals_result)
     metrics, metrics_notice = _metrics_context(symbol, metrics_result)
+    if metrics is not None and not isinstance(financials_result, BaseException):
+        filed = with_filed_figures(metrics.metrics, financials_result, today)
+        metrics = metrics.model_copy(update={"metrics": filed})
     alternative, alternative_notice = _alternative_context(alternative_result)
     market, market_notice = _market_context(market_result)
     # A company's peers, ratings, insider trades, and lobbying never apply to a fund, so
