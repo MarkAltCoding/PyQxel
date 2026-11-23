@@ -12,7 +12,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.ai.external import ExternalResponseError, parse_response
-from app.data.fetcher import fetch_ticker_info
 from app.core.request_limits import MAX_BODY_BYTES
 from app.main import app
 from app.models.research import InvestmentThesis
@@ -93,10 +92,12 @@ def test_a_pasted_plan_prices_only_real_symbols_and_few_of_them(
     from app.api.v1.endpoints import portfolio
 
     looked_up: list[str] = []
+    # The market fixture's offline quotes, counted; the real fetcher would ask yfinance.
+    faked = getattr(portfolio, "fetch_ticker_info")
 
     async def counted(symbol: str, client: Any = None) -> Any:
         looked_up.append(symbol)
-        return await fetch_ticker_info(symbol)
+        return await faked(symbol)
 
     monkeypatch.setattr(portfolio, "fetch_ticker_info", counted)
     _save({"AAPL": 10, "MSFT": 5, "XOM": 20})

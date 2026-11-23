@@ -18,6 +18,7 @@ from app.api.v1.endpoints import signals as signals_route
 from app.core.credentials import ProviderKeys, use_provider_keys
 from app.data import fetcher, finnhub, usage
 from app.data.fetcher import (
+    DataFetchError,
     FinnhubRateLimitError,
     ProviderNotConfiguredError,
     ProviderPlanError,
@@ -621,8 +622,13 @@ def test_metrics_route(user: object, monkeypatch: pytest.MonkeyPatch) -> None:
             raise ProviderPlanError("Not on your plan.")
         return CompanyMetrics(symbol=symbol, metrics=KeyMetrics(beta=1.2), peers=["MSFT"])
 
+    async def no_history(symbol: str, period: str = "1y", interval: str = "1d") -> object:
+        raise DataFetchError("No price history in this test.")
+
     monkeypatch.setattr(metrics_route, "fetch_company_metrics", fake)
     monkeypatch.setattr(metrics_route, "fetch_financials", _no_filings)
+    # Without Finnhub's 52-week range the route asks for prices, which must stay offline.
+    monkeypatch.setattr(metrics_route, "fetch_price_history", no_history)
 
     ok = client.get("/api/v1/stocks/AAPL/metrics")
     refused = client.get("/api/v1/stocks/SAP.DE/metrics")
