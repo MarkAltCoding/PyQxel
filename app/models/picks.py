@@ -97,7 +97,13 @@ class PicksProfile(BaseModel):
         le=1e9,
         allow_inf_nan=False,
         description="Money to invest in the picks, in dollars; each pick's share of it is "
-        "then given in dollars too.",
+        "then given in dollars too. Without one, the picks are sized in percentages alone, "
+        "as if there were enough money to buy any share of each.",
+    )
+    weights: Literal["ideal", "clean"] = Field(
+        default="ideal",
+        description="``ideal`` for each pick's best share, however precise (23%), or "
+        "``clean`` for whole multiples of 5% (25%), easier to follow by hand.",
     )
     asset_types: list[AssetType] = Field(
         default_factory=list,

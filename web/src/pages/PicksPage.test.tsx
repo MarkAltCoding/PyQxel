@@ -180,6 +180,7 @@ describe('PicksPage', () => {
         horizon: { years: 0, months: 1, weeks: 2 },
         risk_tolerance: 'aggressive',
         amount: 2500,
+        weights: 'ideal',
         asset_types: ['stock'],
         notes: 'no banks',
       },

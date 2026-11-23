@@ -707,10 +707,33 @@ class TooFewPicksError(ValueError):
     """Raised when an answer holds fewer usable picks than a list needs."""
 
 
-def settle_picks(report: PicksReport) -> PicksReport:
+CLEAN_STEP: int = 20
+"""Parts the whole is split into for clean weights: twenty, so each is a multiple of 5%."""
+
+
+def clean_weights(weights: list[float]) -> list[float]:
+    """``weights`` (summing to 1) as whole multiples of 5% that still sum to 1, each the
+    nearest it can be, the remainders going to the largest fractions first; none falls to
+    zero."""
+    scaled = [weight * CLEAN_STEP for weight in weights]
+    steps = [max(1, math.floor(value)) for value in scaled]
+    order = sorted(
+        range(len(weights)), key=lambda i: scaled[i] - math.floor(scaled[i]), reverse=True
+    )
+    index = 0
+    while sum(steps) < CLEAN_STEP:
+        steps[order[index % len(order)]] += 1
+        index += 1
+    while sum(steps) > CLEAN_STEP:
+        largest = max(range(len(steps)), key=lambda i: steps[i])
+        steps[largest] -= 1
+    return [step / CLEAN_STEP for step in steps]
+
+
+def settle_picks(report: PicksReport, clean: bool = False) -> PicksReport:
     """Tidy the picks of an answer: tickers upper-cased, a repeated or malformed one
     dropped, at most :data:`~app.models.picks.MAX_PICKS` kept, and the weights scaled to
-    sum to 1 (equal when none is given).
+    sum to 1 (equal when none is given), as whole multiples of 5% when ``clean``.
 
     Raises:
         TooFewPicksError: If fewer than :data:`~app.models.picks.MIN_PICKS` remain.
@@ -727,9 +750,12 @@ def settle_picks(report: PicksReport) -> PicksReport:
             f"The answer holds {len(picks)} usable picks; a list needs at least {MIN_PICKS}."
         )
     total = sum(pick.weight for pick in picks.values())
+    weights = [pick.weight / total if total > 0 else 1 / len(picks) for pick in picks.values()]
+    if clean and len(weights) <= CLEAN_STEP:
+        weights = clean_weights(weights)
     settled = [
-        pick.model_copy(update={"weight": pick.weight / total if total > 0 else 1 / len(picks)})
-        for pick in picks.values()
+        pick.model_copy(update={"weight": weight})
+        for pick, weight in zip(picks.values(), weights, strict=True)
     ]
     return report.model_copy(update={"picks": settled})
 
@@ -832,7 +858,7 @@ async def _finish(
         AnalysisError: If the answer holds too few usable picks.
     """
     try:
-        report = settle_picks(written.output)
+        report = settle_picks(written.output, prepared.request.profile.weights == "clean")
     except TooFewPicksError as exc:
         raise AnalysisError(str(exc)) from exc
     settings = get_settings()
@@ -1179,7 +1205,9 @@ async def import_picks(
     the database is unavailable.
     """
     try:
-        report = settle_picks(parse_response(body.response, PicksReport))
+        report = settle_picks(
+            parse_response(body.response, PicksReport), body.context.profile.weights == "clean"
+        )
     except (ExternalResponseError, TooFewPicksError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)

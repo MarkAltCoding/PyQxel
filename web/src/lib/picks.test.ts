@@ -45,6 +45,7 @@ describe('the profile', () => {
       horizon: { years: 0, months: 0, weeks: 2 },
       risk_tolerance: null,
       amount: null,
+      weights: 'ideal',
       asset_types: [],
       notes: null,
     })
@@ -56,9 +57,14 @@ describe('the profile', () => {
       horizon: { years: 3, months: 0, weeks: 0 },
       risk_tolerance: 'aggressive',
       amount: 5000,
+      weights: 'ideal',
       asset_types: ['etf'],
       notes: 'AI',
     })
+    // Percentages only leaves the amount out even when one was typed before.
+    expect(
+      profileOf(form({ years: '1', amount: '5000', sizing: 'percent', weights: 'clean' })),
+    ).toMatchObject({ amount: null, weights: 'clean' })
   })
 
   it('is remembered, and an unreadable one falls back to a year', () => {

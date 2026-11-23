@@ -21,7 +21,8 @@ export function picksAskedFor(context: PicksContext): string[] {
   return [
     `held for ${context.horizon}`,
     profile.risk_tolerance ? `${profile.risk_tolerance} risk` : 'no risk level given',
-    profile.amount ? `${money(profile.amount, 'USD', 0)} to invest` : 'no amount given',
+    profile.amount ? `${money(profile.amount, 'USD', 0)} to invest` : 'percentages only',
+    ...(profile.weights === 'clean' ? ['clean percentages'] : []),
     kinds,
     context.web_research ? 'searched the web' : 'without a web search',
     ...(added.length ? [`also weighed ${listed(added)}`] : []),

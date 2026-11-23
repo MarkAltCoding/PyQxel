@@ -828,6 +828,15 @@ const entries = {
     good: 'Leave everything on with no limit unless a key runs out. Free plans run out fastest on Financial Modeling Prep (250 a day), Alpha Vantage (25 a day), and EODHD (20 a day).',
     note: 'A limit is checked as each request starts, so one page may go a few requests past it. The nightly screener refresh and scheduled picks use the keys stored for them, with their own limits in their cards, and are not counted here. These choices follow your account to every device.',
   },
+  picksSizing: {
+    title: 'Size the picks by',
+    what: 'An amount: Claude sizes the picks for that much money, gives each pick’s share in dollars too, and keeps the list shorter when the amount is small. Percentages only: Claude gives each pick’s share as a percentage alone, as if you had enough money to buy any share of each, so you can apply the list to any sum.',
+    note: 'With percentages only, a small sum may not buy every share exactly, since a share costs what it costs; check the prices before buying.',
+  },
+  picksWeights: {
+    title: 'Percentages',
+    what: 'Ideal gives each pick the share Claude thinks best, however precise, such as 23% or 17%. Clean rounds every share to a whole multiple of 5%, such as 25% or 15%, which is easier to follow by hand; the shares still add up to 100%.',
+  },
   picksAdded: {
     title: 'Also weigh these tickers',
     what: 'Tickers you want Claude to consider along with the screener’s leaders, such as companies in a theme you follow that no measure brought up. Each one joins the candidates with the screener’s figures for it, and Claude weighs it exactly as it weighs every other candidate: it is picked only if it is among the best for your holding period and profile. The list below shows every ticker the next picks would weigh, and you can search it to see whether one is already there.',

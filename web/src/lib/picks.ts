@@ -12,6 +12,9 @@ export const PICKS_LIST_KEY = ['picks', 'list'] as const
 
 export type PicksRisk = NonNullable<PicksProfile['risk_tolerance']> | 'unset'
 export type PicksKinds = '' | 'stock' | 'etf'
+/** Whether the picks are sized for an amount of money or in percentages alone. */
+export type PicksSizing = 'amount' | 'percent'
+export type PicksWeights = NonNullable<PicksProfile['weights']>
 
 /** The form's fields, numbers as typed. */
 export interface PicksForm {
@@ -20,6 +23,8 @@ export interface PicksForm {
   weeks: string
   risk: PicksRisk
   amount: string
+  sizing: PicksSizing
+  weights: PicksWeights
   kinds: PicksKinds
   notes: string
   /** Saved portfolios whose holdings Claude is shown; none by default. */
@@ -34,6 +39,8 @@ export const DEFAULT_PICKS_FORM: PicksForm = {
   weeks: '',
   risk: 'unset',
   amount: '',
+  sizing: 'amount',
+  weights: 'ideal',
   kinds: '',
   notes: '',
   holdings: [],
@@ -65,6 +72,8 @@ export function storedPicksForm(): PicksForm {
       weeks: text(kept.weeks, ''),
       risk: RISKS.includes(kept.risk as PicksRisk) ? (kept.risk as PicksRisk) : 'unset',
       amount: text(kept.amount, ''),
+      sizing: kept.sizing === 'percent' ? 'percent' : 'amount',
+      weights: kept.weights === 'clean' ? 'clean' : 'ideal',
       kinds: kept.kinds === 'stock' || kept.kinds === 'etf' ? kept.kinds : '',
       notes: text(kept.notes, ''),
       holdings: Array.isArray(kept.holdings)
@@ -127,7 +136,11 @@ export function profileOf(form: PicksForm): PicksProfile {
   return {
     horizon: horizonOf(form),
     risk_tolerance: form.risk === 'unset' ? null : form.risk,
-    amount: form.amount.trim() && Number(form.amount) > 0 ? Number(form.amount) : null,
+    amount:
+      form.sizing === 'amount' && form.amount.trim() && Number(form.amount) > 0
+        ? Number(form.amount)
+        : null,
+    weights: form.weights,
     asset_types: form.kinds ? [form.kinds] : [],
     notes: form.notes.trim() || null,
   }

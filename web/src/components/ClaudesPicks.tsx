@@ -58,6 +58,8 @@ import {
   type PicksForm,
   type PicksKinds,
   type PicksRisk,
+  type PicksSizing,
+  type PicksWeights,
 } from '../lib/picks'
 import { providerKeys } from '../lib/providerKeys'
 import { badgeTone } from '../lib/tones'
@@ -71,6 +73,16 @@ const RISKS: { value: PicksRisk; label: string }[] = [
   { value: 'conservative', label: 'Conservative' },
   { value: 'moderate', label: 'Moderate' },
   { value: 'aggressive', label: 'Aggressive' },
+]
+
+const SIZINGS: { value: PicksSizing; label: string }[] = [
+  { value: 'amount', label: 'An amount' },
+  { value: 'percent', label: 'Percentages only' },
+]
+
+const WEIGHTS: { value: PicksWeights; label: string }[] = [
+  { value: 'ideal', label: 'Ideal' },
+  { value: 'clean', label: 'Clean (5% steps)' },
 ]
 
 const KINDS: { value: PicksKinds; label: string }[] = [
@@ -314,20 +326,46 @@ export function ClaudesPicks() {
               onChange={(risk) => change({ risk })}
             />
           </div>
-          <label className="field" style={{ width: 160 }}>
-            <span>Amount to invest</span>
-            <span className="money-input">
-              <span aria-hidden="true">$</span>
-              <input
-                type="number"
-                min={0}
-                step="any"
-                aria-label="Amount to invest, in dollars"
-                value={form.amount}
-                onChange={(event) => change({ amount: event.target.value })}
-              />
+          <div className="field">
+            <span className="heading-with-info">
+              Size the picks by
+              <InfoTip topic="picksSizing" />
             </span>
-          </label>
+            <Segmented
+              label="Size the picks by"
+              value={form.sizing}
+              options={SIZINGS}
+              onChange={(sizing) => change({ sizing })}
+            />
+          </div>
+          {form.sizing === 'amount' && (
+            <label className="field" style={{ width: 160 }}>
+              <span>Amount to invest</span>
+              <span className="money-input">
+                <span aria-hidden="true">$</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  aria-label="Amount to invest, in dollars"
+                  value={form.amount}
+                  onChange={(event) => change({ amount: event.target.value })}
+                />
+              </span>
+            </label>
+          )}
+          <div className="field">
+            <span className="heading-with-info">
+              Percentages
+              <InfoTip topic="picksWeights" />
+            </span>
+            <Segmented
+              label="Percentages"
+              value={form.weights}
+              options={WEIGHTS}
+              onChange={(weights) => change({ weights })}
+            />
+          </div>
           <label className="field">
             <span>Pick from</span>
             <select

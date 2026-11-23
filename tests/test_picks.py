@@ -907,3 +907,18 @@ def test_a_review_can_be_kept_from_the_latest_picks(
     client.post("/api/v1/portfolio/analysis", json={"include_picks": False})
 
     assert market[-1].claude_picks is None
+
+
+def test_clean_weights_are_whole_multiples_of_five_percent_summing_to_one() -> None:
+    from app.api.v1.endpoints.picks import clean_weights
+
+    weights = clean_weights([0.23, 0.17, 0.31, 0.29])
+    assert weights == [0.25, 0.15, 0.3, 0.3]
+    assert abs(sum(weights) - 1) < 1e-9
+    small = clean_weights([0.9, 0.04, 0.03, 0.03])
+    assert min(small) == 0.05 and abs(sum(small) - 1) < 1e-9, "none falls to zero"
+
+    report = REPORT.model_copy(
+        update={"picks": [_pick("A", 0.47), _pick("B", 0.33), _pick("C", 0.2)]}
+    )
+    assert [p.weight for p in settle_picks(report, clean=True).picks] == [0.45, 0.35, 0.2]

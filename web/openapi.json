@@ -11156,7 +11156,7 @@
                 "type": "null"
               }
             ],
-            "description": "Money to invest in the picks, in dollars; each pick's share of it is then given in dollars too.",
+            "description": "Money to invest in the picks, in dollars; each pick's share of it is then given in dollars too. Without one, the picks are sized in percentages alone, as if there were enough money to buy any share of each.",
             "title": "Amount"
           },
           "asset_types": {
@@ -11204,6 +11204,16 @@
               }
             ],
             "title": "Risk Tolerance"
+          },
+          "weights": {
+            "default": "ideal",
+            "description": "``ideal`` for each pick's best share, however precise (23%), or ``clean`` for whole multiples of 5% (25%), easier to follow by hand.",
+            "enum": [
+              "ideal",
+              "clean"
+            ],
+            "title": "Weights",
+            "type": "string"
           }
         },
         "title": "PicksProfile",
@@ -19897,7 +19907,8 @@
                       "months": 0,
                       "weeks": 0,
                       "years": 1
-                    }
+                    },
+                    "weights": "ideal"
                   },
                   "refresh": false,
                   "wait_seconds": 0,
@@ -19953,7 +19964,8 @@
                       "months": 0,
                       "weeks": 0,
                       "years": 1
-                    }
+                    },
+                    "weights": "ideal"
                   },
                   "refresh": false,
                   "wait_seconds": 0,
@@ -20138,7 +20150,8 @@
                       "months": 0,
                       "weeks": 0,
                       "years": 1
-                    }
+                    },
+                    "weights": "ideal"
                   },
                   "refresh": false,
                   "wait_seconds": 0,
@@ -20194,7 +20207,8 @@
                       "months": 0,
                       "weeks": 0,
                       "years": 1
-                    }
+                    },
+                    "weights": "ideal"
                   },
                   "refresh": false,
                   "wait_seconds": 0,

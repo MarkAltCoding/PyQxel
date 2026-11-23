@@ -7891,7 +7891,7 @@ export interface components {
     PicksProfile: {
       /**
        * Amount
-       * @description Money to invest in the picks, in dollars; each pick's share of it is then given in dollars too.
+       * @description Money to invest in the picks, in dollars; each pick's share of it is then given in dollars too. Without one, the picks are sized in percentages alone, as if there were enough money to buy any share of each.
        */
       amount?: number | null
       /**
@@ -7908,6 +7908,13 @@ export interface components {
       notes?: string | null
       /** Risk Tolerance */
       risk_tolerance?: ('conservative' | 'moderate' | 'aggressive') | null
+      /**
+       * Weights
+       * @description ``ideal`` for each pick's best share, however precise (23%), or ``clean`` for whole multiples of 5% (25%), easier to follow by hand.
+       * @default ideal
+       * @enum {string}
+       */
+      weights?: 'ideal' | 'clean'
     }
     /**
      * PicksPromptExport

@@ -535,13 +535,17 @@ Choose between five and ten picks: fewer when your conviction rests in a few or 
 amount is small, more when the profile calls for spreading risk. Rank them, best first. \
 Give each a weight, its share of the money invested, with the weights summing to 1; \
 weight by conviction and risk, not equally by default, and keep any one stock to a share \
-its volatility justifies. Avoid picks that are all the same bet (one industry, or one \
-factor such as momentum) unless the profile asks for it, and say what the picks have in \
-common that could hurt them together. Pick from the table; you may add a security that is \
-not in it only when it is clearly better for this profile than anything there, such as a \
-bond or broad-market fund the screener does not hold, and you are confident it trades \
-under that ticker: then say that the table has no figures for it. Honor the kinds of \
-security the profile asks for and every instruction in its notes.
+its volatility justifies. With no amount given, size by percentages alone, as if there \
+were enough money to buy any share of each pick, and say nothing of share prices or \
+whole shares. When the profile's weights is clean, make every weight a whole multiple of \
+0.05 (5%); when ideal, give each its best share, however precise. Avoid picks that are \
+all the same bet (one industry, or one factor such as momentum) unless the profile asks \
+for it, and say what the picks have in common that could hurt them together. Pick from \
+the table; you may add a security that is not in it only when it is clearly better for \
+this profile than anything there, such as a bond or broad-market fund the screener does \
+not hold, and you are confident it trades under that ticker: then say that the table has \
+no figures for it. Honor the kinds of security the profile asks for and every \
+instruction in its notes.
 
 For each pick give the thesis with the figures behind it, the main risk and what would \
 prove the pick wrong, how to buy it (a market order for a heavily traded security, a \
