@@ -2146,7 +2146,11 @@ export interface paths {
      *     multiples, including a forward P/E on analysts' estimates; the dividend yield, payout
      *     and growth; margins and returns on capital; growth; and liquidity and leverage, as
      *     Finnhub computes them from its own data, so they can differ slightly from the
-     *     fundamentals built from SEC filings. Ratios are decimals and totals are in units.
+     *     fundamentals built from SEC filings. Revenue growth is the filed one where the SEC's
+     *     financials are current, and price to free cash flow is left out for a company that
+     *     files no capital expenditure, as a bank does, since Finnhub's are wrong for banks
+     *     (see :func:`~app.stats.valuation.with_filed_figures`). Ratios are decimals and totals
+     *     are in units.
      *     ``peers`` lists companies Finnhub places in the same industry. For a foreign
      *     company's US listing, which Finnhub describes by its home listing abroad, the 52-week
      *     range is worked out from the US listing's own daily prices instead, without its dates.
