@@ -102,7 +102,8 @@ def _require_billing() -> None:
 @router.get("", response_model=BillingStatus, summary="Your billing")
 async def read_billing(user: CurrentUser, session: Session) -> BillingStatus:
     """Your prepaid credit, usage subscription, what your nightly refreshes cost in the
-    last 30 days, and your latest billing history.
+    last 30 days, what the next is expected to cost and whether your credit covers it, and
+    your latest billing history.
 
     Returns 503 when the database is unavailable.
     """
@@ -111,16 +112,23 @@ async def read_billing(user: CurrentUser, session: Session) -> BillingStatus:
         since = datetime.now(timezone.utc) - timedelta(days=30)
         spent, runs = await billing.usage_since(session, user.id, since)
         entries = await billing.recent_entries(session, user.id)
+        expected = await billing.expected_run_micros(session, user.id)
     except SQLAlchemyError as exc:
         raise _unavailable("The database is unavailable.") from exc
     enabled = stripe_api.billing_enabled()
     exempt = user.is_admin
+    picks_expected = billing.run_cost_micros(billing.PICKS_RUN_SECONDS)
     return BillingStatus(
         enabled=enabled,
         exempt=exempt,
         credit_usd=_dollars(account.credit_micros) if account else 0.0,
         subscription=_subscription(account),
-        can_refresh=not enabled or exempt or billing.can_refresh(account),
+        can_refresh=not enabled or exempt or billing.can_refresh(account, expected),
+        next_refresh_usd=_dollars(expected),
+        can_make_scheduled_picks=not enabled
+        or exempt
+        or billing.can_refresh(account, picks_expected),
+        scheduled_picks_usd=_dollars(picks_expected),
         last_30_days_usd=_dollars(spent),
         last_30_days_runs=runs,
         entries=[_entry(entry) for entry in entries],

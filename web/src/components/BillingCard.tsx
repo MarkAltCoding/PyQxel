@@ -11,6 +11,7 @@ import {
   INTERVAL_NAMES,
   TOP_UP_PRESETS,
   creditDays,
+  creditShortfall,
   checkoutCents,
   paymentPlace,
   periodBills,
@@ -100,6 +101,13 @@ export function BillingCard() {
           Union and the United Kingdom are not accepted, since PyQxel is not registered to collect
           their VAT.
         </p>
+        <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 6 }}>
+          Billing covers only that server time. Claude’s work (stock reports, portfolio reviews,
+          Claude’s Picks, scheduled picks, and the coding assistant) is charged by Anthropic, not
+          PyQxel: to your own Anthropic API key, at Anthropic’s prices, or, for a prompt you copy
+          into Claude in your browser, to your Claude account’s plan. Market data keys are billed by
+          their providers, if you chose a paid plan.
+        </p>
       </div>
 
       {data.closed_country && (
@@ -129,10 +137,8 @@ export function BillingCard() {
       {data.exempt ? (
         <Notice>Your account’s refreshes are not billed.</Notice>
       ) : (
-        !data.can_refresh && (
-          <Notice tone="warning">
-            Your nightly refresh is paused until you add credit or start a subscription below.
-          </Notice>
+        creditShortfall(data, 'refresh') !== null && (
+          <Notice tone="warning">{creditShortfall(data, 'refresh')}</Notice>
         )
       )}
 

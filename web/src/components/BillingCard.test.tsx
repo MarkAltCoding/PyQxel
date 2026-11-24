@@ -13,6 +13,9 @@ const STATUS: BillingStatus = {
   credit_usd: 4.5,
   subscription: null,
   can_refresh: true,
+  next_refresh_usd: 0.04,
+  can_make_scheduled_picks: true,
+  scheduled_picks_usd: 0.02,
   last_30_days_usd: 0.9,
   last_30_days_runs: 30,
   entries: [
@@ -96,11 +99,20 @@ describe('BillingCard', () => {
     expect(JSON.parse(String(post?.[1]?.body))).toEqual({ amount_cents: 2000 })
   })
 
-  it('says a refresh is paused with no credit or subscription', async () => {
-    answer({ credit_usd: 0, can_refresh: false })
+  it('says that Claude’s work is billed by Anthropic, not PyQxel', async () => {
+    answer({})
     renderCard()
 
-    expect(await screen.findByText(/paused until you add credit/i)).toBeInTheDocument()
+    expect(await screen.findByText(/charged by Anthropic, not PyQxel/i)).toBeInTheDocument()
+  })
+
+  it('warns when the credit does not cover the next refresh', async () => {
+    answer({ credit_usd: 0.01, can_refresh: false, next_refresh_usd: 0.04 })
+    renderCard()
+
+    expect(
+      await screen.findByText(/expected to cost up to 4¢ .* more than your 1¢ of credit/i),
+    ).toBeInTheDocument()
   })
 
   it('thanks the user back from Stripe', async () => {

@@ -62,7 +62,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, TypeVar
@@ -72,6 +72,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import market_day
 from app.api.auth import sees_unlicensed_data, uses_restricted_sources, uses_yfinance
 from app.api.v1.endpoints.picks import gather_candidates, make_scheduled_picks
 from app.api.v1.endpoints.research import check_ai_limits
@@ -95,7 +96,13 @@ from app.data.screener_metrics import (
     fetch_screen_metrics,
 )
 from app.data.universe import Listing
-from app.db.billing import MICROS_PER_DOLLAR, charge_usage, refresh_paid_for
+from app.db.billing import (
+    PICKS_RUN_SECONDS,
+    charge_usage,
+    refresh_paid_for,
+    run_budget,
+    run_cost_micros,
+)
 from app.db.nightly import (
     DueRefresh,
     PriceLimits,
@@ -535,7 +542,7 @@ async def build_user_universe(
     """
     choice = choice or UniverseChoice()
     settings = get_settings()
-    today = now.date()
+    today = market_day(now)
     async with get_sessionmaker()() as session:
         listings = await load_listings(session)
     if not listings:
@@ -665,17 +672,6 @@ async def build_user_universe(
     )
 
 
-def run_cost_micros(seconds: float) -> int:
-    """What ``seconds`` of the job's CPU and memory cost on Cloud Run, in millionths of a
-    dollar. A refresh pays for its share of the job's time, as :class:`JobClock` counts it."""
-    settings = get_settings()
-    per_second = (
-        settings.nightly_job_cpus * settings.job_cpu_second_usd
-        + settings.nightly_job_memory_gib * settings.job_gib_second_usd
-    )
-    return round(seconds * per_second * MICROS_PER_DOLLAR)
-
-
 class JobClock:
     """Splits the job's time among the refreshes running in it, so the whole time is paid.
 
@@ -704,6 +700,11 @@ class JobClock:
         self._shares[token] = 0.0
         return token
 
+    def seconds(self, token: object) -> float:
+        """The share the refresh ``token`` names has run up so far, in seconds."""
+        self._advance()
+        return self._shares[token]
+
     def stop(self, token: object) -> float:
         """Stop counting the refresh ``token`` names; return its share, in seconds."""
         self._advance()
@@ -722,13 +723,27 @@ class RefreshStopped(Exception):
 T = TypeVar("T")
 
 
-async def _unless_stopped(work: Coroutine[Any, Any, T], due: DueRefresh) -> T:
+OUT_OF_CREDIT: str = (
+    "It was stopped when its cost reached your credit; add credit or a usage subscription "
+    "in Settings to refresh again."
+)
+"""Why a refresh stopped at the user's credit, for them to read."""
+
+
+async def _unless_stopped(
+    work: Coroutine[Any, Any, T],
+    due: DueRefresh,
+    spent: Callable[[], int] | None = None,
+    budget: int | None = None,
+) -> T:
     """Run ``work``, checking every :data:`STOP_CHECK_SECONDS` whether the user stopped
     the refresh, and cancel it at once if they did, so it sends no further request on a
-    key they withdrew.
+    key they withdrew. With a ``budget`` (the credit of a user without a subscription), it
+    is canceled too once what it has ``spent`` reaches it, so no run costs more than the
+    credit left.
 
     Raises:
-        RefreshStopped: Saying why, when the user stopped it.
+        RefreshStopped: Saying why, when the user stopped it or the credit ran out.
     """
     task = asyncio.create_task(work)
     try:
@@ -736,6 +751,8 @@ async def _unless_stopped(work: Coroutine[Any, Any, T], due: DueRefresh) -> T:
             done, _ = await asyncio.wait({task}, timeout=STOP_CHECK_SECONDS)
             if done:
                 return task.result()
+            if budget is not None and spent is not None and spent() >= budget:
+                raise RefreshStopped(OUT_OF_CREDIT)
             try:
                 async with get_sessionmaker()() as session:
                     reason = await stop_reason(session, due.user_id, due.keys)
@@ -768,6 +785,7 @@ async def refresh_user(
     counting = clock.start()
     async with get_sessionmaker()() as session:
         user = await get_user(session, due.user_id)
+        budget = await run_budget(session, due.user_id)
         run_id = await start_run(
             session, due.user_id, now, run_choice(due.choice, due.price_history_limits)
         )
@@ -791,6 +809,8 @@ async def refresh_user(
                     due.user_id, now, due.price_history_limits, due.etfs_scanned_at, due.choice
                 ),
                 due,
+                lambda: run_cost_micros(clock.seconds(counting)),
+                budget,
             )
         except Exception as exc:
             stopped = isinstance(exc, RefreshStopped)
@@ -854,7 +874,9 @@ async def run_scheduled_picks(due: DuePicks, after: "asyncio.Task[None] | None" 
     started_at = datetime.now(timezone.utc)
     async with get_sessionmaker()() as session:
         user = await get_user(session, due.user_id)
-        paid = await refresh_paid_for(session, due.user_id)
+        paid = await refresh_paid_for(
+            session, due.user_id, run_cost_micros(PICKS_RUN_SECONDS * len(due.which))
+        )
         await start_picks_run(session, due.user_id, due.which, started_at)
     if user is None:
         return
@@ -864,8 +886,8 @@ async def run_scheduled_picks(due: DuePicks, after: "asyncio.Task[None] | None" 
                 session,
                 due.user_id,
                 (
-                    "Scheduled picks run in the nightly job, which needs credit or a subscription "
-                    "in Settings."
+                    "Scheduled picks run in the nightly job, which needs a usage subscription "
+                    "or enough credit to cover them in Settings."
                     if not paid
                     else "No Anthropic key is stored: turn scheduled picks off and on again."
                 ),

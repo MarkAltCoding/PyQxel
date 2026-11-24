@@ -1,13 +1,17 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router'
 import {
   checkScheduleConflicts,
   deletePicksSchedule,
+  getBilling,
   getPicksSchedule,
   savePicksSchedule,
 } from '../api/endpoints'
 import type { PicksRequest, PicksScheduleSettings, PicksScheduleStatus } from '../api/types'
 import { dateTime } from '../lib/format'
+import { BILLING_QUERY_KEY, creditShortfall } from '../lib/billing'
+import { timeZoneLabel } from '../lib/nightlyRefresh'
 import { providerKeys } from '../lib/providerKeys'
 import { MONTH_DAYS, WEEKDAYS } from '../lib/schedule'
 import { InfoTip } from './InfoTip'
@@ -52,6 +56,8 @@ function draftOf(status: PicksScheduleStatus | undefined): Draft {
 export function PicksSchedule({ request }: { request: () => PicksRequest }) {
   const queryClient = useQueryClient()
   const status = useQuery({ queryKey: SCHEDULE_KEY, queryFn: getPicksSchedule })
+  const billing = useQuery({ queryKey: BILLING_QUERY_KEY, queryFn: getBilling })
+  const shortfall = creditShortfall(billing.data, 'picks')
   const [draft, setDraft] = useState<Draft | null>(null)
   const [conflicts, setConflicts] = useState<string[]>([])
   const shown = draft ?? draftOf(status.data)
@@ -95,19 +101,24 @@ export function PicksSchedule({ request }: { request: () => PicksRequest }) {
     <section id="picks-schedule" className="card stack" style={{ gap: 12 }}>
       <div>
         <div className="heading-with-info">
-          <h2>Make picks on a schedule</h2>
+          <h2>Make Picks on a Schedule</h2>
           <InfoTip topic="picksSchedule" />
         </div>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
           Claude makes new picks by itself, with what you set above, and adds each list to your
           saved picks. It runs while your browser is closed, so saving stores your Anthropic key and
           market data keys on PyQxel’s server, encrypted; turning it off deletes them. Times are in{' '}
-          {zone}.
+          {timeZoneLabel(zone)}.
         </p>
       </div>
       {data && !data.available && (
         <Notice tone="warning">
           This server cannot store keys yet, so scheduled picks are not available.
+        </Notice>
+      )}
+      {data?.available && shortfall && (
+        <Notice tone="warning">
+          {shortfall} <Link to="/screener/refresh#billing">Billing</Link>
         </Notice>
       )}
       <div className="filter-row" style={{ alignItems: 'flex-end' }}>

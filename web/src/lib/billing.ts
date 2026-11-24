@@ -89,6 +89,28 @@ export function creditDays(status: BillingStatus): number | null {
   return status.credit_usd / perDay
 }
 
+/** Why a run the user is about to start or schedule would go past their credit, or `null`
+ * when it is covered: a subscription bills it, the account is not billed, or the credit
+ * covers what such a run is expected to cost. The server will not start a run the credit
+ * does not cover, and stops one that reaches the credit, so this warns before it happens. */
+export function creditShortfall(
+  status: BillingStatus | undefined,
+  run: 'refresh' | 'picks',
+): string | null {
+  if (!status || !status.enabled || status.exempt) return null
+  const covered = run === 'refresh' ? status.can_refresh : status.can_make_scheduled_picks
+  if (covered) return null
+  const expected = (run === 'refresh' ? status.next_refresh_usd : status.scheduled_picks_usd) ?? 0
+  const credit = Math.max(status.credit_usd ?? 0, 0)
+  const what = run === 'refresh' ? 'Your next screener refresh' : 'A run of scheduled picks'
+  return `${what} is expected to cost up to ${dollars(expected)} of PyQxel’s server time, more than your ${dollars(credit)} of credit, so it will not run until you add credit or start a usage subscription under Billing. PyQxel never runs past your credit: a run that reaches it is stopped there.`
+}
+
+/** Dollars as a person reads a small bill: "4¢" under a dollar, else "$1.25". */
+function dollars(value: number): string {
+  return value > 0 && value < 0.995 ? `${Math.ceil(value * 100)}¢` : `$${value.toFixed(2)}`
+}
+
 /** Where this build lets the user pay: on Stripe's pages from a browser, through a link
  * to the website from the native app, and nowhere from an App Store build, whose rules
  * forbid pointing to purchases outside the store (the build sets VITE_APP_UPDATES=off). */

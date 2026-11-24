@@ -178,12 +178,12 @@ def test_usage_is_paid_from_credit_first_then_the_subscription(user: User) -> No
     assert account is not None and account.credit_micros == 0
 
 
-def test_without_a_subscription_usage_runs_the_credit_below_zero(user: User) -> None:
+def test_without_a_subscription_usage_never_runs_the_credit_below_zero(user: User) -> None:
     _make_account(user, credit=30_000)
 
-    assert _charge(user, 100_000) == billing.Charge(from_credit=100_000, to_subscription=0)
+    assert _charge(user, 100_000) == billing.Charge(from_credit=30_000, to_subscription=0)
     account = _run(_account(user.id))
-    assert account is not None and account.credit_micros == -70_000
+    assert account is not None and account.credit_micros == 0
 
 
 def test_a_user_who_never_paid_is_charged_nothing(user: User) -> None:
@@ -192,7 +192,7 @@ def test_a_user_who_never_paid_is_charged_nothing(user: User) -> None:
 
 def test_a_run_costs_its_share_of_the_jobs_time() -> None:
     # One vCPU and 1 GiB for an hour: 3,600 x ($0.000018 + $0.000002) = 7.2 cents.
-    assert nightly_job.run_cost_micros(3600) == 72_000
+    assert billing.run_cost_micros(3600) == 72_000
 
 
 def test_the_job_clock_splits_each_moment_among_the_refreshes_running(
@@ -245,7 +245,11 @@ def test_with_billing_a_refresh_needs_credit_or_a_subscription(user: User) -> No
             account.subscription_status = status
             await session.commit()
 
+    # Credit left that does not cover a refresh (a first one is expected to take half an
+    # hour of the job, 3.6 cents) is not enough.
     _run(set_credit(1, None))
+    assert not _paid_for(user)
+    _run(set_credit(36_000, None))
     assert _paid_for(user)
     _run(set_credit(-5, "active"))
     assert _paid_for(user)
@@ -260,8 +264,53 @@ def test_the_nightly_job_knows_refreshes_are_billed_without_a_stripe_key(
     monkeypatch.setattr(get_settings(), "nightly_billed", True)
 
     assert not _paid_for(user)
-    _make_account(user, credit=1)
+    _make_account(user, credit=1_000_000)
     assert _paid_for(user)
+
+
+def test_the_next_refresh_is_expected_to_cost_the_most_a_recent_one_did(user: User) -> None:
+    from app.db.tables import UserScreenerRunRecord
+
+    async def expected(costs: list[int]) -> int:
+        async with get_sessionmaker()() as session:
+            for index, cost in enumerate(costs):
+                session.add(
+                    UserScreenerRunRecord(
+                        id=f"run-{index}",
+                        user_id=user.id,
+                        started_at=datetime.now(timezone.utc) - timedelta(days=index),
+                        status="succeeded",
+                        cost_micros=cost,
+                    )
+                )
+            await session.commit()
+            return await billing.expected_run_micros(session, user.id)
+
+    assert _run(expected([])) == billing.run_cost_micros(billing.FIRST_RUN_SECONDS)
+    assert _run(expected([20_000, 50_000, 10_000])) == 50_000
+
+
+def test_a_refresh_is_stopped_when_its_cost_reaches_the_credit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(nightly_job, "STOP_CHECK_SECONDS", 0.01)
+
+    async def stop_reason(*_: object) -> None:
+        return None
+
+    monkeypatch.setattr(nightly_job, "stop_reason", stop_reason)
+    spent = [0]
+
+    async def long_refresh() -> str:
+        for _ in range(100):
+            spent[0] += 10
+            await asyncio.sleep(0.01)
+        return "finished"
+
+    due = nightly_storage.DueRefresh(user_id="u", keys=SimpleNamespace())  # type: ignore[arg-type]
+    with pytest.raises(nightly_job.RefreshStopped, match="reached your credit"):
+        _run(nightly_job._unless_stopped(long_refresh(), due, lambda: spent[0], 50))
+    assert spent[0] < 1000
 
 
 @pytest.mark.usefixtures("billed")

@@ -3,9 +3,13 @@
 PyQxel charges users what their nightly refreshes cost it to compute, at cost. A
 refresh's cost is paid from the user's prepaid credit first; what credit does not cover is
 billed through their usage subscription, if they have one, by reporting it to Stripe's
-meter (:func:`app.billing.stripe_api.report_usage`); and with neither, the credit goes
-below zero by that much, which the next top-up repays. A user with no credit left and no
-subscription gets no refresh until they add one (:func:`can_refresh`).
+meter (:func:`app.billing.stripe_api.report_usage`).
+
+Without a subscription, no run may cost more than the credit left. A refresh, or a run of
+scheduled picks, starts only when the credit covers what such a run is expected to cost
+(:func:`expected_run_micros`, the most the user's recent runs cost), and a run that still
+reaches the credit is stopped there by the job; the credit is never taken below zero by
+usage (:func:`charge_usage`), so there is no debt to leave behind by closing the account.
 
 Amounts are kept in millionths of a dollar ("micros"), since one night's refresh can cost
 a fraction of a cent.
@@ -20,7 +24,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.tables import BillingAccountRecord, BillingEntryRecord, UserRecord
+from app.db.tables import (
+    BillingAccountRecord,
+    BillingEntryRecord,
+    UserRecord,
+    UserScreenerRunRecord,
+)
 
 MICROS_PER_DOLLAR: int = 1_000_000
 MICROS_PER_CENT: int = 10_000
@@ -54,23 +63,93 @@ def has_subscription(account: BillingAccountRecord | None) -> bool:
     )
 
 
-def can_refresh(account: BillingAccountRecord | None) -> bool:
-    """Whether a nightly refresh may run for ``account``: it has credit left, or a
-    subscription that bills usage."""
-    return account is not None and (account.credit_micros > 0 or has_subscription(account))
+FIRST_RUN_SECONDS: float = 30 * 60
+"""What a user's first refresh is expected to take, before any has been timed: the
+longest a refresh of every US stock and ETF on a free Finnhub plan usually takes."""
+
+PICKS_RUN_SECONDS: float = 15 * 60
+"""What a run of scheduled picks is expected to take, at most, waiting out a free plan's
+per-minute limits."""
+
+RECENT_RUNS: int = 5
+"""Recent refreshes whose costs set what the next is expected to cost."""
 
 
-async def refresh_paid_for(session: AsyncSession, user_id: str) -> bool:
-    """Whether ``user_id``'s nightly refresh may run: on a server that does not bill, for
-    the owner's account (``ADMIN_EMAIL``), which pays the cloud bill itself, and for a user
-    with credit left or a subscription Stripe is billing."""
+def run_cost_micros(seconds: float) -> int:
+    """What ``seconds`` of the job's CPU and memory cost on Cloud Run, in millionths of a
+    dollar. A refresh pays for its share of the job's time, as
+    :class:`app.jobs.nightly.JobClock` counts it."""
+    settings = get_settings()
+    per_second = (
+        settings.nightly_job_cpus * settings.job_cpu_second_usd
+        + settings.nightly_job_memory_gib * settings.job_gib_second_usd
+    )
+    return round(seconds * per_second * MICROS_PER_DOLLAR)
+
+
+def can_refresh(account: BillingAccountRecord | None, expected_micros: int = 1) -> bool:
+    """Whether a run expected to cost ``expected_micros`` may start for ``account``: it has
+    a subscription that bills usage, or credit that covers the run."""
+    return account is not None and (
+        has_subscription(account) or account.credit_micros >= max(expected_micros, 1)
+    )
+
+
+async def expected_run_micros(session: AsyncSession, user_id: str) -> int:
+    """What ``user_id``'s next refresh is expected to cost: the most any of their last
+    :data:`RECENT_RUNS` refreshes cost, or :data:`FIRST_RUN_SECONDS` of the job before one
+    has been timed."""
+    costs = [
+        cost
+        for cost in await session.scalars(
+            select(UserScreenerRunRecord.cost_micros)
+            .where(
+                UserScreenerRunRecord.user_id == user_id,
+                UserScreenerRunRecord.cost_micros.is_not(None),
+            )
+            .order_by(UserScreenerRunRecord.started_at.desc())
+            .limit(RECENT_RUNS)
+        )
+        if cost is not None
+    ]
+    return max(costs) if costs else run_cost_micros(FIRST_RUN_SECONDS)
+
+
+async def is_billed(session: AsyncSession, user_id: str) -> bool:
+    """Whether ``user_id``'s runs are billed: the server bills, and they are not the owner
+    (``ADMIN_EMAIL``), who pays the cloud bill itself."""
     settings = get_settings()
     if settings.stripe_secret_key is None and not settings.nightly_billed:
-        return True
+        return False
     user = await session.get(UserRecord, user_id)
-    if user is not None and settings.admin_email is not None and user.email == settings.admin_email:
+    return not (
+        user is not None and settings.admin_email is not None and user.email == settings.admin_email
+    )
+
+
+async def refresh_paid_for(
+    session: AsyncSession, user_id: str, expected_micros: int | None = None
+) -> bool:
+    """Whether a run of ``user_id``'s expected to cost ``expected_micros`` (their next
+    refresh's, :func:`expected_run_micros`, when not given) may start: always on a server
+    that does not bill and for the owner's account, and otherwise with a subscription
+    Stripe is billing or credit that covers it."""
+    if not await is_billed(session, user_id):
         return True
-    return can_refresh(await get_account(session, user_id))
+    if expected_micros is None:
+        expected_micros = await expected_run_micros(session, user_id)
+    return can_refresh(await get_account(session, user_id), expected_micros)
+
+
+async def run_budget(session: AsyncSession, user_id: str) -> int | None:
+    """The most a run of ``user_id``'s may cost before the job stops it: their credit,
+    without a subscription; ``None`` (no limit) with one, or when they are not billed."""
+    if not await is_billed(session, user_id):
+        return None
+    account = await get_account(session, user_id)
+    if account is None:
+        return 0
+    return None if has_subscription(account) else max(account.credit_micros, 0)
 
 
 async def get_account(session: AsyncSession, user_id: str) -> BillingAccountRecord | None:
@@ -264,11 +343,15 @@ async def charge_usage(
     kind: str = USAGE,
     stripe_ref: str | None = None,
 ) -> Charge | None:
-    """Charge ``user_id`` ``micros`` for one refresh, or for the fees on a subscription
-    bill (``kind`` :data:`FEE`, once per ``stripe_ref``): from credit first, the rest
-    through their subscription, or past their credit with none. Returns ``None``,
-    charging nothing, when the user has no billing account, as the owner's and every
-    user's on a server without billing do not, or when it was charged already."""
+    """Charge ``user_id`` ``micros`` for one refresh, or for the fees on a payment
+    (``kind`` :data:`FEE`, once per ``stripe_ref``): from credit first, the rest through
+    their subscription. Without a subscription, a run's usage is taken only as far as the
+    credit goes, never below zero: the job stops a run at the credit, and the seconds
+    between its checks are PyQxel's to pay. A fee or a disputed bill, which Stripe has
+    already charged PyQxel, is taken in full. Returns ``None``, charging nothing, when the
+    user has no billing account, as the owner's and every user's on a server without
+    billing do not,
+    or when it was charged already."""
     account = await get_account(session, user_id)
     if account is None or micros <= 0:
         return None
@@ -276,8 +359,10 @@ async def charge_usage(
     rest = micros - from_credit
     if has_subscription(account):
         to_subscription = rest
-    else:
+    elif kind != USAGE:
         from_credit, to_subscription = micros, 0
+    else:
+        to_subscription = 0
     account.credit_micros -= from_credit
     account.updated_at = datetime.now(timezone.utc)
     added = await _add_entry(

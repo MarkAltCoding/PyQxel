@@ -17,7 +17,7 @@ import type {
   RefreshSchedule,
   UsageResponse,
 } from '../api/types'
-import { BILLING_QUERY_KEY } from '../lib/billing'
+import { BILLING_QUERY_KEY, creditShortfall } from '../lib/billing'
 import { dateTime, percent, shortDate } from '../lib/format'
 import { DATA_PROVIDER_NAMES, hasKey } from '../lib/keyCoverage'
 import {
@@ -64,6 +64,7 @@ export function NightlyRefreshCard({
   const queryClient = useQueryClient()
   const status = useQuery({ queryKey: NIGHTLY_QUERY_KEY, queryFn: getNightlyRefresh })
   const billing = useQuery({ queryKey: BILLING_QUERY_KEY, queryFn: getBilling })
+  const shortfall = creditShortfall(billing.data, 'refresh')
   const [time, setTime] = useState<string | null>(null)
   const [schedule, setSchedule] = useState<RefreshSchedule | null>(null)
   const [conflicts, setConflicts] = useState<string[]>([])
@@ -183,7 +184,7 @@ export function NightlyRefreshCard({
     <section id="nightly-refresh" className="card stack" style={{ gap: 14 }}>
       <div>
         <div className="heading-with-info">
-          <h2>Nightly screener refresh</h2>
+          <h2>Nightly Screener Refresh</h2>
           <InfoTip topic="nightlyRefresh" />
         </div>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
@@ -201,10 +202,10 @@ export function NightlyRefreshCard({
         </p>
       </div>
 
-      {data?.enabled && billing.data?.enabled && !billing.data.can_refresh && (
+      {data?.available && shortfall && (
         <Notice tone="warning">
-          Your refresh is paused: it runs on PyQxel’s server, which costs money, so it needs credit
-          or a subscription. <a href="#billing">Add one under Billing</a>.
+          {data.enabled ? 'Your refresh is paused. ' : ''}
+          {shortfall} <a href="#billing">Billing</a>
         </Notice>
       )}
       {data && !data.available && (

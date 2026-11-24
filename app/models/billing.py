@@ -81,13 +81,25 @@ class BillingStatus(BaseModel):
     )
     exempt: bool = Field(description="Whether this account's refreshes are never billed.")
     credit_usd: float = Field(
-        description="Prepaid credit left, in dollars; below zero when refreshes ran past it "
-        "with no subscription, which the next top-up repays."
+        description="Prepaid credit left, in dollars; below zero only when a disputed payment "
+        "or a fee took more than was left, which the next top-up repays."
     )
     subscription: Subscription | None = Field(description="The usage subscription, if any.")
     can_refresh: bool = Field(
-        description="Whether the nightly refresh may run: the account is exempt, or has "
-        "credit left or a subscription Stripe is billing."
+        description="Whether the next nightly refresh may run: the account is exempt, has a "
+        "subscription Stripe is billing, or has credit that covers next_refresh_usd. Without "
+        "a subscription, a refresh that still reaches the credit is stopped there."
+    )
+    next_refresh_usd: float = Field(
+        description="What the next refresh is expected to cost: the most any of the last "
+        "five cost, or half an hour of the job before one has run."
+    )
+    can_make_scheduled_picks: bool = Field(
+        description="Whether scheduled picks may run: as can_refresh, for scheduled_picks_usd."
+    )
+    scheduled_picks_usd: float = Field(
+        description="The most one run of scheduled picks is expected to cost the job, before "
+        "what Anthropic charges the Anthropic key for Claude's work."
     )
     last_30_days_usd: float = Field(description="What refreshes cost in the last 30 days.")
     last_30_days_runs: int = Field(description="Refreshes in the last 30 days.")
