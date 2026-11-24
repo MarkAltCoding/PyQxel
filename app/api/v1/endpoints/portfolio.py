@@ -2,9 +2,10 @@
 and Claude's review of the saved portfolio."""
 
 import asyncio
+import hashlib
 import logging
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
@@ -19,11 +20,13 @@ from pydantic import SecretStr
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import market_today
 from app.ai.agent import AIRateLimitError, AnalysisError, Written, anthropic_client
 from app.ai.external import (
     PASTED_MODEL,
     ExternalResponseError,
     parse_response,
+    outside_effort,
     pasted_model,
     render_prompt,
 )
@@ -37,7 +40,7 @@ from app.ai.prompts import PORTFOLIO_SYSTEM_PROMPT
 from app.ai.web import add_web_research, with_web_research
 from app.api.auth import CurrentUser
 from app.api.v1.endpoints.markets import DEFAULT_REVIEW_HORIZON_DAYS
-from app.api.v1.endpoints.picks import holding_facts
+from app.api.v1.endpoints.picks import holding_facts, wait_plans
 from app.stats.picks import taking_turns
 from app.api.v1.endpoints.research import ai_error, anthropic_key, check_ai_limits
 from app.core.config import get_settings
@@ -55,6 +58,7 @@ from app.data.fetcher import (
 )
 from app.data.panel import MAX_CONCURRENT_DOWNLOADS, fetch_close_panel
 from app.db.picks import latest_picks
+from app.db.screener import shared_universe, universe_stocks, user_universe
 from app.data.contribution_limits import contribution_limits
 from app.db.holdings import (
     account_settings,
@@ -114,7 +118,7 @@ from app.models.backtest import (
 )
 from app.models.external import PortfolioPromptExport, PortfolioReviewImport
 from app.models.factors import RISK_FREE
-from app.models.picks import PicksForReview, PicksResponse, ReviewedPick
+from app.models.picks import PicksForReview, PicksResponse, ReviewedPick, WaitPlans
 from app.models.accounts import (
     ACCOUNT_TYPE_NAMES,
     CAPPED_ACCOUNT_TYPES,
@@ -830,7 +834,7 @@ async def read_contribution_limits(user: CurrentUser) -> ContributionLimits:
     """Return this tax year's contribution limits for IRAs, employer plans, and HSAs, and
     next year's once the IRS has published them, from the IRS's notices. No provider
     publishes them as data, so ``outdated`` says when they are older than this year."""
-    return contribution_limits(date.today())
+    return contribution_limits(market_today())
 
 
 @router.get("/holdings", response_model=HoldingsResponse, summary="One of your saved portfolios")
@@ -1247,7 +1251,7 @@ def with_accounts(
         update={
             "accounts": accounts,
             "group_mode": request.group_mode if request.group else None,
-            "contribution_limits": contribution_limits(date.today()) if capped else None,
+            "contribution_limits": contribution_limits(market_today()) if capped else None,
         }
     )
 
@@ -1471,6 +1475,7 @@ async def with_holding_facts(
             funds,
             DEFAULT_REVIEW_HORIZON_DAYS if horizon is None else horizon * 365.25,
             wait_seconds,
+            picked_stocks(context.claude_picks, symbols),
         )
     except SQLAlchemyError as exc:
         logger.error("Could not read the holdings' screener figures: %s", exc)
@@ -1488,6 +1493,14 @@ async def with_holding_facts(
             "notice": notice,
         }
     )
+
+
+def picked_stocks(picks: PicksForReview | None, held: Collection[str]) -> list[str]:
+    """The stocks among a review's latest Claude's Picks that it does not hold, whose news
+    is fetched after the holdings', since the review weighs adding them."""
+    if picks is None:
+        return []
+    return [p.symbol for p in picks.picks if p.kind == "stock" and p.symbol not in held]
 
 
 def picks_for_review(picks: PicksResponse | None) -> PicksForReview | None:
@@ -1531,6 +1544,8 @@ def _review_key(
         )
     # Added only when present, so reviews stored before either existed are still reused.
     web = "|web" if request.web_search else ""
+    if request.extra_context:
+        web += "|context=" + hashlib.sha256(request.extra_context.encode()).hexdigest()
     picked = (
         ""
         if picks is None or not request.include_picks
@@ -1629,7 +1644,10 @@ async def prepare_portfolio_review(
     )
     context = with_accounts(context, covered, request)
     context = context.model_copy(
-        update={"claude_picks": picks_for_review(picks) if request.include_picks else None}
+        update={
+            "claude_picks": picks_for_review(picks) if request.include_picks else None,
+            "additional_context": (request.extra_context or "").strip() or None,
+        }
     )
     try:
         async with get_sessionmaker()() as session:
@@ -2110,6 +2128,47 @@ async def _saved_holdings(
 
 
 @router.post(
+    "/analysis/wait-plans",
+    response_model=WaitPlans,
+    summary="What each wait would gather for a portfolio review",
+)
+async def read_review_wait_plans(
+    session: Session,
+    user: CurrentUser,
+    request: Annotated[PortfolioAnalysisRequest, Body()] = PortfolioAnalysisRequest(),
+) -> WaitPlans:
+    """For each wait on offer, how many of the reviewed holdings, then of your latest
+    Claude's Picks not held (when the review may see them), would get their own news,
+    full articles, headlines, and analysts' ratings, earnings, and insiders, and how much
+    calendar. The holdings come first, the largest first. Nothing is fetched and no
+    request is spent. Returns 503 when the database is unavailable."""
+    try:
+        covered = await _review_holdings(session, user.id, request)
+        picks = picks_for_review(await latest_picks(session, user.id))
+        universe = await user_universe(session, user.id) or await shared_universe(session)
+        found = (
+            {}
+            if universe is None
+            else await universe_stocks(session, universe, [h.symbol for h in covered.holdings])
+        )
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    held = [
+        h.symbol
+        for h in covered.holdings
+        if not is_money_market(h.symbol)
+        and not (h.symbol in found and found[h.symbol].asset_type == "etf")
+    ]
+    picked = picked_stocks(picks if request.include_picks else None, held)
+    horizon = request.profile.horizon_years
+    groups = [("Your holdings", len(held)), ("Claude's Picks not held", len(picked))]
+    return await wait_plans(
+        [(name, count) for name, count in groups if count],
+        DEFAULT_REVIEW_HORIZON_DAYS if horizon is None else horizon * 365.25,
+    )
+
+
+@router.post(
     "/analysis/prompt",
     response_model=PortfolioPromptExport,
     summary="The portfolio review prompt, to paste into Claude outside the app",
@@ -2140,7 +2199,10 @@ async def export_portfolio_prompt(
     )
     context = with_accounts(context, covered, request)
     context = context.model_copy(
-        update={"claude_picks": picks_for_review(picks) if request.include_picks else None}
+        update={
+            "claude_picks": picks_for_review(picks) if request.include_picks else None,
+            "additional_context": (request.extra_context or "").strip() or None,
+        }
     )
     context = await with_holding_facts(session, user.id, context, request.wait_seconds)
     return PortfolioPromptExport(
@@ -2197,7 +2259,7 @@ async def import_portfolio_review(
             _review_key(covered, body.request, await latest_picks(session, user.id)),
             response,
             PASTED_MODEL,
-            PASTED_MODEL,
+            outside_effort(body.effort_used, body.response) or PASTED_MODEL,
             _stored_portfolio(body.request),
             _group(body.request),
         )

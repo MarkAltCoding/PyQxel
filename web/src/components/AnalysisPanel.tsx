@@ -5,6 +5,7 @@ import {
   exportAnalysisPrompt,
   getAnalysis,
   importAnalysis,
+  getAnalysisWaitPlans,
   listAnalyses,
   streamAnalysis,
 } from '../api/endpoints'
@@ -25,6 +26,9 @@ import { modelName } from '../lib/modelName'
 import { useWaitChoice } from '../lib/waitForData'
 import { useWebSearchChoice } from '../lib/webSearch'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
+import type { OutsideEffort } from '../lib/outsideClaude'
+import { contextForRequest, useAdditionalContext } from '../lib/additionalContext'
+import { AdditionalContextField } from './AdditionalContext'
 import { ExternalClaude } from './ExternalClaude'
 import { NoAnthropicKey } from './NoAnthropicKey'
 import { providerKeys } from '../lib/providerKeys'
@@ -87,7 +91,13 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
     setKind(next)
   }
 
+  const [extra, setExtra] = useAdditionalContext('analysis')
   const list = useQuery({ queryKey: ['analyses', symbol], queryFn: () => listAnalyses(symbol) })
+  const waitPlans = useQuery({
+    queryKey: ['analysis-wait-plans', symbol],
+    queryFn: () => getAnalysisWaitPlans(symbol),
+    staleTime: 60_000,
+  })
   const latest = list.data?.items.find((item) => item.kind === kind)
   const stored = useQuery({
     queryKey: ['analysis', latest?.id],
@@ -111,6 +121,7 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
           include_filings: true,
           web_search: webSearch,
           wait_seconds: wait,
+          extra_context: contextForRequest(extra),
           refresh,
         },
         controller.signal,
@@ -160,15 +171,16 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
       include_filings: true,
       web_search: webSearch,
       wait_seconds: wait,
+      extra_context: contextForRequest(extra),
     }
     const exported = await exportAnalysisPrompt(symbol, request)
     keepExport(exportName, { request, context: exported.context })
     return exported
   }
-  const pasteAnswer = async (response: string) => {
+  const pasteAnswer = async (response: string, effort: OutsideEffort | null) => {
     const kept = keptExport<{ request: AnalysisRequest; context: AnalysisContext }>(exportName)
     if (!kept) throw new Error('Get the prompt first: the answer is saved with its data.')
-    const result = await importAnalysis(symbol, { ...kept, response })
+    const result = await importAnalysis(symbol, { ...kept, effort_used: effort, response })
     setWritten((current) => ({ ...current, [result.kind]: result }))
     void queryClient.invalidateQueries({ queryKey: ['analyses', symbol] })
   }
@@ -179,7 +191,7 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
       <div className="card-header">
         <div>
           <div className="heading-with-info">
-            <h2>AI research report</h2>
+            <h2>AI Research Report</h2>
             <InfoTip topic="aiReport" />
           </div>
           <div className="subtitle">
@@ -192,7 +204,12 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
         <div className="filter-row">
           <Segmented label="Report kind" value={kind} options={KINDS} onChange={changeKind} />
           <WebSearchOption checked={webSearch} onChange={setWebSearch} disabled={writing} />
-          <WaitForDataOption seconds={wait} onChange={setWait} disabled={writing} />
+          <WaitForDataOption
+            seconds={wait}
+            onChange={setWait}
+            disabled={writing}
+            plans={waitPlans.data}
+          />
           {writing ? (
             <button type="button" className="button" onClick={() => abort.current?.abort()}>
               Cancel
@@ -208,6 +225,7 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
             </button>
           )}
         </div>
+        <AdditionalContextField value={extra} onChange={setExtra} disabled={writing} />
       </div>
 
       {!providerKeys().anthropic && !writing && <NoAnthropicKey what="a report" />}
@@ -254,6 +272,7 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
       <ExternalClaude
         getPrompt={getPrompt}
         onPaste={pasteAnswer}
+        askEffort
         disabled={writing}
         webSearch={webSearch}
       />
@@ -279,7 +298,7 @@ function Report({ response }: { response: AnalysisResponse }) {
         (view === 'text' ? <TextRisk report={risk} /> : <Risk report={risk} prices={prices} />)}
       <WebSources research={response.context.web_research} />
       <p className="disclaimer" style={{ marginTop: 16 }}>
-        Written by {modelName(response.model)} · {dateTime(response.generated_at)}
+        Written by {modelName(response.model, response.effort)} · {dateTime(response.generated_at)}
         {response.cached && ' · reused, not billed again'} · {response.disclaimer}
       </p>
     </article>

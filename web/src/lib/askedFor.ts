@@ -26,8 +26,17 @@ export function picksAskedFor(context: PicksContext): string[] {
     kinds,
     context.web_research ? 'searched the web' : 'without a web search',
     ...(added.length ? [`also weighed ${listed(added)}`] : []),
+    ...(profile.sell_at_end === false
+      ? [profile.recurring ? 'kept past the period, recurring' : 'kept past the period']
+      : []),
     ...(profile.notes ? [`your notes: “${profile.notes}”`] : []),
+    ...withContext(context.additional_context),
   ]
+}
+
+/** A note that the person added context, with its length, since it can be long. */
+function withContext(text: string | null | undefined): string[] {
+  return text ? [`with ${text.length.toLocaleString('en-US')} characters of your context`] : []
 }
 
 /** The settings of a portfolio review, and each account's own where it had them. */
@@ -49,6 +58,7 @@ export function reviewAskedFor(context: PortfolioContext): string[] {
       : 'whole shares',
     context.web_research ? 'searched the web' : 'without a web search',
     ...(profile.notes ? [`your notes: “${profile.notes}”`] : []),
+    ...withContext(context.additional_context),
     ...accounts.map(
       (account) =>
         `${account.account}: ${listed(

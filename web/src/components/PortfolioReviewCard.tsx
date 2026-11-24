@@ -5,6 +5,7 @@ import {
   exportPortfolioPrompt,
   deletePortfolioReview,
   getPortfolioReview,
+  getReviewWaitPlans,
   getStoredPortfolioReview,
   importPortfolioReview,
   streamPortfolioReview,
@@ -33,6 +34,9 @@ import { useWaitChoice } from '../lib/waitForData'
 import { useWebSearchChoice } from '../lib/webSearch'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
 import { ContributionLimitsNote } from './AccountSettings'
+import type { OutsideEffort } from '../lib/outsideClaude'
+import { contextForRequest, useAdditionalContext } from '../lib/additionalContext'
+import { AdditionalContextField } from './AdditionalContext'
 import { ExternalClaude } from './ExternalClaude'
 import { accountTypeLabel, CAPPED_ACCOUNT_TYPES } from '../lib/accounts'
 import { NoAnthropicKey } from './NoAnthropicKey'
@@ -325,6 +329,7 @@ export function PortfolioReviewCard({
   const abort = useRef<AbortController | null>(null)
   useEffect(() => () => abort.current?.abort(), [])
 
+  const [extra, setExtra] = useAdditionalContext('review')
   const latest = useQuery({
     queryKey: reviewKey,
     queryFn: () =>
@@ -398,6 +403,18 @@ export function PortfolioReviewCard({
     }
   }
 
+  // What each wait would gather for this review; worked out on the server, fetching nothing.
+  const planned: PortfolioAnalysisRequest = {
+    ...scopeRequest(),
+    profile: profile(),
+    include_picks: withPicks,
+  }
+  const waitPlans = useQuery({
+    queryKey: ['review-wait-plans', planned],
+    queryFn: () => getReviewWaitPlans(planned),
+    staleTime: 60_000,
+  })
+
   // Outside the app: the prompt's data is kept so the pasted answer is saved with it.
   const getPrompt = async () => {
     const request: PortfolioAnalysisRequest = {
@@ -407,17 +424,18 @@ export function PortfolioReviewCard({
       web_search: webSearch,
       wait_seconds: wait,
       include_picks: withPicks,
+      extra_context: contextForRequest(extra),
     }
     const exported = await exportPortfolioPrompt(request)
     keepExport(exportKey, { request, context: exported.context })
     return exported
   }
-  const pasteAnswer = async (response: string) => {
+  const pasteAnswer = async (response: string, effort: OutsideEffort | null) => {
     const kept = keptExport<{ request: PortfolioAnalysisRequest; context: PortfolioContext }>(
       exportKey,
     )
     if (!kept) throw new Error('Get the prompt first: the answer is saved with its data.')
-    keepResult(await importPortfolioReview({ ...kept, response }))
+    keepResult(await importPortfolioReview({ ...kept, effort_used: effort, response }))
   }
 
   const write = async () => {
@@ -434,6 +452,7 @@ export function PortfolioReviewCard({
           web_search: webSearch,
           wait_seconds: wait,
           include_picks: withPicks,
+          extra_context: contextForRequest(extra),
           refresh:
             review !== null && (review.history_months ?? PERIOD_MONTHS[review.period]) === months,
         },
@@ -456,7 +475,7 @@ export function PortfolioReviewCard({
       <div className="card-header">
         <div>
           <div className="heading-with-info">
-            <h2>AI portfolio review</h2>
+            <h2>AI Portfolio Review</h2>
             <InfoTip topic="portfolioReview" />
           </div>
           <div className="subtitle">
@@ -569,14 +588,26 @@ export function PortfolioReviewCard({
       )}
 
       <div style={{ marginBottom: 4 }}>
+        <AdditionalContextField value={extra} onChange={setExtra} disabled={writing} />
         <WebSearchOption checked={webSearch} onChange={setWebSearch} disabled={writing} />
-        <WaitForDataOption seconds={wait} onChange={setWait} disabled={writing} />
+        <WaitForDataOption
+          seconds={wait}
+          onChange={setWait}
+          disabled={writing}
+          plans={waitPlans.data}
+        />
       </div>
       <details style={{ marginBottom: 12 }}>
         <summary>Tailor the plan to your goals (optional)</summary>
         <div className="filter-row" style={{ marginTop: 10, alignItems: 'flex-end' }}>
           {!each && (
-            <Segmented label="Risk tolerance" value={risk} options={RISKS} onChange={setRisk} />
+            <div className="field">
+              <span className="heading-with-info">
+                Risk tolerance
+                <InfoTip topic="reviewRisk" />
+              </span>
+              <Segmented label="Risk tolerance" value={risk} options={RISKS} onChange={setRisk} />
+            </div>
           )}
           {!each && (
             <div className="field">
@@ -752,6 +783,7 @@ export function PortfolioReviewCard({
       <ExternalClaude
         getPrompt={getPrompt}
         onPaste={pasteAnswer}
+        askEffort
         disabled={writing || blocked}
         webSearch={webSearch}
       />
@@ -806,12 +838,18 @@ function AccountFields({
         </div>
         {withGoals && (
           <>
-            <Segmented
-              label={`Risk tolerance for ${name}`}
-              value={draft.risk}
-              options={RISKS}
-              onChange={(risk) => onChange({ risk })}
-            />
+            <div className="field">
+              <span className="heading-with-info">
+                Risk tolerance
+                <InfoTip topic="reviewRisk" />
+              </span>
+              <Segmented
+                label={`Risk tolerance for ${name}`}
+                value={draft.risk}
+                options={RISKS}
+                onChange={(risk) => onChange({ risk })}
+              />
+            </div>
             <div className="field">
               <label htmlFor={`${id}-horizon`}>Horizon</label>
               <div className="field-pair">
@@ -865,7 +903,11 @@ function Review({ response }: { response: PortfolioAnalysisResponse }) {
   const [view, setView] = useReportView()
   return (
     <article className="report">
-      <AskedFor items={reviewAskedFor(response.context)} model={response.model} />
+      <AskedFor
+        items={reviewAskedFor(response.context)}
+        model={response.model}
+        effort={response.effort}
+      />
       <ReportViewToggle view={view} onChange={setView} />
       {view === 'text' ? <TextReview response={response} /> : <VisualReview response={response} />}
       <WebSources research={response.context.web_research} />
@@ -874,8 +916,8 @@ function Review({ response }: { response: PortfolioAnalysisResponse }) {
           `Covers ${listed(response.context.accounts!.map((a) => `${a.account} (${money(a.value, 'USD', 0)})`))} together${response.group_mode === 'separate' ? ', each with its own plan' : ', as one portfolio'} · `}
         {response.context.claude_picks &&
           `Given your Claude’s Picks of ${dateTime(response.context.claude_picks.generated_at)} for ${response.context.claude_picks.horizon} · `}
-        Written by {modelName(response.model)} · {dateTime(response.generated_at)} ·{' '}
-        {historyLabel(response)} of price history
+        Written by {modelName(response.model, response.effort)} · {dateTime(response.generated_at)}{' '}
+        · {historyLabel(response)} of price history
         {response.cached && ' · reused, not billed again'} · {response.disclaimer}
       </p>
     </article>

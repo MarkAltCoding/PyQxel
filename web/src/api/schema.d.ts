@@ -644,7 +644,8 @@ export interface paths {
     /**
      * Your billing
      * @description Your prepaid credit, usage subscription, what your nightly refreshes cost in the
-     *     last 30 days, and your latest billing history.
+     *     last 30 days, what the next is expected to cost and whether your credit covers it, and
+     *     your latest billing history.
      *
      *     Returns 503 when the database is unavailable.
      */
@@ -1031,8 +1032,10 @@ export interface paths {
      * @description Return your stored lists of picks, newest first, each with its gain or loss since it
      *     was made and the benchmark's over the same days.
      *
-     *     Each list is measured from the last close before it was made, held in Claude's
-     *     weights without rebalancing, until its holding period ends; after that its record
+     *     Each pick is bought when its order would have filled on the day's prices, at that
+     *     price, and an order that never fills leaves its money in cash; a list from before
+     *     orders were given is measured from the last close before it was made. Each is held
+     *     in Claude's weights without rebalancing, until its holding period ends; after that its record
      *     stays as it was then. Prices come from your keys, as on the Portfolio page, and from
      *     your stored price history. When nothing can be priced the lists are still returned,
      *     without returns, and ``notice`` says why. Returns 503 when the database is unavailable.
@@ -1093,6 +1096,30 @@ export interface paths {
      *     are sent as ``context`` then ``result`` alone.
      */
     post: operations['stream_picks_events_api_v1_picks_stream_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/picks/wait-plans': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * What each wait would gather for a list of picks
+     * @description For each wait on offer, how many stocks would get their own news, full articles,
+     *     headlines, and analysts' ratings, earnings, and insiders, by group (tickers you added,
+     *     the likeliest picks, your holdings, the other candidates), and how much calendar, for a
+     *     list of picks asked for with ``request``. Nothing is fetched and no request is spent.
+     *     Returns 503 when the account has no screener.
+     */
+    post: operations['read_picks_wait_plans_api_v1_picks_wait_plans_post']
     delete?: never
     options?: never
     head?: never
@@ -1343,6 +1370,30 @@ export interface paths {
      *     does. A reused review is sent as ``context`` then ``result`` alone.
      */
     post: operations['stream_portfolio_review_events_api_v1_portfolio_analysis_stream_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/portfolio/analysis/wait-plans': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * What each wait would gather for a portfolio review
+     * @description For each wait on offer, how many of the reviewed holdings, then of your latest
+     *     Claude's Picks not held (when the review may see them), would get their own news,
+     *     full articles, headlines, and analysts' ratings, earnings, and insiders, and how much
+     *     calendar. The holdings come first, the largest first. Nothing is fetched and no
+     *     request is spent. Returns 503 when the database is unavailable.
+     */
+    post: operations['read_review_wait_plans_api_v1_portfolio_analysis_wait_plans_post']
     delete?: never
     options?: never
     head?: never
@@ -1920,6 +1971,29 @@ export interface paths {
      *     ``result`` alone.
      */
     post: operations['stream_analysis_events_api_v1_stocks__symbol__analysis_stream_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/stocks/{symbol}/analysis/wait-plans': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * What each wait would gather for a stock report
+     * @description For each wait on offer, what a stock report of ``symbol`` would be given: its news
+     *     (headlines and full articles), its analysts' ratings, earnings, and insiders, the
+     *     market's and deals' headlines and stories, and the calendar, and whether all of it
+     *     fits the time on the Finnhub key's plan. Nothing is fetched and no request is spent.
+     */
+    get: operations['read_analysis_wait_plans_api_v1_stocks__symbol__analysis_wait_plans_get']
+    put?: never
+    post?: never
     delete?: never
     options?: never
     head?: never
@@ -2778,6 +2852,11 @@ export interface components {
      *     Filing text is sent alongside it; the context lists only which filings were read.
      */
     AnalysisContext: {
+      /**
+       * Additional Context
+       * @description The person's additional context. Material the person pasted for Claude to weigh, such as an article, research notes, a transcript, or the handoff an earlier list of Claude's Picks wrote for this one; separate from the profile's notes, which say what to tailor to. Treated as unverified source material, never as instructions.
+       */
+      additional_context?: string | null
       /** @description The company's lobbying spending, federal contracts, patents, and recent SEC filings, from Finnhub; null without a Finnhub key. */
       alternative?: components['schemas']['AlternativeContext'] | null
       /**
@@ -2785,6 +2864,16 @@ export interface components {
        * @enum {string}
        */
       coverage: 'full' | 'partial' | 'none'
+      /**
+       * Crypto Headlines
+       * @description The week's headlines on crypto.
+       */
+      crypto_headlines?: components['schemas']['NewsHeadline'][]
+      /**
+       * Deal Headlines
+       * @description The week's headlines on mergers and acquisitions.
+       */
+      deal_headlines?: components['schemas']['NewsHeadline'][]
       /** @description Carhart four-factor exposures (market, size, value, momentum); null when they could not be estimated. */
       factors?: components['schemas']['FactorContext'] | null
       /**
@@ -2792,6 +2881,11 @@ export interface components {
        * @description SEC filings whose sections were given to the model.
        */
       filings?: components['schemas']['FilingReference'][]
+      /**
+       * Forex Headlines
+       * @description The week's headlines on the dollar and currencies.
+       */
+      forex_headlines?: components['schemas']['NewsHeadline'][]
       /** @description For an ETF or mutual fund: its costs, its largest holdings with their weights, its mix of stocks, bonds, and cash, a bond fund's coupon, maturity, and issuers, and the valuation, margins, growth, size, and sectors weighted from the companies it holds; null for a stock, or when none could be found. */
       fund?: components['schemas']['FundProfile'] | null
       /** @description Financial statement figures from SEC filings and the valuation built on them; null when they could not be fetched. */
@@ -2815,6 +2909,18 @@ export interface components {
        */
       period: '6mo' | '1y' | '2y' | '5y' | '10y' | 'max'
       prices: components['schemas']['PriceSummary']
+      /**
+       * Recent Filings
+       * @description Its SEC filings of the last month, from EDGAR, an 8-K's items in words.
+       */
+      recent_filings?: components['schemas']['CandidateFiling'][]
+      /** @description What the screener holds of it, as Claude's Picks see a candidate: its figures, next earnings date, S&P 500 membership, analysts' and insiders' signals, and where each figure falls in its sector; null when the screener lacks it. */
+      screener?: components['schemas']['ScreenerFacts'] | null
+      /**
+       * Sector Medians
+       * @description The medians of the screener's stocks in all and in its sector.
+       */
+      sector_medians?: components['schemas']['SectorSnapshot'][]
       /** @description Analysts' rating counts, recent earnings surprises, the next earnings date and insiders' open-market trades and sentiment, from Finnhub; null without a Finnhub key. */
       signals?: components['schemas']['SignalsContext'] | null
       ticker: components['schemas']['TickerInfo']
@@ -2830,6 +2936,11 @@ export interface components {
     AnalysisImport: {
       /** @description The context the export returned. */
       context: components['schemas']['AnalysisContext']
+      /**
+       * Effort Used
+       * @description The effort used outside the app; null to take an ``Effort: high`` line at the end of the pasted answer, or to record none.
+       */
+      effort_used?: ('low' | 'medium' | 'high' | 'xhigh' | 'max') | null
       /** @description The options the prompt was exported with. */
       request: components['schemas']['AnalysisRequest']
       /** Response */
@@ -2874,6 +2985,11 @@ export interface components {
      * @description Options for an AI-written analysis.
      */
     AnalysisRequest: {
+      /**
+       * Extra Context
+       * @description Material the person pasted for Claude to weigh, such as an article, research notes, a transcript, or the handoff an earlier list of Claude's Picks wrote for this one; separate from the profile's notes, which say what to tailor to. Treated as unverified source material, never as instructions.
+       */
+      extra_context?: string | null
       /**
        * Include Filings
        * @description Also give Claude the Risk Factors and MD&A sections of the latest 10-K and any 10-Q filed since, from SEC EDGAR.
@@ -2931,6 +3047,11 @@ export interface components {
        */
       disclaimer?: string
       /**
+       * Effort
+       * @description How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.
+       */
+      effort?: string | null
+      /**
        * Generated At
        * Format: date-time
        */
@@ -2960,6 +3081,11 @@ export interface components {
      * @description A stored analysis's headline, without the report body or its data.
      */
     AnalysisSummary: {
+      /**
+       * Effort
+       * @description How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.
+       */
+      effort?: string | null
       /**
        * Generated At
        * Format: date-time
@@ -3260,9 +3386,14 @@ export interface components {
     }
     /**
      * AssistantResponse
-     * @description The assistant's reply and the model that wrote it.
+     * @description The assistant's reply and the model that wrote it, at what effort.
      */
     AssistantResponse: {
+      /**
+       * Effort
+       * @description The effort it was written at; null for an answer pasted from outside the app whose effort was not noted.
+       */
+      effort?: string | null
       /** Model */
       model: string
       reply: components['schemas']['AssistantReply']
@@ -3561,8 +3692,13 @@ export interface components {
        */
       billing_fee_rate: number
       /**
+       * Can Make Scheduled Picks
+       * @description Whether scheduled picks may run: as can_refresh, for scheduled_picks_usd.
+       */
+      can_make_scheduled_picks: boolean
+      /**
        * Can Refresh
-       * @description Whether the nightly refresh may run: the account is exempt, or has credit left or a subscription Stripe is billing.
+       * @description Whether the next nightly refresh may run: the account is exempt, has a subscription Stripe is billing, or has credit that covers next_refresh_usd. Without a subscription, a refresh that still reaches the credit is stopped there.
        */
       can_refresh: boolean
       /**
@@ -3582,7 +3718,7 @@ export interface components {
       closed_country?: string | null
       /**
        * Credit Usd
-       * @description Prepaid credit left, in dollars; below zero when refreshes ran past it with no subscription, which the next top-up repays.
+       * @description Prepaid credit left, in dollars; below zero only when a disputed payment or a fee took more than was left, which the next top-up repays.
        */
       credit_usd: number
       /**
@@ -3635,6 +3771,16 @@ export interface components {
        * @description The smallest top-up, in cents.
        */
       min_top_up_cents: number
+      /**
+       * Next Refresh Usd
+       * @description What the next refresh is expected to cost: the most any of the last five cost, or half an hour of the job before one has run.
+       */
+      next_refresh_usd: number
+      /**
+       * Scheduled Picks Usd
+       * @description The most one run of scheduled picks is expected to cost the job, before what Anthropic charges the Anthropic key for Claude's work.
+       */
+      scheduled_picks_usd: number
       /** @description The usage subscription, if any. */
       subscription: components['schemas']['Subscription'] | null
     }
@@ -6676,7 +6822,8 @@ export interface components {
     }
     /**
      * NewsHeadline
-     * @description An article as given to Claude: no link, and a shorter summary.
+     * @description An article as given to Claude: no link, a shorter summary, and for the articles that
+     *     matter most, the article itself.
      */
     NewsHeadline: {
       /** Headline */
@@ -6690,6 +6837,11 @@ export interface components {
       source: string
       /** Summary */
       summary?: string | null
+      /**
+       * Text
+       * @description The article itself, in Markdown, cut to a length, for the articles that matter most; null when it was not read or its page could not be (a paywall, a refusal, or too little text).
+       */
+      text?: string | null
     }
     /**
      * NewsOverview
@@ -7372,11 +7524,19 @@ export interface components {
        * @description The company's or fund's name.
        */
       name: string
+      /** @description The buy order to place, with its contingency, stop-loss, and profit target; null on lists made before orders were given. */
+      order?: components['schemas']['PickOrder'] | null
       /**
        * Risk
        * @description The main risk, and what would prove the pick wrong.
        */
       risk: string
+      /**
+       * Sell At End
+       * @description Whether to sell it by the end of the holding period. False only when the profile's sell_at_end is false and holding on is better; exit then says for how long, or until what.
+       * @default true
+       */
+      sell_at_end?: boolean
       /**
        * Symbol
        * @description Ticker, as in the candidates table.
@@ -7586,6 +7746,65 @@ export interface components {
       volatility_sector_pct?: number | null
     }
     /**
+     * PickOrder
+     * @description How to buy one pick at a typical US broker, and how to guard it once bought.
+     *
+     *     Every field maps to a choice on a broker's order ticket: the order type, its prices,
+     *     and how long it stays open (its time in force). The app turns it into the steps to
+     *     follow, and measures the pick's performance by whether, when, and at what price the
+     *     order would have filled.
+     */
+    PickOrder: {
+      /**
+       * Cancel After
+       * @description The last session the buy order stays open, New York date; set by the app from time_in_force and good_for_days.
+       */
+      cancel_after?: string | null
+      /**
+       * Good For Days
+       * @description For a gtc order, how many trading sessions to leave it open before canceling it, at most the holding period's; null for a day order.
+       */
+      good_for_days?: number | null
+      /**
+       * If Unfilled
+       * @description The contingency when the order never fills: ``skip`` keeps the money in cash; ``buy_at_market`` buys at the next session's open after it is canceled.
+       * @enum {string}
+       */
+      if_unfilled: 'skip' | 'buy_at_market'
+      /**
+       * Limit Price
+       * @description The most to pay per share, in the security's currency; required for limit and stop_limit orders, null for market orders.
+       */
+      limit_price?: number | null
+      /**
+       * Order Type
+       * @description ``market`` buys at the next price available; ``limit`` buys only at limit_price or lower; ``stop_limit`` waits until the price rises to stop_price, then buys at limit_price or lower (to buy a breakout without chasing it).
+       * @enum {string}
+       */
+      order_type: 'market' | 'limit' | 'stop_limit'
+      /**
+       * Stop Loss
+       * @description Once bought, a sell stop order at this price, below the purchase, to limit the loss; null for none.
+       */
+      stop_loss?: number | null
+      /**
+       * Stop Price
+       * @description For a stop_limit order, the price that sets it off; at or below limit_price. Null otherwise.
+       */
+      stop_price?: number | null
+      /**
+       * Take Profit
+       * @description Once bought, a sell limit order at this price, above the purchase, to take the gain; null for none.
+       */
+      take_profit?: number | null
+      /**
+       * Time In Force
+       * @description ``day``: canceled at the close if not filled; ``gtc``: good 'til canceled, left open for good_for_days trading days.
+       * @enum {string}
+       */
+      time_in_force: 'day' | 'gtc'
+    }
+    /**
      * PickPerformance
      * @description How one pick has done since the list was made.
      */
@@ -7595,6 +7814,11 @@ export interface components {
        * @description What it added to the list's return: its weight times its gain.
        */
       contribution?: number | null
+      /**
+       * Filled On
+       * @description The day its buy order filled.
+       */
+      filled_on?: string | null
       /**
        * Gain
        * @description Its gain or loss since the start, as a decimal, dividends counted; null when it could not be priced.
@@ -7606,10 +7830,32 @@ export interface components {
        */
       latest_price?: number | null
       /**
+       * Note
+       * @description What happened to its orders, in a sentence.
+       */
+      note?: string | null
+      /**
+       * Sold By
+       * @description Which order sold it.
+       */
+      sold_by?: ('stop_loss' | 'take_profit') | null
+      /**
+       * Sold On
+       * @description The day its stop-loss or profit target sold it.
+       */
+      sold_on?: string | null
+      /**
        * Start Price
        * @description Its adjusted close the list is measured from.
        */
       start_price?: number | null
+      /**
+       * Status
+       * @description ``held``: bought and still held, or held to the period's end; ``waiting``: its buy order is still open, unfilled; ``not_filled``: the order never filled and the money stayed in cash; ``sold``: its stop-loss or profit target sold it; ``unpriced``: no prices.
+       * @default held
+       * @enum {string}
+       */
+      status?: 'held' | 'waiting' | 'not_filled' | 'sold' | 'unpriced'
       /** Symbol */
       symbol: string
       /**
@@ -7673,6 +7919,11 @@ export interface components {
      *     candidates as a table.
      */
     PicksContext: {
+      /**
+       * Additional Context
+       * @description The person's additional context. Material the person pasted for Claude to weigh, such as an article, research notes, a transcript, or the handoff an earlier list of Claude's Picks wrote for this one; separate from the profile's notes, which say what to tailor to. Treated as unverified source material, never as instructions.
+       */
+      additional_context?: string | null
       /**
        * Candidate Events
        * @description Recent news and SEC filings of the candidates likeliest to be picked: the stocks that led on the most measures, then the largest.
@@ -7811,6 +8062,11 @@ export interface components {
     PicksImport: {
       /** @description The context the export returned. */
       context: components['schemas']['PicksContext']
+      /**
+       * Effort Used
+       * @description The effort used outside the app; null to take an ``Effort: high`` line at the end of the pasted answer, or to record none.
+       */
+      effort_used?: ('low' | 'medium' | 'high' | 'xhigh' | 'max') | null
       /** @description The options the prompt was exported with. */
       request?: components['schemas']['PicksRequest']
       /** Response */
@@ -7910,8 +8166,20 @@ export interface components {
        * @description Anything else to take into account, e.g. sectors to favor or avoid, dividends wanted, or securities already held.
        */
       notes?: string | null
+      /**
+       * Recurring
+       * @description Whether new picks will be made each period, as a recurring investment. With ``sell_at_end`` false, Claude then writes a handoff for the next list: what to check for each pick it would keep.
+       * @default false
+       */
+      recurring?: boolean
       /** Risk Tolerance */
       risk_tolerance?: ('conservative' | 'moderate' | 'aggressive') | null
+      /**
+       * Sell At End
+       * @description Whether everything is sold by the end of the holding period. With ``false``, the picks are still chosen for the holding period, but its end is when they are next looked at: Claude says to sell then only where that is best, or when another reason to sell is met, and otherwise how long to keep holding, or until what.
+       * @default true
+       */
+      sell_at_end?: boolean
       /**
        * Weights
        * @description ``ideal`` for each pick's best share, however precise (23%), or ``clean`` for whole multiples of 5% (25%), easier to follow by hand.
@@ -7958,6 +8226,11 @@ export interface components {
        */
       data_limitations: string[]
       /**
+       * Handoff
+       * @description For a recurring investment that keeps picks past the period: a note for the next list of picks, to be pasted into its additional context. Null otherwise.
+       */
+      handoff?: string | null
+      /**
        * Headline
        * @description One sentence naming the idea behind the picks.
        */
@@ -7989,10 +8262,21 @@ export interface components {
      */
     PicksRequest: {
       /**
+       * Added First
+       * @description Whether the tickers added come first in the order the wait is spent (their news, articles, and signals), ahead of the 25 candidates likeliest to be picked; ``false`` puts those first and the added tickers after them.
+       * @default true
+       */
+      added_first?: boolean
+      /**
        * Added Symbols
        * @description Tickers to weigh along with the screener's leaders, such as ones in a theme you follow. Each one the screener holds joins the candidates with its figures, as any other candidate does; one it does not hold is left out.
        */
       added_symbols?: string[]
+      /**
+       * Extra Context
+       * @description Material the person pasted for Claude to weigh, such as an article, research notes, a transcript, or the handoff an earlier list of Claude's Picks wrote for this one; separate from the profile's notes, which say what to tailor to. Treated as unverified source material, never as instructions.
+       */
+      extra_context?: string | null
       /**
        * Holdings Portfolios
        * @description Saved portfolios whose holdings Claude is shown, so it picks with what you already own in mind; empty for none. They come with what PyQxel already knows of them (the screener's figures), at no extra request.
@@ -8035,6 +8319,11 @@ export interface components {
        * @default Generated by an AI model (Claude), not a licensed financial adviser, from the screener's historical figures and what you told it. No pick is a promise: any of them can lose money, and shorter holding periods are the least predictable. Check prices and news before buying; the decision and its risk are yours.
        */
       disclaimer?: string
+      /**
+       * Effort
+       * @description How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.
+       */
+      effort?: string | null
       /**
        * Generated At
        * Format: date-time
@@ -8122,6 +8411,11 @@ export interface components {
      * @description A stored list of picks, without its reasons or data.
      */
     PicksSummary: {
+      /**
+       * Effort
+       * @description How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.
+       */
+      effort?: string | null
       /**
        * Generated At
        * Format: date-time
@@ -8284,6 +8578,11 @@ export interface components {
        */
       accounts?: components['schemas']['AccountGoals'][]
       /**
+       * Extra Context
+       * @description Material the person pasted for Claude to weigh, such as an article, research notes, a transcript, or the handoff an earlier list of Claude's Picks wrote for this one; separate from the profile's notes, which say what to tailor to. Treated as unverified source material, never as instructions.
+       */
+      extra_context?: string | null
+      /**
        * Group Mode
        * @description With ``portfolios``: review them as one large portfolio (``combined``), or each with its own plan and orders, with the others in mind (``separate``).
        * @default combined
@@ -8361,6 +8660,11 @@ export interface components {
        * @default Generated by an AI model (Claude), not a licensed financial adviser, from historical prices of today's holdings and what you told it. Check prices, taxes, and trading costs before placing any order; the decision and its risk are yours.
        */
       disclaimer?: string
+      /**
+       * Effort
+       * @description How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.
+       */
+      effort?: string | null
       /**
        * Generated At
        * Format: date-time
@@ -8527,6 +8831,11 @@ export interface components {
        * @description The accounts reviewed together as one portfolio, with their values; empty when one portfolio is reviewed. Weights are shares of all of them combined.
        */
       accounts?: components['schemas']['AccountValue'][]
+      /**
+       * Additional Context
+       * @description The person's additional context. Material the person pasted for Claude to weigh, such as an article, research notes, a transcript, or the handoff an earlier list of Claude's Picks wrote for this one; separate from the profile's notes, which say what to tailor to. Treated as unverified source material, never as instructions.
+       */
+      additional_context?: string | null
       /** @description The account's latest Claude's Picks, with the screener's figures for each when it was picked, as candidates for new investments; null when the account has none. */
       claude_picks?: components['schemas']['PicksForReview'] | null
       /** @description The IRS's yearly contribution limits, given when an account reviewed is one they cap. */
@@ -8711,6 +9020,11 @@ export interface components {
     PortfolioReviewImport: {
       /** @description The context the export returned. */
       context: components['schemas']['PortfolioContext']
+      /**
+       * Effort Used
+       * @description The effort used outside the app; null to take an ``Effort: high`` line at the end of the pasted answer, or to record none.
+       */
+      effort_used?: ('low' | 'medium' | 'high' | 'xhigh' | 'max') | null
       /** @description The options the prompt was exported with. */
       request?: components['schemas']['PortfolioAnalysisRequest']
       /** Response */
@@ -8729,6 +9043,11 @@ export interface components {
      * @description A stored portfolio review, without its plan or data: a row of the saved reviews.
      */
     PortfolioReviewSummary: {
+      /**
+       * Effort
+       * @description How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.
+       */
+      effort?: string | null
       /**
        * Generated At
        * Format: date-time
@@ -9475,11 +9794,19 @@ export interface components {
        * @description The company's or fund's name.
        */
       name: string
+      /** @description The buy order to place, with its contingency, stop-loss, and profit target; null on lists made before orders were given. */
+      order?: components['schemas']['PickOrder'] | null
       /**
        * Risk
        * @description The main risk, and what would prove the pick wrong.
        */
       risk: string
+      /**
+       * Sell At End
+       * @description Whether to sell it by the end of the holding period. False only when the profile's sell_at_end is false and holding on is better; exit then says for how long, or until what.
+       * @default true
+       */
+      sell_at_end?: boolean
       /**
        * Symbol
        * @description Ticker, as in the candidates table.
@@ -9652,6 +9979,11 @@ export interface components {
     SavedPicks: {
       /** Benchmark Return */
       benchmark_return?: number | null
+      /**
+       * Effort
+       * @description How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.
+       */
+      effort?: string | null
       /** Ended */
       ended: boolean
       /**
@@ -11251,6 +11583,111 @@ export interface components {
       window?: number
     }
     /**
+     * WaitGroupPlan
+     * @description What one group of securities gets within a wait: the holdings, the candidates
+     *     likeliest to be picked, or the rest.
+     */
+    WaitGroupPlan: {
+      /**
+       * Articles Each
+       * @description Full articles read for each of those with news, at most.
+       */
+      articles_each: number
+      /**
+       * Headlines Each
+       * @description Headlines given for each, at most.
+       */
+      headlines_each: number
+      /**
+       * Name
+       * @description The group, in words, e.g. Your holdings.
+       */
+      name: string
+      /**
+       * Stocks
+       * @description Stocks in the group whose own data is wanted.
+       */
+      stocks: number
+      /**
+       * With News
+       * @description Of them, those whose news is fetched.
+       */
+      with_news: number
+      /**
+       * With Signals
+       * @description Of them, those that get analysts' ratings, earnings, and insiders.
+       */
+      with_signals: number
+    }
+    /**
+     * WaitPlan
+     * @description What one wait buys: how the time is split among the securities, by priority.
+     */
+    WaitPlan: {
+      /**
+       * Articles
+       * @description Company articles read in full, at most.
+       */
+      articles: number
+      /**
+       * Calendar Days
+       * @description Days of earnings calendar it covers.
+       */
+      calendar_days: number
+      /**
+       * Complete
+       * @description Whether nothing would be left out for lack of time.
+       */
+      complete: boolean
+      /**
+       * Full Calendar Days
+       * @description Days the whole calendar would cover.
+       */
+      full_calendar_days: number
+      /** Groups */
+      groups: components['schemas']['WaitGroupPlan'][]
+      /**
+       * Headlines
+       * @description Company headlines given, at most.
+       */
+      headlines: number
+      /**
+       * Market Articles
+       * @description Market and deal stories read in full.
+       */
+      market_articles: number
+      /**
+       * Market Headlines
+       * @description Market, deal, currency, and crypto headlines given, at most.
+       */
+      market_headlines: number
+      /**
+       * Minutes
+       * @description Minutes of the Finnhub plan's limit it spans.
+       */
+      minutes: number
+      /**
+       * More
+       * @description What a longer wait would add.
+       */
+      more?: string | null
+      /** Wait Seconds */
+      wait_seconds: number
+    }
+    /**
+     * WaitPlans
+     * @description What each wait on offer would gather for a report, list of picks, or review.
+     */
+    WaitPlans: {
+      /** Choices */
+      choices: components['schemas']['WaitPlan'][]
+      /**
+       * Per Minute
+       * @description Requests a minute the Finnhub key allows; null without one, when news comes from Alpha Vantage's shared feed and waiting adds nothing.
+       */
+      per_minute: number | null
+    }
+    /**
      * WebFinding
      * @description One fact found on the web, and the pages that state it.
      */
@@ -12829,6 +13266,39 @@ export interface operations {
       }
     }
   }
+  read_picks_wait_plans_api_v1_picks_wait_plans_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        'application/json': components['schemas']['PicksRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['WaitPlans']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
   read_picks_api_v1_picks__picks_id__get: {
     parameters: {
       query?: never
@@ -13205,6 +13675,39 @@ export interface operations {
         }
         content: {
           'text/event-stream': unknown
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_review_wait_plans_api_v1_portfolio_analysis_wait_plans_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        'application/json': components['schemas']['PortfolioAnalysisRequest']
+      }
+    }
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['WaitPlans']
         }
       }
       /** @description Validation Error */
@@ -13870,6 +14373,37 @@ export interface operations {
         }
         content: {
           'text/event-stream': unknown
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  read_analysis_wait_plans_api_v1_stocks__symbol__analysis_wait_plans_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        symbol: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['WaitPlans']
         }
       }
       /** @description Validation Error */

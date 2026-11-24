@@ -19,6 +19,8 @@ from app.models.picks import (
 )
 from app.models.portfolio import MAX_PORTFOLIOS, MAX_SYMBOLS, PortfolioNumber, PortfolioPeriod
 from app.models.research import (
+    EXTRA_CONTEXT_DESCRIPTION,
+    MAX_EXTRA_CONTEXT,
     MAX_WAIT_SECONDS,
     WAIT_DESCRIPTION,
     WRITTEN_BY_DESCRIPTION,
@@ -144,6 +146,9 @@ class PortfolioAnalysisRequest(BaseModel):
         "tokens.",
     )
     wait_seconds: int = Field(default=0, ge=0, le=MAX_WAIT_SECONDS, description=WAIT_DESCRIPTION)
+    extra_context: str | None = Field(
+        default=None, max_length=MAX_EXTRA_CONTEXT, description=EXTRA_CONTEXT_DESCRIPTION
+    )
     include_picks: bool = Field(
         default=True,
         description="Let the review see your latest stored Claude's Picks, with their "
@@ -366,6 +371,9 @@ class PortfolioContext(BaseModel):
         description="The account's latest Claude's Picks, with the screener's figures for "
         "each when it was picked, as candidates for new investments; null when the account "
         "has none.",
+    )
+    additional_context: str | None = Field(
+        default=None, description="The person's additional context. " + EXTRA_CONTEXT_DESCRIPTION
     )
     web_research: WebResearch | None = Field(
         default=None,
@@ -591,6 +599,11 @@ class PortfolioAnalysisResponse(BaseModel):
     )
     context: PortfolioContext
     model: str = Field(description="Claude model that wrote the review.")
+    effort: str | None = Field(
+        default=None,
+        description="How much effort Claude was asked to put in (low, medium, high, xhigh, "
+        "or max); null when it was written outside the app.",
+    )
     generated_at: datetime
     cached: bool = Field(
         default=False,
@@ -615,6 +628,11 @@ class PortfolioReviewSummary(BaseModel):
         default=None, description="How several were reviewed together; null for one."
     )
     model: str = Field(description="The Claude model that wrote it.")
+    effort: str | None = Field(
+        default=None,
+        description="How much effort Claude was asked to put in (low, medium, high, xhigh, "
+        "or max); null when it was written outside the app.",
+    )
     headline: str
     risk_tolerance: str | None = Field(default=None, description="The risk tolerance asked for.")
     horizon_years: float | None = Field(default=None, description="The horizon asked for.")

@@ -183,11 +183,15 @@ describe('PicksPage', () => {
         weights: 'ideal',
         asset_types: ['stock'],
         notes: 'no banks',
+        sell_at_end: true,
+        recurring: false,
       },
       web_search: false,
       wait_seconds: 300,
       holdings_portfolios: [],
       added_symbols: [],
+      added_first: true,
+      extra_context: null,
       refresh: false,
     })
     // The answers are kept for next time.

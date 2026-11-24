@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { INFO, type InfoKey } from '../lib/glossary'
 
@@ -10,7 +10,14 @@ import { INFO, type InfoKey } from '../lib/glossary'
  * The box is drawn at the end of the page, placed under its "i", so a table or card that
  * scrolls sideways neither cuts it off nor grows a scrollbar to make room for it.
  */
-export function InfoTip({ topic }: { topic: InfoKey }) {
+export function InfoTip({
+  topic,
+  children,
+}: {
+  topic: InfoKey
+  /** Figures worked out for this page, shown after the glossary's explanation. */
+  children?: ReactNode
+}) {
   const entry = INFO[topic]
   const id = useId()
   const [hovered, setHovered] = useState(false)
@@ -113,6 +120,7 @@ export function InfoTip({ topic }: { topic: InfoKey }) {
                 <span className="info-tip-bad">Watch for:</span> {entry.bad}
               </p>
             )}
+            {children}
             {entry.note && <p className="info-tip-note">{entry.note}</p>}
           </div>,
           document.body,

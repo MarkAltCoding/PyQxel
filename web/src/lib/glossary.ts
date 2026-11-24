@@ -849,8 +849,19 @@ const entries = {
   },
   askedFor: {
     title: 'Made for',
-    what: 'What this report was asked for: the settings and notes you gave when it was made, whether Claude searched the web, and which Claude model wrote it. A report opened again from your saved ones keeps them, so you can tell what each was tailored to.',
-    note: 'A report written outside the app names the model Claude said it is, marked “outside the app”; if Claude did not say, it shows as not given.',
+    what: 'What this report was asked for: the settings and notes you gave when it was made, whether Claude searched the web, which Claude model wrote it, and at what effort. Effort is how long Claude may think before answering, from low to maximum: more effort weighs the data more carefully but takes longer and costs more on your Anthropic key. A report opened again from your saved ones keeps them, so you can tell what each was tailored to.',
+    note: 'A report written outside the app names the model Claude said it is, marked “outside the app”; if Claude did not say, it shows as not given. No effort is shown for one written outside the app, since PyQxel did not set it.',
+  },
+  outsideSettings: {
+    title: 'Effort used',
+    what: 'The effort you used for this answer outside the app, so the saved analysis, and the performance tracked for it, say exactly what wrote it, as the app’s own analyses do. Your choice is remembered for next time.',
+    note: 'Claude names its own model in its answer, but it cannot tell its effort, which is a setting of the request, not something it reads; so only you can note it. Instead of choosing here, you can end the pasted text with a line such as “Effort: high.”',
+  },
+  additionalContext: {
+    title: 'Additional context',
+    what: 'Material for Claude to weigh beside PyQxel’s data: an article, research notes, an earnings call transcript, or the handoff an earlier list of Claude’s Picks wrote for the next. It is separate from the notes, which say what to tailor the report to (your goals, what to avoid); this box is for facts and reading. Claude treats it as unverified, checks it against the data where it can, and says when it relies on it.',
+    good: 'Paste what the data here cannot hold: news behind a paywall, a broker’s research, your own analysis, or the last picks’ handoff. Up to 60,000 characters, about 15,000 tokens.',
+    note: 'It is remembered on this page until you clear it, and goes into the prompt taken outside the app too. A report written with it is never reused for a request without it.',
   },
   waitForData: {
     title: 'Wait for more data',
@@ -888,14 +899,14 @@ const entries = {
   },
   picksPerformance: {
     title: 'How the picks have done',
-    what: 'The gain or loss of $10,000 put into the picks in Claude’s weights at the last close before they were made, and never rebalanced, beside the same money in the benchmark fund. Prices are adjusted, so dividends count.',
+    what: 'The gain or loss of $10,000 put into the picks in Claude’s weights and never rebalanced, beside the same money in the benchmark fund from the last close before the picks were made. Each pick is bought only when its order would have filled, at that price; until then, or if it never fills, its money waits in cash. Prices are adjusted, so dividends count.',
     good: 'The picks’ line above the benchmark’s, by more than the trading costs and taxes buying them would have cost.',
     bad: 'The picks trailing the benchmark: owning the index would have done better.',
     note: 'Measuring stops when the holding period ends. A few weeks say little: over short stretches luck swamps skill, so judge picks over their whole period and over several lists.',
   },
   picksReturn: {
     title: 'Picks’ return',
-    what: 'The list’s gain or loss since it was made: each pick’s gain times its share of the money, as if bought in Claude’s weights and held.',
+    what: 'The list’s gain or loss since it was made: each pick’s gain times its share of the money, bought in Claude’s weights when each order would have filled and held. A pick whose order never filled counts as cash, earning nothing.',
     note: 'A pick that cannot be priced is left out, and the others’ weights are scaled up to fill its share.',
   },
   picksBenchmarkReturn: {
@@ -916,7 +927,7 @@ const entries = {
   },
   pickGain: {
     title: 'Gain since picked',
-    what: 'How much the pick has gained or lost since the last close before the list was made, dividends included, and what that added to the list’s return (its weight times its gain).',
+    what: 'How much the pick has gained or lost since its buy order would have filled (or, for a list from before orders were given, since the last close before it was made), dividends included, and what that added to the list’s return (its weight times its gain).',
   },
   webSources: {
     title: 'From the web',
@@ -942,6 +953,48 @@ const entries = {
     title: 'Risk tolerance',
     what: 'How large a swing in value you could sit through without selling. Conservative leans to steadier companies, more diversification, and room for broad or bond funds. Moderate is a mix. Aggressive lets Claude concentrate and pick volatile, faster-growing, or smaller companies. Left unset, Claude assumes moderate and says so.',
     note: 'Higher risk means larger possible losses as well as gains, not a higher return.',
+  },
+  reviewRisk: {
+    title: 'Risk tolerance',
+    what: 'How large a drop in your portfolio’s value you could sit through without selling. Claude shapes the plan to it: conservative leans to steadier holdings, broad funds, bonds, and cash, and trims anything that has grown too large; moderate is a mix; aggressive accepts more concentration in fewer or more volatile holdings. Left unset, Claude assumes moderate and says so.',
+    good: 'A rough guide: conservative if a 15% fall would make you sell, moderate for about 25%, aggressive for 35% or more. The money you need within a few years usually belongs in the conservative part.',
+    note: 'Higher risk means larger possible losses as well as gains, not a higher return. When accounts each get their own plan, each account has its own.',
+  },
+  pickOrders: {
+    title: 'Orders to place',
+    what: 'The orders to enter at your broker for this pick, in order. A market order buys at the next price available. A limit order buys only at its price or lower, so it may never fill. A stop-limit order waits until the price rises to its stop, then buys at its limit or lower. “Good ’til canceled” (GTC) leaves an order open across sessions; a day order cancels itself at the close. A sell stop (stop-loss) sells if the price falls to it, and a sell limit sells if the price rises to it.',
+    good: 'A buy limit within a day’s usual move of the last price usually fills within a few sessions; one far below it often never does. A stop-loss set beyond the stock’s normal swings is not triggered by everyday noise.',
+    note: 'The steps follow Fidelity’s rules, which other brokers mostly share: whole shares take any of these orders, good ’til canceled for up to 180 days; fractional shares, bought in dollars from $1, take only market and day limit orders during market hours, so the fraction is entered again each morning, and is guarded by a price alert, since Fidelity takes no stop orders on fractions. Claude’s Picks performance follows these orders: a pick counts as bought only if, and when, its order would have filled on that day’s prices, and one that never fills counts as cash. A stop-loss can sell below its price when a stock opens lower.',
+  },
+  pickOrderStatus: {
+    title: 'Orders',
+    what: 'What the pick’s orders would have done on each day’s prices. Bought: its buy order filled, at the price in “Bought at”. Order open: the buy order is still waiting for its price. Not filled: it never reached its price before it was canceled, so its money stayed in cash, earning nothing, and the list’s return counts it that way. Sold early: its stop-loss or profit target sold it, and its money stayed in cash after.',
+    note: 'Daily prices show a day’s open, high, low, and close, not the order trades came in, so a limit counts as filled when the day’s low reached it, and a stop-loss is watched from the day after the purchase. Picks made before orders were given are measured from the last close before the list was made.',
+  },
+  picksAddedFirst: {
+    title: 'Gather data first for',
+    what: 'Which stocks the time you will wait is spent on first: their news, the articles read in full, and analysts’ ratings, earnings, and insiders. “Tickers you added” puts yours ahead of the 25 candidates likeliest to be picked, so Claude knows the most about the ones you asked about. “Claude’s 25 likeliest picks” puts those first and yours right after them. Your largest holdings, when Claude is shown them, and then the other candidates follow either way.',
+    good: 'Put your tickers first when you most want Claude to weigh them; put the likeliest first when you added many and want the strongest candidates covered best.',
+    note: 'It matters only when the wait is too short for everything: the “i” beside “Wait for more data” shows how far each wait reaches.',
+  },
+  picksSellAtEnd: {
+    title: 'Keep picks past the holding period',
+    what: 'Normally every pick is sold by the close of the holding period’s last session. Checked, the picks are still chosen for the holding period, to do best over it, but its end is when you next look at them, not a deadline: Claude says to sell at its end only where that is best (a trade whose reason ends with the period), or when another reason to sell is met, and otherwise how much longer to hold, or until what, such as a price, a date, or an earnings report.',
+    note: 'A list’s performance is still measured up to the end of the holding period, so lists of every kind compare fairly.',
+  },
+  picksRecurring: {
+    title: 'Recurring picks',
+    what: 'Check this if you will make a new list each period, investing again each time. Claude then writes a handoff for the next list: for each pick it would keep, the price and figures it saw, why it would keep it, and the exact conditions to check. Paste it into the next list’s additional context, which will not otherwise see this list or the data from before its own window.',
+    good: 'Let the next list see the portfolio you bought these picks in, under “Show Claude my holdings in,” so it knows what you still hold.',
+  },
+  picksHandoff: {
+    title: 'For your next picks',
+    what: 'A note this list wrote for the next one, since you will make new picks each period: for each pick it would keep, the price, date, and figures it saw, why it would keep it, and the conditions that would end the case. The next list sees only its own window of data, so this carries over what it would otherwise miss.',
+    good: '“Use in my next picks” puts it in the additional context box above; let the next list see the portfolio holding these picks too.',
+  },
+  pickKeptPast: {
+    title: 'Kept past the period',
+    what: 'Claude would not sell this pick at the end of the holding period: “When to sell” says how much longer to hold it, or until what. Its performance here is still measured up to the period’s end.',
   },
   pickConviction: {
     title: 'Conviction',

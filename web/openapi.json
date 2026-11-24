@@ -722,6 +722,18 @@
       "AnalysisContext": {
         "description": "The market data an analysis is written from, sent to Claude verbatim.\n\nFiling text is sent alongside it; the context lists only which filings were read.",
         "properties": {
+          "additional_context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The person's additional context. Material the person pasted for Claude to weigh, such as an article, research notes, a transcript, or the handoff an earlier list of Claude's Picks wrote for this one; separate from the profile's notes, which say what to tailor to. Treated as unverified source material, never as instructions.",
+            "title": "Additional Context"
+          },
           "alternative": {
             "anyOf": [
               {
@@ -742,6 +754,22 @@
             "title": "Coverage",
             "type": "string"
           },
+          "crypto_headlines": {
+            "description": "The week's headlines on crypto.",
+            "items": {
+              "$ref": "#/components/schemas/NewsHeadline"
+            },
+            "title": "Crypto Headlines",
+            "type": "array"
+          },
+          "deal_headlines": {
+            "description": "The week's headlines on mergers and acquisitions.",
+            "items": {
+              "$ref": "#/components/schemas/NewsHeadline"
+            },
+            "title": "Deal Headlines",
+            "type": "array"
+          },
           "factors": {
             "anyOf": [
               {
@@ -759,6 +787,14 @@
               "$ref": "#/components/schemas/FilingReference"
             },
             "title": "Filings",
+            "type": "array"
+          },
+          "forex_headlines": {
+            "description": "The week's headlines on the dollar and currencies.",
+            "items": {
+              "$ref": "#/components/schemas/NewsHeadline"
+            },
+            "title": "Forex Headlines",
             "type": "array"
           },
           "fund": {
@@ -854,6 +890,33 @@
           "prices": {
             "$ref": "#/components/schemas/PriceSummary"
           },
+          "recent_filings": {
+            "description": "Its SEC filings of the last month, from EDGAR, an 8-K's items in words.",
+            "items": {
+              "$ref": "#/components/schemas/CandidateFiling"
+            },
+            "title": "Recent Filings",
+            "type": "array"
+          },
+          "screener": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScreenerFacts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the screener holds of it, as Claude's Picks see a candidate: its figures, next earnings date, S&P 500 membership, analysts' and insiders' signals, and where each figure falls in its sector; null when the screener lacks it."
+          },
+          "sector_medians": {
+            "description": "The medians of the screener's stocks in all and in its sector.",
+            "items": {
+              "$ref": "#/components/schemas/SectorSnapshot"
+            },
+            "title": "Sector Medians",
+            "type": "array"
+          },
           "signals": {
             "anyOf": [
               {
@@ -906,6 +969,25 @@
           "context": {
             "$ref": "#/components/schemas/AnalysisContext",
             "description": "The context the export returned."
+          },
+          "effort_used": {
+            "anyOf": [
+              {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The effort used outside the app; null to take an ``Effort: high`` line at the end of the pasted answer, or to record none.",
+            "title": "Effort Used"
           },
           "request": {
             "$ref": "#/components/schemas/AnalysisRequest",
@@ -988,6 +1070,19 @@
       "AnalysisRequest": {
         "description": "Options for an AI-written analysis.",
         "properties": {
+          "extra_context": {
+            "anyOf": [
+              {
+                "maxLength": 60000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Material the person pasted for Claude to weigh, such as an article, research notes, a transcript, or the handoff an earlier list of Claude's Picks wrote for this one; separate from the profile's notes, which say what to tailor to. Treated as unverified source material, never as instructions.",
+            "title": "Extra Context"
+          },
           "include_filings": {
             "default": true,
             "description": "Also give Claude the Risk Factors and MD&A sections of the latest 10-K and any 10-Q filed since, from SEC EDGAR.",
@@ -1059,6 +1154,18 @@
             "title": "Disclaimer",
             "type": "string"
           },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.",
+            "title": "Effort"
+          },
           "generated_at": {
             "format": "date-time",
             "title": "Generated At",
@@ -1120,6 +1227,18 @@
       "AnalysisSummary": {
         "description": "A stored analysis's headline, without the report body or its data.",
         "properties": {
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.",
+            "title": "Effort"
+          },
           "generated_at": {
             "format": "date-time",
             "title": "Generated At",
@@ -1740,8 +1859,20 @@
         "type": "object"
       },
       "AssistantResponse": {
-        "description": "The assistant's reply and the model that wrote it.",
+        "description": "The assistant's reply and the model that wrote it, at what effort.",
         "properties": {
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The effort it was written at; null for an answer pasted from outside the app whose effort was not noted.",
+            "title": "Effort"
+          },
           "model": {
             "title": "Model",
             "type": "string"
@@ -2360,8 +2491,13 @@
             "title": "Billing Fee Rate",
             "type": "number"
           },
+          "can_make_scheduled_picks": {
+            "description": "Whether scheduled picks may run: as can_refresh, for scheduled_picks_usd.",
+            "title": "Can Make Scheduled Picks",
+            "type": "boolean"
+          },
           "can_refresh": {
-            "description": "Whether the nightly refresh may run: the account is exempt, or has credit left or a subscription Stripe is billing.",
+            "description": "Whether the next nightly refresh may run: the account is exempt, has a subscription Stripe is billing, or has credit that covers next_refresh_usd. Without a subscription, a refresh that still reaches the credit is stopped there.",
             "title": "Can Refresh",
             "type": "boolean"
           },
@@ -2388,7 +2524,7 @@
             "title": "Closed Country"
           },
           "credit_usd": {
-            "description": "Prepaid credit left, in dollars; below zero when refreshes ran past it with no subscription, which the next top-up repays.",
+            "description": "Prepaid credit left, in dollars; below zero only when a disputed payment or a fee took more than was left, which the next top-up repays.",
             "title": "Credit Usd",
             "type": "number"
           },
@@ -2445,6 +2581,16 @@
             "title": "Min Top Up Cents",
             "type": "integer"
           },
+          "next_refresh_usd": {
+            "description": "What the next refresh is expected to cost: the most any of the last five cost, or half an hour of the job before one has run.",
+            "title": "Next Refresh Usd",
+            "type": "number"
+          },
+          "scheduled_picks_usd": {
+            "description": "The most one run of scheduled picks is expected to cost the job, before what Anthropic charges the Anthropic key for Claude's work.",
+            "title": "Scheduled Picks Usd",
+            "type": "number"
+          },
           "subscription": {
             "anyOf": [
               {
@@ -2463,6 +2609,9 @@
           "credit_usd",
           "subscription",
           "can_refresh",
+          "next_refresh_usd",
+          "can_make_scheduled_picks",
+          "scheduled_picks_usd",
           "last_30_days_usd",
           "last_30_days_runs",
           "entries",
@@ -8579,7 +8728,7 @@
         "type": "object"
       },
       "NewsHeadline": {
-        "description": "An article as given to Claude: no link, and a shorter summary.",
+        "description": "An article as given to Claude: no link, a shorter summary, and for the articles that\nmatter most, the article itself.",
         "properties": {
           "headline": {
             "title": "Headline",
@@ -8604,6 +8753,18 @@
               }
             ],
             "title": "Summary"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The article itself, in Markdown, cut to a length, for the articles that matter most; null when it was not read or its page could not be (a paywall, a refusal, or too little text).",
+            "title": "Text"
           }
         },
         "required": [
@@ -9947,10 +10108,27 @@
             "title": "Name",
             "type": "string"
           },
+          "order": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PickOrder"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The buy order to place, with its contingency, stop-loss, and profit target; null on lists made before orders were given."
+          },
           "risk": {
             "description": "The main risk, and what would prove the pick wrong.",
             "title": "Risk",
             "type": "string"
+          },
+          "sell_at_end": {
+            "default": true,
+            "description": "Whether to sell it by the end of the holding period. False only when the profile's sell_at_end is false and holding on is better; exit then says for how long, or until what.",
+            "title": "Sell At End",
+            "type": "boolean"
           },
           "symbol": {
             "description": "Ticker, as in the candidates table.",
@@ -10534,6 +10712,119 @@
         "title": "PickCandidate",
         "type": "object"
       },
+      "PickOrder": {
+        "description": "How to buy one pick at a typical US broker, and how to guard it once bought.\n\nEvery field maps to a choice on a broker's order ticket: the order type, its prices,\nand how long it stays open (its time in force). The app turns it into the steps to\nfollow, and measures the pick's performance by whether, when, and at what price the\norder would have filled.",
+        "properties": {
+          "cancel_after": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last session the buy order stays open, New York date; set by the app from time_in_force and good_for_days.",
+            "title": "Cancel After"
+          },
+          "good_for_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a gtc order, how many trading sessions to leave it open before canceling it, at most the holding period's; null for a day order.",
+            "title": "Good For Days"
+          },
+          "if_unfilled": {
+            "description": "The contingency when the order never fills: ``skip`` keeps the money in cash; ``buy_at_market`` buys at the next session's open after it is canceled.",
+            "enum": [
+              "skip",
+              "buy_at_market"
+            ],
+            "title": "If Unfilled",
+            "type": "string"
+          },
+          "limit_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The most to pay per share, in the security's currency; required for limit and stop_limit orders, null for market orders.",
+            "title": "Limit Price"
+          },
+          "order_type": {
+            "description": "``market`` buys at the next price available; ``limit`` buys only at limit_price or lower; ``stop_limit`` waits until the price rises to stop_price, then buys at limit_price or lower (to buy a breakout without chasing it).",
+            "enum": [
+              "market",
+              "limit",
+              "stop_limit"
+            ],
+            "title": "Order Type",
+            "type": "string"
+          },
+          "stop_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Once bought, a sell stop order at this price, below the purchase, to limit the loss; null for none.",
+            "title": "Stop Loss"
+          },
+          "stop_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a stop_limit order, the price that sets it off; at or below limit_price. Null otherwise.",
+            "title": "Stop Price"
+          },
+          "take_profit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Once bought, a sell limit order at this price, above the purchase, to take the gain; null for none.",
+            "title": "Take Profit"
+          },
+          "time_in_force": {
+            "description": "``day``: canceled at the close if not filled; ``gtc``: good 'til canceled, left open for good_for_days trading days.",
+            "enum": [
+              "day",
+              "gtc"
+            ],
+            "title": "Time In Force",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_type",
+          "time_in_force",
+          "if_unfilled"
+        ],
+        "title": "PickOrder",
+        "type": "object"
+      },
       "PickPerformance": {
         "description": "How one pick has done since the list was made.",
         "properties": {
@@ -10548,6 +10839,19 @@
             ],
             "description": "What it added to the list's return: its weight times its gain.",
             "title": "Contribution"
+          },
+          "filled_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The day its buy order filled.",
+            "title": "Filled On"
           },
           "gain": {
             "anyOf": [
@@ -10573,6 +10877,47 @@
             "description": "Its latest adjusted close, or the last in the period.",
             "title": "Latest Price"
           },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What happened to its orders, in a sentence.",
+            "title": "Note"
+          },
+          "sold_by": {
+            "anyOf": [
+              {
+                "enum": [
+                  "stop_loss",
+                  "take_profit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which order sold it.",
+            "title": "Sold By"
+          },
+          "sold_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The day its stop-loss or profit target sold it.",
+            "title": "Sold On"
+          },
           "start_price": {
             "anyOf": [
               {
@@ -10584,6 +10929,19 @@
             ],
             "description": "Its adjusted close the list is measured from.",
             "title": "Start Price"
+          },
+          "status": {
+            "default": "held",
+            "description": "``held``: bought and still held, or held to the period's end; ``waiting``: its buy order is still open, unfilled; ``not_filled``: the order never filled and the money stayed in cash; ``sold``: its stop-loss or profit target sold it; ``unpriced``: no prices.",
+            "enum": [
+              "held",
+              "waiting",
+              "not_filled",
+              "sold",
+              "unpriced"
+            ],
+            "title": "Status",
+            "type": "string"
           },
           "symbol": {
             "title": "Symbol",
@@ -10693,6 +11051,18 @@
       "PicksContext": {
         "description": "The data a list of picks is written from. All of it is sent to Claude, the\ncandidates as a table.",
         "properties": {
+          "additional_context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The person's additional context. Material the person pasted for Claude to weigh, such as an article, research notes, a transcript, or the handoff an earlier list of Claude's Picks wrote for this one; separate from the profile's notes, which say what to tailor to. Treated as unverified source material, never as instructions.",
+            "title": "Additional Context"
+          },
           "candidate_events": {
             "description": "Recent news and SEC filings of the candidates likeliest to be picked: the stocks that led on the most measures, then the largest.",
             "items": {
@@ -10974,6 +11344,25 @@
             "$ref": "#/components/schemas/PicksContext",
             "description": "The context the export returned."
           },
+          "effort_used": {
+            "anyOf": [
+              {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The effort used outside the app; null to take an ``Effort: high`` line at the end of the pasted answer, or to record none.",
+            "title": "Effort Used"
+          },
           "request": {
             "$ref": "#/components/schemas/PicksRequest",
             "description": "The options the prompt was exported with."
@@ -11189,6 +11578,12 @@
             "description": "Anything else to take into account, e.g. sectors to favor or avoid, dividends wanted, or securities already held.",
             "title": "Notes"
           },
+          "recurring": {
+            "default": false,
+            "description": "Whether new picks will be made each period, as a recurring investment. With ``sell_at_end`` false, Claude then writes a handoff for the next list: what to check for each pick it would keep.",
+            "title": "Recurring",
+            "type": "boolean"
+          },
           "risk_tolerance": {
             "anyOf": [
               {
@@ -11204,6 +11599,12 @@
               }
             ],
             "title": "Risk Tolerance"
+          },
+          "sell_at_end": {
+            "default": true,
+            "description": "Whether everything is sold by the end of the holding period. With ``false``, the picks are still chosen for the holding period, but its end is when they are next looked at: Claude says to sell then only where that is best, or when another reason to sell is met, and otherwise how long to keep holding, or until what.",
+            "title": "Sell At End",
+            "type": "boolean"
           },
           "weights": {
             "default": "ideal",
@@ -11268,6 +11669,18 @@
             "title": "Data Limitations",
             "type": "array"
           },
+          "handoff": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a recurring investment that keeps picks past the period: a note for the next list of picks, to be pasted into its additional context. Null otherwise.",
+            "title": "Handoff"
+          },
           "headline": {
             "description": "One sentence naming the idea behind the picks.",
             "title": "Headline",
@@ -11322,6 +11735,12 @@
       "PicksRequest": {
         "description": "Options for a list of Claude's Picks.",
         "properties": {
+          "added_first": {
+            "default": true,
+            "description": "Whether the tickers added come first in the order the wait is spent (their news, articles, and signals), ahead of the 25 candidates likeliest to be picked; ``false`` puts those first and the added tickers after them.",
+            "title": "Added First",
+            "type": "boolean"
+          },
           "added_symbols": {
             "description": "Tickers to weigh along with the screener's leaders, such as ones in a theme you follow. Each one the screener holds joins the candidates with its figures, as any other candidate does; one it does not hold is left out.",
             "items": {
@@ -11331,6 +11750,19 @@
             "maxItems": 25,
             "title": "Added Symbols",
             "type": "array"
+          },
+          "extra_context": {
+            "anyOf": [
+              {
+                "maxLength": 60000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Material the person pasted for Claude to weigh, such as an article, research notes, a transcript, or the handoff an earlier list of Claude's Picks wrote for this one; separate from the profile's notes, which say what to tailor to. Treated as unverified source material, never as instructions.",
+            "title": "Extra Context"
           },
           "holdings_portfolios": {
             "description": "Saved portfolios whose holdings Claude is shown, so it picks with what you already own in mind; empty for none. They come with what PyQxel already knows of them (the screener's figures), at no extra request.",
@@ -11384,6 +11816,18 @@
             "default": "Generated by an AI model (Claude), not a licensed financial adviser, from the screener's historical figures and what you told it. No pick is a promise: any of them can lose money, and shorter holding periods are the least predictable. Check prices and news before buying; the decision and its risk are yours.",
             "title": "Disclaimer",
             "type": "string"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.",
+            "title": "Effort"
           },
           "generated_at": {
             "format": "date-time",
@@ -11601,6 +12045,18 @@
       "PicksSummary": {
         "description": "A stored list of picks, without its reasons or data.",
         "properties": {
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.",
+            "title": "Effort"
+          },
           "generated_at": {
             "format": "date-time",
             "title": "Generated At",
@@ -11880,6 +12336,19 @@
             "title": "Accounts",
             "type": "array"
           },
+          "extra_context": {
+            "anyOf": [
+              {
+                "maxLength": 60000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Material the person pasted for Claude to weigh, such as an article, research notes, a transcript, or the handoff an earlier list of Claude's Picks wrote for this one; separate from the profile's notes, which say what to tailor to. Treated as unverified source material, never as instructions.",
+            "title": "Extra Context"
+          },
           "group_mode": {
             "default": "combined",
             "description": "With ``portfolios``: review them as one large portfolio (``combined``), or each with its own plan and orders, with the others in mind (``separate``).",
@@ -11992,6 +12461,18 @@
             "default": "Generated by an AI model (Claude), not a licensed financial adviser, from historical prices of today's holdings and what you told it. Check prices, taxes, and trading costs before placing any order; the decision and its risk are yours.",
             "title": "Disclaimer",
             "type": "string"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.",
+            "title": "Effort"
           },
           "generated_at": {
             "format": "date-time",
@@ -12393,6 +12874,18 @@
             "title": "Accounts",
             "type": "array"
           },
+          "additional_context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The person's additional context. Material the person pasted for Claude to weigh, such as an article, research notes, a transcript, or the handoff an earlier list of Claude's Picks wrote for this one; separate from the profile's notes, which say what to tailor to. Treated as unverified source material, never as instructions.",
+            "title": "Additional Context"
+          },
           "claude_picks": {
             "anyOf": [
               {
@@ -12769,6 +13262,25 @@
             "$ref": "#/components/schemas/PortfolioContext",
             "description": "The context the export returned."
           },
+          "effort_used": {
+            "anyOf": [
+              {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The effort used outside the app; null to take an ``Effort: high`` line at the end of the pasted answer, or to record none.",
+            "title": "Effort Used"
+          },
           "request": {
             "$ref": "#/components/schemas/PortfolioAnalysisRequest",
             "description": "The options the prompt was exported with."
@@ -12807,6 +13319,18 @@
       "PortfolioReviewSummary": {
         "description": "A stored portfolio review, without its plan or data: a row of the saved reviews.",
         "properties": {
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.",
+            "title": "Effort"
+          },
           "generated_at": {
             "format": "date-time",
             "title": "Generated At",
@@ -14242,10 +14766,27 @@
             "title": "Name",
             "type": "string"
           },
+          "order": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PickOrder"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The buy order to place, with its contingency, stop-loss, and profit target; null on lists made before orders were given."
+          },
           "risk": {
             "description": "The main risk, and what would prove the pick wrong.",
             "title": "Risk",
             "type": "string"
+          },
+          "sell_at_end": {
+            "default": true,
+            "description": "Whether to sell it by the end of the holding period. False only when the profile's sell_at_end is false and holding on is better; exit then says for how long, or until what.",
+            "title": "Sell At End",
+            "type": "boolean"
           },
           "symbol": {
             "description": "Ticker, as in the candidates table.",
@@ -14506,6 +15047,18 @@
               }
             ],
             "title": "Benchmark Return"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much effort Claude was asked to put in (low, medium, high, xhigh, or max); null when it was written outside the app.",
+            "title": "Effort"
           },
           "ended": {
             "title": "Ended",
@@ -17909,6 +18462,176 @@
         "title": "VolatilityTargeting",
         "type": "object"
       },
+      "WaitGroupPlan": {
+        "description": "What one group of securities gets within a wait: the holdings, the candidates\nlikeliest to be picked, or the rest.",
+        "properties": {
+          "articles_each": {
+            "description": "Full articles read for each of those with news, at most.",
+            "minimum": 0.0,
+            "title": "Articles Each",
+            "type": "integer"
+          },
+          "headlines_each": {
+            "description": "Headlines given for each, at most.",
+            "minimum": 0.0,
+            "title": "Headlines Each",
+            "type": "integer"
+          },
+          "name": {
+            "description": "The group, in words, e.g. Your holdings.",
+            "title": "Name",
+            "type": "string"
+          },
+          "stocks": {
+            "description": "Stocks in the group whose own data is wanted.",
+            "minimum": 0.0,
+            "title": "Stocks",
+            "type": "integer"
+          },
+          "with_news": {
+            "description": "Of them, those whose news is fetched.",
+            "minimum": 0.0,
+            "title": "With News",
+            "type": "integer"
+          },
+          "with_signals": {
+            "description": "Of them, those that get analysts' ratings, earnings, and insiders.",
+            "minimum": 0.0,
+            "title": "With Signals",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "stocks",
+          "with_news",
+          "with_signals",
+          "articles_each",
+          "headlines_each"
+        ],
+        "title": "WaitGroupPlan",
+        "type": "object"
+      },
+      "WaitPlan": {
+        "description": "What one wait buys: how the time is split among the securities, by priority.",
+        "properties": {
+          "articles": {
+            "description": "Company articles read in full, at most.",
+            "minimum": 0.0,
+            "title": "Articles",
+            "type": "integer"
+          },
+          "calendar_days": {
+            "description": "Days of earnings calendar it covers.",
+            "minimum": 0.0,
+            "title": "Calendar Days",
+            "type": "integer"
+          },
+          "complete": {
+            "description": "Whether nothing would be left out for lack of time.",
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "full_calendar_days": {
+            "description": "Days the whole calendar would cover.",
+            "minimum": 0.0,
+            "title": "Full Calendar Days",
+            "type": "integer"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/WaitGroupPlan"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "headlines": {
+            "description": "Company headlines given, at most.",
+            "minimum": 0.0,
+            "title": "Headlines",
+            "type": "integer"
+          },
+          "market_articles": {
+            "description": "Market and deal stories read in full.",
+            "minimum": 0.0,
+            "title": "Market Articles",
+            "type": "integer"
+          },
+          "market_headlines": {
+            "description": "Market, deal, currency, and crypto headlines given, at most.",
+            "minimum": 0.0,
+            "title": "Market Headlines",
+            "type": "integer"
+          },
+          "minutes": {
+            "description": "Minutes of the Finnhub plan's limit it spans.",
+            "minimum": 1.0,
+            "title": "Minutes",
+            "type": "integer"
+          },
+          "more": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a longer wait would add.",
+            "title": "More"
+          },
+          "wait_seconds": {
+            "minimum": 0.0,
+            "title": "Wait Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "wait_seconds",
+          "minutes",
+          "groups",
+          "articles",
+          "headlines",
+          "market_articles",
+          "market_headlines",
+          "calendar_days",
+          "full_calendar_days",
+          "complete"
+        ],
+        "title": "WaitPlan",
+        "type": "object"
+      },
+      "WaitPlans": {
+        "description": "What each wait on offer would gather for a report, list of picks, or review.",
+        "properties": {
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/WaitPlan"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "per_minute": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Requests a minute the Finnhub key allows; null without one, when news comes from Alpha Vantage's shared feed and waiting adds nothing.",
+            "title": "Per Minute"
+          }
+        },
+        "required": [
+          "per_minute",
+          "choices"
+        ],
+        "title": "WaitPlans",
+        "type": "object"
+      },
       "WebFinding": {
         "description": "One fact found on the web, and the pages that state it.",
         "properties": {
@@ -19256,7 +19979,7 @@
     },
     "/api/v1/me/billing": {
       "get": {
-        "description": "Your prepaid credit, usage subscription, what your nightly refreshes cost in the\nlast 30 days, and your latest billing history.\n\nReturns 503 when the database is unavailable.",
+        "description": "Your prepaid credit, usage subscription, what your nightly refreshes cost in the\nlast 30 days, what the next is expected to cost and whether your credit covers it, and\nyour latest billing history.\n\nReturns 503 when the database is unavailable.",
         "operationId": "read_billing_api_v1_me_billing_get",
         "responses": {
           "200": {
@@ -19899,6 +20622,7 @@
               "schema": {
                 "$ref": "#/components/schemas/PicksRequest",
                 "default": {
+                  "added_first": true,
                   "added_symbols": [],
                   "holdings_portfolios": [],
                   "profile": {
@@ -19908,6 +20632,8 @@
                       "weeks": 0,
                       "years": 1
                     },
+                    "recurring": false,
+                    "sell_at_end": true,
                     "weights": "ideal"
                   },
                   "refresh": false,
@@ -19956,6 +20682,7 @@
               "schema": {
                 "$ref": "#/components/schemas/PicksRequest",
                 "default": {
+                  "added_first": true,
                   "added_symbols": [],
                   "holdings_portfolios": [],
                   "profile": {
@@ -19965,6 +20692,8 @@
                       "weeks": 0,
                       "years": 1
                     },
+                    "recurring": false,
+                    "sell_at_end": true,
                     "weights": "ideal"
                   },
                   "refresh": false,
@@ -20069,7 +20798,7 @@
     },
     "/api/v1/picks/performance": {
       "get": {
-        "description": "Return your stored lists of picks, newest first, each with its gain or loss since it\nwas made and the benchmark's over the same days.\n\nEach list is measured from the last close before it was made, held in Claude's\nweights without rebalancing, until its holding period ends; after that its record\nstays as it was then. Prices come from your keys, as on the Portfolio page, and from\nyour stored price history. When nothing can be priced the lists are still returned,\nwithout returns, and ``notice`` says why. Returns 503 when the database is unavailable.",
+        "description": "Return your stored lists of picks, newest first, each with its gain or loss since it\nwas made and the benchmark's over the same days.\n\nEach pick is bought when its order would have filled on the day's prices, at that\nprice, and an order that never fills leaves its money in cash; a list from before\norders were given is measured from the last close before it was made. Each is held\nin Claude's weights without rebalancing, until its holding period ends; after that its record\nstays as it was then. Prices come from your keys, as on the Portfolio page, and from\nyour stored price history. When nothing can be priced the lists are still returned,\nwithout returns, and ``notice`` says why. Returns 503 when the database is unavailable.",
         "operationId": "read_saved_picks_api_v1_picks_performance_get",
         "parameters": [
           {
@@ -20142,6 +20871,7 @@
               "schema": {
                 "$ref": "#/components/schemas/PicksRequest",
                 "default": {
+                  "added_first": true,
                   "added_symbols": [],
                   "holdings_portfolios": [],
                   "profile": {
@@ -20151,6 +20881,8 @@
                       "weeks": 0,
                       "years": 1
                     },
+                    "recurring": false,
+                    "sell_at_end": true,
                     "weights": "ideal"
                   },
                   "refresh": false,
@@ -20199,6 +20931,7 @@
               "schema": {
                 "$ref": "#/components/schemas/PicksRequest",
                 "default": {
+                  "added_first": true,
                   "added_symbols": [],
                   "holdings_portfolios": [],
                   "profile": {
@@ -20208,6 +20941,8 @@
                       "weeks": 0,
                       "years": 1
                     },
+                    "recurring": false,
+                    "sell_at_end": true,
                     "weights": "ideal"
                   },
                   "refresh": false,
@@ -20256,6 +20991,66 @@
           }
         },
         "summary": "Stream Claude's Picks as Server-Sent Events",
+        "tags": [
+          "picks"
+        ]
+      }
+    },
+    "/api/v1/picks/wait-plans": {
+      "post": {
+        "description": "For each wait on offer, how many stocks would get their own news, full articles,\nheadlines, and analysts' ratings, earnings, and insiders, by group (tickers you added,\nthe likeliest picks, your holdings, the other candidates), and how much calendar, for a\nlist of picks asked for with ``request``. Nothing is fetched and no request is spent.\nReturns 503 when the account has no screener.",
+        "operationId": "read_picks_wait_plans_api_v1_picks_wait_plans_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PicksRequest",
+                "default": {
+                  "added_first": true,
+                  "added_symbols": [],
+                  "holdings_portfolios": [],
+                  "profile": {
+                    "asset_types": [],
+                    "horizon": {
+                      "months": 0,
+                      "weeks": 0,
+                      "years": 1
+                    },
+                    "recurring": false,
+                    "sell_at_end": true,
+                    "weights": "ideal"
+                  },
+                  "refresh": false,
+                  "wait_seconds": 0,
+                  "web_search": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WaitPlans"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What each wait would gather for a list of picks",
         "tags": [
           "picks"
         ]
@@ -20888,6 +21683,63 @@
           }
         },
         "summary": "Stream an AI-written review of your saved portfolio as Server-Sent Events",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/v1/portfolio/analysis/wait-plans": {
+      "post": {
+        "description": "For each wait on offer, how many of the reviewed holdings, then of your latest\nClaude's Picks not held (when the review may see them), would get their own news,\nfull articles, headlines, and analysts' ratings, earnings, and insiders, and how much\ncalendar. The holdings come first, the largest first. Nothing is fetched and no\nrequest is spent. Returns 503 when the database is unavailable.",
+        "operationId": "read_review_wait_plans_api_v1_portfolio_analysis_wait_plans_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortfolioAnalysisRequest",
+                "default": {
+                  "accounts": [],
+                  "group_mode": "combined",
+                  "include_picks": true,
+                  "period": "1y",
+                  "portfolio": 1,
+                  "portfolios": [],
+                  "profile": {
+                    "cash_to_invest": 0.0,
+                    "fractional_shares": true,
+                    "round_shares": true
+                  },
+                  "refresh": false,
+                  "wait_seconds": 0,
+                  "web_search": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WaitPlans"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What each wait would gather for a portfolio review",
         "tags": [
           "portfolio"
         ]
@@ -21959,6 +22811,49 @@
           }
         },
         "summary": "Stream an AI-written thesis or risk summary as Server-Sent Events",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/v1/stocks/{symbol}/analysis/wait-plans": {
+      "get": {
+        "description": "For each wait on offer, what a stock report of ``symbol`` would be given: its news\n(headlines and full articles), its analysts' ratings, earnings, and insiders, the\nmarket's and deals' headlines and stories, and the calendar, and whether all of it\nfits the time on the Finnhub key's plan. Nothing is fetched and no request is spent.",
+        "operationId": "read_analysis_wait_plans_api_v1_stocks__symbol__analysis_wait_plans_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WaitPlans"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What each wait would gather for a stock report",
         "tags": [
           "research"
         ]

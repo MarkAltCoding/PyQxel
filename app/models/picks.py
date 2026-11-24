@@ -15,9 +15,21 @@ from app.core.text import listed
 from app.models.markets import MarketContext
 from app.models.news import NewsHeadline
 from app.models.nightly import CUSTOM_SYMBOL_PATTERN, NightlyRefreshSettings
-from app.models.research import MAX_WAIT_SECONDS, WAIT_DESCRIPTION, WRITTEN_BY_DESCRIPTION
+from app.models.research import (
+    EXTRA_CONTEXT_DESCRIPTION,
+    MAX_EXTRA_CONTEXT,
+    MAX_WAIT_SECONDS,
+    WAIT_DESCRIPTION,
+    WRITTEN_BY_DESCRIPTION,
+)
 from app.models.schedule import TIME_PATTERN
-from app.models.screener import AssetType, ScreenedStock, ScreenMetrics
+from app.models.screener import AssetType, ScreenedStock
+
+# Re-exported, since much of the app reads them from here.
+from app.models.security_facts import CandidateEvents as CandidateEvents
+from app.models.security_facts import CandidateFiling as CandidateFiling  # noqa: F401
+from app.models.security_facts import ScreenerFacts as ScreenerFacts
+from app.models.security_facts import SectorSnapshot as SectorSnapshot
 from app.models.web import WebResearch
 
 WEEKS_PER_YEAR: float = 52.18
@@ -110,6 +122,20 @@ class PicksProfile(BaseModel):
         max_length=2,
         description="Pick only stocks, only ETFs, or either when empty.",
     )
+    sell_at_end: bool = Field(
+        default=True,
+        description="Whether everything is sold by the end of the holding period. With "
+        "``false``, the picks are still chosen for the holding period, but its end is when "
+        "they are next looked at: Claude says to sell then only where that is best, or "
+        "when another reason to sell is met, and otherwise how long to keep holding, or "
+        "until what.",
+    )
+    recurring: bool = Field(
+        default=False,
+        description="Whether new picks will be made each period, as a recurring "
+        "investment. With ``sell_at_end`` false, Claude then writes a handoff for the next "
+        "list: what to check for each pick it would keep.",
+    )
     notes: str | None = Field(
         default=None,
         max_length=1_000,
@@ -142,6 +168,15 @@ class PicksRequest(BaseModel):
         description="Tickers to weigh along with the screener's leaders, such as ones "
         "in a theme you follow. Each one the screener holds joins the candidates with "
         "its figures, as any other candidate does; one it does not hold is left out.",
+    )
+    extra_context: str | None = Field(
+        default=None, max_length=MAX_EXTRA_CONTEXT, description=EXTRA_CONTEXT_DESCRIPTION
+    )
+    added_first: bool = Field(
+        default=True,
+        description="Whether the tickers added come first in the order the wait is spent "
+        "(their news, articles, and signals), ahead of the 25 candidates likeliest to be "
+        "picked; ``false`` puts those first and the added tickers after them.",
     )
     refresh: bool = Field(
         default=False,
@@ -229,136 +264,12 @@ class PicksScheduleStatus(BaseModel):
     )
 
 
-class ScreenerFacts(ScreenMetrics):
-    """What the screener knows of one security, as Claude is given it: its figures,
-    everything the screener can filter it by, its next earnings date, and where its
-    figures fall in its sector."""
-
-    symbol: str
-    name: str
-    asset_type: AssetType = "stock"
-    exchange: str | None = None
-    sector: str | None = None
-    industry: str | None = None
-    market_cap_rank: int | None = Field(
-        default=None,
-        description="Rank by market cap in the screener, a company's share classes counted "
-        "once; null for an ETF. The top 500 are the screener's large caps, the top 3,000 "
-        "its broad market.",
-    )
-    sp500: bool | None = Field(
-        default=None,
-        description="Whether the S&P 500 holds it; null when the index's members could not "
-        "be read.",
-    )
-    fundamentals_period_end: date | None = Field(
-        default=None, description="End of the latest period its financial ratios use."
-    )
-    next_earnings: date | None = Field(
-        default=None,
-        description="Its next scheduled earnings report within the calendar's window; null "
-        "when none is scheduled in it or the calendar could not be fetched.",
-    )
-    analyst_buy: int | None = Field(
-        default=None,
-        description="Analysts rating it buy or strong buy in the latest month; null when "
-        "its ratings were not fetched.",
-    )
-    analyst_hold: int | None = Field(default=None, description="Analysts rating it hold.")
-    analyst_sell: int | None = Field(
-        default=None, description="Analysts rating it sell or strong sell."
-    )
-    analyst_buy_change: float | None = Field(
-        default=None,
-        description="The change in the share of analysts rating it a buy since about three "
-        "months before, as a decimal (0.1 = ten points more rate it a buy).",
-    )
-    eps_surprise: float | None = Field(
-        default=None,
-        description="The latest quarter's earnings surprise, as a decimal of the estimate.",
-    )
-    eps_beats: int | None = Field(
-        default=None,
-        description="Quarters of the last four in which earnings beat the estimate.",
-    )
-    insider_net_value: float | None = Field(
-        default=None,
-        description="Open-market insider purchases less sales over 90 days, in dollars.",
-    )
-    pe_ratio_sector_pct: float | None = Field(
-        default=None,
-        description="Percent of its sector's profitable stocks with a lower P/E (low is "
-        "cheap). Every *_sector_pct column is a percentile from 0 to 100 among the stocks of "
-        "its sector in the whole screener, counting ties as half; null for an ETF or when "
-        "the figure is missing.",
-    )
-    ev_to_ebitda_sector_pct: float | None = None
-    fcf_yield_sector_pct: float | None = None
-    revenue_growth_sector_pct: float | None = None
-    operating_margin_sector_pct: float | None = None
-    return_on_equity_sector_pct: float | None = None
-    momentum_12_1_sector_pct: float | None = None
-    volatility_sector_pct: float | None = None
-
-
 class PickCandidate(ScreenerFacts):
     """A security the screener offered Claude, with the measures it led on."""
 
     lenses: list[str] = Field(
         description="The measures this security led the screener on, such as 12-month "
         "momentum or free cash flow yield."
-    )
-
-
-class SectorSnapshot(BaseModel):
-    """How the stocks of one sector, or of the whole screener, look today: medians of
-    the screener's figures among those that have them."""
-
-    sector: str = Field(description="The sector, or ``All stocks`` for the whole screener.")
-    stocks: int = Field(ge=0)
-    median_pe_ratio: float | None = Field(default=None, description="Among profitable stocks only.")
-    median_ev_to_ebitda: float | None = None
-    median_fcf_yield: float | None = None
-    median_revenue_growth: float | None = None
-    median_operating_margin: float | None = None
-    median_return_1m: float | None = None
-    median_return_6m: float | None = None
-    median_momentum_12_1: float | None = None
-    median_volatility: float | None = None
-    rising_6m: float | None = Field(
-        default=None,
-        description="Share of its stocks that rose over six months, as a decimal: the "
-        "breadth of its trend.",
-    )
-
-
-class CandidateFiling(BaseModel):
-    """A filing a candidate made with the SEC recently."""
-
-    form: str = Field(description="Such as 8-K, 10-Q, 10-K, 4 (an insider's trade), or S-3.")
-    filed: date
-    items: list[str] = Field(
-        default_factory=list, description="What an 8-K reports, in words; empty otherwise."
-    )
-
-
-class CandidateEvents(BaseModel):
-    """A candidate's own recent news and SEC filings."""
-
-    symbol: str
-    news_articles: int | None = Field(
-        default=None,
-        description="Articles about it in the last 14 days; null when its news could not be "
-        "fetched.",
-    )
-    headlines: list[NewsHeadline] = Field(
-        default_factory=list,
-        description="Its headlines that look to matter most for its shares, newest first.",
-    )
-    filings: list[CandidateFiling] = Field(
-        default_factory=list,
-        description="Its SEC filings of the last 30 days, newest first; empty for an ETF or "
-        "when EDGAR could not be read.",
     )
 
 
@@ -475,7 +386,64 @@ class PicksContext(BaseModel):
         description="What a web search made for these picks found, each fact with its "
         "sources; null when the web was not searched.",
     )
+    additional_context: str | None = Field(
+        default=None, description="The person's additional context. " + EXTRA_CONTEXT_DESCRIPTION
+    )
     notice: str | None = Field(default=None, description="Anything missing from the data.")
+
+
+class PickOrder(BaseModel):
+    """How to buy one pick at a typical US broker, and how to guard it once bought.
+
+    Every field maps to a choice on a broker's order ticket: the order type, its prices,
+    and how long it stays open (its time in force). The app turns it into the steps to
+    follow, and measures the pick's performance by whether, when, and at what price the
+    order would have filled.
+    """
+
+    order_type: Literal["market", "limit", "stop_limit"] = Field(
+        description="``market`` buys at the next price available; ``limit`` buys only at "
+        "limit_price or lower; ``stop_limit`` waits until the price rises to stop_price, "
+        "then buys at limit_price or lower (to buy a breakout without chasing it)."
+    )
+    limit_price: float | None = Field(
+        default=None,
+        description="The most to pay per share, in the security's currency; required for "
+        "limit and stop_limit orders, null for market orders.",
+    )
+    stop_price: float | None = Field(
+        default=None,
+        description="For a stop_limit order, the price that sets it off; at or below "
+        "limit_price. Null otherwise.",
+    )
+    time_in_force: Literal["day", "gtc"] = Field(
+        description="``day``: canceled at the close if not filled; ``gtc``: good 'til "
+        "canceled, left open for good_for_days trading days."
+    )
+    good_for_days: int | None = Field(
+        default=None,
+        description="For a gtc order, how many trading sessions to leave it open before "
+        "canceling it, at most the holding period's; null for a day order.",
+    )
+    if_unfilled: Literal["skip", "buy_at_market"] = Field(
+        description="The contingency when the order never fills: ``skip`` keeps the money "
+        "in cash; ``buy_at_market`` buys at the next session's open after it is canceled."
+    )
+    stop_loss: float | None = Field(
+        default=None,
+        description="Once bought, a sell stop order at this price, below the purchase, to "
+        "limit the loss; null for none.",
+    )
+    take_profit: float | None = Field(
+        default=None,
+        description="Once bought, a sell limit order at this price, above the purchase, to "
+        "take the gain; null for none.",
+    )
+    cancel_after: date | None = Field(
+        default=None,
+        description="The last session the buy order stays open, New York date; set by the "
+        "app from time_in_force and good_for_days.",
+    )
 
 
 class Pick(BaseModel):
@@ -501,6 +469,17 @@ class Pick(BaseModel):
         description="When to sell or look again: at the end of the period, and on what "
         "earlier sign, in a sentence."
     )
+    order: PickOrder | None = Field(
+        default=None,
+        description="The buy order to place, with its contingency, stop-loss, and profit "
+        "target; null on lists made before orders were given.",
+    )
+    sell_at_end: bool = Field(
+        default=True,
+        description="Whether to sell it by the end of the holding period. False only when "
+        "the profile's sell_at_end is false and holding on is better; exit then says for "
+        "how long, or until what.",
+    )
 
 
 class PicksReport(BaseModel):
@@ -524,6 +503,12 @@ class PicksReport(BaseModel):
         "concentration, and what would change the picks."
     )
     data_limitations: list[str] = Field(description="What the provided data cannot show.")
+    handoff: str | None = Field(
+        default=None,
+        description="For a recurring investment that keeps picks past the period: a note "
+        "for the next list of picks, to be pasted into its additional context. Null "
+        "otherwise.",
+    )
     written_by: str | None = Field(default=None, description=WRITTEN_BY_DESCRIPTION)
 
 
@@ -541,6 +526,11 @@ class PicksResponse(BaseModel):
     )
     context: PicksContext
     model: str = Field(description="Claude model that made the picks.")
+    effort: str | None = Field(
+        default=None,
+        description="How much effort Claude was asked to put in (low, medium, high, xhigh, "
+        "or max); null when it was written outside the app.",
+    )
     generated_at: datetime
     cached: bool = Field(
         default=False,
@@ -562,6 +552,11 @@ class PicksSummary(BaseModel):
     horizon: str = Field(description="The holding period in words.")
     risk_tolerance: str | None = None
     model: str
+    effort: str | None = Field(
+        default=None,
+        description="How much effort Claude was asked to put in (low, medium, high, xhigh, "
+        "or max); null when it was written outside the app.",
+    )
     headline: str
     symbols: list[str] = Field(description="The picks' tickers, best first.")
 
@@ -632,6 +627,23 @@ class PickPerformance(BaseModel):
     contribution: float | None = Field(
         default=None,
         description="What it added to the list's return: its weight times its gain.",
+    )
+    status: Literal["held", "waiting", "not_filled", "sold", "unpriced"] = Field(
+        default="held",
+        description="``held``: bought and still held, or held to the period's end; "
+        "``waiting``: its buy order is still open, unfilled; ``not_filled``: the order "
+        "never filled and the money stayed in cash; ``sold``: its stop-loss or profit "
+        "target sold it; ``unpriced``: no prices.",
+    )
+    filled_on: date | None = Field(default=None, description="The day its buy order filled.")
+    sold_on: date | None = Field(
+        default=None, description="The day its stop-loss or profit target sold it."
+    )
+    sold_by: Literal["stop_loss", "take_profit"] | None = Field(
+        default=None, description="Which order sold it."
+    )
+    note: str | None = Field(
+        default=None, description="What happened to its orders, in a sentence."
     )
 
 
@@ -719,3 +731,51 @@ class ScheduleConflicts(BaseModel):
         description="Each picks run that would start while the refresh runs, in words; "
         "such a run waits for the refresh to finish. Empty when none would."
     )
+
+
+WAIT_CHOICES: tuple[int, ...] = (0, 60, 120, 300, 600, 900, 1200, 1800)
+"""The waits offered, in seconds, as the web app's menu lists them."""
+
+
+class WaitGroupPlan(BaseModel):
+    """What one group of securities gets within a wait: the holdings, the candidates
+    likeliest to be picked, or the rest."""
+
+    name: str = Field(description="The group, in words, e.g. Your holdings.")
+    stocks: int = Field(ge=0, description="Stocks in the group whose own data is wanted.")
+    with_news: int = Field(ge=0, description="Of them, those whose news is fetched.")
+    with_signals: int = Field(
+        ge=0, description="Of them, those that get analysts' ratings, earnings, and insiders."
+    )
+    articles_each: int = Field(
+        ge=0, description="Full articles read for each of those with news, at most."
+    )
+    headlines_each: int = Field(ge=0, description="Headlines given for each, at most.")
+
+
+class WaitPlan(BaseModel):
+    """What one wait buys: how the time is split among the securities, by priority."""
+
+    wait_seconds: int = Field(ge=0)
+    minutes: int = Field(ge=1, description="Minutes of the Finnhub plan's limit it spans.")
+    groups: list[WaitGroupPlan]
+    articles: int = Field(ge=0, description="Company articles read in full, at most.")
+    headlines: int = Field(ge=0, description="Company headlines given, at most.")
+    market_articles: int = Field(ge=0, description="Market and deal stories read in full.")
+    market_headlines: int = Field(
+        ge=0, description="Market, deal, currency, and crypto headlines given, at most."
+    )
+    calendar_days: int = Field(ge=0, description="Days of earnings calendar it covers.")
+    full_calendar_days: int = Field(ge=0, description="Days the whole calendar would cover.")
+    complete: bool = Field(description="Whether nothing would be left out for lack of time.")
+    more: str | None = Field(default=None, description="What a longer wait would add.")
+
+
+class WaitPlans(BaseModel):
+    """What each wait on offer would gather for a report, list of picks, or review."""
+
+    per_minute: int | None = Field(
+        description="Requests a minute the Finnhub key allows; null without one, when news "
+        "comes from Alpha Vantage's shared feed and waiting adds nothing."
+    )
+    choices: list[WaitPlan]

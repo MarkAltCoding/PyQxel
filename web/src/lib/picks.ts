@@ -31,6 +31,12 @@ export interface PicksForm {
   holdings: number[]
   /** Tickers weighed along with the screener's leaders, upper case. */
   added: string[]
+  /** Whether the added tickers' data comes before that of Claude's 25 likeliest picks. */
+  addedFirst: boolean
+  /** Whether everything is sold by the end of the holding period. */
+  sellAtEnd: boolean
+  /** Whether new picks will be made each period; asked only when not selling at the end. */
+  recurring: boolean
 }
 
 export const DEFAULT_PICKS_FORM: PicksForm = {
@@ -45,6 +51,9 @@ export const DEFAULT_PICKS_FORM: PicksForm = {
   notes: '',
   holdings: [],
   added: [],
+  addedFirst: true,
+  sellAtEnd: true,
+  recurring: false,
 }
 
 const KEY = 'pyqxel.picksProfile'
@@ -88,6 +97,9 @@ export function storedPicksForm(): PicksForm {
             ),
           ].slice(0, MAX_ADDED_SYMBOLS)
         : [],
+      addedFirst: kept.addedFirst !== false,
+      sellAtEnd: kept.sellAtEnd !== false,
+      recurring: kept.recurring === true,
     }
   } catch {
     return DEFAULT_PICKS_FORM
@@ -143,6 +155,8 @@ export function profileOf(form: PicksForm): PicksProfile {
     weights: form.weights,
     asset_types: form.kinds ? [form.kinds] : [],
     notes: form.notes.trim() || null,
+    sell_at_end: form.sellAtEnd,
+    recurring: !form.sellAtEnd && form.recurring,
   }
 }
 

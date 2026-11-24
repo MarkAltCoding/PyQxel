@@ -15,8 +15,9 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Annotated, Any
+import math
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID
 
 import pandas as pd
@@ -26,6 +27,7 @@ from pydantic import SecretStr
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import market_today
 from app.ai.agent import (
     analysis_content,
     analysis_research_task,
@@ -43,6 +45,7 @@ from app.ai.external import (
     PASTED_MODEL,
     ExternalResponseError,
     parse_response,
+    outside_effort,
     pasted_model,
     render_prompt,
 )
@@ -72,11 +75,15 @@ from app.data.news import (
     NewsRateLimitError,
     fetch_company_news,
 )
-from app.api.v1.endpoints.markets import fetch_market_context
+from app.api.v1.endpoints.markets import REPORT_CALENDAR_DAYS
 from app.data.alternative import fetch_alternative
+from app.data.markets import uncached_earnings_weeks
+from app.data.articles import with_article_texts
 from app.data.finnhub import fetch_company_metrics, fetch_signals
 from app.data.fetcher import (
+    finnhub_key,
     finnhub_patience,
+    finnhub_requests_per_minute,
     DataFetchError,
     SourceTurnedOffError,
     ProviderNotConfiguredError,
@@ -97,11 +104,11 @@ from app.db.session import get_session, get_sessionmaker
 from app.db.users import User, ai_usage
 from app.models.fundamentals import Financials, Fundamentals
 from app.models.alternative import AlternativeContext, AlternativeRecords
-from app.models.markets import MarketContext
 from app.models.metrics import CompanyMetrics
 from app.models.news import CompanyNews, NewsContext
 from app.models.signals import MarketSignals, SignalsContext
 from app.models.external import AnalysisImport, AnalysisPromptExport
+from app.models.picks import WAIT_CHOICES, WaitGroupPlan, WaitPlan, WaitPlans
 from app.models.research import (
     ANALYSIS_CONTEXT_VERSION,
     AnalysisContext,
@@ -125,12 +132,15 @@ from app.stats.factors import fit_factor_model
 from app.stats.garch import CONTEXT_HORIZONS, ModelFitError, fit_garch, summarize_garch
 from app.stats.indicators import summarize_prices
 from app.stats.alternative import alternative_context, summarize_alternative
-from app.stats.news import news_context
+from app.stats.news import CONTEXT_ARTICLES, news_context
 from app.stats.signals import signals_context, summarize_signals
 from app.stats.peers import compare_to_peers
 from app.stats.r_bridge import RUnavailableError
 from app.stats.valuation import with_filed_figures
 from app.stats.volatility import InsufficientDataError
+
+if TYPE_CHECKING:
+    from app.api.v1.endpoints.picks import ScreenedSecurity, SecurityFacts
 
 logger = logging.getLogger(__name__)
 
@@ -280,6 +290,13 @@ def _peer_context(
     )
 
 
+STOCK_ARTICLES_READ: int = 12
+"""A company's articles read in full for its stock report, those that matter most."""
+
+STOCK_ARTICLE_CHARS: int = 6000
+"""Length each article given to a stock report is cut to, about 1,500 words."""
+
+
 def _news_context(
     symbol: str, result: CompanyNews | BaseException
 ) -> tuple[NewsContext | None, str | None]:
@@ -364,10 +381,22 @@ def _alternative_context(
     return alternative_context(data, result), notice
 
 
+async def _security_facts(symbol: str, screened: "ScreenedSecurity") -> "SecurityFacts":
+    """What portfolio reviews and Claude's Picks are given of ``symbol`` beyond its news
+    and signals, which the report fetches more of itself: its screener figures and sector
+    ranks, its sector's medians, its recent SEC filings, and the market backdrop of a
+    quarter, with deal, currency, and crypto headlines
+    (:func:`app.api.v1.endpoints.picks.security_facts`)."""
+    # Imported here: the picks routes import this module's AI helpers.
+    from app.api.v1.endpoints.picks import security_facts
+
+    return await security_facts(symbol, screened, REPORT_CALENDAR_DAYS)
+
+
 def _market_context(
-    result: MarketContext | BaseException,
-) -> tuple[MarketContext | None, str | None]:
-    """The market backdrop, or why it is missing.
+    result: "SecurityFacts | BaseException",
+) -> tuple["SecurityFacts | None", str | None]:
+    """What the picks are given of the security and the market, or why it is missing.
 
     FOMC dates come for every account, so the backdrop is missing only when Finnhub
     rejects the key or something unexpected fails, which becomes a notice.
@@ -376,7 +405,10 @@ def _market_context(
         return None, "The market backdrop (FOMC dates, earnings, IPOs, headlines) was left out."
     if isinstance(result, BaseException):
         raise result
-    return result, None
+    notice = " ".join(result.notices) or None
+    if result.backdrop is None and notice is None:
+        notice = "The market backdrop (FOMC dates, earnings, IPOs, headlines) was left out."
+    return result, notice
 
 
 async def _fundamentals(
@@ -538,7 +570,11 @@ async def gather_analysis_data(
     from; failures as for :func:`prepare_analysis`, except that no Anthropic key or AI
     limit is checked."""
     # Groups run together, since asyncio.gather is typed for at most six awaitables.
-    today = datetime.now(timezone.utc).date()
+    today = market_today()
+    # Imported here: the picks routes import this module's AI helpers.
+    from app.api.v1.endpoints.picks import screened_security
+
+    screened = await screened_security(symbol.upper())
     with finnhub_patience(request.wait_seconds + 30 if request.wait_seconds else 0):
         (
             (info_result, history_result, filings_result, factors_result, financials_result),
@@ -563,7 +599,7 @@ async def gather_analysis_data(
             ),
             asyncio.gather(
                 fetch_alternative(symbol, today),
-                fetch_market_context(today),
+                _security_facts(symbol.upper(), screened),
                 return_exceptions=True,
             ),
         )
@@ -624,13 +660,18 @@ async def gather_analysis_data(
     volatility_forecast, garch_notice = _garch_context(garch_result)
     peers, peer_notice = _peer_context(symbol, peers_result)
     news, news_notice = _news_context(symbol, news_result)
+    if news is not None:
+        [read] = await with_article_texts([news.articles], STOCK_ARTICLES_READ, STOCK_ARTICLE_CHARS)
+        news = news.model_copy(update={"articles": read})
     signals, signals_notice = _signals_context(signals_result)
     metrics, metrics_notice = _metrics_context(symbol, metrics_result)
     if metrics is not None and not isinstance(financials_result, BaseException):
         filed = with_filed_figures(metrics.metrics, financials_result, today)
         metrics = metrics.model_copy(update={"metrics": filed})
     alternative, alternative_notice = _alternative_context(alternative_result)
-    market, market_notice = _market_context(market_result)
+    facts, market_notice = _market_context(market_result)
+    backdrop = None if facts is None else facts.backdrop
+    market = None if backdrop is None else backdrop.market
     # A company's peers, ratings, insider trades, and lobbying never apply to a fund, so
     # their absence is not news for one.
     company_notices = () if fund is not None else (peer_notice, signals_notice, alternative_notice)
@@ -662,12 +703,92 @@ async def gather_analysis_data(
         metrics=metrics,
         alternative=alternative,
         market=market,
+        screener=None if facts is None else facts.figures,
+        sector_medians=[] if facts is None else facts.sectors,
+        recent_filings=[] if facts is None else facts.filings,
+        deal_headlines=[] if backdrop is None else backdrop.deals,
+        forex_headlines=[] if backdrop is None else backdrop.forex,
+        crypto_headlines=[] if backdrop is None else backdrop.crypto,
+        additional_context=(request.extra_context or "").strip() or None,
         notice=" ".join(notices) or None,
     )
     return symbol, context, filings
 
 
 Prepared = Annotated[PreparedAnalysis, Depends(prepare_analysis)]
+
+
+STOCK_FINNHUB_REQUESTS: int = 14
+"""Finnhub requests a stock report spends on the stock itself, before caches: its profile
+and quote, news, analysts' ratings, earnings surprises and calendar, insiders' trades and
+sentiment, metrics and peers, and lobbying, contracts, patents, and filings."""
+
+
+@router.get(
+    "/{symbol}/analysis/wait-plans",
+    response_model=WaitPlans,
+    summary="What each wait would gather for a stock report",
+)
+async def read_analysis_wait_plans(symbol: str, user: CurrentUser) -> WaitPlans:
+    """For each wait on offer, what a stock report of ``symbol`` would be given: its news
+    (headlines and full articles), its analysts' ratings, earnings, and insiders, the
+    market's and deals' headlines and stories, and the calendar, and whether all of it
+    fits the time on the Finnhub key's plan. Nothing is fetched and no request is spent."""
+    from app.api.v1.endpoints.markets import (  # The picks routes import this module.
+        DEAL_ARTICLES_READ,
+        MARKET_ARTICLES_READ,
+        PICKS_CRYPTO_HEADLINES,
+        PICKS_DEAL_HEADLINES,
+        PICKS_FOREX_HEADLINES,
+        PICKS_HEADLINES,
+        backdrop_finnhub_requests,
+    )
+
+    today = market_today()
+    api_key = finnhub_key()
+    per_minute = None if api_key is None else finnhub_requests_per_minute(api_key)
+    weeks = await uncached_earnings_weeks(today, today + timedelta(days=REPORT_CALENDAR_DAYS - 1))
+    needed = STOCK_FINNHUB_REQUESTS + backdrop_finnhub_requests(0) + weeks
+    minutes = 1 if per_minute is None else max(1, math.ceil(needed / per_minute))
+    choices = []
+    for wait in WAIT_CHOICES:
+        spans = 1 + wait // 60
+        fits = spans >= minutes
+        articles = STOCK_ARTICLES_READ
+        choices.append(
+            WaitPlan(
+                wait_seconds=wait,
+                minutes=min(spans, minutes),
+                groups=[
+                    WaitGroupPlan(
+                        name=symbol.upper(),
+                        stocks=1,
+                        with_news=1,
+                        with_signals=1,
+                        articles_each=articles,
+                        headlines_each=CONTEXT_ARTICLES,
+                    )
+                ],
+                articles=articles,
+                headlines=CONTEXT_ARTICLES,
+                market_articles=MARKET_ARTICLES_READ + DEAL_ARTICLES_READ,
+                market_headlines=PICKS_HEADLINES
+                + PICKS_DEAL_HEADLINES
+                + PICKS_FOREX_HEADLINES
+                + PICKS_CRYPTO_HEADLINES,
+                calendar_days=REPORT_CALENDAR_DAYS if fits else min(REPORT_CALENDAR_DAYS, 28),
+                full_calendar_days=REPORT_CALENDAR_DAYS,
+                complete=fits,
+                more=(
+                    None
+                    if fits
+                    else f"It needs about {needed} Finnhub requests, {minutes} minutes of your "
+                    f"plan's {per_minute} a minute; with less waiting, the parts that do not fit "
+                    "(later weeks of the calendar first) are left out."
+                ),
+            )
+        )
+    return WaitPlans(per_minute=per_minute, choices=choices)
 
 
 @router.post(
@@ -942,7 +1063,7 @@ async def import_analysis(
                 body.request,
                 response,
                 requested_model=PASTED_MODEL,
-                effort=PASTED_MODEL,
+                effort=outside_effort(body.effort_used, body.response) or PASTED_MODEL,
                 context_version=ANALYSIS_CONTEXT_VERSION,
             )
     except SQLAlchemyError as exc:

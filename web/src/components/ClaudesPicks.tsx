@@ -6,6 +6,7 @@ import {
   deletePicks,
   exportPicksPrompt,
   getLatestPicks,
+  getPicksWaitPlans,
   getPicks,
   getPortfolios,
   getUniverseStatus,
@@ -20,6 +21,9 @@ import type {
   PicksResponse,
   ScreenedStock,
 } from '../api/types'
+import type { OutsideEffort } from '../lib/outsideClaude'
+import { contextForRequest, useAdditionalContext } from '../lib/additionalContext'
+import { AdditionalContextField } from './AdditionalContext'
 import { ExternalClaude } from './ExternalClaude'
 import { InfoTip } from './InfoTip'
 import { MultiToggle } from './MultiToggle'
@@ -64,6 +68,7 @@ import {
 import { providerKeys } from '../lib/providerKeys'
 import { badgeTone } from '../lib/tones'
 import { picksAskedFor } from '../lib/askedFor'
+import { orderSteps } from '../lib/pickOrders'
 import { modelName } from '../lib/modelName'
 import { useWaitChoice } from '../lib/waitForData'
 import { useWebSearchChoice } from '../lib/webSearch'
@@ -131,6 +136,7 @@ export function ClaudesPicks() {
     storePicksForm(merged)
   }
 
+  const [extra, setExtra] = useAdditionalContext('picks')
   const status = useQuery({ queryKey: ['universe-status'], queryFn: getUniverseStatus })
   const portfolios = useQuery({ queryKey: ['portfolios'], queryFn: getPortfolios })
   const withHoldings = (portfolios.data?.portfolios ?? []).filter((p) => p.holdings > 0)
@@ -155,7 +161,23 @@ export function ClaudesPicks() {
     wait_seconds: wait,
     holdings_portfolios: form.holdings.filter((n) => withHoldings.some((p) => p.portfolio === n)),
     added_symbols: form.added,
+    added_first: form.addedFirst,
+    extra_context: contextForRequest(extra),
     refresh,
+  })
+  // What each wait would gather for these picks; worked out on the server, fetching nothing.
+  const planned = request(false)
+  const waitPlans = useQuery({
+    queryKey: [
+      'picks-wait-plans',
+      planned.profile,
+      planned.holdings_portfolios,
+      planned.added_symbols,
+      planned.added_first,
+    ],
+    queryFn: () => getPicksWaitPlans(planned),
+    staleTime: 60_000,
+    enabled: problem === null,
   })
   const keepLatest = (result: PicksResponse) => {
     queryClient.setQueryData(LATEST_PICKS_KEY, result)
@@ -192,10 +214,10 @@ export function ClaudesPicks() {
     keepExport(EXPORT_NAME, { request: asked, context: exported.context })
     return exported
   }
-  const pasteAnswer = async (response: string) => {
+  const pasteAnswer = async (response: string, effort: OutsideEffort | null) => {
     const kept = keptExport<{ request: PicksRequest; context: PicksContext }>(EXPORT_NAME)
     if (!kept) throw new Error('Get the prompt first: the answer is saved with its data.')
-    keepLatest(await importPicks({ ...kept, response }))
+    keepLatest(await importPicks({ ...kept, effort_used: effort, response }))
   }
 
   const remove = async (id: string) => {
@@ -228,7 +250,7 @@ export function ClaudesPicks() {
         <div className="card-header">
           <div>
             <div className="heading-with-info">
-              <h2>What to pick for</h2>
+              <h2>What to Pick For</h2>
               <InfoTip topic="claudesPicks" />
             </div>
             <div className="subtitle">
@@ -390,6 +412,43 @@ export function ClaudesPicks() {
             />
           </label>
         </div>
+        <div className="filter-row" style={{ marginTop: 8 }}>
+          <span className="heading-with-info">
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={!form.sellAtEnd}
+                disabled={writing}
+                onChange={(event) => change({ sellAtEnd: !event.target.checked })}
+              />
+              Let Claude keep picks past the holding period when that is best
+            </label>
+            <InfoTip topic="picksSellAtEnd" />
+          </span>
+          {!form.sellAtEnd && (
+            <span className="heading-with-info">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.recurring}
+                  disabled={writing}
+                  onChange={(event) => change({ recurring: event.target.checked })}
+                />
+                I will make new picks each period (recurring)
+              </label>
+              <InfoTip topic="picksRecurring" />
+            </span>
+          )}
+        </div>
+        {!form.sellAtEnd &&
+          form.recurring &&
+          withHoldings.length > 0 &&
+          form.holdings.length === 0 && (
+            <p className="disclaimer" style={{ margin: '4px 0 0' }}>
+              For the next list to follow this one’s handoff, let it see the portfolio you buy these
+              picks in, under “Show Claude my holdings in.”
+            </p>
+          )}
         {withHoldings.length > 0 && (
           <div className="heading-with-info" style={{ marginTop: 8 }}>
             <span className="disclaimer">Show Claude my holdings in</span>
@@ -410,9 +469,32 @@ export function ClaudesPicks() {
           request={() => request(false)}
           disabled={writing}
         />
+        {form.added.length > 0 && (
+          <div className="field" style={{ marginTop: 8 }}>
+            <span className="heading-with-info">
+              Gather data first for
+              <InfoTip topic="picksAddedFirst" />
+            </span>
+            <Segmented
+              label="Gather data first for"
+              value={form.addedFirst ? 'added' : 'likeliest'}
+              options={[
+                { value: 'added', label: 'Tickers you added' },
+                { value: 'likeliest', label: 'Claude’s 25 likeliest picks' },
+              ]}
+              onChange={(next) => change({ addedFirst: next === 'added' })}
+            />
+          </div>
+        )}
         <div style={{ marginTop: 8 }}>
+          <AdditionalContextField value={extra} onChange={setExtra} disabled={writing} />
           <WebSearchOption checked={webSearch} onChange={setWebSearch} disabled={writing} />
-          <WaitForDataOption seconds={wait} onChange={setWait} disabled={writing} />
+          <WaitForDataOption
+            seconds={wait}
+            onChange={setWait}
+            disabled={writing}
+            plans={waitPlans.data}
+          />
         </div>
 
         {!providerKeys().anthropic && !writing && (
@@ -428,6 +510,7 @@ export function ClaudesPicks() {
         <ExternalClaude
           getPrompt={getPrompt}
           onPaste={pasteAnswer}
+          askEffort
           saveLabel="Save picks"
           disabled={writing || problem !== null}
           webSearch={webSearch}
@@ -485,7 +568,11 @@ export function ClaudesPicks() {
             <AiProgressDetail progress={progress} />
           </div>
         ) : shown ? (
-          <PicksReportView response={shown} onDelete={shown.id ? remove : undefined} />
+          <PicksReportView
+            response={shown}
+            onDelete={shown.id ? remove : undefined}
+            onUseHandoff={setExtra}
+          />
         ) : latest.isLoading || earlier.isLoading ? (
           <div className="empty">
             <div className="spinner" style={{ margin: '0 auto' }} />
@@ -559,15 +646,19 @@ function PickCard({
   figures,
   amount,
   scale,
+  holdingUntil,
 }: {
   pick: ClaudePick
   rank: number
+  /** When the holding period ends, which the last step names. */
+  holdingUntil?: string | null
   /** The screener's figures for it when it was picked, when the screener held it. */
   figures: ScreenedStock | undefined
   amount: number | null | undefined
   /** The largest weight among the picks, which fills the bar. */
   scale: number
 }) {
+  const steps = orderSteps(pick, amount, figures?.price, holdingUntil)
   const known = FIGURES.filter(
     (figure) =>
       figures &&
@@ -587,6 +678,12 @@ function PickCard({
           <span className="muted">{pick.name}</span>
         </div>
         <span className="badge">{pick.kind === 'etf' ? 'ETF' : 'Stock'}</span>
+        {pick.sell_at_end === false && (
+          <span className="heading-with-info">
+            <span className="badge good">Kept past the period</span>
+            <InfoTip topic="pickKeptPast" />
+          </span>
+        )}
         <span className="heading-with-info">
           <span className={`badge ${badgeTone(CONVICTION_TONE[pick.conviction])}`}>
             {pick.conviction} conviction
@@ -618,6 +715,24 @@ function PickCard({
           <dt>How to buy</dt>
           <dd>{pick.entry}</dd>
         </div>
+        {steps.length > 0 && (
+          <div>
+            <dt className="heading-with-info">
+              <span>Orders to place</span>
+              <InfoTip topic="pickOrders" />
+            </dt>
+            <dd>
+              <ol className="pick-order-steps">
+                {steps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+              <p className="pick-order-note">
+                Written for a Fidelity account, whose order rules most brokers share.
+              </p>
+            </dd>
+          </div>
+        )}
         <div>
           <dt>When to sell</dt>
           <dd>{pick.exit}</dd>
@@ -645,12 +760,59 @@ function PickCard({
   )
 }
 
+/** The note a recurring list writes for the next, to paste into its additional context. */
+function Handoff({ text, onUse }: { text: string; onUse?: (text: string) => void }) {
+  const [done, setDone] = useState<'copied' | 'used' | null>(null)
+  return (
+    <section className="stack" style={{ gap: 10 }}>
+      <div className="heading-with-info">
+        <h3 style={{ margin: 0 }}>For Your Next Picks</h3>
+        <InfoTip topic="picksHandoff" />
+      </div>
+      <p className="disclaimer" style={{ margin: 0 }}>
+        Paste this into the next list’s additional context, and let that list see the portfolio you
+        bought these picks in, so it knows what you still hold and what to check.
+      </p>
+      <pre className="handoff-text">{text}</pre>
+      <div className="filter-row">
+        <button
+          type="button"
+          className="button small"
+          onClick={() => {
+            void navigator.clipboard
+              .writeText(text)
+              .then(() => setDone('copied'))
+              .catch(() => undefined)
+          }}
+        >
+          {done === 'copied' ? 'Copied' : 'Copy'}
+        </button>
+        {onUse && (
+          <button
+            type="button"
+            className="button primary small"
+            onClick={() => {
+              onUse(text)
+              setDone('used')
+            }}
+          >
+            {done === 'used' ? 'Added to the next picks' : 'Use in my next picks'}
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
 function PicksReportView({
   response,
   onDelete,
+  onUseHandoff,
 }: {
   response: PicksResponse
   onDelete?: (id: string) => void
+  /** Puts the handoff into the additional context of the next picks. */
+  onUseHandoff?: (text: string) => void
 }) {
   const { report, context } = response
   const figures = new Map((response.securities ?? []).map((stock) => [stock.symbol, stock]))
@@ -671,11 +833,21 @@ function PicksReportView({
               figures={figures.get(pick.symbol)}
               amount={amount}
               scale={scale}
+              holdingUntil={context.holding_until}
             />
           ))}
         </ol>
       ),
     },
+    ...(report.handoff
+      ? [
+          {
+            id: 'handoff',
+            label: 'For your next picks',
+            content: <Handoff text={report.handoff} onUse={onUseHandoff} />,
+          },
+        ]
+      : []),
     {
       id: 'view',
       label: 'Market and approach',
@@ -712,7 +884,7 @@ function PicksReportView({
   ]
   return (
     <article className="report">
-      <AskedFor items={picksAskedFor(context)} model={response.model} />
+      <AskedFor items={picksAskedFor(context)} model={response.model} effort={response.effort} />
       <Verdict headline={report.headline}>
         <div className="picks-facts">
           <span className="badge">Hold for {context.horizon}</span>
@@ -735,7 +907,7 @@ function PicksReportView({
       )}
       <WebSources research={context.web_research} />
       <p className="disclaimer" style={{ marginTop: 16 }}>
-        Written by {modelName(response.model)} · {dateTime(response.generated_at)}
+        Written by {modelName(response.model, response.effort)} · {dateTime(response.generated_at)}
         {response.cached && ' · stored, not billed again'} · {response.disclaimer}
       </p>
       {onDelete && response.id && (

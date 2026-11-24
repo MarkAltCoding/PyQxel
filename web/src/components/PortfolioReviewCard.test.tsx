@@ -115,7 +115,7 @@ describe('PortfolioReviewCard', () => {
   it('shows the stored review, then streams a new one', async () => {
     const posted: unknown[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      if (init?.method === 'POST') {
+      if (init?.method === 'POST' && !String(input).includes('wait-plans')) {
         posted.push(JSON.parse(String(init.body)))
         const result = { ...review('Rebalanced view.'), cached: false }
         return new Response(`event: result\ndata: ${JSON.stringify(result)}\n\n`)
@@ -140,6 +140,7 @@ describe('PortfolioReviewCard', () => {
         web_search: true,
         wait_seconds: 300,
         include_picks: true,
+        extra_context: null,
         refresh: true,
         profile: {
           risk_tolerance: null,
@@ -155,8 +156,8 @@ describe('PortfolioReviewCard', () => {
 
   it('sends a horizon in months as a fraction of a year, and new cash in dollars', async () => {
     const posted: { profile: Record<string, unknown> }[] = []
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
-      if (init?.method === 'POST') {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (init?.method === 'POST' && !String(input).includes('wait-plans')) {
         posted.push(JSON.parse(String(init.body)))
         const result = { ...review('Short horizon.'), cached: false }
         return new Response(`event: result\ndata: ${JSON.stringify(result)}\n\n`)
@@ -179,7 +180,7 @@ describe('PortfolioReviewCard', () => {
     const posted: Record<string, unknown>[] = []
     const read: string[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      if (init?.method === 'POST') {
+      if (init?.method === 'POST' && !String(input).includes('wait-plans')) {
         posted.push(JSON.parse(String(init.body)))
         const result = {
           ...review('One household portfolio.'),
@@ -222,7 +223,7 @@ describe('PortfolioReviewCard', () => {
   it('gives each account its own goals and cash, with new cash entered once', async () => {
     const posted: Record<string, unknown>[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      if (init?.method === 'POST') {
+      if (init?.method === 'POST' && !String(input).includes('wait-plans')) {
         posted.push(JSON.parse(String(init.body)))
         const base = review('Two plans.')
         const result = {
@@ -436,8 +437,8 @@ describe('PortfolioReviewCard', () => {
         ],
       },
     }
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
-      if (init?.method === 'POST') {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (init?.method === 'POST' && !String(input).includes('wait-plans')) {
         posted.push(JSON.parse(String(init.body)) as Record<string, unknown>)
         return new Response(`event: result\ndata: ${JSON.stringify(fractional)}\n\n`)
       }

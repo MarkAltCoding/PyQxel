@@ -6,7 +6,7 @@ Claude and the market calendar are faked; the screener is a small stored univers
 
 import asyncio
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, cast, get_args
 
 import pytest
@@ -33,7 +33,14 @@ from app.data.news import NewsNotConfiguredError
 from app.models.alternative import SecFiling
 from app.models.markets import EarningsEvent, MarketContext
 from app.models.news import CompanyNews, NewsArticle, NewsHeadline
-from app.models.picks import Horizon, Pick, PicksContext, PicksProfile, PicksReport
+from app.models.picks import (
+    Horizon,
+    Pick,
+    PicksContext,
+    PicksProfile,
+    PicksReport,
+    PicksUniverse,
+)
 from app.models.portfolio_analysis import PortfolioContext
 from app.models.research import AnalysisDelta
 from app.models.screener import RankedStock, ScreenedStock, ScreenField
@@ -525,6 +532,7 @@ def test_picks_come_with_the_screeners_figures_and_are_stored(
             "horizon": "6 months and 2 weeks",
             "risk_tolerance": "aggressive",
             "model": "claude-opus-5-5",
+            "effort": "medium",
             "headline": REPORT.headline,
             "symbols": ["BIG", "CHEAP", "STEADY", "VTI"],
         }
@@ -669,6 +677,39 @@ def test_the_prompt_can_be_taken_outside_and_the_answer_brought_back(
     assert saved.json()["model"] == "claude (pasted)"
     assert client.get(f"{PICKS}/latest").json()["id"] == saved.json()["id"]
     assert bad.status_code == 422
+    assert len(screener) == 0, "nothing was sent to Claude"
+    assert saved.json()["effort"] is None, "no effort was noted"
+
+    noted = client.post(
+        f"{PICKS}/import",
+        json={
+            "context": prompt["context"],
+            "response": f"{REPORT.model_dump_json()}\n\nEffort: extra-high",
+        },
+    ).json()
+    chosen = client.post(
+        f"{PICKS}/import",
+        json={
+            "context": prompt["context"],
+            "effort_used": "low",
+            "response": REPORT.model_dump_json(),
+        },
+    ).json()
+    listed = {item["id"]: item for item in client.get(PICKS).json()["items"]}
+
+    assert noted["model"] == "claude (pasted)" and noted["effort"] == "xhigh"
+    assert listed[noted["id"]]["effort"] == "xhigh" and chosen["effort"] == "low"
+    assert client.get(f"{PICKS}/{noted['id']}").json()["effort"] == "xhigh"
+
+
+def test_each_wait_says_what_it_gathers_for_the_picks(screener: list[PicksContext]) -> None:
+    plans = client.post(f"{PICKS}/wait-plans", json={"profile": {"horizon": {"months": 6}}})
+
+    assert plans.status_code == 200, plans.text
+    choices = plans.json()["choices"]
+    assert [c["wait_seconds"] for c in choices] == [0, 60, 120, 300, 600, 900, 1200, 1800]
+    assert choices[0]["groups"][0]["name"] == "Likeliest picks"
+    assert all(c["articles"] <= next_c["articles"] for c, next_c in zip(choices, choices[1:]))
     assert len(screener) == 0, "nothing was sent to Claude"
 
 
@@ -928,3 +969,81 @@ def test_clean_weights_are_whole_multiples_of_five_percent_summing_to_one() -> N
         update={"picks": [_pick("A", 0.47), _pick("B", 0.33), _pick("C", 0.2)]}
     )
     assert [p.weight for p in settle_picks(report, clean=True).picks] == [0.45, 0.35, 0.2]
+
+
+def test_the_added_tickers_can_come_after_the_likeliest_picks() -> None:
+    from app.api.v1.endpoints.picks import CORE_NEWS, fetch_order, signal_order
+    from app.models.picks import PickCandidate, PicksRequest
+
+    candidates = [
+        PickCandidate(
+            symbol=f"S{i:02d}",
+            name=f"S{i:02d}",
+            price=10.0,
+            avg_dollar_volume=1e7,
+            market_cap=1e9 - i,
+            lenses=["momentum"] if i < 40 else [],
+        )
+        for i in range(45)
+    ]
+    added = ["S44"]
+
+    first, first_groups = fetch_order(candidates, added, [], [])
+    later, later_groups = fetch_order(candidates, added, [], [], added_first=False)
+
+    assert first[0].symbol == "S44" and first_groups[0] == ("Tickers you added", 1)
+    assert later_groups[:2] == [("Likeliest picks", CORE_NEWS), ("Tickers you added", 1)]
+    assert later[CORE_NEWS].symbol == "S44" and later[0].symbol == "S00"
+    request = PicksRequest(added_symbols=added, added_first=False)
+    assert signal_order(candidates, request)[CORE_NEWS].symbol == "S44"
+
+
+def test_picks_are_sold_at_the_end_unless_the_profile_lets_claude_keep_them() -> None:
+    from app.api.v1.endpoints.picks import with_orders
+
+    report = REPORT.model_copy(
+        update={
+            "picks": [p.model_copy(update={"sell_at_end": False}) for p in REPORT.picks],
+            "handoff": "Keep BIG while it holds $90.",
+        }
+    )
+
+    def context(**profile: object) -> PicksContext:
+        return PicksContext(
+            profile=PicksProfile(horizon=Horizon(weeks=1), **profile),  # type: ignore[arg-type]
+            horizon="1 week",
+            horizon_weeks=1,
+            today=date(2026, 11, 22),
+            universe=PicksUniverse(securities=1, own=False, has_etfs=False),
+            candidates=[],
+        )
+
+    sold = with_orders(report, context())
+    kept = with_orders(report, context(sell_at_end=False))
+    recurring = with_orders(report, context(sell_at_end=False, recurring=True))
+
+    assert all(p.sell_at_end for p in sold.picks) and sold.handoff is None
+    assert not any(p.sell_at_end for p in kept.picks) and kept.handoff is None
+    assert recurring.handoff == "Keep BIG while it holds $90."
+
+
+def test_additional_context_reaches_claude_apart_from_the_notes(
+    screener: list[PicksContext],
+) -> None:
+    body = {
+        "profile": {"horizon": {"years": 1}, "notes": "No tobacco."},
+        "extra_context": "BIG's CEO said on Monday's call that margins will widen.",
+    }
+    exported = client.post(f"{PICKS}/prompt", json=body).json()
+
+    assert exported["context"]["additional_context"] == body["extra_context"]
+    assert exported["context"]["profile"]["notes"] == "No tobacco."
+    assert "margins will widen" in exported["prompt"]
+    assert "additional_context" in PICKS_SYSTEM_PROMPT
+
+
+def test_picks_kept_past_the_period_are_still_chosen_for_it() -> None:
+    prompt = " ".join(PICKS_SYSTEM_PROMPT.split())
+
+    assert "the holding period is still the span the picks are made for" in prompt
+    assert "never for a longer one it might be kept for" in prompt

@@ -48,6 +48,8 @@ describe('the profile', () => {
       weights: 'ideal',
       asset_types: [],
       notes: null,
+      sell_at_end: true,
+      recurring: false,
     })
     expect(
       profileOf(
@@ -60,6 +62,8 @@ describe('the profile', () => {
       weights: 'ideal',
       asset_types: ['etf'],
       notes: 'AI',
+      sell_at_end: true,
+      recurring: false,
     })
     // Percentages only leaves the amount out even when one was typed before.
     expect(

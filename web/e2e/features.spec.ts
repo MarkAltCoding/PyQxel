@@ -152,6 +152,12 @@ test('Claude’s Picks are shown, and the screener can list them alone', async (
   // What the list was made for, and which model wrote it, here and among the saved ones.
   await expect(page.locator('#picks .asked-for')).toContainText('written by Claude Opus 5.5')
   await expect(page.locator('#saved-picks')).toContainText('Claude Opus 5.5')
+  await expect(page.locator('#picks .asked-for')).toContainText('at medium effort')
+  // The orders to place at a broker, with the contingency and the stop-loss.
+  const steps = page.locator('.pick-order-steps').first()
+  await expect(steps).toContainText('limit order at $48.25')
+  await expect(steps).toContainText('keep the money in cash')
+  await expect(steps).toContainText('stop-loss) at $42.00')
 
   await page.getByRole('link', { name: 'Show in the screener' }).click()
   await expect(page).toHaveURL(/\/screener\?picks=latest/)
@@ -237,6 +243,13 @@ test('Claude’s Picks offer how long to wait for more data, and remember it', a
   await page.goto('/screener/picks')
   const wait = page.getByRole('combobox', { name: 'Wait for more data' })
   await expect(wait).toHaveValue('300')
+  // The "i" says what each wait would gather, the likeliest picks first.
+  await page.getByRole('button', { name: 'About Wait for more data' }).click()
+  const tip = page.getByRole('tooltip')
+  await expect(tip).toContainText('Up to 5 minutes')
+  await expect(tip).toContainText('Likeliest picks: news for')
+  await expect(tip).toContainText('full company articles')
+  await page.keyboard.press('Escape')
 
   await wait.selectOption({ label: 'No waiting' })
   await page.reload()
@@ -246,6 +259,28 @@ test('Claude’s Picks offer how long to wait for more data, and remember it', a
   // Left as the other tests expect it: the choice follows the account.
   await after.selectOption({ label: 'Up to 5 minutes' })
   await expect(after).toHaveValue('300')
+})
+
+test('picks take added context, and can be kept past the period as a recurring plan', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === 'phone', 'Account choices are checked at desktop width.')
+  await page.goto('/screener/picks')
+  const context = page.getByLabel('Additional context (optional)')
+  await context.fill('A research note on BRAVO.')
+  await expect(page.getByText('25 of 60,000 characters')).toBeVisible()
+
+  await page.getByLabel('Let Claude keep picks past the holding period when that is best').check()
+  await page.getByLabel('I will make new picks each period (recurring)').check()
+  await page.reload()
+  await expect(page.getByLabel('Additional context (optional)')).toHaveValue(
+    'A research note on BRAVO.',
+  )
+  await expect(page.getByLabel('I will make new picks each period (recurring)')).toBeChecked()
+
+  // Left as the other tests expect it.
+  await page.getByRole('button', { name: 'Clear' }).click()
+  await page.getByLabel('Let Claude keep picks past the holding period when that is best').uncheck()
 })
 
 test('tickers can be added to Claude’s Picks, and every candidate searched', async ({
@@ -274,6 +309,15 @@ test('tickers can be added to Claude’s Picks, and every candidate searched', a
   await expect(form.getByRole('button', { name: 'Remove ALFB' })).toHaveCount(0)
 })
 
+test('the screener links to its refresh schedule, a tab of its own', async ({ page }) => {
+  await page.goto('/screener')
+  await page.getByRole('link', { name: 'Refresh Schedule' }).first().click()
+
+  await expect(page).toHaveURL(/\/screener\/refresh/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Refresh Schedule' })).toBeVisible()
+  await expect(page.locator('#nightly-refresh')).toBeVisible()
+})
+
 test('the portfolio review keeps every review in its saved ones', async ({ page }) => {
   await signIn(page)
   await page.goto('/portfolio')
@@ -289,7 +333,7 @@ test('picks can be scheduled, weekly on Sunday and monthly on the last day by de
   await signIn(page)
   await page.goto('/screener/picks')
   const schedule = page.locator('#picks-schedule')
-  await expect(schedule.getByRole('heading', { name: 'Make picks on a schedule' })).toBeVisible()
+  await expect(schedule.getByRole('heading', { name: 'Make Picks on a Schedule' })).toBeVisible()
   await schedule.getByRole('checkbox', { name: 'Every week, to hold for a week' }).check()
   await expect(schedule.getByRole('combobox').first()).toHaveValue('6')
   await schedule.getByRole('checkbox', { name: 'Every month, to hold for a month' }).check()

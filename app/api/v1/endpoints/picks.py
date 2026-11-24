@@ -12,10 +12,12 @@ import hashlib
 import logging
 import math
 import re
-from collections.abc import AsyncIterator, Collection
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Collection, Sequence
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any
+
+import pandas as pd
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
@@ -25,11 +27,13 @@ from pydantic import SecretStr
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import market_day, market_today
 from app.ai.agent import AIRateLimitError, AnalysisError, Written, anthropic_client
 from app.ai.external import (
     PASTED_MODEL,
     ExternalResponseError,
     parse_response,
+    outside_effort,
     pasted_model,
     render_prompt,
 )
@@ -38,7 +42,13 @@ from app.ai.prompts import PICKS_SYSTEM_PROMPT
 from app.ai.web import add_web_research, with_web_research
 from app.api.auth import CurrentUser
 from app.api.v1.endpoints.markets import (
+    DEAL_ARTICLES_READ,
+    MARKET_ARTICLES_READ,
+    PICKS_CRYPTO_HEADLINES,
+    PICKS_DEAL_HEADLINES,
     PICKS_EARNINGS_DAYS,
+    PICKS_FOREX_HEADLINES,
+    PICKS_HEADLINES,
     PicksBackdrop,
     backdrop_days,
     backdrop_finnhub_requests,
@@ -47,7 +57,9 @@ from app.api.v1.endpoints.markets import (
 from app.api.v1.endpoints.research import ai_error, anthropic_key, check_ai_limits
 from app.api.v1.endpoints.stocks import upstream_error
 from app.core.config import get_settings
+from app.core.credentials import current_provider_keys
 from app.data.alternative import fetch_company_filings
+from app.data.articles import with_article_texts
 from app.core.text import listed
 from app.data.fetcher import (
     DataFetchError,
@@ -59,7 +71,7 @@ from app.data.finnhub import fetch_earnings_surprises, fetch_insider_trades, fet
 from app.data.index_members import cached_index_members
 from app.data.markets import uncached_earnings_weeks
 from app.data.news import NewsFetchError, fetch_company_news
-from app.data.panel import fetch_close_panel
+from app.data.panel import daily_bars, fetch_close_panel
 from app.data.sec_edgar import FilingFetchError, edgar_client
 from app.db.picks import (
     delete_picks,
@@ -94,6 +106,7 @@ from app.models.picks import (
     MAX_PICKS,
     MIN_PICKS,
     CandidateEvents,
+    CandidateFiling,
     Pick,
     PickCandidate,
     PicksCandidateList,
@@ -111,11 +124,16 @@ from app.models.picks import (
     SavedPicksList,
     ScreenerFacts,
     SectorSnapshot,
+    WAIT_CHOICES,
+    WaitGroupPlan,
+    WaitPlan,
+    WaitPlans,
 )
 from app.models.research import AnalysisDelta, AnalysisStreamError
 from app.models.screener import ScreenedStock
 from app.models.stock import SYMBOL_PATTERN
 from app.models.web import WebSearchQuery
+from app.stats.picks_orders import settle_orders
 from app.stats.schedule import holding_window
 from app.stats.picks_performance import ends_on, history_period, start_day, track
 from app.stats.picks import (
@@ -170,7 +188,7 @@ async def _market(
     """The market backdrop for a holding period of ``horizon_days``, with a calendar of
     ``calendar_days``, or a notice saying it is missing."""
     try:
-        return await fetch_picks_backdrop(date.today(), horizon_days, calendar_days), None
+        return await fetch_picks_backdrop(market_today(), horizon_days, calendar_days), None
     except DataFetchError as exc:
         logger.info("No market backdrop for Claude's Picks: %s", exc)
         return None, "The market calendar and headlines could not be fetched."
@@ -260,7 +278,7 @@ async def plan_requests(
         return FetchPlan(news_wanted, days, 0, 1, None)
     per_minute = finnhub_requests_per_minute(api_key)
     minutes = 1 + int(max(wait_seconds, 0) // 60)
-    today = date.today()
+    today = market_today()
     fewest = min(PICKS_EARNINGS_DAYS, days)
     first_weeks = await uncached_earnings_weeks(today, today + timedelta(days=fewest - 1))
     all_weeks = await uncached_earnings_weeks(today, today + timedelta(days=days - 1))
@@ -311,6 +329,101 @@ async def plan_requests(
     return FetchPlan(news, calendar_days, signals, minutes, more)
 
 
+async def wait_plans(
+    groups: list[tuple[str, int]],
+    horizon_days: float | None,
+    signals_wanted: int | None = None,
+    signals_skip: Collection[str] = (),
+) -> WaitPlans:
+    """What each wait in :data:`~app.models.picks.WAIT_CHOICES` would gather, by
+    :func:`plan_requests`, the same plan the request itself makes: the stocks of
+    ``groups`` (name and count, in the order the wait is spent on them) get their news, then
+    their analysts' ratings, earnings, and insiders as far as each wait allows. The groups
+    named in ``signals_skip`` get no signals (a list of picks asks them for candidates
+    alone), and ``signals_wanted`` counts those wanted beyond the news."""
+    total = min(sum(count for _, count in groups), MAX_CANDIDATE_EVENTS)
+    api_key = finnhub_key()
+    per_minute = None if api_key is None else finnhub_requests_per_minute(api_key)
+    choices: list[WaitPlan] = []
+    for wait in WAIT_CHOICES:
+        plan = await plan_requests(total, horizon_days, wait, signals_wanted)
+        headlines = headlines_each(plan.news)
+        budget = article_budget(wait)
+        each = articles_each(plan.news, budget)
+        news_left, signals_left = plan.news, plan.signals
+        planned: list[WaitGroupPlan] = []
+        for name, count in groups:
+            news = min(count, news_left)
+            news_left -= news
+            signals = 0 if name in signals_skip else min(count, signals_left)
+            signals_left -= signals
+            planned.append(
+                WaitGroupPlan(
+                    name=name,
+                    stocks=count,
+                    with_news=news,
+                    with_signals=signals,
+                    articles_each=each if news else 0,
+                    headlines_each=headlines if news else 0,
+                )
+            )
+        choices.append(
+            WaitPlan(
+                wait_seconds=wait,
+                minutes=plan.minutes,
+                groups=planned,
+                articles=min(budget, each * plan.news),
+                headlines=headlines * plan.news,
+                market_articles=MARKET_ARTICLES_READ + DEAL_ARTICLES_READ,
+                market_headlines=PICKS_HEADLINES
+                + PICKS_DEAL_HEADLINES
+                + PICKS_FOREX_HEADLINES
+                + PICKS_CRYPTO_HEADLINES,
+                calendar_days=plan.calendar_days,
+                full_calendar_days=backdrop_days(horizon_days),
+                complete=plan.more is None,
+                more=plan.more,
+            )
+        )
+    return WaitPlans(per_minute=per_minute, choices=choices)
+
+
+@router.post(
+    "/wait-plans",
+    response_model=WaitPlans,
+    summary="What each wait would gather for a list of picks",
+)
+async def read_picks_wait_plans(
+    session: Session, user: CurrentUser, request: Annotated[PicksRequest, Body()] = PicksRequest()
+) -> WaitPlans:
+    """For each wait on offer, how many stocks would get their own news, full articles,
+    headlines, and analysts' ratings, earnings, and insiders, by group (tickers you added,
+    the likeliest picks, your holdings, the other candidates), and how much calendar, for a
+    list of picks asked for with ``request``. Nothing is fetched and no request is spent.
+    Returns 503 when the account has no screener."""
+    universe = await _universe(session, user.id)
+    if universe is None or universe.refreshed_at is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=NO_SCREENER)
+    try:
+        candidates, _ = await gather_candidates(session, universe, request)
+        companies = await universe_companies(session, universe)
+        held, held_figures = await _holdings(
+            session, user.id, universe, request.holdings_portfolios, companies
+        )
+    except SQLAlchemyError as exc:
+        raise _database_error(exc) from exc
+    likeliest = signal_order(candidates, request)
+    _, groups = fetch_order(
+        candidates, request.added_symbols, held, held_figures, request.added_first
+    )
+    return await wait_plans(
+        groups,
+        request.profile.horizon.total_weeks * 7,
+        len(likeliest),
+        signals_skip={"Your holdings"},
+    )
+
+
 NEWS_REQUESTS_AT_ONCE: int = 6
 """Company news requests to Finnhub in flight together, well inside its 30 a second."""
 
@@ -342,15 +455,44 @@ async def _filings(
             return None
 
 
+ARTICLES_BY_WAIT: tuple[tuple[int, int], ...] = ((300, 90), (60, 60), (0, 30))
+"""Company articles read in full for a list of picks or a review, by the least wait that
+earns them: reading a page takes a second or two, not a Finnhub request, so a longer wait
+reads more of them, up to what Claude can weigh among everything else."""
+
+MOST_ARTICLES_EACH: int = 5
+"""Most articles read in full for one stock, however few stocks there are."""
+
+
+def article_budget(wait_seconds: float) -> int:
+    """Company articles read in full in all, for a wait of ``wait_seconds``."""
+    return next(count for least, count in ARTICLES_BY_WAIT if wait_seconds >= least)
+
+
+def articles_each(stocks: int, budget: int) -> int:
+    """Articles read for each of ``stocks`` with news: an even share of ``budget``, from
+    one to :data:`MOST_ARTICLES_EACH`. Each stock's first is read before any stock's
+    second, so when ``budget`` runs out it is the least likely picks or smallest holdings
+    that get fewer."""
+    if stocks <= 0:
+        return 0
+    return max(1, min(MOST_ARTICLES_EACH, budget // stocks))
+
+
+CANDIDATE_ARTICLE_CHARS: int = 2500
+"""Length each of those articles is cut to, about 400 words: enough for the facts of a
+story across 60 stocks."""
+
+
 async def _candidate_events(
-    shortlist: list[PickCandidate], ciks: dict[str, int | None]
+    shortlist: list[PickCandidate], ciks: dict[str, int | None], wait_seconds: float = 0
 ) -> list[CandidateEvents]:
     """The news and SEC filings of each candidate on ``shortlist``: one Finnhub request
     each (cached for ten minutes and shared with the stock page) and one keyless request
     to EDGAR. A source that cannot be read is left out for that candidate."""
     if not shortlist:
         return []
-    today = date.today()
+    today = market_today()
     news_slots = asyncio.Semaphore(NEWS_REQUESTS_AT_ONCE)
     edgar_slots = asyncio.Semaphore(EDGAR_REQUESTS_AT_ONCE)
     edgar: AsyncClient | None
@@ -377,7 +519,7 @@ async def _candidate_events(
     now = datetime.now(timezone.utc)
     # The budget of headlines is shared among the candidates whose news was fetched.
     each = headlines_each(sum(1 for found in news if found is not None))
-    return [
+    events = [
         candidate_events(
             candidate.symbol,
             None if found_news is None else found_news.articles,
@@ -386,6 +528,17 @@ async def _candidate_events(
             each,
         )
         for candidate, found_news, found in zip(shortlist, news, filings, strict=True)
+    ]
+    budget = article_budget(wait_seconds)
+    read = await with_article_texts(
+        [event.headlines for event in events],
+        articles_each(sum(1 for found in news if found is not None), budget),
+        CANDIDATE_ARTICLE_CHARS,
+        budget,
+    )
+    return [
+        event.model_copy(update={"headlines": headlines})
+        for event, headlines in zip(events, read, strict=True)
     ]
 
 
@@ -423,7 +576,7 @@ async def _signals(symbols: list[str]) -> dict[str, dict[str, float | int | None
     if not symbols or finnhub_key() is None:
         return {}
     slots = asyncio.Semaphore(SIGNALS_AT_ONCE)
-    today = date.today()
+    today = market_today()
     found = await asyncio.gather(*(_stock_signals(symbol, today, slots) for symbol in symbols))
     return {symbol: facts for symbol, facts in zip(symbols, found, strict=True) if facts}
 
@@ -449,6 +602,7 @@ async def holding_facts(
     funds: Collection[str] = (),
     horizon_days: float | None = None,
     wait_seconds: float = 0,
+    also_news: Sequence[str] = (),
 ) -> HoldingFacts:
     """The screener's figures, sector ranks, next earnings dates, and index membership of
     ``symbols`` (most important first), the news and SEC filings of the first
@@ -456,8 +610,9 @@ async def holding_facts(
     backdrop, all from what the picks use: the stored screener, keyless SEC data, and a
     request to Finnhub per company (cached) plus the shared calendars, and each holding's
     analysts' ratings, earnings surprises, and insiders' trades as far as
-    :func:`plan_requests` allows within ``wait_seconds``. A source that cannot be read is
-    left out with a notice."""
+    :func:`plan_requests` allows within ``wait_seconds``; then the news and filings of
+    ``also_news`` (a review's latest picks), which get no figures here. A source that
+    cannot be read is left out with a notice."""
     universe = await _universe(session, user_id)
     figures: list[ScreenerFacts] = []
     sectors: list[SectorSnapshot] = []
@@ -477,7 +632,7 @@ async def holding_facts(
         sp500 = await _sp500(session, universe)
     shortlist = [
         PickCandidate(symbol=symbol, name=symbol, price=0.0, avg_dollar_volume=0.0, lenses=[])
-        for symbol in symbols
+        for symbol in dict.fromkeys([*symbols, *also_news])
         if symbol not in known_funds
     ]
     plan = await plan_requests(
@@ -487,7 +642,7 @@ async def holding_facts(
     with finnhub_patience(_patience(wait_seconds)):
         (backdrop, market_notice), events, signals = await asyncio.gather(
             _market(horizon_days, plan.calendar_days),
-            _candidate_events(shortlist, ciks),
+            _candidate_events(shortlist, ciks, wait_seconds),
             _signals([c.symbol for c in shortlist[: plan.signals]]),
         )
     figures = with_listing_facts(figures, None if backdrop is None else backdrop.earnings, sp500)
@@ -514,6 +669,162 @@ async def holding_facts(
     ]
     return HoldingFacts(
         figures=figures, sectors=sectors, events=events, backdrop=backdrop, notices=notices
+    )
+
+
+def fetch_order(
+    candidates: list[PickCandidate],
+    added: Collection[str],
+    held: list[PicksHolding],
+    held_figures: list[ScreenerFacts],
+    added_first: bool = True,
+) -> tuple[list[PickCandidate], list[tuple[str, int]]]:
+    """The stocks whose own news is fetched for a list of picks, in the order the wait is
+    spent on them, and the groups they fall in, as (name, count): the tickers the person
+    added and the :data:`CORE_NEWS` likeliest picks, in the order ``added_first`` says;
+    the person's largest held stocks, so Claude knows what they already carry; then the
+    other candidates. ETFs are left out, since their news is the market's."""
+    likely = events_shortlist(candidates, first=added)
+    mine = [c for c in likely if c.symbol in added]
+    core = [c for c in likely if c.symbol not in added][: max(0, CORE_NEWS - len(mine))]
+    if not added_first:
+        # The likeliest come first; the added tickers then lose no place to make room.
+        core = [c for c in likely if c.symbol not in added][:CORE_NEWS]
+    taken = {c.symbol for c in mine + core}
+    funds = {f.symbol for f in held_figures if f.asset_type == "etf"}
+    holdings = [
+        PickCandidate(symbol=h.symbol, name=h.symbol, price=0.0, avg_dollar_volume=0.0, lenses=[])
+        for h in held
+        if h.symbol not in taken and h.symbol not in funds
+    ][:MAX_HELD_NEWS]
+    taken |= {c.symbol for c in holdings}
+    rest = [c for c in likely if c.symbol not in taken]
+    leading = [("Tickers you added", mine), ("Likeliest picks", core)]
+    if not added_first:
+        leading.reverse()
+    order = ([c for _, group in leading for c in group] + holdings + rest)[:MAX_CANDIDATE_EVENTS]
+    groups = [
+        *((name, len(group)) for name, group in leading),
+        ("Your holdings", len(holdings)),
+        ("Other candidates", len(rest)),
+    ]
+    return order, [(name, count) for name, count in groups if count]
+
+
+def signal_order(candidates: list[PickCandidate], request: PicksRequest) -> list[PickCandidate]:
+    """Every stock candidate, in the order their analysts' ratings, earnings, and insiders
+    are fetched: the added tickers first, or, without ``added_first``, after the
+    :data:`CORE_NEWS` likeliest."""
+    ordered = likeliest_stocks(candidates, first=request.added_symbols)
+    if request.added_first:
+        return ordered
+    others = [c for c in ordered if c.symbol not in request.added_symbols]
+    mine = [c for c in ordered if c.symbol in request.added_symbols]
+    return others[:CORE_NEWS] + mine + others[CORE_NEWS:]
+
+
+MAX_HELD_NEWS: int = 15
+"""Most held stocks whose news a list of picks fetches, the largest first."""
+
+
+@dataclass(frozen=True)
+class SecurityFacts:
+    """What a stock report is given of its security beyond its own news and signals, as
+    Claude's Picks and portfolio reviews are given it."""
+
+    figures: ScreenerFacts | None
+    sectors: list[SectorSnapshot]
+    filings: list[CandidateFiling]
+    backdrop: PicksBackdrop | None
+    notices: list[str]
+
+
+@dataclass(frozen=True)
+class ScreenedSecurity:
+    """What the stored screener holds of one security, read before anything is fetched."""
+
+    figures: ScreenerFacts | None = None
+    sectors: list[SectorSnapshot] = field(default_factory=list)
+    sp500: set[str] | None = None
+    cik: int | None = None
+
+
+async def screened_security(symbol: str) -> ScreenedSecurity:
+    """``symbol``'s screener figures and sector ranks, its sector's medians, and the
+    S&P 500's members, from the screener the account whose request this is may use;
+    empty when it has none or the database cannot be read. Read on its own, before a
+    report's fetches, since they use the database too."""
+    user_id = current_provider_keys().user_id
+    figures: ScreenerFacts | None = None
+    sectors: list[SectorSnapshot] = []
+    sp500: set[str] | None = None
+    cik: int | None = None
+    if user_id is not None:
+        try:
+            async with get_sessionmaker()() as session:
+                universe = await _universe(session, user_id)
+                if universe is not None and universe.refreshed_at is not None:
+                    found = await universe_stocks(session, universe, [symbol])
+                    if symbol in found:
+                        cik = found[symbol].cik
+                        companies = await universe_companies(session, universe)
+                        [figures] = with_sector_percentiles(
+                            [screener_facts(found[symbol])], companies
+                        )
+                        sectors = sector_snapshots(
+                            companies, {figures.sector} if figures.sector else set()
+                        )
+                        sp500 = await _sp500(session, universe)
+        except SQLAlchemyError as exc:
+            logger.error("Could not read the screener for a stock report: %s", exc)
+    return ScreenedSecurity(figures=figures, sectors=sectors, sp500=sp500, cik=cik)
+
+
+async def security_facts(
+    symbol: str, screened: ScreenedSecurity, horizon_days: float | None
+) -> SecurityFacts:
+    """What :func:`screened_security` read of ``symbol``, with its next earnings date and
+    S&P 500 membership, its keyless SEC filings of the last month, and the market backdrop
+    of a period of ``horizon_days``. Its news and signals are left to the caller, which
+    fetches more of them. A source that cannot be read is left out, with a notice where it
+    matters."""
+    figures, sectors, sp500, cik = (
+        screened.figures,
+        screened.sectors,
+        screened.sp500,
+        screened.cik,
+    )
+    filings: list[SecFiling] | None = None
+    edgar: AsyncClient | None = None
+    if cik is not None:
+        try:
+            edgar = edgar_client()
+        except FilingFetchError:
+            edgar = None
+    try:
+        (backdrop, notice), filings = await asyncio.gather(
+            _market(horizon_days),
+            _filings(
+                cik,
+                edgar,
+                market_today() - timedelta(days=FILING_DAYS),
+                asyncio.Semaphore(1),
+            ),
+        )
+    finally:
+        if edgar is not None:
+            await edgar.aclose()
+    if figures is not None:
+        [figures] = with_listing_facts(
+            [figures], None if backdrop is None else backdrop.earnings, sp500
+        )
+    events = candidate_events(symbol, None, filings, datetime.now(timezone.utc))
+    return SecurityFacts(
+        figures=figures,
+        sectors=sectors,
+        filings=events.filings,
+        backdrop=backdrop,
+        notices=[notice] if notice else [],
     )
 
 
@@ -631,14 +942,16 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
     wait = request.wait_seconds
     # Every stock's signals fit in the table at little cost in tokens, so a long wait
     # fills them in for the candidates beyond those whose news is fetched.
-    likeliest = likeliest_stocks(candidates, first=request.added_symbols)
-    shortlist = events_shortlist(candidates, first=request.added_symbols)
+    likeliest = signal_order(candidates, request)
+    shortlist, _ = fetch_order(
+        candidates, request.added_symbols, held, held_figures, request.added_first
+    )
     plan = await plan_requests(len(shortlist), horizon_days, wait, len(likeliest))
     shortlist = shortlist[: plan.news]
     with finnhub_patience(_patience(wait)):
         (backdrop, market_notice), events, signals = await asyncio.gather(
             _market(horizon_days, plan.calendar_days),
-            _candidate_events(shortlist, ciks),
+            _candidate_events(shortlist, ciks, wait),
             _signals([c.symbol for c in likeliest[: plan.signals]]),
         )
     candidates = with_listing_facts(
@@ -670,7 +983,7 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
         profile=profile,
         horizon=profile.horizon.label,
         horizon_weeks=round(profile.horizon.total_weeks, 1),
-        today=date.today(),
+        today=market_today(),
         holding_from=window[0],
         holding_until=window[1],
         universe=PicksUniverse(
@@ -689,6 +1002,7 @@ async def picks_context(session: AsyncSession, user_id: str, request: PicksReque
         candidate_events=events,
         holdings=held,
         holding_figures=held_figures,
+        additional_context=(request.extra_context or "").strip() or None,
         notice=" ".join(notice for notice in notices if notice) or None,
     )
 
@@ -699,7 +1013,13 @@ def _request_key(request: PicksRequest, universe: Universe | None) -> str:
     refreshed = "" if universe is None or universe.refreshed_at is None else universe.refreshed_at
     own = universe is not None and universe.own
     added = ",".join(sorted(request.added_symbols))
-    text = f"{request.profile.model_dump_json()}|{request.web_search}|{refreshed}|{own}|{added}"
+    order = "" if request.added_first else "|likeliest-first"
+    if request.extra_context:
+        order += "|context=" + hashlib.sha256(request.extra_context.encode()).hexdigest()
+    text = (
+        f"{request.profile.model_dump_json()}|{request.web_search}|{refreshed}|{own}|{added}"
+        f"{order}"
+    )
     return hashlib.sha256(text.encode()).hexdigest()
 
 
@@ -758,6 +1078,28 @@ def settle_picks(report: PicksReport, clean: bool = False) -> PicksReport:
         for pick, weight in zip(picks.values(), weights, strict=True)
     ]
     return report.model_copy(update={"picks": settled})
+
+
+def with_orders(report: PicksReport, context: PicksContext) -> PicksReport:
+    """``report`` with each pick's order settled (:func:`app.stats.picks_orders.settle_order`)
+    against the prices Claude saw, from the holding period's first session to its last;
+    every pick sold at the period's end when the profile says so; and a handoff kept only
+    for a recurring investment that holds past the period."""
+    prices = {c.symbol: c.price for c in context.candidates if c.price}
+    begins = context.holding_from or holding_window(datetime.now(timezone.utc), 1)[0]
+    first = market_day(begins)
+    last = (
+        market_day(context.holding_until)
+        if context.holding_until is not None
+        else first + timedelta(weeks=context.horizon_weeks)
+    )
+    picks = settle_orders(report.picks, prices, first, max(first, last))
+    profile = context.profile
+    if profile.sell_at_end:
+        picks = [pick.model_copy(update={"sell_at_end": True}) for pick in picks]
+    keeps_handoff = profile.recurring and not profile.sell_at_end
+    handoff = (report.handoff or "").strip() or None if keeps_handoff else None
+    return report.model_copy(update={"picks": picks, "handoff": handoff})
 
 
 @dataclass(frozen=True)
@@ -858,7 +1200,9 @@ async def _finish(
         AnalysisError: If the answer holds too few usable picks.
     """
     try:
-        report = settle_picks(written.output, prepared.request.profile.weights == "clean")
+        report = with_orders(
+            settle_picks(written.output, prepared.request.profile.weights == "clean"), context
+        )
     except TooFewPicksError as exc:
         raise AnalysisError(str(exc)) from exc
     settings = get_settings()
@@ -1043,14 +1387,17 @@ Benchmark = Annotated[
 ]
 
 
-async def _closes(lists: list[PicksResponse], benchmark: str) -> Any:
+async def _closes(
+    lists: list[PicksResponse], benchmark: str
+) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     """Daily adjusted closes of every pick in ``lists`` and the benchmark, back to just
-    before the oldest list, leaving out what cannot be priced.
+    before the oldest list, leaving out what cannot be priced, and each one's daily bars,
+    which the picks' orders are replayed on.
 
     Raises:
         DataFetchError: If nothing at all can be priced.
     """
-    today = date.today()
+    today = market_today()
     oldest = min(start_day(picks.generated_at) for picks in lists)
     symbols = list(
         dict.fromkeys([pick.symbol for picks in lists for pick in picks.report.picks] + [benchmark])
@@ -1058,7 +1405,7 @@ async def _closes(lists: list[PicksResponse], benchmark: str) -> Any:
     panel = await fetch_close_panel(
         symbols, history_period(oldest, today), "1d", tolerate_failures=True
     )
-    return panel.closes
+    return panel.closes, {symbol: daily_bars(frame) for symbol, frame in panel.frames.items()}
 
 
 @router.get(
@@ -1075,8 +1422,10 @@ async def read_saved_picks(
     """Return your stored lists of picks, newest first, each with its gain or loss since it
     was made and the benchmark's over the same days.
 
-    Each list is measured from the last close before it was made, held in Claude's
-    weights without rebalancing, until its holding period ends; after that its record
+    Each pick is bought when its order would have filled on the day's prices, at that
+    price, and an order that never fills leaves its money in cash; a list from before
+    orders were given is measured from the last close before it was made. Each is held
+    in Claude's weights without rebalancing, until its holding period ends; after that its record
     stays as it was then. Prices come from your keys, as on the Portfolio page, and from
     your stored price history. When nothing can be priced the lists are still returned,
     without returns, and ``notice`` says why. Returns 503 when the database is unavailable.
@@ -1089,10 +1438,10 @@ async def read_saved_picks(
     performances: dict[str, PicksPerformance] = {}
     if lists:
         try:
-            closes = await _closes(lists, benchmark)
-            today = date.today()
+            closes, bars = await _closes(lists, benchmark)
+            today = market_today()
             performances = {
-                str(picks.id): track(picks, closes, benchmark, today) for picks in lists
+                str(picks.id): track(picks, closes, benchmark, today, bars) for picks in lists
             }
         except DataFetchError as exc:
             logger.info("Saved picks could not be priced: %s", exc)
@@ -1111,10 +1460,11 @@ async def read_saved_picks(
                 horizon=picks.context.horizon,
                 risk_tolerance=picks.context.profile.risk_tolerance,
                 model=picks.model,
+                effort=picks.effort,
                 headline=picks.report.headline,
                 symbols=[pick.symbol for pick in picks.report.picks],
                 ends_on=ends_on(picks),
-                ended=date.today() > ends_on(picks),
+                ended=market_today() > ends_on(picks),
                 total_return=None if found is None else found.total_return,
                 benchmark_return=None if found is None else found.benchmark_return,
                 excess_return=None if found is None else found.excess_return,
@@ -1152,10 +1502,10 @@ async def read_picks_performance(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"No picks with ID {picks_id}."
         )
     try:
-        closes = await _closes([picks], benchmark)
+        closes, bars = await _closes([picks], benchmark)
     except DataFetchError as exc:
         raise upstream_error(exc) from exc
-    return track(picks, closes, benchmark, date.today())
+    return track(picks, closes, benchmark, market_today(), bars)
 
 
 @router.post(
@@ -1205,8 +1555,12 @@ async def import_picks(
     the database is unavailable.
     """
     try:
-        report = settle_picks(
-            parse_response(body.response, PicksReport), body.context.profile.weights == "clean"
+        report = with_orders(
+            settle_picks(
+                parse_response(body.response, PicksReport),
+                body.context.profile.weights == "clean",
+            ),
+            body.context,
         )
     except (ExternalResponseError, TooFewPicksError) as exc:
         raise HTTPException(
@@ -1215,7 +1569,14 @@ async def import_picks(
     response = await _response(user.id, body.context, report, pasted_model(report.written_by))
     try:
         key = _request_key(body.request, await _universe(session, user.id))
-        return await save_picks(session, user.id, key, response, PASTED_MODEL, PASTED_MODEL)
+        return await save_picks(
+            session,
+            user.id,
+            key,
+            response,
+            PASTED_MODEL,
+            outside_effort(body.effort_used, body.response) or PASTED_MODEL,
+        )
     except SQLAlchemyError as exc:
         raise _database_error(exc) from exc
 

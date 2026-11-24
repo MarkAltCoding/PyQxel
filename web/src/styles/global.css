@@ -2240,6 +2240,13 @@ li code {
   margin: 0;
 }
 
+.pick-order-steps {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 1.2em;
+}
+
 .report .pick-figures {
   display: flex;
   flex-wrap: wrap;
@@ -2865,4 +2872,49 @@ main [id] {
 .saved-reviews summary,
 .picks-in-review summary {
   cursor: pointer;
+}
+
+.pick-order-note {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.wait-plans ul {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding-left: 1.1em;
+}
+
+.wait-plans li.chosen {
+  color: var(--text-primary);
+}
+
+.wait-plans li:not(.chosen) {
+  color: var(--text-secondary);
+}
+
+.info-tip-box:has(.wait-plans) {
+  width: min(520px, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.additional-context textarea {
+  width: 100%;
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.handoff-text {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 22rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
 }

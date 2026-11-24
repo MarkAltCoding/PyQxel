@@ -478,8 +478,10 @@ def candidate_events(
                 source=article.source,
                 headline=article.headline,
                 summary=_cut(article.summary),
+            ).linked(article.url, rank)
+            for rank, article in sorted(
+                enumerate(scored), key=lambda item: item[1].published_at, reverse=True
             )
-            for article in sorted(scored, key=lambda article: article.published_at, reverse=True)
         ]
     kept = [
         CandidateFiling(form=filing.form, filed=filing.filed, items=filing.items)

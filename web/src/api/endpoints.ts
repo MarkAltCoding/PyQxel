@@ -68,6 +68,7 @@ import type {
   PicksResponse,
   SavedState,
   PortfolioAnalysisRequest,
+  WaitPlans,
   PortfolioAnalysisResponse,
   PortfolioPromptExport,
   PortfolioReviewImport,
@@ -346,6 +347,15 @@ export const getPicksCandidates = (body: PicksRequest) =>
   api<PicksCandidateList>(`${V1}/picks/candidates`, { method: 'POST', body })
 export const exportPicksPrompt = (body: PicksRequest) =>
   api<PicksPromptExport>(`${V1}/picks/prompt`, { method: 'POST', body })
+/** What each wait would gather for a list of picks, by group; fetches nothing. */
+export const getPicksWaitPlans = (body: PicksRequest) =>
+  api<WaitPlans>(`${V1}/picks/wait-plans`, { method: 'POST', body })
+/** What each wait would gather for a portfolio review, by group; fetches nothing. */
+export const getReviewWaitPlans = (body: PortfolioAnalysisRequest) =>
+  api<WaitPlans>(`${V1}/portfolio/analysis/wait-plans`, { method: 'POST', body })
+/** What each wait would gather for a stock report; fetches nothing. */
+export const getAnalysisWaitPlans = (symbol: string) =>
+  api<WaitPlans>(`${path(symbol)}/analysis/wait-plans`)
 export const importPicks = (body: PicksImport) =>
   api<PicksResponse>(`${V1}/picks/import`, { method: 'POST', body })
 
