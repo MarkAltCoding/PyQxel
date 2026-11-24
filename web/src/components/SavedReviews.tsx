@@ -34,16 +34,16 @@ export function SavedReviews({
   const items = saved.data?.items ?? []
   return (
     <details className="saved-reviews">
-      <summary>
-        <span className="heading-with-info">
-          Saved reviews{items.length > 0 ? ` (${items.length})` : ''}
-          <InfoTip topic="savedReviews" />
-        </span>
-      </summary>
+      {/* The "i" is in the body, as in the app's other disclosures: a button inside a
+          summary is a control nested in a control, which keyboards and screen readers
+          handle badly. */}
+      <summary>Saved reviews{items.length > 0 ? ` (${items.length})` : ''}</summary>
+      <div className="heading-with-info" style={{ marginTop: 8 }}>
+        <span className="disclaimer">Every review Claude writes for you, newest first.</span>
+        <InfoTip topic="savedReviews" />
+      </div>
       {saved.error !== null && <ErrorNotice error={saved.error} />}
-      {saved.data && items.length === 0 && (
-        <div className="empty">Every review Claude writes for you is saved here.</div>
-      )}
+      {saved.data && items.length === 0 && <div className="empty">No reviews yet.</div>}
       {items.length > 0 && (
         <div className="table-wrap">
           <table className="data">

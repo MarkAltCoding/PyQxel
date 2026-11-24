@@ -4,7 +4,9 @@ React 19 + TypeScript on Vite, TanStack Query for data, ECharts for charts, Code
 for the strategy editor. Routes are in `src/routes.tsx`, inside `components/Layout.tsx`.
 Styles are one file, `src/styles/global.css`, with color tokens on `:root` and dark-mode
 overrides. Use the tokens (`--surface`, `--text-secondary`, `--good-mark`, …), never raw
-colors.
+colors. Blue text (links, labels) uses `--accent-ink`, not `--accent`, which is too light for
+text; `e2e/accessibility.spec.ts` runs axe's WCAG AA checks on every page in both themes.
+`scripts/third-party-licenses.mjs` writes the open-source notices the terms link to, on each build.
 
 ## Data
 

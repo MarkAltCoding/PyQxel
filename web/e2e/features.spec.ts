@@ -339,7 +339,7 @@ test('the portfolio review keeps every review in its saved ones', async ({ page 
   await openPortfolio(page, 1)
   const review = page.locator('#ai-review')
   await review.getByText(/^Saved reviews/).click()
-  await expect(review.getByText('Every review Claude writes for you is saved here.')).toBeVisible()
+  await expect(review.getByText('No reviews yet.')).toBeVisible()
 })
 
 test('picks can be scheduled, weekly on Sunday and monthly on the last day by default', async ({

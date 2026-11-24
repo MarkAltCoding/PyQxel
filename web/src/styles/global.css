@@ -8,7 +8,7 @@
   --surface-sunken: #f0efec;
   --text-primary: #0b0b0b;
   --text-secondary: #52514e;
-  --text-muted: #6f6d68;
+  --text-muted: #6b6964;
   --border: rgba(11, 11, 11, 0.1);
   --border-strong: rgba(11, 11, 11, 0.18);
   --grid: #e1e0d9;
@@ -17,6 +17,9 @@
   --accent-hover: #256abf;
   --accent-text: #ffffff;
   --accent-soft: #e6f0fc;
+  /* The accent as text: darker than --accent, so links and labels reach 4.5:1 on every
+     surface, the soft accent included (WCAG AA). */
+  --accent-ink: #2368bd;
   --focus: #2a78d6;
 
   --series-1: #2a78d6;
@@ -73,6 +76,8 @@
     --accent-hover: #5598e7;
     --accent-text: #0b0b0b;
     --accent-soft: #17283d;
+    --accent-ink: #5598e7;
+    --accent-ink: #5598e7;
     --focus: #5598e7;
 
     --series-1: #3987e5;
@@ -94,7 +99,7 @@
     --code-function: #82b1ff;
     --code-class: #f07ab0;
 
-    --good: #0ca30c;
+    --good: #16b316;
     --good-mark: #0ca30c;
     --warning: #fab219;
     --warning-mark: #fab219;
@@ -121,6 +126,7 @@
   --accent-hover: #5598e7;
   --accent-text: #0b0b0b;
   --accent-soft: #17283d;
+  --accent-ink: #5598e7;
   --focus: #5598e7;
 
   --series-1: #3987e5;
@@ -142,7 +148,7 @@
   --code-function: #82b1ff;
   --code-class: #f07ab0;
 
-  --good: #0ca30c;
+  --good: #16b316;
   --good-mark: #0ca30c;
   --warning: #fab219;
   --warning-mark: #fab219;
@@ -170,12 +176,21 @@ body {
 }
 
 a {
-  color: var(--accent);
+  color: var(--accent-ink);
   text-decoration: none;
 }
 
 a:hover {
   text-decoration: underline;
+}
+
+/* A link inside a sentence is underlined, so it stands out without relying on color. Links
+   that are buttons, tabs, or cards keep their own look. */
+:is(p, li, dd, td, footer, .notice, .disclaimer, .subtitle, .key-about, .empty)
+  a:not(.button, .link-card, [role='tab']) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
 
 h1,
@@ -282,7 +297,7 @@ p {
 }
 
 .nav a.active {
-  color: var(--accent);
+  color: var(--accent-ink);
   background: var(--accent-soft);
 }
 
@@ -300,7 +315,7 @@ p {
 
 /* The top bar's Settings button is marked like the tabs while Settings is open. */
 .topbar-actions .topbar-settings.active {
-  color: var(--accent);
+  color: var(--accent-ink);
   background: var(--accent-soft);
 }
 
@@ -381,7 +396,7 @@ main {
   .nav a.active,
   .nav a:hover {
     background: none;
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 
   .nav-icon {
@@ -718,14 +733,16 @@ select:disabled {
   cursor: not-allowed;
 }
 
+/* The accent's ink shade, so the button's label reaches 4.5:1 (WCAG AA); hovering moves it
+   toward the text color, darker in light mode and lighter in dark. */
 .button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-ink);
+  border-color: var(--accent-ink);
   color: var(--accent-text);
 }
 
 .button.primary:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: color-mix(in srgb, var(--accent-ink) 85%, var(--text-primary));
 }
 
 .button.ghost {
@@ -812,7 +829,7 @@ select:disabled {
 }
 
 .subtabs a.active {
-  color: var(--accent);
+  color: var(--accent-ink);
   border-bottom-color: var(--accent);
 }
 
@@ -1726,7 +1743,7 @@ table.data .muted {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--accent);
+  color: var(--accent-ink);
   font: inherit;
   font-size: 0.88rem;
   cursor: pointer;
@@ -2119,7 +2136,7 @@ li code {
 .info-tip-button:focus-visible,
 .info-tip-button.pinned {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .info-tip-button.pinned {
@@ -2585,7 +2602,7 @@ li code {
   margin-bottom: 12px;
   border-radius: var(--radius-small);
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .shortcut-svg {
@@ -2757,7 +2774,7 @@ li code {
 }
 
 .news-list a:hover {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .news-meta {
@@ -2826,7 +2843,7 @@ li code {
 }
 
 .coverage-next {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .metrics-grid {
@@ -3133,7 +3150,7 @@ summary > .heading-with-info {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-size: inherit;
   font-weight: 500;
   cursor: pointer;

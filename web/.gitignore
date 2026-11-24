@@ -11,6 +11,8 @@ node_modules
 # Pyodide and its wheels, and the Clang toolchain, copied in by scripts/vendor-*.mjs.
 public/pyodide
 public/clang
+# Written by scripts/third-party-licenses.mjs from the installed packages.
+public/third-party-licenses.txt
 dist
 dist-ssr
 *.local

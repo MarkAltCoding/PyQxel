@@ -1,7 +1,8 @@
 import { Link } from 'react-router'
+import { apiUrl } from '../api/client'
 import { ContactLink, LegalFooter, LegalSection } from '../components/LegalSection'
 
-const UPDATED = 'November 10, 2026'
+const UPDATED = 'November 24, 2026'
 
 /** The terms of using PyQxel and paying for its nightly refresh. Public, so they can be read
  * before signing in or paying, as Stripe requires. */
@@ -119,6 +120,25 @@ export function TermsPage() {
           owner are not liable for any investment losses, or for indirect or consequential damages,
           arising from your use of it, and their total liability for any claim is limited to what
           you paid PyQxel in the 12 months before the claim.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Open-Source Software">
+        <p>
+          PyQxel is built with open-source software, used under each project’s license; the{' '}
+          <a href={apiUrl('/third-party-licenses.txt')} target="_blank" rel="noopener noreferrer">
+            list of licenses
+          </a>{' '}
+          names them all. PyQxel’s own code is not open source.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Governing Law">
+        <p>
+          These terms are governed by the laws of the Commonwealth of Massachusetts, in the United
+          States, without regard to its rules on conflicts of law. Any dispute that cannot be
+          settled by email goes to the state or federal courts in Massachusetts, unless the law
+          where you live gives you the right to bring it there.
         </p>
       </LegalSection>
 

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { PolicyLinks } from '../components/LegalSection'
+import { SignInAgreement } from '../components/LegalSection'
 import { useQuery } from '@tanstack/react-query'
 import { checkPasswordLink, getPasswordSignIn, setPassword } from '../api/endpoints'
 import { useAuth } from '../auth/useAuth'
@@ -131,9 +131,7 @@ export function SetPasswordPage() {
             </Link>
           </form>
         )}
-        <p className="disclaimer">
-          PyQxel is a research tool, not investment advice. <PolicyLinks />
-        </p>
+        <SignInAgreement action="choosing a password" />
       </section>
     </main>
   )

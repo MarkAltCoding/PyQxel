@@ -44,3 +44,14 @@ export function PolicyLinks() {
     </>
   )
 }
+
+/** The line under a sign-in form: signing in, or choosing a password, accepts the terms and
+ * the privacy policy, which a person can open first. */
+export function SignInAgreement({ action }: { action: string }) {
+  return (
+    <p className="disclaimer">
+      PyQxel is a research tool, not investment advice. By {action}, you agree to the{' '}
+      <Link to="/terms">Terms of Service</Link> and <Link to="/privacy">Privacy Policy</Link>.
+    </p>
+  )
+}

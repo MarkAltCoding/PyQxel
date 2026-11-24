@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router'
-import { PolicyLinks } from '../components/LegalSection'
+import { SignInAgreement } from '../components/LegalSection'
 import { useQuery } from '@tanstack/react-query'
 import { apiUrl } from '../api/client'
 import { collectAppSignIn, getPasswordSignIn, getSignInProviders } from '../api/endpoints'
@@ -261,9 +261,7 @@ export function SignInPage() {
             onContinue={() => openInBrowser(confirming.name, confirming.label)}
           />
         )}
-        <p className="disclaimer">
-          PyQxel is a research tool, not investment advice. <PolicyLinks />
-        </p>
+        <SignInAgreement action="signing in" />
       </section>
     </main>
   )
