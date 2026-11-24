@@ -25,6 +25,7 @@ from app.data.fetcher import (
     finnhub_key,
     finnhub_symbol,
 )
+from app.core.text import listed
 from app.data.finnhub import cached_get
 from app.models.alternative import (
     AlternativeRecords,
@@ -325,12 +326,14 @@ async def fetch_alternative(
         )
     parts: dict[str, Any] = {}
     missing: list[str] = []
+    # Every part without a key is named in one reason, not one each.
+    unkeyed: list[str] = []
     for key, name, result in zip(
         ("lobbying", "contracts", "patents", "filings"), PART_NAMES, results
     ):
         if isinstance(result, ProviderNotConfiguredError):
             if not keyed:
-                missing.append(f"{name} need a Finnhub key, which you can add in Settings")
+                unkeyed.append(name)
                 continue
             raise result
         if isinstance(result, DataFetchError):
@@ -339,6 +342,9 @@ async def fetch_alternative(
             raise result
         else:
             parts[key] = result
+    if unkeyed:
+        verb = "needs" if len(unkeyed) == 1 else "need"
+        missing.insert(0, f"{listed(unkeyed)} {verb} a Finnhub key, which you can add in Settings")
     # Finnhub refused all three for a listing abroad: one reason, with the US listing.
     if all(isinstance(result, ProviderPlanError) for result in results[:3]) and (
         hint := await finnhub_abroad_hint(symbol, "lobbying, government contracts, and patents")

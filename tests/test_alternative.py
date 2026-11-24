@@ -143,14 +143,17 @@ async def test_a_refused_part_is_left_out_with_a_notice() -> None:
 @pytest.mark.asyncio
 async def test_without_a_key_the_sec_filings_still_come_from_edgar() -> None:
     """EDGAR needs no key, so its filings are shown, and the parts Finnhub supplies are
-    noted as needing its key."""
+    noted as needing its key, together in one reason."""
     use_provider_keys(ProviderKeys())
 
     records = await fetch_alternative("LMT", TODAY, _finnhub())
 
     assert records.filings is not None and [f.form for f in records.filings] == ["4", "8-K", "4"]
-    assert records.lobbying is None and len(records.missing) == 3
-    assert "Finnhub key" in records.missing[0]
+    assert records.lobbying is None
+    assert records.missing == [
+        "lobbying, government contracts, and patents need a Finnhub key, "
+        "which you can add in Settings"
+    ]
 
 
 @pytest.mark.asyncio
