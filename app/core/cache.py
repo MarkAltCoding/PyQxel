@@ -4,8 +4,9 @@ when ``REDIS_URL`` is set.
 Every value is kept in memory, up to :data:`MEMORY_MAX_BYTES`, the least recently used
 leaving first, so one instance serves a repeated lookup without asking its provider again
 whether or not Redis is there. Redis, e.g. an Upstash ``rediss://`` URL, is optional: it
-shares the cache, and the counters of rate limits and Finnhub's minute, among instances
-and keeps them across restarts, which matters only with several instances running. Without
+shares the cache, and each Finnhub key's count of requests a minute, among instances and
+keeps them across restarts, so instances fetch less between them. Reads look in memory
+first, so Redis is asked only for what this instance has not kept. Without
 it, or while Redis is unreachable, the memory alone serves. After a Redis error, Redis is
 left out for :data:`RETRY_AFTER_SECONDS` rather than making each request wait out a timeout.
 
@@ -196,23 +197,22 @@ async def cache_set(key: str, value: str, ttl_seconds: float) -> None:
 
 
 async def cache_increment(key: str, ttl_seconds: float) -> int | None:
-    """Add one to the counter at ``key``, which expires ``ttl_seconds`` after its last count.
-
-    The count and its expiry are set together in one transaction, so no counter is left
-    without an expiry; the expiry is restarted on each count, which suits counters keyed
-    by time window.
+    """Add one to the shared counter at ``key``, which expires ``ttl_seconds`` after its
+    first count: one Redis command a count, and a second on the first, which sets the
+    expiry. Counters are keyed by time window, so an expiry from the first count suits
+    them; should a process stop between the two, the counter outlives its window, and
+    Redis's eviction clears it.
 
     Returns:
-        The new count, or ``None`` when caching is off or Redis fails.
+        The new count, or ``None`` when Redis is not set or fails.
     """
     client = _get_client()
     if client is None:
         return None
     try:
-        async with client.pipeline(transaction=True) as pipeline:
-            pipeline.incr(KEY_PREFIX + key)
-            pipeline.pexpire(KEY_PREFIX + key, max(1, round(ttl_seconds * 1000)))
-            count = int((await pipeline.execute())[0])
+        count = int(await client.incr(KEY_PREFIX + key))
+        if count == 1:
+            await client.pexpire(KEY_PREFIX + key, max(1, round(ttl_seconds * 1000)))
     except RedisError as exc:
         _trip("count", key, exc)
         return None

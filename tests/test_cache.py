@@ -6,7 +6,7 @@ Redis is replaced with ``fakeredis`` so no test needs a server.
 import asyncio
 
 import pytest
-from fakeredis import FakeAsyncRedis, FakeServer
+from fakeredis import FakeAsyncRedis
 from pydantic import SecretStr
 from redis.exceptions import ConnectionError as RedisConnectionError
 
@@ -116,27 +116,23 @@ async def test_client_is_created_from_settings(monkeypatch: pytest.MonkeyPatch) 
     assert cache._client is None
 
 
-async def test_counters_always_expire(fake_redis: FakeAsyncRedis) -> None:
-    """Each count sets the counter's expiry with it, so none is left to grow forever."""
-    assert await cache_increment("ratelimit:u:1", ttl_seconds=120) == 1
-    assert await cache_increment("ratelimit:u:1", ttl_seconds=120) == 2
+async def test_counters_expire_from_their_first_count(fake_redis: FakeAsyncRedis) -> None:
+    """The first count sets the counter's expiry, so none is left to grow forever."""
+    assert await cache_increment("finnhub:count:k:1", ttl_seconds=120) == 1
+    assert await cache_increment("finnhub:count:k:1", ttl_seconds=120) == 2
 
-    assert 0 < await fake_redis.pttl(KEY_PREFIX + "ratelimit:u:1") <= 120_000
+    assert 0 < await fake_redis.pttl(KEY_PREFIX + "finnhub:count:k:1") <= 120_000
 
 
-async def test_rate_limits_are_shared_across_instances() -> None:
-    """Instances counting in the same Redis enforce one limit between them."""
+async def test_rate_limits_are_counted_in_memory_not_redis(fake_redis: FakeAsyncRedis) -> None:
+    """A request's rate limit spends no Redis command."""
     clear_local_counts()
-    server = FakeServer()
-    first, second = (FakeAsyncRedis(server=server, decode_responses=True) for _ in range(2))
     now = 1_000_000.0
 
-    configure_cache(first)
-    await check_rate_limit("shared-user", 2, now=now)
-    configure_cache(second)
-    await check_rate_limit("shared-user", 2, now=now)
+    await check_rate_limit("memory-user", 1, now=now)
     with pytest.raises(RateLimitExceeded):
-        await check_rate_limit("shared-user", 2, now=now)
+        await check_rate_limit("memory-user", 1, now=now)
+    assert await fake_redis.keys("*") == []
 
 
 def test_the_memory_tier_serves_repeats_without_redis_and_lets_old_values_go(

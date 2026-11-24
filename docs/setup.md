@@ -21,7 +21,7 @@ Settings in `.env` (all optional for a first run):
 * `CREDENTIALS_ENCRYPTION_KEY`: encrypts the keys of users who turn on the nightly refresh or scheduled picks (`python -m app.jobs.users generate-encryption-key`); without it, neither can be turned on.
 * `SCREENER_FMP_API_KEY`: a licensed FMP key for the shared screener every account sees.
 * `DATABASE_URL`: Postgres (`postgresql+asyncpg://localhost/pyqxel`); SQLite in `data_cache/` otherwise. Migrations run at startup.
-* `REDIS_URL`: optional; it only shares the in-memory caches and rate limits among several instances.
+* `REDIS_URL`: optional; it shares the in-memory caches, and each Finnhub key's count of requests a minute, among instances, so they fetch less between them.
 * Provider keys in `.env` (`ANTHROPIC_API_KEY`, `FINNHUB_API_KEY`, ...) are read only by tests marked `live` or `paid`: accounts always send their own.
 
 ### Run it

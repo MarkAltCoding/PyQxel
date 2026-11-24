@@ -1,20 +1,20 @@
 """Request rate limiting over fixed windows, one minute long unless a caller asks for
 longer.
 
-Counts live in Redis when ``REDIS_URL`` is set, so the limit holds across worker
-processes; otherwise, or while Redis is down, each process counts on its own.
+Each process counts in its own memory. Sharing the counts through Redis would make the
+limit exact across instances, but at four Redis commands on every request it cost more
+than it is worth, with two instances at most: an account could at worst make twice the
+limit while both run.
 """
 
 import math
 import time
 from dataclasses import dataclass
 
-from app.core.cache import cache_increment
-
 WINDOW_SECONDS: float = 60.0
 
 _local: dict[tuple[str, int], int] = {}
-"""Counts per (user, window) when Redis is unavailable."""
+"""Counts per (user, window)."""
 
 
 @dataclass(frozen=True)
@@ -47,12 +47,10 @@ async def check_rate_limit(
     moment = time.time() if now is None else now
     name = user_id if window_seconds == WINDOW_SECONDS else f"{user_id}:{int(window_seconds)}s"
     window = int(moment // window_seconds)
-    count = await cache_increment(f"ratelimit:{name}:{window}", 2 * window_seconds)
-    if count is None:
-        for stale in [key for key in _local if key[0] == name and key[1] < window]:
-            del _local[stale]
-        count = _local.get((name, window), 0) + 1
-        _local[(name, window)] = count
+    for stale in [key for key in _local if key[0] == name and key[1] < window]:
+        del _local[stale]
+    count = _local.get((name, window), 0) + 1
+    _local[(name, window)] = count
     if count > limit:
         retry_after = math.ceil((window + 1) * window_seconds - moment)
         raise RateLimitExceeded(retry_after=max(1, retry_after))

@@ -134,7 +134,7 @@ for i in "${!SECRET_NAMES[@]}"; do
         echo "Missing secret $name; create it as README.md describes." >&2
         exit 1
     elif [[ $i -eq 1 ]]; then
-        echo "No $name secret: running without Redis, so each instance keeps its own caches and rate limits."
+        echo "No $name secret: running without Redis, so each instance keeps its own caches and Finnhub counts."
     elif [[ $name == *smtp* ]]; then
         echo "No $name secret: no sign-in emails are sent through Gmail, so signing in with an email and password is off; see README.md."
     elif [[ $name == *resend* ]]; then
