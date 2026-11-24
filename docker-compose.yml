@@ -1,28 +1,24 @@
 # PyQxel with Postgres and Redis, for running the whole stack locally:
 #
 #   docker compose up --build                         # API at http://localhost:8000
-#   PYQXEL_TARGET=app-r docker compose up --build     # with R, for GARCH
 #   docker compose run --rm api python -m app.jobs.users create you@example.com
 #   docker compose run --rm api python -m app.jobs.screener
 #
-# Settings and secrets come from .env, as when running without Docker; the database,
-# Redis, and R locations below override it. Postgres and Redis are reachable only from
+# Settings and secrets come from .env, as when running without Docker; the database and
+# Redis locations below override it. Postgres and Redis are reachable only from
 # the API container, so they do not clash with servers already running on this machine.
 
 services:
   api:
     build:
       context: .
-      target: ${PYQXEL_TARGET:-app}
-    image: pyqxel:${PYQXEL_TARGET:-app}
+    image: pyqxel
     env_file:
       - path: .env
         required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://pyqxel:${POSTGRES_PASSWORD:-pyqxel}@postgres:5432/pyqxel
       REDIS_URL: redis://redis:6379/0
-      # The image's R, not the host's R_HOME from .env.
-      R_HOME: /usr/lib/R
     ports:
       - "${PYQXEL_PORT:-8000}:8000"
     volumes:

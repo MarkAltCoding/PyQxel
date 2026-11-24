@@ -2317,13 +2317,13 @@ export interface paths {
      * GARCH(1,1) or EWMA volatility estimate and forecast
      * @description Estimate ``symbol``'s volatility from adjusted log returns and forecast it.
      *
-     *     GARCH(1,1) is estimated in R and needs at least 480 returns, with 1,000 or more
+     *     GARCH(1,1) is estimated by maximum likelihood and needs at least 480 returns, with 1,000 or more
      *     recommended. EWMA fixes its parameters instead of estimating them, so it works on
      *     short histories such as recent listings, but its forecast does not mean-revert.
      *
      *     Volatilities are annualized decimals (0.25 = 25%). Estimates that may be unreliable
      *     are returned with ``fit.warnings``. Returns 422 when the window has too few bars or
-     *     the model cannot be fit, and 503 when R is unavailable for GARCH.
+     *     the model cannot be fit.
      */
     get: operations['get_volatility_api_v1_stocks__symbol__volatility_get']
     put?: never
@@ -2460,8 +2460,7 @@ export interface paths {
      * Readiness
      * @description Check the database and Redis; 503 when the database is down or not migrated.
      *
-     *     Redis is optional, so its outage only marks the service ``degraded``. R is reported
-     *     for information: the image without R serves everything but GARCH.
+     *     Redis is optional, so its outage only marks the service ``degraded``.
      */
     get: operations['ready_health_ready_get']
     put?: never
@@ -9635,12 +9634,6 @@ export interface components {
        * @enum {string}
        */
       database: 'ok' | 'unavailable' | 'outdated'
-      /**
-       * R
-       * @description Optional: without it GARCH endpoints return 503.
-       * @enum {string}
-       */
-      r: 'ok' | 'unavailable' | 'not_started'
       /**
        * Redis
        * @description Optional: without it caching is off and rate limits are per process.

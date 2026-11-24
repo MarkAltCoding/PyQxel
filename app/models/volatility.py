@@ -11,7 +11,7 @@ GarchDistribution = Literal["norm", "std"]
 """Innovation distributions: Gaussian (``norm``) or Student t (``std``)."""
 
 VolatilityModel = Literal["garch", "ewma"]
-"""Volatility models: GARCH(1,1) estimated in R, or RiskMetrics EWMA."""
+"""Volatility models: GARCH(1,1) estimated with the ``arch`` package, or RiskMetrics EWMA."""
 
 VolatilityPeriod = Literal["6mo", "1y", "2y", "5y", "10y", "max"]
 """Lookback windows. GARCH needs ``2y`` or more of daily bars; EWMA accepts all."""

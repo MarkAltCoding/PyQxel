@@ -4,14 +4,13 @@
 
 ### Prerequisites
 
-Python 3.14, Node.js 24, and, for GARCH volatility, R 4.3 with `rugarch`. Docker is optional.
+Python 3.14 and Node.js 24. Docker is optional.
 
 ### Installation
 
 ```bash
 git clone https://github.com/MarkAltCoding/PyQxel.git && cd PyQxel
 python3.14 -m venv venv && venv/bin/pip install -r requirements.txt -r requirements-dev.txt
-Rscript -e 'install.packages("rugarch", repos = "https://cloud.r-project.org")'
 cp .env.example .env
 ```
 
@@ -47,11 +46,11 @@ The API's interactive docs are at `http://localhost:8000/docs`; every `/api/v1` 
 docker compose up --build    # the API and web app at http://localhost:8000, with Postgres and Redis
 ```
 
-`PYQXEL_TARGET=app-r` builds the image with R. Both images run unprivileged and hold no secrets.
+The image runs unprivileged and holds no secrets.
 
 ### Health checks
 
-`GET /health` answers whenever the process does. `GET /health/ready` also reports the database, Redis, and R, and returns 503 only when the database cannot serve.
+`GET /health` answers whenever the process does. `GET /health/ready` also reports the database and Redis, and returns 503 only when the database cannot serve.
 
 ### Google Cloud Run
 

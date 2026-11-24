@@ -22,9 +22,6 @@ class ReadinessChecks(BaseModel):
     redis: Literal["ok", "unavailable", "not_configured"] = Field(
         description="Optional: without it caching is off and rate limits are per process."
     )
-    r: Literal["ok", "unavailable", "not_started"] = Field(
-        description="Optional: without it GARCH endpoints return 503."
-    )
 
 
 class ReadinessResponse(BaseModel):

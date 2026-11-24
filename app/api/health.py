@@ -15,7 +15,6 @@ from app.core.cache import check_cache
 from app.core.config import get_settings
 from app.db.session import check_database
 from app.models.health import HealthResponse, ReadinessChecks, ReadinessResponse
-from app.stats.r_bridge import r_available
 from app.version import __version__
 
 router = APIRouter(tags=["health"])
@@ -36,16 +35,10 @@ async def health() -> HealthResponse:
 async def ready(response: Response) -> ReadinessResponse:
     """Check the database and Redis; 503 when the database is down or not migrated.
 
-    Redis is optional, so its outage only marks the service ``degraded``. R is reported
-    for information: the image without R serves everything but GARCH.
+    Redis is optional, so its outage only marks the service ``degraded``.
     """
     database, redis = await asyncio.gather(check_database(), check_cache())
-    started = r_available()
-    checks = ReadinessChecks(
-        database=database,
-        redis=redis,
-        r="not_started" if started is None else "ok" if started else "unavailable",
-    )
+    checks = ReadinessChecks(database=database, redis=redis)
     overall: Literal["ok", "degraded", "unavailable"]
     if database != "ok":
         overall = "unavailable"

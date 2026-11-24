@@ -47,7 +47,6 @@ from app.models.volatility import (
 )
 from app.stats.ewma import DAILY_DECAY, WEEKLY_DECAY, fit_ewma
 from app.stats.garch import ModelFitError, fit_garch
-from app.stats.r_bridge import RUnavailableError
 from app.stats.volatility import MAX_HORIZON, InsufficientDataError
 
 router = APIRouter()
@@ -320,13 +319,13 @@ async def get_volatility(
 ) -> VolatilityEstimate:
     """Estimate ``symbol``'s volatility from adjusted log returns and forecast it.
 
-    GARCH(1,1) is estimated in R and needs at least 480 returns, with 1,000 or more
+    GARCH(1,1) is estimated by maximum likelihood and needs at least 480 returns, with 1,000 or more
     recommended. EWMA fixes its parameters instead of estimating them, so it works on
     short histories such as recent listings, but its forecast does not mean-revert.
 
     Volatilities are annualized decimals (0.25 = 25%). Estimates that may be unreliable
     are returned with ``fit.warnings``. Returns 422 when the window has too few bars or
-    the model cannot be fit, and 503 when R is unavailable for GARCH.
+    the model cannot be fit.
     """
     try:
         frame = await fetch_price_history(symbol, period=period, interval=interval)
@@ -353,10 +352,6 @@ async def get_volatility(
         detail = money_market_message(symbol) if is_money_market(symbol) else str(exc)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail
-        ) from exc
-    except RUnavailableError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from exc
     return VolatilityEstimate(
         symbol=symbol,

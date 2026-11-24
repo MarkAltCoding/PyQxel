@@ -135,7 +135,6 @@ from app.stats.alternative import alternative_context, summarize_alternative
 from app.stats.news import CONTEXT_ARTICLES, news_context
 from app.stats.signals import signals_context, summarize_signals
 from app.stats.peers import compare_to_peers
-from app.stats.r_bridge import RUnavailableError
 from app.stats.valuation import with_filed_figures
 from app.stats.volatility import InsufficientDataError
 
@@ -232,8 +231,6 @@ def _garch_context(
     than an error.
     """
     left_out = "The GARCH volatility forecast was left out:"
-    if isinstance(result, RUnavailableError):
-        return None, f"{left_out} R is not available on this server."
     if isinstance(result, InsufficientDataError):
         return (
             None,

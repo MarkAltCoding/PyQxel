@@ -19,7 +19,6 @@ from app.db.session import (
     init_db,
 )
 from app.main import __version__, app
-from app.stats import r_bridge
 
 client = TestClient(app)
 
@@ -120,22 +119,6 @@ def test_redis_down_is_degraded_but_serving(migrated: None) -> None:
     assert response.status_code == 200
     assert response.json()["status"] == "degraded"
     assert response.json()["checks"]["redis"] == "unavailable"
-
-
-@pytest.mark.parametrize(
-    ("started", "reported"),
-    [(None, "not_started"), (True, "ok"), (False, "unavailable")],
-)
-def test_r_is_reported_without_affecting_readiness(
-    migrated: None, monkeypatch: pytest.MonkeyPatch, started: bool | None, reported: str
-) -> None:
-    """R is optional: the image without it serves everything but GARCH."""
-    monkeypatch.setattr(r_bridge, "_available", started)
-
-    response = client.get("/health/ready")
-
-    assert response.status_code == 200
-    assert response.json()["checks"]["r"] == reported
 
 
 def test_failed_errors_are_not_revealed() -> None:

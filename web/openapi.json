@@ -14485,16 +14485,6 @@
             "title": "Database",
             "type": "string"
           },
-          "r": {
-            "description": "Optional: without it GARCH endpoints return 503.",
-            "enum": [
-              "ok",
-              "unavailable",
-              "not_started"
-            ],
-            "title": "R",
-            "type": "string"
-          },
           "redis": {
             "description": "Optional: without it caching is off and rate limits are per process.",
             "enum": [
@@ -14508,8 +14498,7 @@
         },
         "required": [
           "database",
-          "redis",
-          "r"
+          "redis"
         ],
         "title": "ReadinessChecks",
         "type": "object"
@@ -23410,7 +23399,7 @@
     },
     "/api/v1/stocks/{symbol}/volatility": {
       "get": {
-        "description": "Estimate ``symbol``'s volatility from adjusted log returns and forecast it.\n\nGARCH(1,1) is estimated in R and needs at least 480 returns, with 1,000 or more\nrecommended. EWMA fixes its parameters instead of estimating them, so it works on\nshort histories such as recent listings, but its forecast does not mean-revert.\n\nVolatilities are annualized decimals (0.25 = 25%). Estimates that may be unreliable\nare returned with ``fit.warnings``. Returns 422 when the window has too few bars or\nthe model cannot be fit, and 503 when R is unavailable for GARCH.",
+        "description": "Estimate ``symbol``'s volatility from adjusted log returns and forecast it.\n\nGARCH(1,1) is estimated by maximum likelihood and needs at least 480 returns, with 1,000 or more\nrecommended. EWMA fixes its parameters instead of estimating them, so it works on\nshort histories such as recent listings, but its forecast does not mean-revert.\n\nVolatilities are annualized decimals (0.25 = 25%). Estimates that may be unreliable\nare returned with ``fit.warnings``. Returns 422 when the window has too few bars or\nthe model cannot be fit.",
         "operationId": "get_volatility_api_v1_stocks__symbol__volatility_get",
         "parameters": [
           {
@@ -23708,7 +23697,7 @@
     },
     "/health/ready": {
       "get": {
-        "description": "Check the database and Redis; 503 when the database is down or not migrated.\n\nRedis is optional, so its outage only marks the service ``degraded``. R is reported\nfor information: the image without R serves everything but GARCH.",
+        "description": "Check the database and Redis; 503 when the database is down or not migrated.\n\nRedis is optional, so its outage only marks the service ``degraded``.",
         "operationId": "ready_health_ready_get",
         "responses": {
           "200": {

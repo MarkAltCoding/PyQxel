@@ -17,12 +17,8 @@ jobs:
           python-version: "3.14"
           cache: pip
 
-      # R is not installed here, so rpy2 is left out and the GARCH tests skip; the
-      # docker job runs GARCH in the image with R.
       - name: Install dependencies
-        run: |
-          grep -v '^rpy2' requirements.txt > requirements-ci.txt
-          pip install -r requirements-ci.txt -r requirements-dev.txt
+        run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Tests (offline)
         run: pytest
@@ -105,8 +101,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          grep -v '^rpy2' requirements.txt > requirements-ci.txt
-          pip install -r requirements-ci.txt
+          pip install -r requirements.txt
           cd web && npm ci
 
       - name: Build
@@ -138,24 +133,22 @@ jobs:
           retention-days: 7
 
   docker:
-    name: Docker image, Postgres, Redis, and R
+    name: Docker image, Postgres, and Redis
     runs-on: ubuntu-latest
-    env:
-      PYQXEL_TARGET: app-r
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build the image with R
+      - name: Build the image
         run: docker compose build api
 
       - name: Start the stack
         run: docker compose up -d --wait
 
-      - name: Readiness covers the database, Redis, and R
+      - name: Readiness covers the database and Redis
         run: |
           curl -s http://localhost:8000/health/ready | tee ready.json
           python3 -c "import json; checks = json.load(open('ready.json'))['checks']; \
-            assert checks == {'database': 'ok', 'redis': 'ok', 'r': 'ok'}, checks"
+            assert checks == {'database': 'ok', 'redis': 'ok'}, checks"
 
       - name: GARCH fits in the image
         run: |

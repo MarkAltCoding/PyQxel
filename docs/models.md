@@ -4,7 +4,7 @@ How each part of PyQxel works, and what Claude is given. Every route, with its o
 
 ## Stock pages
 
-* **Price and volatility**: daily and intraday bars, a GARCH(1,1) volatility forecast fitted in R on five years of returns, and an EWMA estimate beside it.
+* **Price and volatility**: daily and intraday bars, a GARCH(1,1) volatility forecast fitted on five years of returns (with the `arch` package), and an EWMA estimate beside it.
 * **Factor exposures**: a regression of the stock's excess returns on the Fama-French factors (three-factor, Carhart four-factor, or five-factor), with Newey-West t-statistics, alpha, and each factor's share of the risk. Where Ken French's data is not used, the market factor is estimated from SPY, and the others roughly from ETFs.
 * **Funds**: an ETF's or mutual fund's costs, holdings (from its SEC N-PORT filings), asset mix, and the figures weighted from the companies it holds.
 

@@ -65,7 +65,6 @@ from app.models.volatility import (
 )
 from app.models.volatility import GarchDistribution
 from app.stats.garch import ModelFitError
-from app.stats.r_bridge import RUnavailableError
 from app.stats.volatility import InsufficientDataError
 from tests.financials import sample_financials
 
@@ -388,13 +387,12 @@ def test_volatility_rejects_invalid_parameters(params: dict[str, str | int | flo
     [
         (InsufficientDataError("GARCH needs at least 480 returns"), 422),
         (ModelFitError("GARCH fit failed"), 422),
-        (RUnavailableError("R is unavailable"), 503),
     ],
 )
 def test_volatility_maps_model_errors(
     monkeypatch: pytest.MonkeyPatch, error: Exception, status_code: int
 ) -> None:
-    """Unfittable data surfaces as 422 and a missing R installation as 503."""
+    """Unfittable data surfaces as 422."""
     _serve_volatility(monkeypatch, error)
 
     response = client.get("/api/v1/stocks/SPY/volatility")
@@ -2441,7 +2439,6 @@ def test_analysis_passes_on_missing_signal_parts(monkeypatch: pytest.MonkeyPatch
 @pytest.mark.parametrize(
     ("garch", "notice"),
     [
-        (RUnavailableError("no R"), "R is not available"),
         (InsufficientDataError("short"), "needs about two years of daily returns"),
         (ModelFitError("no convergence"), "could not be fit"),
         (DataFetchError("down"), "five-year price history could not be fetched"),

@@ -1,12 +1,11 @@
-# Builds the image with R on Cloud Build and pushes it to Artifact Registry.
-# deploy/cloud-run.sh runs this with _IMAGE set; see "Google Cloud Run" in README.md.
+# Builds the image on Cloud Build and pushes it to Artifact Registry.
+# deploy/cloud-run.sh runs this with _IMAGE set; see docs/setup.md.
 
 steps:
   - name: gcr.io/cloud-builders/docker
     env: ["DOCKER_BUILDKIT=1"]
-    args: ["build", "--target", "app-r", "--tag", "${_IMAGE}", "."]
+    args: ["build", "--tag", "${_IMAGE}", "."]
 
 images: ["${_IMAGE}"]
 
-# Compiling rugarch takes a few minutes on the default (free-tier) machine.
-timeout: 3600s
+timeout: 1800s

@@ -1,13 +1,19 @@
-"""GARCH(1,1) volatility model, estimated in R by ``r_scripts/garch_model.R``.
+"""GARCH(1,1) volatility model, estimated with the ``arch`` package.
 
-Prices are cleaned and turned into log returns in Python, so the R script only sees
-a finite, gap-free numeric vector. Returns are passed to R in percent, which keeps
-the optimizer well scaled, and every volatility is converted back to an annualized
-decimal (0.25 = 25%) before it leaves this module.
+Prices are cleaned and turned into log returns first, so the model only sees a finite,
+gap-free series. Returns are fitted in percent, which keeps the optimizer well scaled,
+and every volatility is converted back to an annualized decimal (0.25 = 25%) before it
+leaves this module. The model is a constant mean with GARCH(1,1) variance and normal or
+Student t innovations, fitted by maximum likelihood with robust (QML) standard errors;
+the fit runs in a worker thread, since it takes a moment of CPU.
 """
 
+import asyncio
 import math
+import warnings
+from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 from app.models.volatility import (
@@ -19,16 +25,12 @@ from app.models.volatility import (
     VolatilityForecastStep,
     VolatilityPoint,
 )
-from app.stats.r_bridge import RError, RUnavailableError, RValue, call_r
 from app.stats.volatility import (
     annualization_scale,
     log_returns,
     require_horizon,
     require_returns,
 )
-
-R_SCRIPT: str = "garch_model.R"
-R_FUNCTION: str = "pyqxel_fit_garch"
 
 MIN_OBSERVATIONS: int = 480
 """Fewest returns worth fitting at all; shorter samples give unusable estimates."""
@@ -52,7 +54,7 @@ SHORT_SAMPLE_ADVICE: str = (
 
 
 class ModelFitError(RuntimeError):
-    """Raised when R cannot fit the model to otherwise valid returns."""
+    """Raised when the model cannot be fit to otherwise valid returns."""
 
 
 def _validate(returns: pd.Series) -> None:
@@ -60,18 +62,90 @@ def _validate(returns: pd.Series) -> None:
     require_returns(returns, MIN_OBSERVATIONS, "GARCH", SHORT_SAMPLE_ADVICE)
 
 
-def _floats(output: dict[str, RValue], name: str) -> list[float | None]:
-    """Read a numeric element of the R result."""
-    return [None if value is None else float(value) for value in output[name]]
+PARAMETER_NAMES: dict[str, str] = {
+    "mu": "mu",
+    "omega": "omega",
+    "alpha[1]": "alpha1",
+    "beta[1]": "beta1",
+    "nu": "shape",
+}
+"""``arch``'s parameter names, and the names the API reports them by."""
 
 
-def _scalar(output: dict[str, RValue], name: str) -> float | None:
-    """Read a length-one numeric element of the R result."""
-    return _floats(output, name)[0]
+@dataclass(frozen=True)
+class RawFit:
+    """A fit in per-bar percent, before annualizing."""
+
+    names: list[str]
+    estimates: list[float]
+    std_errors: list[float | None]
+    sigma: list[float]
+    forecast_sigma: list[float]
+    persistence: float
+    unconditional_sigma: float | None
+    log_likelihood: float
+    aic: float
+    bic: float
+
+
+def _fit_arch(returns_pct: np.ndarray, horizon: int, distribution: GarchDistribution) -> RawFit:
+    """Fit the model to ``returns_pct`` and forecast ``horizon`` bars (blocking).
+
+    Raises:
+        ModelFitError: If the optimizer fails or the estimates are not finite.
+    """
+    from arch import arch_model  # Imported when first used, to keep start-up quick.
+
+    model = arch_model(
+        returns_pct,
+        mean="constant",
+        vol="garch",
+        p=1,
+        q=1,
+        dist="t" if distribution == "std" else "normal",
+        rescale=False,
+    )
+    try:
+        with warnings.catch_warnings():
+            # Convergence is checked below; the optimizer's own warnings add nothing.
+            warnings.simplefilter("ignore")
+            result = model.fit(disp="off", cov_type="robust", show_warning=False)
+    except (ValueError, np.linalg.LinAlgError) as exc:
+        raise ModelFitError(f"GARCH fit failed: {exc}") from exc
+    if result.convergence_flag != 0:
+        raise ModelFitError("GARCH fit failed: the optimizer did not converge.")
+    params = result.params
+    errors = result.std_err
+    names = [PARAMETER_NAMES.get(str(name), str(name)) for name in params.index]
+    estimates = [float(value) for value in params.to_numpy()]
+    if not all(math.isfinite(value) for value in estimates):
+        raise ModelFitError("GARCH fit produced estimates that are not finite.")
+    std_errors = [
+        float(value) if math.isfinite(float(value)) else None for value in errors.to_numpy()
+    ]
+    omega, alpha, beta = (float(params[name]) for name in ("omega", "alpha[1]", "beta[1]"))
+    persistence = alpha + beta
+    forecast = result.forecast(horizon=horizon, reindex=False).variance.to_numpy()[-1]
+    observations = len(returns_pct)
+    return RawFit(
+        names=names,
+        estimates=estimates,
+        std_errors=std_errors,
+        sigma=[float(value) for value in np.asarray(result.conditional_volatility)],
+        forecast_sigma=[math.sqrt(float(value)) for value in forecast],
+        persistence=persistence,
+        unconditional_sigma=(
+            math.sqrt(omega / (1 - persistence)) if 0 <= persistence < 1 and omega > 0 else None
+        ),
+        log_likelihood=float(result.loglikelihood),
+        # Per observation, as the API has always reported them.
+        aic=float(result.aic) / observations,
+        bic=float(result.bic) / observations,
+    )
 
 
 def _required(value: float | None, name: str) -> float:
-    """Return ``value``, treating an ``NA`` from R as a failed fit."""
+    """Return ``value``, treating a missing one as a failed fit."""
     if value is None:
         raise ModelFitError(f"GARCH fit produced no value for {name}.")
     return value
@@ -100,55 +174,48 @@ def _warnings(observations: int, persistence: float, alpha1: float | None) -> li
 
 
 def _build_fit(
-    output: dict[str, RValue],
+    raw: RawFit,
     returns: pd.Series,
     periods_per_year: int,
     distribution: GarchDistribution,
 ) -> GarchFit:
-    """Convert the R result, in per-bar percent, to annualized decimal volatilities."""
+    """Convert a fit in per-bar percent to annualized decimal volatilities."""
     scale = annualization_scale(periods_per_year)
-
-    def annualize(sigma: float | None, name: str) -> float:
-        return _required(sigma, name) * scale
-
-    sigma = _floats(output, "sigma")
-    if len(sigma) != len(returns):
-        raise ModelFitError(f"R returned {len(sigma)} volatilities for {len(returns)} returns.")
-    persistence = _required(_scalar(output, "persistence"), "persistence")
-    long_run = _scalar(output, "unconditional_sigma")
-    parameters = [
-        GarchParameter(name=str(name), estimate=_required(estimate, str(name)), std_error=error)
-        for name, estimate, error in zip(
-            output["coef_names"],
-            _floats(output, "coef_values"),
-            _floats(output, "coef_std_errors"),
+    if len(raw.sigma) != len(returns):
+        raise ModelFitError(
+            f"The fit returned {len(raw.sigma)} volatilities for {len(returns)} returns."
         )
+    parameters = [
+        GarchParameter(name=name, estimate=estimate, std_error=error)
+        for name, estimate, error in zip(raw.names, raw.estimates, raw.std_errors)
     ]
     alpha1 = next((param.estimate for param in parameters if param.name == "alpha1"), None)
-
+    persistence = raw.persistence
     return GarchFit(
         distribution=distribution,
         observations=len(returns),
         parameters=parameters,
         persistence=persistence,
         half_life=math.log(0.5) / math.log(persistence) if 0 < persistence < 1 else None,
-        current_volatility=annualize(sigma[-1], "sigma"),
-        long_run_volatility=None if long_run is None else long_run * scale,
+        current_volatility=raw.sigma[-1] * scale,
+        long_run_volatility=(
+            None if raw.unconditional_sigma is None else raw.unconditional_sigma * scale
+        ),
         realized_volatility=float(returns.std(ddof=1)) * scale,
         conditional_volatility=[
             VolatilityPoint(
                 timestamp=pd.Timestamp(timestamp).to_pydatetime(),
-                volatility=annualize(value, "sigma"),
+                volatility=value * scale,
             )
-            for timestamp, value in zip(returns.index, sigma)
+            for timestamp, value in zip(returns.index, raw.sigma)
         ],
         forecast=[
-            VolatilityForecastStep(step=step, volatility=annualize(value, "forecast_sigma"))
-            for step, value in enumerate(_floats(output, "forecast_sigma"), start=1)
+            VolatilityForecastStep(step=step, volatility=value * scale)
+            for step, value in enumerate(raw.forecast_sigma, start=1)
         ],
-        log_likelihood=_required(_scalar(output, "log_likelihood"), "log_likelihood"),
-        aic=_required(_scalar(output, "aic"), "aic"),
-        bic=_required(_scalar(output, "bic"), "bic"),
+        log_likelihood=raw.log_likelihood,
+        aic=raw.aic,
+        bic=raw.bic,
         warnings=_warnings(len(returns), persistence, alpha1),
     )
 
@@ -175,28 +242,16 @@ async def fit_garch(
     Raises:
         ValueError: If ``periods_per_year`` or ``horizon`` is out of range.
         InsufficientDataError: If there are too few returns or prices never change.
-        RUnavailableError: If R, rpy2, or the ``rugarch`` package cannot be loaded.
-        ModelFitError: If the optimizer fails to converge or R returns invalid output.
+        ModelFitError: If the optimizer fails to converge or gives invalid estimates.
     """
-    annualization_scale(periods_per_year)  # Validates before any R work.
+    annualization_scale(periods_per_year)  # Validates before any fitting.
     require_horizon(horizon)
 
     returns = log_returns(closes)
     _validate(returns)
 
-    try:
-        output = await call_r(
-            R_SCRIPT, R_FUNCTION, returns.to_numpy(dtype=float), horizon, distribution
-        )
-    except RUnavailableError:
-        raise
-    except RError as exc:
-        raise ModelFitError(str(exc)) from exc
-
-    if output["converged"] != [True]:
-        message = output["message"][0] or "unknown error"
-        raise ModelFitError(f"GARCH fit failed: {message}")
-    return _build_fit(output, returns, periods_per_year, distribution)
+    raw = await asyncio.to_thread(_fit_arch, returns.to_numpy(dtype=float), horizon, distribution)
+    return _build_fit(raw, returns, periods_per_year, distribution)
 
 
 def summarize_garch(fit: GarchFit) -> GarchContext:

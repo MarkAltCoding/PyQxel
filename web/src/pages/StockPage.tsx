@@ -42,20 +42,17 @@ const intervalFor = (period: Period) => (period === '1y' || period === '2y' ? '1
 
 interface VolatilityResult {
   estimate: VolatilityEstimate
-  /** Why EWMA was used in place of GARCH, if it was: no R on the server, or too short a
-   * history, as a free plan's single year of a listing abroad. */
-  fellBack: 'no_r' | 'short' | null
+  /** Why EWMA was used in place of GARCH, if it was: too short a history, as a free
+   * plan's single year of a listing abroad. */
+  fellBack: 'short' | null
 }
 
 async function loadVolatility(symbol: string, period: Period): Promise<VolatilityResult> {
   try {
     return { estimate: await getVolatility(symbol, period, 'garch'), fellBack: null }
   } catch (error) {
-    if (error instanceof ApiError && (error.status === 503 || error.status === 422)) {
-      return {
-        estimate: await getVolatility(symbol, period, 'ewma'),
-        fellBack: error.status === 503 ? 'no_r' : 'short',
-      }
+    if (error instanceof ApiError && error.status === 422) {
+      return { estimate: await getVolatility(symbol, period, 'ewma'), fellBack: 'short' }
     }
     throw error
   }
@@ -417,9 +414,6 @@ function VolatilityFooter({
           />
         )}
       </div>
-      {fellBack === 'no_r' && (
-        <Notice>GARCH needs R, which this server does not have, so EWMA is shown.</Notice>
-      )}
       {fellBack === 'short' && (
         <Notice>
           GARCH needs about two years of daily prices, more than your keys could fetch, so EWMA,

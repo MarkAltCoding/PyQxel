@@ -34,7 +34,7 @@ Every figure and chart has an "i" explaining it for a beginner. PyQxel is not in
 
 ## Built with
 
-Python 3.14 and FastAPI, with R for GARCH; React and TypeScript; Claude through the Anthropic SDK; Tauri for the Mac and iPhone apps; Postgres on Neon, on Google Cloud Run.
+Python 3.14 and FastAPI, with pandas, statsmodels, and `arch` for the models; React and TypeScript; Claude through the Anthropic SDK; Tauri for the Mac and iPhone apps; Postgres on Neon, on Google Cloud Run.
 
 ## License
 

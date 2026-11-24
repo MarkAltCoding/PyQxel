@@ -12,12 +12,8 @@ from app.main import app
 
 
 def test_lifespan_opens_and_closes_shared_resources(monkeypatch: pytest.MonkeyPatch) -> None:
-    """R and the database start before the first request; every client closes at shutdown."""
+    """The database starts before the first request; every client closes at shutdown."""
     events: list[str] = []
-
-    def fake_start_r() -> bool:
-        events.append("start_r")
-        return True
 
     def recorder(event: str, result: object = None) -> object:
         async def record() -> object:
@@ -26,31 +22,21 @@ def test_lifespan_opens_and_closes_shared_resources(monkeypatch: pytest.MonkeyPa
 
         return record
 
-    monkeypatch.setattr(main, "start_r", fake_start_r)
     monkeypatch.setattr(main, "init_db", recorder("init_db", True))
     monkeypatch.setattr(main, "close_cache", recorder("close_cache"))
     monkeypatch.setattr(main, "close_database", recorder("close_database"))
 
     with TestClient(app) as client:
-        assert events == ["start_r", "init_db"]
+        assert events == ["init_db"]
         assert client.get("/health").status_code == 200
 
-    assert events == ["start_r", "init_db", "close_cache", "close_database"]
+    assert events == ["init_db", "close_cache", "close_database"]
 
 
 def test_app_starts_without_a_database(monkeypatch: pytest.MonkeyPatch) -> None:
     """An unreachable database does not stop the app from serving."""
-    monkeypatch.setattr(main, "start_r", lambda: False)
     asyncio.run(close_database())
     configure_database("sqlite+aiosqlite:////nonexistent-root-dir/x/results.db")
-
-    with TestClient(app) as client:
-        assert client.get("/health").status_code == 200
-
-
-def test_app_starts_without_r(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A missing R installation does not stop the app from serving."""
-    monkeypatch.setattr(main, "start_r", lambda: False)
 
     with TestClient(app) as client:
         assert client.get("/health").status_code == 200

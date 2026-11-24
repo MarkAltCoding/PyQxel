@@ -1,10 +1,11 @@
-"""Tests for the GARCH volatility wrapper.
+"""Tests for the GARCH volatility model.
 
-The R call is replaced with a fake in all but the last test, which runs the real
-model and is skipped when R or the ``rugarch`` package is unavailable.
+The fit is replaced with a fake in most tests, so they check what is done with its
+result; one test fits the real ``arch`` model to a simulated GARCH process.
 """
 
 import math
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -12,9 +13,8 @@ import pandas as pd
 import pytest
 
 from app.models.volatility import GarchFit, VolatilityForecastStep, VolatilityPoint
-from app.stats import garch, r_bridge
-from app.stats.garch import ModelFitError, fit_garch, summarize_garch
-from app.stats.r_bridge import RError, RUnavailableError, RValue
+from app.stats import garch
+from app.stats.garch import ModelFitError, RawFit, fit_garch, summarize_garch
 from app.stats.volatility import MAX_HORIZON, InsufficientDataError, log_returns
 
 
@@ -25,33 +25,33 @@ def _closes(count: int, seed: int = 0) -> pd.Series:
     return pd.Series(100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.01, count))), index=index)
 
 
-def _r_output(observations: int, horizon: int = 3) -> dict[str, RValue]:
-    """Build a converged result shaped like ``pyqxel_fit_garch``'s, in per-bar percent."""
-    return {
-        "converged": [True],
-        "message": [""],
-        "coef_names": ["mu", "omega", "alpha1", "beta1"],
-        "coef_values": [0.05, 0.02, 0.08, 0.9],
-        "coef_std_errors": [0.01, None, 0.02, 0.03],
-        "sigma": [1.0 if bar < observations - 1 else 2.0 for bar in range(observations)],
-        "forecast_sigma": [1.5 for _ in range(horizon)],
-        "persistence": [0.98],
-        "unconditional_sigma": [1.0],
-        "log_likelihood": [-500.0],
-        "aic": [3.1],
-        "bic": [3.2],
-    }
+def _raw(observations: int, horizon: int = 3) -> RawFit:
+    """A converged fit, in per-bar percent."""
+    return RawFit(
+        names=["mu", "omega", "alpha1", "beta1"],
+        estimates=[0.05, 0.02, 0.08, 0.9],
+        std_errors=[0.01, None, 0.02, 0.03],
+        sigma=[1.0 if bar < observations - 1 else 2.0 for bar in range(observations)],
+        forecast_sigma=[1.5 for _ in range(horizon)],
+        persistence=0.98,
+        unconditional_sigma=1.0,
+        log_likelihood=-500.0,
+        aic=3.1,
+        bic=3.2,
+    )
 
 
-def _serve_r(monkeypatch: pytest.MonkeyPatch, output: dict[str, RValue]) -> list[tuple[Any, ...]]:
-    """Make the wrapper's R call return ``output`` and record the arguments it received."""
+def _serve_fit(monkeypatch: pytest.MonkeyPatch, raw: RawFit | Exception) -> list[tuple[Any, ...]]:
+    """Make the model's fit return ``raw`` (or raise it), recording what it was given."""
     calls: list[tuple[Any, ...]] = []
 
-    async def fake_call_r(script: str, function: str, *args: object) -> dict[str, RValue]:
-        calls.append((script, function, *args))
-        return output
+    def fake_fit(returns: np.ndarray, horizon: int, distribution: str) -> RawFit:
+        calls.append((returns, horizon, distribution))
+        if isinstance(raw, Exception):
+            raise raw
+        return raw
 
-    monkeypatch.setattr(garch, "call_r", fake_call_r)
+    monkeypatch.setattr(garch, "_fit_arch", fake_fit)
     return calls
 
 
@@ -68,8 +68,8 @@ def test_log_returns_drops_invalid_closes() -> None:
 
 @pytest.mark.asyncio
 async def test_fit_rejects_short_series(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fewer returns than the minimum fail before R is called."""
-    calls = _serve_r(monkeypatch, {})
+    """Fewer returns than the minimum fail before anything is fitted."""
+    calls = _serve_fit(monkeypatch, _raw(1))
 
     with pytest.raises(InsufficientDataError, match="at least"):
         await fit_garch(_closes(garch.MIN_OBSERVATIONS), periods_per_year=252)
@@ -79,7 +79,7 @@ async def test_fit_rejects_short_series(monkeypatch: pytest.MonkeyPatch) -> None
 @pytest.mark.asyncio
 async def test_fit_rejects_constant_prices(monkeypatch: pytest.MonkeyPatch) -> None:
     """A series that never moves has no volatility to model."""
-    _serve_r(monkeypatch, {})
+    _serve_fit(monkeypatch, _raw(1))
     flat = pd.Series(50.0, index=pd.bdate_range("2024-01-01", periods=600))
 
     with pytest.raises(InsufficientDataError, match="never change"):
@@ -96,19 +96,14 @@ async def test_fit_rejects_out_of_range_horizon(horizon: int) -> None:
 
 @pytest.mark.asyncio
 async def test_fit_passes_percent_returns_and_annualizes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """R receives percent log returns and its per-bar percent output is annualized."""
+    """The model is given percent log returns and its per-bar percent fit is annualized."""
     closes = _closes(600)
-    calls = _serve_r(monkeypatch, _r_output(599))
+    calls = _serve_fit(monkeypatch, _raw(599))
 
     fit = await fit_garch(closes, periods_per_year=252, horizon=3, distribution="norm")
 
-    script, function, returns, horizon, distribution = calls[0]
-    assert (script, function, horizon, distribution) == (
-        garch.R_SCRIPT,
-        garch.R_FUNCTION,
-        3,
-        "norm",
-    )
+    returns, horizon, distribution = calls[0]
+    assert (horizon, distribution) == (3, "norm")
     np.testing.assert_allclose(returns, 100.0 * np.diff(np.log(closes.to_numpy())))
 
     scale = math.sqrt(252) / 100.0
@@ -131,7 +126,7 @@ async def test_fit_passes_percent_returns_and_annualizes(monkeypatch: pytest.Mon
 async def test_fit_without_warnings(monkeypatch: pytest.MonkeyPatch) -> None:
     """A long sample with moderate persistence and clear clustering has no warnings."""
     count = garch.RECOMMENDED_OBSERVATIONS + 1
-    _serve_r(monkeypatch, _r_output(count - 1))
+    _serve_fit(monkeypatch, _raw(count - 1))
 
     fit = await fit_garch(_closes(count), periods_per_year=252)
 
@@ -142,10 +137,10 @@ async def test_fit_without_warnings(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_fit_warns_on_boundary_estimates(monkeypatch: pytest.MonkeyPatch) -> None:
     """Near-integrated persistence and no ARCH effect are each flagged."""
     count = garch.RECOMMENDED_OBSERVATIONS + 1
-    output = _r_output(count - 1)
-    output["coef_values"] = [0.05, 0.001, 0.0, 0.999]
-    output["persistence"] = [0.999]
-    _serve_r(monkeypatch, output)
+    _serve_fit(
+        monkeypatch,
+        replace(_raw(count - 1), estimates=[0.05, 0.001, 0.0, 0.999], persistence=0.999),
+    )
 
     fit = await fit_garch(_closes(count), periods_per_year=252)
 
@@ -157,10 +152,7 @@ async def test_fit_warns_on_boundary_estimates(monkeypatch: pytest.MonkeyPatch) 
 @pytest.mark.asyncio
 async def test_fit_without_mean_reversion(monkeypatch: pytest.MonkeyPatch) -> None:
     """Persistence at or above 1 has no half-life or long-run level."""
-    output = _r_output(599)
-    output["persistence"] = [1.0]
-    output["unconditional_sigma"] = [None]
-    _serve_r(monkeypatch, output)
+    _serve_fit(monkeypatch, replace(_raw(599), persistence=1.0, unconditional_sigma=None))
 
     fit = await fit_garch(_closes(600), periods_per_year=252)
 
@@ -170,8 +162,8 @@ async def test_fit_without_mean_reversion(monkeypatch: pytest.MonkeyPatch) -> No
 
 @pytest.mark.asyncio
 async def test_fit_reports_non_convergence(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An unconverged fit raises with R's diagnostic message."""
-    _serve_r(monkeypatch, {"converged": [False], "message": ["Optimizer did not converge."]})
+    """A fit the optimizer could not finish raises, saying so."""
+    _serve_fit(monkeypatch, ModelFitError("GARCH fit failed: the optimizer did not converge."))
 
     with pytest.raises(ModelFitError, match="did not converge"):
         await fit_garch(_closes(600), periods_per_year=252)
@@ -180,52 +172,16 @@ async def test_fit_reports_non_convergence(monkeypatch: pytest.MonkeyPatch) -> N
 @pytest.mark.asyncio
 async def test_fit_rejects_mismatched_output(monkeypatch: pytest.MonkeyPatch) -> None:
     """A volatility series that does not line up with the returns is an invalid fit."""
-    _serve_r(monkeypatch, _r_output(10))
+    _serve_fit(monkeypatch, _raw(10))
 
     with pytest.raises(ModelFitError, match="volatilities"):
         await fit_garch(_closes(600), periods_per_year=252)
 
 
+@pytest.mark.parametrize("distribution", ["norm", "std"])
 @pytest.mark.asyncio
-async def test_fit_wraps_r_errors(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Errors raised inside R become model fit errors."""
-
-    async def failing_call_r(script: str, function: str, *args: object) -> dict[str, RValue]:
-        raise RError("R function failed")
-
-    monkeypatch.setattr(garch, "call_r", failing_call_r)
-
-    with pytest.raises(ModelFitError, match="R function failed"):
-        await fit_garch(_closes(600), periods_per_year=252)
-
-
-@pytest.mark.asyncio
-async def test_fit_propagates_missing_r(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A missing R installation is reported as such, not as a fit failure."""
-
-    async def unavailable_call_r(script: str, function: str, *args: object) -> dict[str, RValue]:
-        raise RUnavailableError("R is unavailable")
-
-    monkeypatch.setattr(garch, "call_r", unavailable_call_r)
-
-    with pytest.raises(RUnavailableError):
-        await fit_garch(_closes(600), periods_per_year=252)
-
-
-def _r_with_rugarch() -> bool:
-    """Report whether the embedded R session can load ``rugarch``."""
-    try:
-        robjects = r_bridge._robjects()
-        with robjects.default_converter.context():
-            return bool(robjects.r('isTRUE(requireNamespace("rugarch", quietly = TRUE))')[0])
-    except Exception:
-        return False
-
-
-@pytest.mark.skipif(not _r_with_rugarch(), reason="R with the rugarch package is not installed")
-@pytest.mark.asyncio
-async def test_fit_with_r() -> None:
-    """The real R model fits a GARCH process and recovers a plausible volatility."""
+async def test_the_real_model_recovers_a_garch_process(distribution: str) -> None:
+    """``arch`` fits a simulated GARCH(1,1) and recovers its persistence and level."""
     rng = np.random.default_rng(7)
     count = 1500
     variance = np.empty(count)
@@ -240,11 +196,15 @@ async def test_fit_with_r() -> None:
         100.0 * np.exp(np.concatenate([[0.0], np.cumsum(shocks / 100.0)])), index=index
     )
 
-    fit = await fit_garch(closes, periods_per_year=252, horizon=5, distribution="norm")
+    fit = await fit_garch(
+        closes, periods_per_year=252, horizon=5, distribution=distribution  # type: ignore[arg-type]
+    )
 
     params = {parameter.name: parameter.estimate for parameter in fit.parameters}
-    assert set(params) == {"mu", "omega", "alpha1", "beta1"}
+    expected = {"mu", "omega", "alpha1", "beta1"} | ({"shape"} if distribution == "std" else set())
+    assert set(params) == expected
     assert 0.8 < fit.persistence < 1.0
+    assert all(parameter.std_error is not None for parameter in fit.parameters)
     assert len(fit.conditional_volatility) == count
     assert len(fit.forecast) == 5
     # True long-run variance is 0.05 / (1 - 0.95) = 1 (%^2 per day).
@@ -257,14 +217,18 @@ async def test_summary_places_today_and_averages_the_forecast(
 ) -> None:
     """An analysis gets today's percentile and horizon averages, not the in-sample series."""
     count = garch.RECOMMENDED_OBSERVATIONS + 1
-    output = _r_output(count - 1, horizon=63)
-    output["forecast_sigma"] = [2.0 if step == 1 else 1.0 for step in range(1, 64)]
-    _serve_r(monkeypatch, output)
+    _serve_fit(
+        monkeypatch,
+        replace(
+            _raw(count - 1, horizon=63),
+            forecast_sigma=[2.0 if step == 1 else 1.0 for step in range(1, 64)],
+        ),
+    )
     fit = await fit_garch(_closes(count), periods_per_year=252, horizon=63)
 
     summary = summarize_garch(fit)
 
-    scale = math.sqrt(252) / 100  # R works in daily percent.
+    scale = math.sqrt(252) / 100  # The model works in daily percent.
     # Today's 2% daily volatility is above every other fitted day's 1%.
     assert summary.current_percentile == pytest.approx(100 * (count - 1.5) / (count - 1))
     assert summary.current_volatility == pytest.approx(2.0 * scale)

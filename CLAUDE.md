@@ -1,7 +1,6 @@
 # PyQxel
 
-A personal investment-research web app: a FastAPI backend (`app/`, Python 3.14, with R
-for GARCH) and a React + TypeScript frontend (`web/`, Vite) that FastAPI serves in
+A personal investment-research web app: a FastAPI backend (`app/`, Python 3.14) and a React + TypeScript frontend (`web/`, Vite) that FastAPI serves in
 production. Market data comes from Tiingo, FMP, EODHD, Finnhub, and Alpha Vantage on each
 user's own keys, cheapest first for each kind of data (`docs/data-sources.md`), with
 yfinance as a fallback. Claude writes stock reports, portfolio reviews, its own picks
@@ -17,7 +16,7 @@ side you are changing before searching the code.
 | --- | --- |
 | `app/api/v1/endpoints/` | One FastAPI router per feature; thin, calls `data/` and `stats/` |
 | `app/data/` | Fetching from providers (async, with fallbacks) |
-| `app/stats/` | Pure computation on pandas: models, backtests, risk; R in `stats/r_scripts/` |
+| `app/stats/` | Pure computation on pandas: models (GARCH with `arch`), backtests, risk |
 | `app/ai/` | Claude: prompts (`prompts.py`), streaming, the coding assistant |
 | `app/billing/` | Stripe: prepaid credit and usage subscriptions that pay for nightly refreshes at cost |
 | `app/models/` | Pydantic request/response schemas, the API contract |
@@ -124,7 +123,6 @@ When generating code and scaffolding this codebase, strictly adhere to the follo
 
 2. **Modular Architecture**:
    - Keep AI logic (`app/ai/`), financial ingestion (`app/data/`), statistical modeling (`app/stats/`), and API endpoints (`app/api/`) completely decoupled.
-   - R code should reside in `app/stats/r_scripts/` with dedicated Python wrapper functions handling data conversion and execution.
 
 3. **Asynchronous Execution**:
    - External market data calls (`yfinance`, FMP, SEC EDGAR) and Anthropic API requests must use async/await patterns (`httpx2`, `AsyncAnthropic`) to maintain responsiveness.

@@ -26,7 +26,6 @@ from app.core.redact import install_log_redaction, redact
 from app.core.credentials import HELD_BACK_HEADER
 from app.core.request_limits import BodySizeLimit, HeldBackHeader
 from app.db.session import close_database, init_db
-from app.stats.r_bridge import start_r
 from app.version import __version__
 from app.web import CompressApiResponses, mount_web
 
@@ -36,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 DEFERRED_IMPORTS: tuple[str, ...] = (
     "anthropic",
+    "arch",
     "statsmodels.api",
     "scipy.optimize",
     "scipy.special",
@@ -62,12 +62,11 @@ def _import_deferred() -> None:
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-    """Start R and migrate the database before serving; close shared clients after.
+    """Migrate the database before serving; close shared clients after.
 
     The packages in :data:`DEFERRED_IMPORTS` are imported in the background once the
     app is serving rather than holding up the start.
     """
-    start_r()
     await init_db()
     warm_up = asyncio.create_task(asyncio.to_thread(_import_deferred))
     yield

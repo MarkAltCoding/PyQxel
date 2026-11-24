@@ -28,5 +28,5 @@ warn_required_dynamic_aliases = true
 
 [[tool.mypy.overrides]]
 # Libraries without type information.
-module = ["yfinance", "yfinance.*", "rpy2", "rpy2.*", "statsmodels", "statsmodels.*"]
+module = ["yfinance", "yfinance.*", "statsmodels", "statsmodels.*"]
 ignore_missing_imports = true
