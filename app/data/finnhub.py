@@ -26,8 +26,10 @@ from typing import Any, TypeVar
 import httpx2
 
 from app.core.cache import cache_get, cache_set
+from app.core.credentials import current_provider_keys
 from app.data.exchange_rates import fetch_exchange_rate
 from app.data.fetcher import (
+    key_scope,
     finnhub_abroad_hint,
     EXCHANGE_NAMES,
     SUFFIX_CURRENCIES,
@@ -135,13 +137,17 @@ def _api_key() -> str:
     return api_key
 
 
-def _cache_key(path: str, params: dict[str, str]) -> str:
-    return "finnhub:" + path + ":" + ":".join(f"{k}={v}" for k, v in sorted(params.items()))
+def _cache_key(path: str, params: dict[str, str], api_key: str | None) -> str:
+    """Where an answer to ``path`` with ``params`` is cached, tied to the key that asked
+    (:func:`app.data.fetcher.key_scope`)."""
+    query = ":".join(f"{k}={v}" for k, v in sorted(params.items()))
+    return f"finnhub:{path}:{query}{key_scope(api_key)}"
 
 
 async def is_cached(path: str, params: dict[str, str], ttl: float = SIGNALS_TTL_SECONDS) -> bool:
     """Whether :func:`cached_get` would answer ``path`` with ``params`` without a request."""
-    key = _cache_key(path, params)
+    found = current_provider_keys().finnhub
+    key = _cache_key(path, params, None if found is None else found.get_secret_value())
     entry = _memory.get(key)
     if entry and time.monotonic() - entry[0] < ttl:
         return True
@@ -154,14 +160,15 @@ async def cached_get(
     client: httpx2.AsyncClient | None,
     ttl: float = SIGNALS_TTL_SECONDS,
 ) -> Any:
-    """A Finnhub answer, reused for ``ttl`` seconds in memory and in Redis.
+    """A Finnhub answer, reused for ``ttl`` seconds in memory and in Redis, for requests on
+    the same key.
 
     Raises:
         ProviderNotConfiguredError: If the user has no Finnhub key, or it is rejected.
         DataFetchError: As :func:`app.data.fetcher.finnhub_get` raises it.
     """
     api_key = _api_key()
-    key = _cache_key(path, params)
+    key = _cache_key(path, params, api_key)
     entry = _memory.get(key)
     text = entry[1] if entry and time.monotonic() - entry[0] < ttl else None
     if text is None:

@@ -120,11 +120,12 @@ async def _info_cost(symbol: str) -> Counter[Provider]:
     found = await _first_open("info", symbol)
     if found is None:
         return cost
-    provider, _ = found
-    if await cache_get(f"info:{provider}:{symbol}") is not None:
+    provider, api_key = found
+    scope = fetcher.key_scope(api_key)
+    if await cache_get(f"info:{provider}:{symbol}{scope}") is not None:
         return cost
     if provider == "finnhub":
-        cached = await cache_get(f"finnhub:profile:{symbol}") is not None
+        cached = await cache_get(f"finnhub:profile:{symbol}{scope}") is not None
         cost["finnhub"] += 1 if cached else 2
     elif provider == "tiingo":
         # Its listing and its company meta (or, once a week, what kind of listing it is),
@@ -137,8 +138,8 @@ async def _info_cost(symbol: str) -> Counter[Provider]:
         cost[provider] += 1
     keys = current_provider_keys()
     if keys.tiingo is not None and provider != "tiingo" and fetcher.symbol_kind(symbol) == "us":
-        meta = f"tiingo:meta:{symbol}"
         secret = keys.tiingo.get_secret_value()
+        meta = f"tiingo:meta:{symbol}{fetcher.key_scope(secret)}"
         withheld = f"tiingo:withheld:{fetcher._key_digest(secret)}"
         if meta not in fetcher._tiingo_meta_memory and await cache_get(meta) is None:
             if not await paused("tiingo", secret) and await fetcher._recall(withheld) is None:
@@ -158,14 +159,22 @@ async def _fund_cost(symbol: str) -> Counter[Provider]:
     keys = current_provider_keys()
     if fetcher.symbol_kind(symbol) != "us":
         return cost
-    type_key = f"tiingo:type:{symbol}"
-    known = fetcher._tiingo_meta_memory.get(type_key)
-    quote_type = known[1].get("type") if known is not None else await cache_get(type_key)
+    type_key = (
+        None
+        if keys.tiingo is None
+        else f"tiingo:type:{symbol}{fetcher.key_scope(keys.tiingo.get_secret_value())}"
+    )
+    known = None if type_key is None else fetcher._tiingo_meta_memory.get(type_key)
+    quote_type = (
+        known[1].get("type")
+        if known is not None
+        else None if type_key is None else await cache_get(type_key)
+    )
     if quote_type not in fetcher.FUND_TYPES or quote_type == fetcher.MONEY_MARKET_TYPE:
         return cost
     if keys.alpha_vantage is not None:
         secret = keys.alpha_vantage.get_secret_value()
-        cached = f"alphavantage:ETF_PROFILE:symbol={symbol}"
+        cached = f"alphavantage:ETF_PROFILE:symbol={symbol}{fetcher.key_scope(secret)}"
         if (
             not await paused("alpha_vantage", secret)
             and cached not in fetcher._alpha_vantage_memory

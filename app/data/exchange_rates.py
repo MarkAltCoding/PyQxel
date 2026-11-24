@@ -38,6 +38,7 @@ import yfinance as yf
 
 from app.core.cache import cache_get, cache_set
 from app.data.fetcher import (
+    key_scope,
     HTTP_TIMEOUT_SECONDS,
     DataFetchError,
     Provider,
@@ -235,7 +236,7 @@ async def fetch_fed_rates() -> FedRates:
     return rates
 
 
-_memory: dict[tuple[Provider, str, str], tuple[float, float]] = {}
+_memory: dict[tuple[str, str, str], tuple[float, float]] = {}
 """(provider, base, quote) -> (time fetched, rate)."""
 
 _ecb_memory: tuple[float, EcbRates] | None = None
@@ -421,10 +422,11 @@ async def fetch_sourced_exchange_rate(base: str, quote: str = "USD") -> Exchange
     def attempt(provider: Provider, api_key: str | None) -> Callable[[], Awaitable[ExchangeRate]]:
         async def run() -> ExchangeRate:
             source = PROVIDER_SOURCES.get(provider, "the latest rate")
-            entry = _memory.get((provider, base, quote))
+            scope = key_scope(api_key)
+            entry = _memory.get((provider + scope, base, quote))
             if entry is not None and time.monotonic() - entry[0] <= FRESH_SECONDS:
                 return ExchangeRate(rate=entry[1], source=source)
-            key = f"fx:{provider}:{base}{quote}"
+            key = f"fx:{provider}:{base}{quote}{scope}"
             cached = await cache_get(key)
             rate: float | None = None
             if cached is not None:
@@ -442,7 +444,7 @@ async def fetch_sourced_exchange_rate(base: str, quote: str = "USD") -> Exchange
                 else:
                     rate = await asyncio.to_thread(_yfinance_rate, base, quote)
                 await cache_set(key, repr(rate), FRESH_SECONDS)
-            _memory[provider, base, quote] = (time.monotonic(), rate)
+            _memory[provider + scope, base, quote] = (time.monotonic(), rate)
             return ExchangeRate(rate=rate, source=source)
 
         return run

@@ -498,7 +498,7 @@ async def us_listings(symbol: str) -> list[str]:
     keys = current_provider_keys()
     if symbol_suffix(symbol) is None or keys.finnhub is None or keys.tiingo is None:
         return []
-    cache_key = f"uslisting:{symbol}"
+    cache_key = f"uslisting:{symbol}{key_scope(keys.finnhub.get_secret_value())}"
     remembered = _us_listing_memory.get(cache_key)
     if remembered is not None and time.monotonic() - remembered[0] < US_LISTING_TTL_SECONDS:
         return list(remembered[1])
@@ -657,6 +657,15 @@ async def first_success(
 def _key_digest(api_key: str) -> str:
     """A short hash naming a key in recall keys, so keys never reach memory or Redis."""
     return usage.key_id(api_key)
+
+
+def key_scope(api_key: str | None) -> str:
+    """The suffix that ties a cached answer to the key that fetched it: a short hash of
+    the key, so the key itself is never stored. A provider's data is licensed to the
+    person whose key fetched it, so it is served again only to requests on the same key,
+    in this process or, through Redis, another instance; public data needs no scope. Empty
+    without a key (yfinance, which answers the admin alone)."""
+    return "" if api_key is None else f"@{_key_digest(api_key)}"
 
 
 def _now() -> float:
@@ -1386,8 +1395,8 @@ async def alpha_vantage_get(
     """Call an Alpha Vantage function with the user's key, reusing recent answers.
 
     Answers, including those for unknown symbols, are cached in memory and Redis for
-    :data:`ALPHA_VANTAGE_TTL_SECONDS`, keyed without the API key: like FMP data, they
-    are only read on behalf of users who query Alpha Vantage themselves.
+    :data:`ALPHA_VANTAGE_TTL_SECONDS`, tied to the key that fetched them
+    (:func:`key_scope`).
 
     Raises:
         SymbolNotFoundError: If Alpha Vantage has no data for the symbol.
@@ -1396,8 +1405,10 @@ async def alpha_vantage_get(
         DataFetchError: On rate limits, transport failures, and unexpected answers.
     """
     symbol = params.get("symbol") or params.get("from_currency", "")
-    cache_key = "alphavantage:" + ":".join(
-        [function, *(f"{name}={value}" for name, value in sorted(params.items()))]
+    cache_key = (
+        "alphavantage:"
+        + ":".join([function, *(f"{name}={value}" for name, value in sorted(params.items()))])
+        + key_scope(api_key)
     )
     ttl = ALPHA_VANTAGE_TTL_SECONDS.get(function, HISTORY_TTL_SECONDS)
     digest = hashlib.sha256(api_key.encode()).hexdigest()[:16]
@@ -1597,7 +1608,7 @@ async def _finnhub_profile(
     symbol: str, api_key: str, client: httpx2.AsyncClient | None
 ) -> TickerInfo:
     """A company's profile from Finnhub, without a price, reused for a day."""
-    key = f"finnhub:profile:{symbol}"
+    key = f"finnhub:profile:{symbol}{key_scope(api_key)}"
     cached = await cache_get(key)
     if cached is not None:
         try:
@@ -1666,7 +1677,7 @@ async def _tiingo_meta(
     """Tiingo's company meta for ``symbol``: its name for any US ticker, and its sector and
     industry, which the free plan fills in for the Dow 30 alone; a field it withholds, which
     it answers with a "not available" placeholder, is left out."""
-    key = f"tiingo:meta:{symbol}"
+    key = f"tiingo:meta:{symbol}{key_scope(api_key)}"
     cached = _tiingo_meta_memory.get(key)
     if cached is not None and time.monotonic() - cached[0] < TIINGO_META_TTL_SECONDS:
         return dict(cached[1])
@@ -1718,7 +1729,7 @@ async def _tiingo_quote_type(
     """Whether a US listing is a stock, an ETF, a mutual fund, or a money-market fund, from
     Tiingo's search, which its free plan answers for any ticker; reused for a week, since
     it does not change."""
-    key = f"tiingo:type:{symbol}"
+    key = f"tiingo:type:{symbol}{key_scope(api_key)}"
     cached = _tiingo_meta_memory.get(key)
     if cached is not None and time.monotonic() - cached[0] < US_LISTING_TTL_SECONDS:
         return cached[1].get("type")
@@ -1914,7 +1925,7 @@ async def _fill_from_tiingo(info: TickerInfo, client: httpx2.AsyncClient | None)
         return info
     secret = key.get_secret_value()
     withheld = f"tiingo:withheld:{_key_digest(secret)}"
-    cached = f"tiingo:meta:{info.symbol}" in _tiingo_meta_memory
+    cached = f"tiingo:meta:{info.symbol}{key_scope(secret)}" in _tiingo_meta_memory
     if not cached and set(missing) <= {"sector", "industry"} and await _recall(withheld):
         # The plan withholds sectors outside the Dow 30, so asking would spend a request
         # for nothing.
@@ -2079,7 +2090,7 @@ async def fetch_ticker_info(symbol: str, client: httpx2.AsyncClient | None = Non
 
     def attempt(provider: Provider, api_key: str | None) -> Callable[[], Awaitable[TickerInfo]]:
         async def run() -> TickerInfo:
-            key = f"info:{provider}:{symbol}"
+            key = f"info:{provider}:{symbol}{key_scope(api_key)}"
             cached = await cache_get(key)
             if cached is not None:
                 try:
@@ -3057,7 +3068,7 @@ async def fetch_price_history(
         provider: Provider, api_key: str | None
     ) -> Callable[[], Awaitable[pd.DataFrame | None]]:
         async def run() -> pd.DataFrame | None:
-            key = f"history:{provider}:{symbol}:{period}:{interval}"
+            key = f"history:{provider}:{symbol}:{period}:{interval}{key_scope(api_key)}"
             cached = await cache_get(key)
             if cached is not None:
                 try:
@@ -3288,7 +3299,7 @@ async def fetch_quote(symbol: str, client: httpx2.AsyncClient | None = None) -> 
 
     def attempt(provider: Provider, api_key: str | None) -> Callable[[], Awaitable[Quote]]:
         async def run() -> Quote:
-            cached = _quote_cache.get((provider, symbol))
+            cached = _quote_cache.get((provider, symbol + key_scope(api_key)))
             if cached is not None and time.monotonic() - cached[0] < QUOTE_TTL_SECONDS:
                 return cached[1]
             if provider == "fmp":
@@ -3328,7 +3339,7 @@ async def fetch_quote(symbol: str, client: httpx2.AsyncClient | None = None) -> 
                     # tells them apart.
                     await asyncio.to_thread(_yfinance_info, symbol)
                     raise DataFetchError(f"yfinance quote failed: {exc}") from exc
-            _quote_cache[(provider, symbol)] = (time.monotonic(), quote)
+            _quote_cache[(provider, symbol + key_scope(api_key))] = (time.monotonic(), quote)
             return quote
 
         return run

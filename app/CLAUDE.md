@@ -35,7 +35,9 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
   Tiingo, FMP, EODHD, Finnhub, Alpha Vantage. `web/src/lib/keyCoverage.ts` mirrors the order
   for Settings, and a test checks they match. Results
   are cached in each process's memory, and also in Redis when `REDIS_URL` is set
-  (`core/cache.py`), which only shares them across instances. Daily bars for a signed-in user go through their stored price
+  (`core/cache.py`), which shares them across instances. Data fetched on a user's key is
+  cached under a hash of that key (`fetcher.key_scope`), so it is served again only on
+  the same key; public data (SEC, Treasury, Fed, ECB, BLS, Ken French) is shared. Daily bars for a signed-in user go through their stored price
   history (`db/price_store.py`): fetched ten years back once, then only the days since,
   sliced for every window, and served when a key is out (`HISTORY_STALE`); a history a
   plan cut short carries `HISTORY_SHORTFALL`, and backtests refuse it with 409

@@ -25,6 +25,7 @@ from app.core.clock import MARKET_ZONE, market_day
 from app.core.cache import cache_get, cache_set
 from app.data import alpha_vantage_news
 from app.data.fetcher import (
+    key_scope,
     finnhub_abroad_hint,
     DataFetchError,
     FinnhubRateLimitError,
@@ -253,7 +254,7 @@ async def fetch_company_news(symbol: str, client: httpx2.AsyncClient | None = No
     now = _now()
     end = market_day(now)
     start = end - timedelta(days=NEWS_DAYS - 1)
-    key = f"news:finnhub:{symbol}"
+    key = f"news:finnhub:{symbol}{key_scope(api_key)}"
     kept = await _kept(key)
     if (
         kept is not None

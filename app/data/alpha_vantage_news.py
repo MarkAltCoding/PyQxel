@@ -22,6 +22,7 @@ from typing import Any
 
 from app.core.clock import MARKET_ZONE, market_day
 from app.core.cache import cache_get, cache_set
+from app.core.credentials import current_provider_keys
 from app.data import fetcher
 from app.data.fetcher import (
     DataFetchError,
@@ -95,9 +96,12 @@ async def news_refused(api_key: str) -> bool:
 
 
 async def feed_cached() -> bool:
-    """Whether the feed is cached, so reading it sends no request."""
-    cache_key = "alphavantage:" + ":".join(
-        [FUNCTION, *(f"{name}={value}" for name, value in sorted(FEED_PARAMS.items()))]
+    """Whether the feed is cached for the request's key, so reading it sends no request."""
+    found = current_provider_keys().alpha_vantage
+    cache_key = (
+        "alphavantage:"
+        + ":".join([FUNCTION, *(f"{name}={value}" for name, value in sorted(FEED_PARAMS.items()))])
+        + fetcher.key_scope(None if found is None else found.get_secret_value())
     )
     return cache_key in fetcher._alpha_vantage_memory or await cache_get(cache_key) is not None
 
