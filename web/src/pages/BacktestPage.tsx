@@ -124,13 +124,13 @@ type StrategyChoice = StrategyType | 'custom'
 const LANGUAGE_LABEL: Record<CodeLanguage, string> = { python: 'Python', cpp: 'C++' }
 
 const CUSTOM_ABOUT =
-  'Your own Python or C++, run in this browser. Only the positions it returns are sent to PyQxel, which backtests them like any built-in strategy. Add more symbols to allocate between them.'
+  'Your own Python or C++, run in this browser; only its positions are sent to PyQxel. Add symbols to split money between them.'
 
 const ACROSS_ABOUT =
-  'Your own Python or C++, run in this browser, with no symbol to pick first: every ticker your code names in a string is fetched, on the dates they all traded. A ticker your weights leave out is only a signal. Only the weights are sent to PyQxel, which backtests them against holding the tickers they trade equally.'
+  'Your own Python or C++, run in this browser. Every ticker your code names is fetched; one your weights leave out is only a signal. Only the weights are sent to PyQxel, and compared with holding the traded tickers equally.'
 
 const UNIVERSE_ABOUT =
-  'Your own Python or C++, run in this browser, setting a weight for each symbol on every date they all traded. Only the weights are sent to PyQxel, which backtests them against holding the symbols equally.'
+  'Your own Python or C++, run in this browser, weighting each symbol on every date. Only the weights are sent to PyQxel, and compared with holding the symbols equally.'
 
 /** Most symbols a custom strategy may allocate between, as the API allows. */
 const MAX_CUSTOM_SYMBOLS = 20
@@ -333,9 +333,9 @@ const MODES: { value: Mode; label: string }[] = [
 
 const SUBTITLES: Record<Mode, string> = {
   stock:
-    'Run a trading rule over the history of a stock, ETF or fund, or your own code over it and any others you add, and compare it with buying and holding.',
+    'Test a trading rule or your own code on a stock, ETF, or fund, against buying and holding.',
   universe:
-    'Rank a set of stocks against one another and hold the best, or write code that trades any tickers it names, and compare it with holding them all.',
+    'Rank a set of stocks and hold the best, or write code that trades many tickers, against holding them all.',
 }
 
 type AcrossView = 'rank' | 'code'
@@ -356,13 +356,19 @@ export function BacktestPage() {
           <h1>Backtest</h1>
           <div className="subtitle">{SUBTITLES[mode]}</div>
         </div>
-        <div className="heading-with-info">
-          <Segmented
-            label="What to backtest"
-            value={mode}
-            options={MODES}
-            onChange={(next) => setParams(next === 'universe' ? { mode: 'universe' } : {})}
-          />
+        <div className="heading-with-info page-tabs">
+          <nav className="subtabs" aria-label="What to backtest">
+            {MODES.map((option) => (
+              <Link
+                key={option.value}
+                to={option.value === 'universe' ? '/backtest?mode=universe' : '/backtest'}
+                className={option.value === mode ? 'active' : undefined}
+                aria-current={option.value === mode ? 'page' : undefined}
+              >
+                {option.label}
+              </Link>
+            ))}
+          </nav>
           <InfoTip topic="backtestMode" />
         </div>
       </header>

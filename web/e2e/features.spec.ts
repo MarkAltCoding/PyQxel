@@ -144,7 +144,7 @@ test('a portfolio is set as a Roth IRA, and several are reviewed each with its o
 
 test('Claude’s Picks are shown, and the screener can list them alone', async ({ page }, info) => {
   test.skip(info.project.name === 'phone', 'The results table is checked at desktop width.')
-  await page.goto('/screener/picks')
+  await page.goto('/picks')
 
   await expect(page.getByText('Cheap growth, with a bond fund to steady it.')).toBeVisible()
   await expect(page.getByRole('link', { name: 'BRAVO', exact: true })).toBeVisible()
@@ -172,7 +172,7 @@ test('Claude’s Picks are shown, and the screener can list them alone', async (
 test('saved picks are listed, and outside Claude is told it may search the web', async ({
   page,
 }) => {
-  await page.goto('/screener/picks')
+  await page.goto('/picks')
 
   const saved = page.locator('#saved-picks')
   await expect(saved.getByRole('heading', { name: 'Saved Claude’s Picks' })).toBeVisible()
@@ -192,7 +192,7 @@ test('saved picks are listed, and outside Claude is told it may search the web',
 })
 
 test('what is entered follows the account to another browser', async ({ page, browser }) => {
-  await page.goto('/screener/picks')
+  await page.goto('/picks')
   const saved = page.waitForResponse(
     (response) =>
       response.url().includes('/api/v1/me/saved') && response.request().method() === 'PUT',
@@ -204,7 +204,7 @@ test('what is entered follows the account to another browser', async ({ page, br
   const other = await browser.newContext()
   const fresh = await other.newPage()
   await signIn(fresh)
-  await fresh.goto('/screener/picks')
+  await fresh.goto('/picks')
   await expect(fresh.getByRole('textbox', { name: 'Anything else' })).toHaveValue(
     'dividends, please',
   )
@@ -240,7 +240,7 @@ test('Claude’s Picks offer how long to wait for more data, and remember it', a
   // The choice follows the account, which the phone run shares: checked at desktop width.
   test.skip(info.project.name === 'phone', 'Account choices are checked at desktop width.')
   await signIn(page)
-  await page.goto('/screener/picks')
+  await page.goto('/picks')
   const wait = page.getByRole('combobox', { name: 'Wait for more data' })
   await expect(wait).toHaveValue('300')
   // The "i" says what each wait would gather, the likeliest picks first.
@@ -265,7 +265,7 @@ test('picks take added context, and can be kept past the period as a recurring p
   page,
 }, info) => {
   test.skip(info.project.name === 'phone', 'Account choices are checked at desktop width.')
-  await page.goto('/screener/picks')
+  await page.goto('/picks')
   const context = page.getByLabel('Additional context (optional)')
   await context.fill('A research note on BRAVO.')
   await expect(page.getByText('25 of 60,000 characters')).toBeVisible()
@@ -289,7 +289,7 @@ test('tickers can be added to Claude’s Picks, and every candidate searched', a
   // The added tickers follow the account, which the phone run shares.
   test.skip(info.project.name === 'phone', 'Account choices are checked at desktop width.')
   await signIn(page)
-  await page.goto('/screener/picks')
+  await page.goto('/picks')
   const form = page.locator('#picks-form')
   await form.getByText(/^See every ticker Claude would weigh/).click()
   await expect(form.getByRole('link', { name: 'ALFA', exact: true })).toBeVisible()
@@ -331,7 +331,7 @@ test('picks can be scheduled, weekly on Sunday and monthly on the last day by de
   page,
 }) => {
   await signIn(page)
-  await page.goto('/screener/picks')
+  await page.goto('/picks')
   const schedule = page.locator('#picks-schedule')
   await expect(schedule.getByRole('heading', { name: 'Make Picks on a Schedule' })).toBeVisible()
   await schedule.getByRole('checkbox', { name: 'Every week, to hold for a week' }).check()
@@ -342,21 +342,21 @@ test('picks can be scheduled, weekly on Sunday and monthly on the last day by de
   await expect(schedule.getByText('Add an Anthropic key in Settings first.')).toBeVisible()
 })
 
-test('the portfolio review opens the same Claude’s Picks as the screener', async ({
+test('the portfolio links to Claude’s Picks, which the review can weigh', async ({
   page,
 }, info) => {
   test.skip(info.project.name === 'phone', 'The picks are checked at desktop width.')
   await signIn(page)
   await page.goto('/portfolio')
   await openPortfolio(page, 1)
-  await page.locator('.picks-in-review > summary').click()
-  await expect(
-    page.locator('.picks-in-review').getByText('Cheap growth, with a bond fund to steady it.'),
-  ).toBeVisible()
   await page.locator('#ai-review').getByText('Tailor the plan to your goals (optional)').click()
   await expect(
     page.locator('#ai-review').getByRole('checkbox', {
       name: 'Let the review see my latest Claude’s Picks',
     }),
   ).toBeVisible()
+  await page.locator('#claudes-picks').getByRole('link', { name: 'Open Claude’s Picks' }).click()
+
+  await expect(page).toHaveURL(/\/picks$/)
+  await expect(page.getByText('Cheap growth, with a bond fund to steady it.')).toBeVisible()
 })

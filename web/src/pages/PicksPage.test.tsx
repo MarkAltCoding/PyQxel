@@ -273,7 +273,7 @@ describe('PicksPage', () => {
     expect(await screen.findByText(/has no securities for your account yet/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'nightly screener refresh' })).toHaveAttribute(
       'href',
-      '/settings#nightly-refresh',
+      '/screener/refresh',
     )
     expect(screen.getByRole('button', { name: 'Get Claude’s Picks' })).toBeDisabled()
   })

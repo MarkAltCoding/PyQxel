@@ -479,10 +479,9 @@ export function PortfolioReviewCard({
             <InfoTip topic="portfolioReview" />
           </div>
           <div className="subtitle">
-            Written by Claude from your saved holdings and your latest{' '}
-            <Link to="/screener/picks">Claude’s Picks</Link>: where the risk comes from, how well
-            the holdings diversify one another, and a specific plan with the orders to carry it out.
-            Billed to your Anthropic key.
+            Where your risk comes from, how well the holdings diversify, and a plan with the orders
+            to carry it out, weighing your latest <Link to="/picks">Claude’s Picks</Link>. Billed to
+            your Anthropic key.
           </div>
         </div>
         <div className="filter-row">

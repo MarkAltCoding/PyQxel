@@ -275,8 +275,7 @@ export function ScreenerPage() {
             {status.data && !empty
               ? `${status.data.own ? 'Your own universe · ' : ''}${status.data.stocks.toLocaleString()} ${status.data.own ? 'US stocks and ETFs' : 'US stocks'} · prices as of ${shortDate(status.data.prices_as_of)} · refreshed ${dateTime(status.data.refreshed_at)}`
               : 'US-listed common stocks, refreshed after each trading day'}
-            {status.data?.own && <InfoTip topic="nightlyRefresh" />} ·{' '}
-            <Link to="/screener/refresh#nightly-refresh">Refresh Schedule</Link>
+            {status.data?.own && <InfoTip topic="nightlyRefresh" />}
           </div>
         </div>
         <ScreenerTabs />
@@ -284,8 +283,7 @@ export function ScreenerPage() {
 
       {nightly.data?.enabled && refreshShortfall && (
         <Notice tone="warning">
-          {refreshShortfall}{' '}
-          <Link to="/screener/refresh#billing">Add credit on the Refresh Schedule tab</Link>.
+          {refreshShortfall} <Link to="/settings#billing">Add credit in Settings</Link>.
         </Notice>
       )}
       {status.data?.last_error && (
@@ -468,7 +466,7 @@ export function ScreenerPage() {
                 picks.data &&
                 ` · the ${picked.length} securities Claude picked on ${shortDate(picks.data.generated_at)} to hold for ${picks.data.context.horizon}${total < picked.length ? `, of which ${total} ${total === 1 ? 'is' : 'are'} in the screener and pass these filters` : ''}`}
               {state.universe === 'sp500' &&
-                ' · S&P 500 companies as of the latest holdings report of IVV, a fund that tracks the index, so a company that joined in the last few months may be missing'}
+                ' · S&P 500 members as of IVV’s latest holdings report, so a recent addition may be missing'}
             </div>
           </div>
           <div className="filter-row" style={{ alignItems: 'center' }}>
@@ -497,8 +495,8 @@ export function ScreenerPage() {
         {picks.error !== null && onlyPicks && <ErrorNotice error={picks.error} />}
         {onlyPicks && picks.data === null && (
           <Notice>
-            Claude has not made any picks for you yet.{' '}
-            <Link to="/screener/picks">Get Claude’s Picks</Link>, and they can be screened here.
+            Claude has not made any picks for you yet. <Link to="/picks">Get Claude’s Picks</Link>,
+            and they can be screened here.
           </Notice>
         )}
         <div className={`table-wrap${results.isPlaceholderData ? ' card-body refreshing' : ''}`}>
@@ -621,9 +619,9 @@ export function ScreenerPage() {
         )}
         {!empty && (
           <p className="disclaimer" style={{ marginTop: 12 }}>
-            Companies that report in another currency are converted to US dollars at rates worked
-            out from the European Central Bank&apos;s euro reference rates (source: European Central
-            Bank), or at a market data provider&apos;s rate for currencies the ECB does not publish.
+            Figures reported in another currency are converted to US dollars at the European Central
+            Bank&apos;s reference rates (source: European Central Bank), or a data provider&apos;s
+            rate where the ECB publishes none.
           </p>
         )}
       </section>

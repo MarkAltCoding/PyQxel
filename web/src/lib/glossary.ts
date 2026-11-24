@@ -808,10 +808,6 @@ const entries = {
     good: 'Weekly picks on Sunday, before the market opens, and monthly picks on the last day of the month suit most people.',
     note: 'They are made while your browser is closed, so turning this on stores your Anthropic key and market data keys on PyQxel’s server, encrypted; turning it off deletes them. Each list is billed to your Anthropic key as one you ask for would be, within your AI limits. A run never starts during your own screener refresh: it waits for it to finish. When both fall due together, they run together.',
   },
-  picksInReview: {
-    title: 'Claude’s Picks here',
-    what: 'The same Claude’s Picks as under the Screener’s Claude’s Picks tab, opened here beside your review: the latest list, your saved ones, and the schedule. A list made or changed in either place is the same list in both.',
-  },
   reviewWithPicks: {
     title: 'Let the review see my latest picks',
     what: 'Gives the review your most recent stored Claude’s Picks, with the screener’s figures for each, so it can weigh adding them to your portfolio. Unticked, the review works from your holdings alone.',

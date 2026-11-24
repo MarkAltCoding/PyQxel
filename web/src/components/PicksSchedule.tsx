@@ -16,6 +16,7 @@ import { providerKeys } from '../lib/providerKeys'
 import { MONTH_DAYS, WEEKDAYS } from '../lib/schedule'
 import { InfoTip } from './InfoTip'
 import { ErrorNotice, Notice } from './Notice'
+import { ReadMore } from './ReadMore'
 
 const SCHEDULE_KEY = ['picks-schedule'] as const
 
@@ -104,12 +105,10 @@ export function PicksSchedule({ request }: { request: () => PicksRequest }) {
           <h2>Make Picks on a Schedule</h2>
           <InfoTip topic="picksSchedule" />
         </div>
-        <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
-          Claude makes new picks by itself, with what you set above, and adds each list to your
-          saved picks. It runs while your browser is closed, so saving stores your Anthropic key and
-          market data keys on PyQxel’s server, encrypted; turning it off deletes them. Times are in{' '}
-          {timeZoneLabel(zone)}.
-        </p>
+        <ReadMore more="It runs while your browser is closed, so saving stores your Anthropic key and market data keys on PyQxel’s server, encrypted; turning it off deletes them.">
+          Claude makes new picks by itself, with the settings above, and saves each list. Times are
+          in {timeZoneLabel(zone)}.
+        </ReadMore>
       </div>
       {data && !data.available && (
         <Notice tone="warning">
@@ -118,7 +117,7 @@ export function PicksSchedule({ request }: { request: () => PicksRequest }) {
       )}
       {data?.available && shortfall && (
         <Notice tone="warning">
-          {shortfall} <Link to="/screener/refresh#billing">Billing</Link>
+          {shortfall} <Link to="/settings#billing">Billing</Link>
         </Notice>
       )}
       <div className="filter-row" style={{ alignItems: 'flex-end' }}>

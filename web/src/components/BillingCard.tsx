@@ -21,6 +21,7 @@ import { InfoTip } from './InfoTip'
 import { ContactLink } from './LegalSection'
 import { ErrorNotice, Notice } from './Notice'
 import { PresetOrCustom } from './PresetOrCustom'
+import { ReadMore } from './ReadMore'
 import { Segmented } from './Segmented'
 import { Stat } from './Stat'
 
@@ -92,22 +93,26 @@ export function BillingCard() {
           <h2>Billing</h2>
           <InfoTip topic="billing" />
         </div>
-        <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
-          Using PyQxel is free. Only the nightly screener refresh costs money: it runs on PyQxel’s
-          cloud server for minutes or hours each night. You pay what your refreshes cost that
-          server, with nothing added, from prepaid credit or a subscription that bills what they
-          cost each week, month, or year. Payments go through Stripe, whose processing fee on each
-          payment you also pay, at cost; PyQxel never sees your card. Payments from the European
-          Union and the United Kingdom are not accepted, since PyQxel is not registered to collect
-          their VAT.
-        </p>
-        <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 6 }}>
-          Billing covers only that server time. Claude’s work (stock reports, portfolio reviews,
-          Claude’s Picks, scheduled picks, and the coding assistant) is charged by Anthropic, not
-          PyQxel: to your own Anthropic API key, at Anthropic’s prices, or, for a prompt you copy
-          into Claude in your browser, to your Claude account’s plan. Market data keys are billed by
-          their providers, if you chose a paid plan.
-        </p>
+        <ReadMore
+          more={
+            <>
+              <p>
+                Pay from prepaid credit, or a subscription that bills what your refreshes cost each
+                week, month, or year. Payments go through Stripe, whose fee you also pay, at cost;
+                PyQxel never sees your card. Payments from the European Union and the United Kingdom
+                are not accepted, since PyQxel is not registered to collect their VAT.
+              </p>
+              <p>
+                Claude’s work is charged by Anthropic, not PyQxel: to your own Anthropic key, or to
+                your Claude plan for a prompt you copy into Claude. Market data keys are billed by
+                their providers, if you chose a paid plan.
+              </p>
+            </>
+          }
+        >
+          PyQxel is free to use. Only the nightly screener refresh costs money: you pay its server
+          time at cost, with nothing added.
+        </ReadMore>
       </div>
 
       {data.closed_country && (
@@ -237,14 +242,19 @@ function TopUp({ status }: { status: BillingStatus }) {
         unit="dollars"
         scale={100}
       />
-      <p className="subtitle" style={{ color: 'var(--text-secondary)' }}>
+      <ReadMore
+        more={
+          <>
+            A card issued outside the US costs Stripe {percent(status.international_fee_rate)} more,
+            taken from the credit. Sales tax or VAT is added where PyQxel collects it, for the
+            billing address you give Stripe.
+          </>
+        }
+      >
         Any amount from {money(status.min_top_up_cents / 100, 'USD', 0)} to{' '}
-        {money(status.max_top_up_cents / 100, 'USD', 0)}. You pay Stripe’s processing fee on top:{' '}
-        {money(fee / 100)} on this payment, {percent(fee / charged)} of it, so a larger top-up pays
-        less in fees for the same credit. A card issued outside the US costs Stripe{' '}
-        {percent(status.international_fee_rate)} more, which is taken from the credit. Sales tax or
-        VAT is added where PyQxel collects it, for the billing address you give Stripe.
-      </p>
+        {money(status.max_top_up_cents / 100, 'USD', 0)}, plus Stripe’s fee: {money(fee / 100)} here
+        ({percent(fee / charged)}), less on a larger top-up.
+      </ReadMore>
       <div>
         <button
           type="button"
@@ -282,14 +292,18 @@ function SubscriptionChoice({ status }: { status: BillingStatus }) {
         <h3>Subscription</h3>
         <InfoTip topic="billingSubscription" />
       </div>
-      <p className="subtitle" style={{ color: 'var(--text-secondary)' }}>
-        Instead of topping up, let Stripe bill what your refreshes cost at the end of each week,
-        month, or year, after any credit you have is used. Each bill includes Stripe’s fees on it,{' '}
-        {status.card_fee_cents} cents plus {percent(status.card_fee_rate + status.billing_fee_rate)}
-        , so billing less often pays less in fees. Stripe charges nothing under{' '}
-        {money(status.min_charge_cents / 100)}: a smaller bill waits until the next one. Sales tax
-        or VAT is added where PyQxel collects it.
-      </p>
+      <ReadMore
+        more={
+          <>
+            Each bill includes Stripe’s fees, {status.card_fee_cents} cents plus{' '}
+            {percent(status.card_fee_rate + status.billing_fee_rate)}, so billing less often pays
+            less in fees. Stripe charges nothing under {money(status.min_charge_cents / 100)}: a
+            smaller bill waits for the next one. Sales tax or VAT is added where PyQxel collects it.
+          </>
+        }
+      >
+        Or let Stripe bill what your refreshes cost each week, month, or year, after any credit.
+      </ReadMore>
       {bills.length > 0 ? (
         <ul className="stack" style={{ gap: 4, margin: 0, paddingLeft: 18 }}>
           {bills.map((bill) => (

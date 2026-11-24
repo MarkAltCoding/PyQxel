@@ -1,13 +1,16 @@
 import { useState, type FormEvent } from 'react'
+import { Link } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   deleteAccount,
   deleteStoredPrices,
   getAccount,
+  getBilling,
   getUsage,
   updateAdminSettings,
   updateLimits,
 } from '../api/endpoints'
+import { BILLING_QUERY_KEY } from '../lib/billing'
 import type {
   Account,
   AdminSettings,
@@ -29,8 +32,8 @@ import {
   type DataProvider,
 } from '../lib/keyCoverage'
 import { InfoTip } from '../components/InfoTip'
+import { ReadMore } from '../components/ReadMore'
 import { BillingCard } from '../components/BillingCard'
-import { NightlyRefreshCard } from '../components/NightlyRefreshCard'
 import { NIGHTLY_QUERY_KEY, resyncNightlyKeys } from '../lib/nightlyRefresh'
 import { setProviderKey, type ProviderName } from '../lib/providerKeys'
 import { KeyFeatures } from '../components/KeyFeatures'
@@ -73,34 +76,32 @@ const PROVIDERS: ProviderInfo[] = [
   {
     name: 'Anthropic',
     account: 'anthropic',
-    about:
-      'Writes AI research reports and portfolio reviews, and answers the strategy coding assistant. Each is billed to this key.',
+    about: 'Claude’s reports, portfolio reviews, picks, and coding assistant, billed to this key.',
     signUp: 'https://console.anthropic.com/settings/keys',
-    free: 'Pay as you go; a report costs a few cents to a few tens of cents.',
-    without: () =>
-      'No AI research reports, portfolio reviews, or coding assistant. Everything else works.',
+    free: 'none; pay as you go, a few cents to a few tens of cents a report.',
+    without: () => 'No AI reports, reviews, picks, or coding assistant. Everything else works.',
   },
   {
     name: 'Tiingo',
     account: 'tiingo',
     about:
-      'The first source of price history for US stocks, ETFs, and funds: 30+ years, adjusted for splits and dividends. Also intraday charts, live US quotes, and company names.',
+      'Price history for US stocks, ETFs, and funds (30+ years, adjusted), intraday charts, and live US quotes.',
     signUp: 'https://www.tiingo.com/account/api/token',
-    free: 'The free plan covers most people: 30+ years of daily prices, 500 different symbols a month, 50 requests an hour.',
+    free: 'enough for most people: 500 symbols a month, 50 requests an hour.',
     without: (account) => {
       const others = otherPriceKeys(account, 'tiingo')
       return others.length
         ? `US price history comes from ${listed(others)}, which on free plans cover less: see what works above. Intraday charts need a paid key.`
-        : 'No US price history unless you add another price key: charts, volatility, factor exposures, backtests, portfolio tools, and AI reports need one. A free Tiingo key is the simplest.'
+        : 'No US price history, which charts, backtests, portfolio tools, and AI reports need, unless you add another price key. A free Tiingo key is the simplest.'
     },
   },
   {
     name: 'Financial Modeling Prep',
     account: 'fmp',
     about:
-      'Company profiles (sector, industry, market cap), quotes and index quotes, and price history on paid plans.',
+      'Company profiles (sector, industry, market cap), quotes, and, on paid plans, price history.',
     signUp: 'https://site.financialmodelingprep.com/developer/docs',
-    free: 'The free plan allows 250 requests a day, and serves prices for a sample of large US stocks only.',
+    free: '250 requests a day; prices for a sample of large US stocks only.',
     without: (account) => {
       if (account.market_data_fallback && otherPriceKeys(account, 'fmp').length === 0) {
         return 'Price history comes from yfinance, which is unlicensed and can break without notice.'
@@ -114,9 +115,9 @@ const PROVIDERS: ProviderInfo[] = [
     name: 'EODHD',
     account: 'eodhd',
     about:
-      'Index history such as the S&P 500, listings outside the US, and delayed quotes on every exchange.',
+      'Index history such as the S&P 500, listings outside the US, and quotes on every exchange.',
     signUp: 'https://eodhd.com/register',
-    free: 'The free plan gives the last year of prices on every exchange, 20 requests a day; its $19.99 Historian plan gives 30+ years.',
+    free: 'the last year of prices, 20 requests a day. Its $19.99 Historian plan gives 30+ years.',
     without: () =>
       'No index history, and no prices for listings outside the US, unless another key covers them: see what works above.',
   },
@@ -124,9 +125,9 @@ const PROVIDERS: ProviderInfo[] = [
     name: 'Alpha Vantage',
     account: 'alpha_vantage',
     about:
-      'Fills gaps: market data when FMP has none, company details FMP leaves empty, and financial statements SEC filings leave out.',
+      'Fills gaps: prices, company details, and financial statement items the other sources lack.',
     signUp: 'https://www.alphavantage.co/support/#api-key',
-    free: 'The free plan allows 25 requests a day; answers are reused for up to a day to make them last.',
+    free: '25 requests a day, each answer reused for up to a day.',
     without: (account) =>
       has(account, 'fmp')
         ? "No backup when FMP fails or your FMP plan doesn't cover a stock, and financial statement items SEC filings leave out stay empty."
@@ -136,11 +137,11 @@ const PROVIDERS: ProviderInfo[] = [
     name: 'Finnhub',
     account: 'finnhub',
     about:
-      'Company news, analyst ratings, earnings, insider trading, key metrics, lobbying, government contracts, and patents on stock pages; market news and the earnings, IPO, and holiday calendar on the Markets tab; all of it in AI reports. Also the first source of live US quotes, and a backup for company profiles and for financial statements when SEC EDGAR cannot be read.',
+      'News, analyst ratings, earnings, insider trades, key metrics, lobbying, contracts, and patents for stocks; market news and the calendar on Markets; and live US quotes.',
     signUp: 'https://finnhub.io/register',
-    free: 'The free plan is enough: 60 requests a minute, US stocks.',
+    free: 'enough: 60 requests a minute, US stocks.',
     without: (account) =>
-      `No company or market news, analyst ratings, earnings dates, insider trades, key metrics, lobbying, government contracts or patents, on stock pages, the Markets tab, or in AI reports; the Markets calendar shows FOMC meetings only.${has(account, 'fmp') ? " Live quotes use your FMP plan's daily allowance instead." : ''}`,
+      `No news, analyst ratings, earnings, insider trades, key metrics, lobbying, contracts, or patents anywhere in PyQxel; the Markets calendar shows Fed meetings only.${has(account, 'fmp') ? " Live quotes use your FMP plan's daily allowance instead." : ''}`,
   },
 ]
 
@@ -247,40 +248,85 @@ export function SettingsPage() {
       </header>
       {account.error !== null && <ErrorNotice error={account.error} />}
       {account.data && (
-        <>
-          <FeatureSummary account={account.data} />
-          <DataCoverage account={account.data} />
-          <section id="provider-keys" className="card stack" style={{ gap: 16 }}>
-            <div>
-              <h2>Provider Keys</h2>
-              <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
-                You pay for your own usage. Keys stay in this browser and are sent with each of your
-                requests; PyQxel's server does not store them, so no one else, not even whoever runs
-                PyQxel, can read them, unless you turn on the nightly screener refresh below. Add
-                them on each device you use. Signing out removes them from this browser.
-              </p>
-            </div>
-            {PROVIDERS.map((provider) => (
-              <KeyForm
-                key={provider.account}
-                provider={provider}
-                account={account.data}
-                onChanged={onKeysChanged}
-                report={reportOf(provider.account)}
-                onPlan={(plan) => choosePlan(provider.account, plan)}
-              />
-            ))}
-            {usage.error !== null && <ErrorNotice error={usage.error} />}
-          </section>
-          <UsageSettings usage={usage.data} />
-          <NightlyRefreshCard account={account.data} usage={usage.data} />
-          <BillingCard />
-          <LimitsForm account={account.data} onSaved={onSaved} />
-          {account.data.admin && <AdminSettingsForm admin={account.data.admin} onSaved={onSaved} />}
-          <DeleteAccount email={account.data.email} />
-        </>
+        <div className="settings-layout">
+          <SettingsNav admin={Boolean(account.data.admin)} />
+          <div className="stack">
+            <FeatureSummary account={account.data} />
+            <section id="provider-keys" className="card stack" style={{ gap: 16 }}>
+              <div>
+                <h2>Provider Keys</h2>
+                <ReadMore more="They go with each of your requests and are never stored on PyQxel’s server, so no one else, not even whoever runs PyQxel, can read them, unless you turn on the nightly screener refresh. Add them on each device you use; signing out removes them from this browser.">
+                  Each key pays its provider for your own use, and stays in this browser.
+                </ReadMore>
+              </div>
+              {PROVIDERS.map((provider) => (
+                <KeyForm
+                  key={provider.account}
+                  provider={provider}
+                  account={account.data}
+                  onChanged={onKeysChanged}
+                  report={reportOf(provider.account)}
+                  onPlan={(plan) => choosePlan(provider.account, plan)}
+                />
+              ))}
+              {usage.error !== null && <ErrorNotice error={usage.error} />}
+            </section>
+            <DataCoverage account={account.data} />
+            <UsageSettings usage={usage.data} />
+            <section id="nightly-refresh" className="card link-card">
+              <div>
+                <h2>Nightly Screener Refresh</h2>
+                <p className="subtitle">
+                  Rebuilds your own screener from your keys each night. It is set up on the
+                  Screener’s Refresh Schedule tab and paid for under Billing below.
+                </p>
+              </div>
+              <Link className="button" to="/screener/refresh">
+                Open Refresh Schedule
+              </Link>
+            </section>
+            <BillingCard />
+            <LimitsForm account={account.data} onSaved={onSaved} />
+            {account.data.admin && (
+              <AdminSettingsForm admin={account.data.admin} onSaved={onSaved} />
+            )}
+            <DeleteAccount email={account.data.email} />
+          </div>
+        </div>
       )}
     </div>
+  )
+}
+
+/** Every card on the page, in order, as links: the page is long, so the sections stay in
+ * reach beside it on a wide screen and in a row above it on a narrow one. */
+const SECTIONS: { id: string; label: string; admin?: boolean }[] = [
+  { id: 'key-coverage', label: 'What Works' },
+  { id: 'provider-keys', label: 'Provider Keys' },
+  { id: 'data-coverage', label: 'Data by Kind' },
+  { id: 'plan-usage', label: 'Plan Limits' },
+  { id: 'nightly-refresh', label: 'Screener Refresh' },
+  { id: 'billing', label: 'Billing' },
+  { id: 'ai-limits', label: 'AI Limits' },
+  { id: 'admin', label: 'Admin', admin: true },
+  { id: 'delete-account', label: 'Delete Account' },
+]
+
+function SettingsNav({ admin }: { admin: boolean }) {
+  // The Billing card shows only on a server that bills; its link follows it.
+  const billing = useQuery({ queryKey: BILLING_QUERY_KEY, queryFn: getBilling })
+  const shown = SECTIONS.filter(
+    (section) =>
+      (admin || !section.admin) && (section.id !== 'billing' || billing.data?.enabled === true),
+  )
+  return (
+    <nav className="settings-nav" aria-label="Settings sections">
+      {shown.map((section) => (
+        <a key={section.id} href={`#${section.id}`}>
+          {section.label}
+        </a>
+      ))}
+    </nav>
   )
 }
 
@@ -334,8 +380,7 @@ function DataCoverage({ account }: { account: Account }) {
           <InfoTip topic="dataCoverage" />
         </div>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
-          Each kind of data comes from whichever of your keys covers it, cheapest first. Free plans
-          are assumed; a paid plan of yours covers more where it says so.
+          Where each kind of data comes from, cheapest key first, assuming free plans.
         </p>
       </div>
       <ul className="coverage-list">
@@ -417,16 +462,19 @@ function KeyForm({
           <span className="badge warning">! Not set</span>
         )}
       </div>
-      <p className="disclaimer">
-        {provider.about} {provider.free}{' '}
+      <p className="key-about">
+        {provider.about}{' '}
         <a href={provider.signUp} target="_blank" rel="noopener noreferrer">
           Get a key
         </a>
       </p>
+      <p className="key-plan">
+        <strong>Free plan:</strong> {provider.free}
+      </p>
       {lost && (
-        <Notice tone="warning">
-          <strong>Without this key:</strong> {lost}
-        </Notice>
+        <p className="key-without">
+          <strong>Without it:</strong> {lost}
+        </p>
       )}
       <div className="filter-row">
         {/* At least 200px, so on a phone the buttons move below a field wide enough to
@@ -479,11 +527,9 @@ function UsageSettings({ usage }: { usage: UsageResponse | undefined }) {
           <h2>What Spends Your Plans’ Limits</h2>
           <InfoTip topic="loadEstimate" />
         </div>
-        <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
-          Pages that call your keys’ providers as soon as they open ask first, saying about how many
-          requests each key would spend. Turn the warnings off to load every page without asking, or
-          untick a page to load just that one without asking.
-        </p>
+        <ReadMore more="Each says about how many requests every key would spend. Turn the warning off to load every page without asking, or untick one page to load just that one.">
+          Pages that spend your keys’ requests as soon as they open ask first.
+        </ReadMore>
       </div>
       <label className="filter-row" style={{ alignItems: 'center', gap: 10 }}>
         <input

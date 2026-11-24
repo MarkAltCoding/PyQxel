@@ -1,6 +1,7 @@
 import { NativeSignInLinks } from './auth/NativeSignInLinks'
 import { RequireKey } from './components/RequireKey'
 import { Layout } from './components/Layout'
+import { MovedTo } from './components/MovedTo'
 import { PublicLayout } from './components/PublicLayout'
 import { BacktestPage } from './pages/BacktestPage'
 import { HomePage } from './pages/HomePage'
@@ -49,7 +50,9 @@ export const routes = [
           { path: '/portfolio', element: <PortfolioPage /> },
           { path: '/backtest', element: <BacktestPage /> },
           { path: '/screener', element: <ScreenerPage /> },
-          { path: '/screener/picks', element: <PicksPage /> },
+          { path: '/picks', element: <PicksPage /> },
+          // Claude's Picks was a tab of the Screener before it had its own page.
+          { path: '/screener/picks', element: <MovedTo to="/picks" /> },
           { path: '/screener/refresh', element: <RefreshSchedulePage /> },
           { path: '/settings', element: <SettingsPage /> },
           { path: '*', element: <NotFoundPage /> },

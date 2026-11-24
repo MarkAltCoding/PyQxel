@@ -128,8 +128,8 @@ export function MetricsCard({
         <div>
           <h2>Key Metrics</h2>
           <div className="subtitle">
-            Trading, valuation, profitability, and balance sheet metrics, as Finnhub computes them,
-            with revenue growth from the company’s filings
+            Trading, valuation, profitability, and balance sheet figures, from Finnhub and the
+            company’s filings
           </div>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   checkScheduleConflicts,
@@ -51,6 +52,7 @@ import { PresetOrCustom } from './PresetOrCustom'
 import { ScheduleFields } from './ScheduleFields'
 import { SearchBox } from './SearchBox'
 import { Stat } from './Stat'
+import { ReadMore } from './ReadMore'
 
 /** Opting in to, and the status of, the nightly refresh of the user's own screener. */
 export function NightlyRefreshCard({
@@ -187,25 +189,34 @@ export function NightlyRefreshCard({
           <h2>Nightly Screener Refresh</h2>
           <InfoTip topic="nightlyRefresh" />
         </div>
-        <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
-          Builds your own screener of US stocks and ETFs on the schedule you choose, from your keys:
-          the SEC’s list of stocks and their financials, Finnhub’s list of ETFs and its free metrics
-          on your Finnhub key, and price-history columns (momentum, volatility, drawdown, factor
-          betas) from the price-history keys you choose below, for as many stocks and ETFs as you
-          choose. A refresh of every stock and ETF takes about four hours at Finnhub’s free pace of
-          60 requests a minute, about an hour and a half on its paid plan of 150 a minute, and under
-          20 minutes on one of 900. Since you pay for the server’s time, a faster plan also makes
-          each refresh cheaper. A smaller choice, such as the S&P 500 and a few tickers of your own,
-          takes minutes. It runs while your browser is closed, so turning it on stores your market
-          data keys on PyQxel’s server, encrypted; it never stores your Anthropic key. Turning it
-          off, or deleting your account, deletes them at once.
-        </p>
+        <ReadMore
+          more={
+            <>
+              <p>
+                It uses the SEC’s list of stocks and their financials, Finnhub’s list of ETFs and
+                its metrics, and price-history columns (momentum, volatility, drawdown, factor
+                betas) from the price keys you choose below. Every stock and ETF takes about four
+                hours at Finnhub’s free pace of 60 requests a minute, an hour and a half at 150, and
+                under 20 minutes at 900; since you pay for the server’s time, a faster plan is also
+                cheaper. The S&P 500 and a few tickers of your own take minutes.
+              </p>
+              <p>
+                It runs while your browser is closed, so turning it on stores your market data keys
+                on PyQxel’s server, encrypted; never your Anthropic key. Turning it off, or deleting
+                your account, deletes them at once.
+              </p>
+            </>
+          }
+        >
+          Rebuilds your own screener of US stocks and ETFs from your keys, on the schedule you
+          choose.
+        </ReadMore>
       </div>
 
       {data?.available && shortfall && (
         <Notice tone="warning">
           {data.enabled ? 'Your refresh is paused. ' : ''}
-          {shortfall} <a href="#billing">Billing</a>
+          {shortfall} <Link to="/settings#billing">Billing</Link>
         </Notice>
       )}
       {data && !data.available && (

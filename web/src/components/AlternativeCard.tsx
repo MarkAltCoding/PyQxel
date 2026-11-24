@@ -36,8 +36,7 @@ export function AlternativeCard({ symbol }: { symbol: string }) {
         <div>
           <h2>Lobbying, Government Contracts, and Patents</h2>
           <div className="subtitle">
-            Federal lobbying disclosures, USAspending.gov awards, USPTO patents, and SEC filings,
-            from Finnhub
+            Public records: lobbying disclosures, USAspending.gov, the USPTO, and SEC filings
           </div>
         </div>
       </div>

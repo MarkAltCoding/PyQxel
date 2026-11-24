@@ -9,10 +9,9 @@ import { Notice } from './Notice'
 export function NoAnthropicKey({ what }: { what: string }) {
   return (
     <Notice>
-      Having Claude write {what} here needs an Anthropic key, which you can add in{' '}
-      <Link to="/settings#provider-keys">Settings</Link>; Anthropic bills each request to it.
-      Without one, choose <strong>Use Claude outside the app</strong> below: it gives you the same
-      prompt to paste into Claude on claude.ai, and takes the answer back.
+      Writing {what} here needs an Anthropic key, added in{' '}
+      <Link to="/settings#provider-keys">Settings</Link>. Without one, use{' '}
+      <strong>Use Claude outside the app</strong> below to paste the same prompt into claude.ai.
     </Notice>
   )
 }

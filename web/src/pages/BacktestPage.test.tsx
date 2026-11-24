@@ -155,12 +155,12 @@ describe('choosing what to backtest', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('[]'))
     renderPage('/backtest')
 
-    const modes = screen.getByRole('group', { name: 'What to backtest' })
-    expect(within(modes).getByRole('button', { name: 'Single Ticker (or Two)' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
+    const modes = screen.getByRole('navigation', { name: 'What to backtest' })
+    expect(within(modes).getByRole('link', { name: 'Single Ticker (or Two)' })).toHaveAttribute(
+      'aria-current',
+      'page',
     )
-    expect(within(modes).getByRole('button', { name: 'Across Tickers' })).toBeInTheDocument()
+    expect(within(modes).getByRole('link', { name: 'Across Tickers' })).toBeInTheDocument()
     expect(screen.queryByText('Single security')).not.toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'About Single Ticker (or Two) or Across Tickers' }),
@@ -575,7 +575,7 @@ describe('backtests across tickers', () => {
     })
     renderPage('/backtest')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Across Tickers' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Across Tickers' }))
     const universe = screen.getByRole('textbox', { name: /Universe/ })
     await userEvent.clear(universe)
     await userEvent.type(universe, 'aaa, bbb ccc;aaa')

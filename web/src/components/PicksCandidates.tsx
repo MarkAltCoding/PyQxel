@@ -108,12 +108,11 @@ export function PicksCandidates({
           {candidates.data?.own ? (
             <>
               add {missing.length === 1 ? 'it' : 'them'} to “Also refresh these tickers” in your{' '}
-              <Link to="/settings#nightly-refresh">nightly refresh</Link>; the next refresh brings
-              them in.
+              <Link to="/screener/refresh">nightly refresh</Link>; the next refresh brings them in.
             </>
           ) : (
             <>
-              turn on your own <Link to="/settings#nightly-refresh">nightly refresh</Link> and add{' '}
+              turn on your own <Link to="/screener/refresh">nightly refresh</Link> and add{' '}
               {missing.length === 1 ? 'it' : 'them'} to “Also refresh these tickers” there.
             </>
           )}

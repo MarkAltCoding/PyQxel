@@ -7,6 +7,8 @@ const PAGES = [
   { path: '/portfolio', heading: 'Portfolio' },
   { path: '/backtest', heading: 'Backtest' },
   { path: '/screener', heading: 'Screener' },
+  { path: '/picks', heading: 'Claude’s Picks' },
+  // The old address of Claude's Picks, from when it was a tab of the Screener.
   { path: '/screener/picks', heading: 'Claude’s Picks' },
   { path: '/screener/refresh', heading: 'Refresh Schedule' },
   { path: '/settings', heading: 'Settings' },

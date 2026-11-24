@@ -241,8 +241,8 @@ export function ClaudesPicks() {
       {noScreener && (
         <Notice>
           Claude picks from the screener, which has no securities for your account yet. Turn on the{' '}
-          <Link to="/settings#nightly-refresh">nightly screener refresh</Link> in Settings to build
-          your own; the picks are available once it has run.
+          <Link to="/screener/refresh">nightly screener refresh</Link> to build your own; the picks
+          are available once it has run.
         </Notice>
       )}
 
@@ -254,9 +254,8 @@ export function ClaudesPicks() {
               <InfoTip topic="claudesPicks" />
             </div>
             <div className="subtitle">
-              Claude weighs the screener’s leaders on value, growth, quality, momentum, and
-              steadiness, and picks five to ten for your holding period, with how much of each to
-              buy, why, and when to sell. Billed to your Anthropic key.
+              Five to ten picks from the screener’s leaders for your holding period: how much of
+              each to buy, why, and when to sell. Billed to your Anthropic key.
             </div>
           </div>
           {writing ? (

@@ -44,10 +44,13 @@
   --warning-mark: #fab219;
   --critical: #b42323;
   --critical-mark: #d03b3b;
+  /* Text on a filled mark, such as a notice's icon; the marks keep their color in dark mode. */
+  --on-mark: #ffffff;
+  --on-warning-mark: #2b1d00;
 
   --radius: 10px;
   --radius-small: 6px;
-  --shadow: 0 1px 2px rgba(11, 11, 11, 0.06);
+  --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 2px 6px rgba(11, 11, 11, 0.03);
   --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
 }
@@ -184,11 +187,13 @@ h3 {
 }
 
 h1 {
-  font-size: 1.6rem;
+  font-size: 1.7rem;
+  letter-spacing: -0.015em;
 }
 
 h2 {
-  font-size: 1.05rem;
+  font-size: 1.08rem;
+  letter-spacing: -0.005em;
 }
 
 h3 {
@@ -277,8 +282,8 @@ p {
 }
 
 .nav a.active {
-  color: var(--text-primary);
-  background: var(--surface-sunken);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .topbar-search {
@@ -295,8 +300,8 @@ p {
 
 /* The top bar's Settings button is marked like the tabs while Settings is open. */
 .topbar-actions .topbar-settings.active {
-  color: var(--text-primary);
-  background: var(--surface-sunken);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 main {
@@ -352,7 +357,7 @@ main {
     left: 0;
     z-index: 20;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 0;
     padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     background: var(--surface);
@@ -406,12 +411,28 @@ main {
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px 24px;
-  margin-bottom: 20px;
+  margin-bottom: 4px;
 }
 
 .page-header .subtitle {
   margin-top: 4px;
   color: var(--text-secondary);
+}
+
+/* A page's own tabs sit on a row of their own under its title, as one strip. */
+.page-header > .subtabs,
+.page-header > .page-tabs {
+  flex-basis: 100%;
+}
+
+.page-tabs {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-tabs > .subtabs {
+  border-bottom: 0;
 }
 
 .stack {
@@ -441,13 +462,80 @@ main {
   max-width: 100%;
 }
 
+/* A card that stands for a page of its own: what it is, and a button that opens it. */
+.link-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.link-card .subtitle {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+}
+
+/* Settings: its sections as links, beside the cards on a wide screen and above them on a
+   narrow one, so a long page stays easy to find one's way around. */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+.settings-nav {
+  position: sticky;
+  top: 76px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-nav a {
+  padding: 6px 10px;
+  border-radius: var(--radius-small);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.settings-nav a:hover {
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+@media (max-width: 900px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .settings-nav a {
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.85rem;
+  }
+}
+
 /* ── Cards ── */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 18px 20px;
+  padding: 20px 22px;
   min-width: 0;
 }
 
@@ -492,8 +580,10 @@ main {
 
 .stat-value {
   margin-top: 2px;
-  font-size: 1.25rem;
+  font-size: 1.35rem;
   font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
@@ -677,32 +767,38 @@ select:disabled {
   box-shadow: 0 0 0 1px var(--border);
 }
 
-/* ── Pages within a tab: links styled as a segmented control ── */
+/* ── Pages within a tab: a strip of links, the open one underlined in the accent ── */
 .subtabs {
-  display: inline-flex;
+  display: flex;
+  gap: 4px;
   max-width: 100%;
-  padding: 2px;
-  background: var(--surface-sunken);
-  border-radius: var(--radius-small);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 .subtabs a {
   display: inline-flex;
   align-items: center;
-  height: 30px;
+  height: 40px;
+  margin-bottom: -1px;
   padding: 0 12px;
-  border-radius: 4px;
+  border-bottom: 2px solid transparent;
   color: var(--text-secondary);
-  font-size: 0.85rem;
+  font-size: 0.92rem;
   font-weight: 500;
   text-decoration: none;
   white-space: nowrap;
 }
 
-.subtabs a.active {
-  background: var(--surface-raised);
+.subtabs a:hover {
   color: var(--text-primary);
-  box-shadow: 0 0 0 1px var(--border);
+  border-bottom-color: var(--border-strong);
+}
+
+.subtabs a.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 /* ── Search ── */
@@ -1143,25 +1239,47 @@ table.data .muted {
   gap: 10px;
   align-items: flex-start;
   padding: 10px 14px;
+  border-left: 3px solid var(--accent);
   border-radius: var(--radius-small);
-  background: var(--surface-sunken);
+  background: var(--accent-soft);
   color: var(--text-secondary);
   font-size: 0.88rem;
 }
 
 .notice.error {
+  border-left-color: var(--critical-mark);
   color: var(--critical);
   background: color-mix(in srgb, var(--critical-mark) 10%, transparent);
 }
 
 .notice.warning {
+  border-left-color: var(--warning-mark);
   color: var(--warning);
   background: color-mix(in srgb, var(--warning-mark) 14%, transparent);
 }
 
 .notice .icon {
   flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 0.72rem;
   font-weight: 700;
+}
+
+.notice.error .icon {
+  background: var(--critical-mark);
+  color: var(--on-mark);
+}
+
+.notice.warning .icon {
+  background: var(--warning-mark);
+  color: var(--on-warning-mark);
 }
 
 .empty {
@@ -1189,14 +1307,17 @@ table.data .muted {
 
 .badge.good {
   color: var(--good);
+  background: color-mix(in srgb, var(--good-mark) 14%, transparent);
 }
 
 .badge.warning {
   color: var(--warning);
+  background: color-mix(in srgb, var(--warning-mark) 18%, transparent);
 }
 
 .badge.critical {
   color: var(--critical);
+  background: color-mix(in srgb, var(--critical-mark) 12%, transparent);
 }
 
 /* A ticker in a list the user builds, with a button that takes it out. */
@@ -2372,12 +2493,13 @@ li code {
 
 .hero-search {
   max-width: 640px;
-  margin: 8vh auto 32px;
+  margin: 8vh auto 40px;
   text-align: center;
 }
 
 .hero-search h1 {
   margin-bottom: 8px;
+  font-size: 2.1rem;
 }
 
 .hero-search p {
@@ -2387,7 +2509,7 @@ li code {
 
 .shortcut-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 16px;
 }
 
@@ -2399,6 +2521,22 @@ li code {
 .shortcut-grid a:hover {
   text-decoration: none;
   border-color: var(--accent);
+}
+
+.shortcut-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-small);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.shortcut-svg {
+  width: 20px;
+  height: 20px;
 }
 
 .shortcut-grid p {
@@ -2870,10 +3008,6 @@ main [id] {
 
 .schedule-times summary,
 .saved-reviews summary,
-.picks-in-review summary {
-  cursor: pointer;
-}
-
 .pick-order-note {
   margin-top: 4px;
   color: var(--text-secondary);
@@ -2917,4 +3051,55 @@ main [id] {
   border: 1px solid var(--border);
   border-radius: 8px;
   font: inherit;
+}
+
+/* ── Read more: a short explanation, with its detail one click away ── */
+.read-more {
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+}
+
+.read-more-body {
+  margin-top: 6px;
+}
+
+.read-more-body p + p {
+  margin-top: 6px;
+}
+
+.read-more-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.read-more-toggle:hover {
+  text-decoration: underline;
+}
+
+/* ── A provider key in Settings: what it gives, its free plan, and what is missing without it ── */
+.key-about {
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+}
+
+.key-plan,
+.key-without {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.key-plan strong,
+.key-without strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.key-without strong {
+  color: var(--warning);
 }

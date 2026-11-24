@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   fitCopula,
@@ -10,7 +11,6 @@ import {
 } from '../api/endpoints'
 import { HoldingsTable, type HoldingRow } from '../components/HoldingsTable'
 import { AccountSettingsFields } from '../components/AccountSettings'
-import { ClaudesPicks } from '../components/ClaudesPicks'
 import { PortfolioReviewCard } from '../components/PortfolioReviewCard'
 import type {
   HoldingsResponse,
@@ -322,9 +322,8 @@ export function PortfolioPage() {
                   <InfoTip topic="historyCut" />
                 </div>
                 <div className="subtitle">
-                  The simulation and co-movement models start when the newest holding started
-                  trading. Leave a holding out when it would cut more than this off the others’
-                  history.
+                  Leave out a recent listing when it would cut more than this from the other
+                  holdings’ history.
                 </div>
               </div>
               <PresetOrCustom
@@ -361,17 +360,17 @@ export function PortfolioPage() {
             portfolios={portfolios.data?.portfolios ?? []}
             stale={dirty || holdings.isPlaceholderData}
           />
-          <details className="card picks-in-review">
-            <summary>
-              <span className="heading-with-info">
-                <strong>Claude’s Picks</strong>
-                <InfoTip topic="picksInReview" />
-              </span>
-            </summary>
-            <div className="stack" style={{ marginTop: 12 }}>
-              <ClaudesPicks />
+          <section id="claudes-picks" className="card link-card">
+            <div>
+              <h2>Claude’s Picks</h2>
+              <p className="subtitle">
+                What Claude would buy from your screener. The review above can weigh them.
+              </p>
             </div>
-          </details>
+            <Link className="button" to="/picks">
+              Open Claude’s Picks
+            </Link>
+          </section>
         </>
       )}
     </div>

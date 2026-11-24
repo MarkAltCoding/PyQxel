@@ -111,9 +111,9 @@ export function ExternalClaude({
       <summary>Use Claude outside the app, without API costs</summary>
       <div className="stack" style={{ gap: 12, marginTop: 10 }}>
         <p className="disclaimer">
-          Get exactly what the app would send Claude, with all the same data, paste it into a new
-          chat on claude.ai (or attach the downloaded file), then paste Claude’s whole answer below.
-          Nothing is sent to Claude from here, and it does not count against your AI limits.
+          Copy the exact prompt the app would send, with the same data, into a new chat on claude.ai
+          (or attach the file), then paste Claude’s whole answer below. It costs no API credit and
+          does not count against your AI limits.
         </p>
         {webSearch !== undefined && (
           <Notice tone="warning">

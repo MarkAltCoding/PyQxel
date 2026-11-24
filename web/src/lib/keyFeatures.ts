@@ -83,7 +83,7 @@ export function featureOf(path: string, page: string): KeyFeature | null {
   if (page.startsWith('/markets')) return 'markets'
   if (page.startsWith('/portfolio')) return 'portfolio'
   if (page.startsWith('/backtest')) return 'backtest'
-  if (page.startsWith('/screener/picks')) return 'picks'
+  if (page.startsWith('/picks')) return 'picks'
   return null
 }
 
