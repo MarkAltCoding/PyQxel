@@ -34,11 +34,11 @@ The screener filters and ranks a stored universe of US stocks on valuation, grow
 
 ### Each user's own screener
 
-Free data plans are for personal use, so a user can build a universe of their own on their own keys: in the Screener's Refresh Schedule tab (or Settings), they choose what it rebuilds (every US stock, every US ETF, Nasdaq, the S&P 500, the Nasdaq-100, international stocks, and up to 100 tickers of their own) and when, and the nightly job (`python -m app.jobs.nightly`) refreshes it. Their market data keys are stored encrypted for it, and deleted when it is turned off. It costs its server time, [paid at cost](accounts-and-billing.md#paying-for-the-nightly-refresh).
+Free data plans are for personal use, so a user can build a universe of their own on their own keys: on the Screener's Refresh Schedule tab, they choose what it rebuilds (every US stock, every US ETF, Nasdaq, the S&P 500, the Nasdaq-100, international stocks, and up to 100 tickers of their own) and when, and the nightly job (`python -m app.jobs.nightly`) refreshes it. Their market data keys are stored encrypted for it, and deleted when it is turned off. It costs its server time, [paid at cost](accounts-and-billing.md#paying-for-the-nightly-refresh).
 
 ## Claude's Picks
 
-Claude picks five to ten securities to buy now and hold for a period from a week to sixty years, from the screener's leaders on each measure, with the profile you give (risk tolerance, amount, kinds of security, notes, holdings to consider).
+Claude picks five to ten securities to buy now and hold for a period from a week to sixty years, from the screener's leaders on each measure, with the profile you give (risk tolerance, amount, kinds of security, notes, holdings to consider). It has its own tab; the Screener and Portfolio link to it.
 
 * **Each pick** has its weight, conviction, thesis, main risk, and an order to place: market, limit, or stop-limit, how long to leave it open, what to do if it never fills, and an optional stop-loss and profit target. The page writes them as steps for a Fidelity account: whole shares take the order as given, and the fraction left over is bought with a day limit entered each morning, since Fidelity takes fractional orders only at market or as day limits.
 * **Performance** replays each list's orders on daily bars: a pick counts as bought only if and when its order would have filled, at that price, and one that never fills counts as cash. Lists are measured against SPY, QQQ, DIA, IWM, or VTI until their period ends.

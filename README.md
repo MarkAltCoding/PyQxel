@@ -14,12 +14,13 @@ PyQxel runs in any browser, and as an app for [Mac](docs/install.md#mac-download
 
 * **Stock pages**: prices, factor exposures, GARCH volatility, fundamentals and valuation from SEC filings, news, analysts' ratings, earnings, insiders' trades, and public records, with an AI investment thesis or risk report that reads the filings and the most important articles in full.
 * **Portfolio**: up to five portfolios, Monte Carlo outcomes, how the holdings move together, and an AI review that writes the orders to rebalance, tailored to your risk tolerance, horizon, and accounts.
-* **Screener and Claude's Picks**: filter a universe of US stocks and ETFs (your own, refreshed nightly on your keys), then have Claude pick from it for a holding period you choose, with the orders to place at a broker and a running record of how each list did.
+* **Screener**: filter a universe of US stocks and ETFs, your own, refreshed nightly on your keys.
+* **Claude's Picks**: Claude picks from the screener for a holding period you choose, with the orders to place at a broker and a running record of how each list did.
 * **Backtesting**: built-in strategies, or your own in Python or C++ run in the browser, with a coding assistant.
 * **Markets**: FOMC meetings, earnings, IPOs, holidays, and market news.
 * **Claude, your way**: every report runs on your Anthropic key, or as a prompt you paste into Claude yourself; each one records the model and effort that wrote it.
 
-Every figure and chart has an "i" explaining it for a beginner. PyQxel is not investment advice.
+Every figure and chart has an "i" explaining it for a beginner, with its formula. PyQxel is not investment advice.
 
 ## Documentation
 

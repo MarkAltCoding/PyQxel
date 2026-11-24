@@ -32,7 +32,7 @@ from App Store Connect when the app is submitted should be updated here too.
    marketing version and, on iOS, the build number; each upload needs a higher build number.
 5. **Screenshots** (taken with the demo account, after acknowledging the notice):
    - iPhone 6.9" (1320 × 2868): Stock page with chart, Backtest results, Portfolio risk,
-     Screener, an AI report.
+     Screener, Claude's Picks, an AI report.
    - iPad 13" (2064 × 2752): the app targets iPad too (`TARGETED_DEVICE_FAMILY = 1,2`). To
      skip iPad, set it to `1` before submitting.
    - Mac (2880 × 1800).
