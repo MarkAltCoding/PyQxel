@@ -360,7 +360,7 @@ describe('PicksPage', () => {
     await userEvent.click(within(compared).getByRole('button', { name: /Oct/ }))
 
     expect(await screen.findByText('An earlier idea.')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Earlier picks' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Earlier Picks' })).toBeInTheDocument()
     expect(await screen.findByText(/tracking stopped then/)).toBeInTheDocument()
     const shown = document.getElementById('picks-performance')!
     expect(within(shown).getAllByText('-6.0%').length).toBeGreaterThan(0)

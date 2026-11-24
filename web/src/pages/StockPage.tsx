@@ -20,7 +20,16 @@ import { ErrorNotice, Notice } from '../components/Notice'
 import { Segmented } from '../components/Segmented'
 import { Stat } from '../components/Stat'
 import { InfoTip } from '../components/InfoTip'
-import { compact, money, number, percent, shortDate, signedPercent, tone } from '../lib/format'
+import {
+  compact,
+  exchangeName,
+  money,
+  number,
+  percent,
+  shortDate,
+  signedPercent,
+  tone,
+} from '../lib/format'
 
 const PERIODS = [
   { value: '1y', label: '1Y' },
@@ -153,7 +162,7 @@ function StockDetails({ symbol }: { symbol: string }) {
           </h1>
           <div className="subtitle">
             {[
-              info?.exchange,
+              exchangeName(info?.exchange),
               fundType === 'ETF' ? 'ETF' : fundType === 'MUTUALFUND' ? 'Mutual fund' : null,
               info?.sector,
               info?.industry,

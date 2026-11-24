@@ -73,28 +73,31 @@ export function MetricsTable({
       (m) => (m.max_drawdown_recovery ? shortDate(m.max_drawdown_recovery) : 'Not yet'),
     ],
   ]
+  // Wrapped so that on a phone the table scrolls inside its card, not the whole page.
   return (
-    <table className="data">
-      <thead>
-        <tr>
-          <th />
-          <th className="num">Strategy</th>
-          <th className="num">{benchmarkLabel}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map(([label, info, format]) => (
-          <tr key={label}>
-            <td>
-              {label}
-              <InfoTip topic={info} />
-            </td>
-            <td className="num">{format(strategy)}</td>
-            <td className="num">{format(benchmark)}</td>
+    <div className="table-wrap">
+      <table className="data">
+        <thead>
+          <tr>
+            <th />
+            <th className="num">Strategy</th>
+            <th className="num">{benchmarkLabel}</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map(([label, info, format]) => (
+            <tr key={label}>
+              <td>
+                {label}
+                <InfoTip topic={info} />
+              </td>
+              <td className="num">{format(strategy)}</td>
+              <td className="num">{format(benchmark)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

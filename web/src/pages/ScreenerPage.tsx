@@ -458,7 +458,15 @@ export function ScreenerPage() {
       <section id="matches" className="card">
         <div className="card-header">
           <div>
-            <h2>{total.toLocaleString()} matches</h2>
+            <h2>
+              {shown
+                ? `${total.toLocaleString()} ${total === 1 ? 'match' : 'matches'}`
+                : results.error !== null
+                  ? 'Could not screen'
+                  : results.isFetching
+                    ? 'Screening…'
+                    : 'Matches'}
+            </h2>
             <div className="subtitle">
               Sorted by {FIELDS[state.sort].label.toLowerCase()},{' '}
               {state.descending ? 'highest' : 'lowest'} first · click a column to sort

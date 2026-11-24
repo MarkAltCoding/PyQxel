@@ -520,7 +520,7 @@ export function ClaudesPicks() {
       <section id="picks" className="card">
         <div className="card-header">
           <div>
-            <h2>{opened !== null ? 'Earlier picks' : 'Latest picks'}</h2>
+            <h2>{opened !== null ? 'Earlier Picks' : 'Latest Picks'}</h2>
             {shown && (
               <div className="subtitle">
                 To hold for {shown.context.horizon}

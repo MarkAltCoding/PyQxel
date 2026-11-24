@@ -136,3 +136,33 @@ export function listed(items: readonly string[], conjunction: 'and' | 'or' = 'an
   if (items.length < 3) return items.join(` ${conjunction} `)
   return `${items.slice(0, -1).join(', ')}, ${conjunction} ${items.at(-1)}`
 }
+
+/** Exchange codes as data providers write them, by the name an investor knows. */
+const EXCHANGE_NAMES: Record<string, string> = {
+  NMS: 'Nasdaq',
+  NGM: 'Nasdaq',
+  NCM: 'Nasdaq',
+  NAS: 'Nasdaq',
+  NASDAQ: 'Nasdaq',
+  NYQ: 'NYSE',
+  NYSE: 'NYSE',
+  PCX: 'NYSE Arca',
+  ARCA: 'NYSE Arca',
+  'NYSE ARCA': 'NYSE Arca',
+  NYSEARCA: 'NYSE Arca',
+  ASE: 'NYSE American',
+  AMEX: 'NYSE American',
+  'NYSE MKT': 'NYSE American',
+  BTS: 'Cboe BZX',
+  BATS: 'Cboe BZX',
+  CBOE: 'Cboe',
+  PNK: 'OTC',
+  OTC: 'OTC',
+  OTCMKTS: 'OTC',
+}
+
+/** An exchange's familiar name ("Nasdaq" for NMS, "NYSE Arca" for PCX), or the code given. */
+export function exchangeName(code: string | null | undefined): string | null {
+  if (!code) return null
+  return EXCHANGE_NAMES[code.trim().toUpperCase()] ?? code
+}

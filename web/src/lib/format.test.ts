@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   compact,
   dateTime,
+  exchangeName,
   listed,
   marketDay,
   money,
@@ -65,5 +66,15 @@ describe('times in Eastern Time', () => {
     expect(shortDate('2026-11-24T01:00:00Z')).toBe('Nov 23, 2026')
     expect(marketDay('2026-11-24T01:00:00Z')).toBe('2026-11-23')
     expect(shortDate('2026-11-24')).toBe('Nov 24, 2026')
+  })
+})
+
+describe('exchangeName', () => {
+  it('names an exchange as investors know it, whatever code a provider used', () => {
+    expect(exchangeName('NMS')).toBe('Nasdaq')
+    expect(exchangeName('PCX')).toBe('NYSE Arca')
+    expect(exchangeName('NYSE ARCA')).toBe('NYSE Arca')
+    expect(exchangeName('XETRA')).toBe('XETRA')
+    expect(exchangeName(null)).toBeNull()
   })
 })

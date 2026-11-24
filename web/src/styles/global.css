@@ -453,6 +453,17 @@ main {
   }
 }
 
+/* Four tiles in a half-width card sit two by two, not three and an orphan. */
+.grid-2 > .card {
+  container-type: inline-size;
+}
+
+@container (max-width: 600px) {
+  .stats:has(> :nth-child(4):last-child) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .filter-row {
   display: flex;
   flex-wrap: wrap;
@@ -571,6 +582,10 @@ main {
   background: var(--surface-sunken);
   border-radius: var(--radius-small);
   min-width: 0;
+}
+
+.nowrap {
+  white-space: nowrap;
 }
 
 .stat-label {
@@ -3046,7 +3061,15 @@ main [id] {
 }
 
 .schedule-times summary,
-.saved-reviews summary,
+.saved-reviews summary {
+  cursor: pointer;
+}
+
+/* A heading and its "i" inside a summary stay on the line of its disclosure arrow. */
+summary > .heading-with-info {
+  display: inline-flex;
+}
+
 .pick-order-note {
   margin-top: 4px;
   color: var(--text-secondary);
