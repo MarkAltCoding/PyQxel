@@ -16,7 +16,6 @@ import asyncio
 import logging
 import re
 import time
-import warnings
 from collections import OrderedDict
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -25,9 +24,9 @@ from datetime import date
 from typing import Any
 
 import httpx2
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
 from app.core.config import get_settings
+from app.data.markdown import html_to_markdown
 from app.models.research import Filing, FilingForm, FilingSection
 
 logger = logging.getLogger(__name__)
@@ -50,24 +49,9 @@ TICKER_MAP_TTL_SECONDS: float = 24 * 60 * 60
 SECTION_CACHE_SIZE: int = 64
 """Filings whose extracted sections are kept in memory."""
 
-BLOCK_TAGS: list[str] = [
-    "p",
-    "div",
-    "br",
-    "tr",
-    "li",
-    "table",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-]
-"""Elements that start a new line in a rendered filing."""
-
-_SEP = r"[\s.:\-–—]*"
-"""Punctuation and whitespace between an item number and its title."""
+_SEP = r"[\s.:\-–—|*]*"
+"""Punctuation, whitespace, and table cell borders between an item number and its title:
+some filings set their item headings in a table of two cells."""
 
 
 @dataclass(frozen=True)
@@ -80,8 +64,9 @@ class SectionPattern:
 
 
 def _heading(pattern: str) -> re.Pattern[str]:
-    """Compile ``pattern`` to match only at the start of a line, ignoring case."""
-    return re.compile(rf"(?:^|\n)[ \t]*{pattern}", re.IGNORECASE)
+    """Compile ``pattern`` to match only at the start of a line, ignoring case and the
+    Markdown a heading may start with: a table cell's border or a heading's marks."""
+    return re.compile(rf"(?:^|\n)[ \t]*(?:[|#*][ \t]*)*{pattern}", re.IGNORECASE)
 
 
 SECTIONS: dict[FilingForm, tuple[SectionPattern, ...]] = {
@@ -328,27 +313,9 @@ def _latest_filings(submissions: dict[str, Any]) -> list[tuple[FilingForm, dict[
 
 
 def _document_text(html: str) -> str:
-    """Return the visible text of a filing document, one block element per line.
-
-    Filings often split a heading across inline elements ("RIS" + "K FACTORS"), so
-    line breaks are added only at block elements, and table cells are joined by spaces.
-    """
-    with warnings.catch_warnings():
-        # Inline XBRL documents are XHTML; parsing them as HTML is intended.
-        warnings.simplefilter("ignore", XMLParsedAsHTMLWarning)
-        soup = BeautifulSoup(html, "lxml")
-    # Inline XBRL keeps its machine-readable facts in a hidden header.
-    for tag in soup.find_all(["ix:header", "script", "style"]):
-        tag.decompose()
-    for tag in soup.find_all(BLOCK_TAGS):
-        tag.insert_before("\n")
-        tag.append("\n")
-    for tag in soup.find_all(["td", "th"]):
-        tag.append(" ")
-    text = soup.get_text()
-    text = text.replace("\xa0", " ")
-    text = re.sub(r"[ \t\r\f\v]+", " ", text)
-    return re.sub(r"\n\s*\n+", "\n\n", text).strip()
+    """Return the visible text of a filing document as Markdown, its tables kept as
+    tables (:func:`app.data.markdown.html_to_markdown`)."""
+    return html_to_markdown(html)
 
 
 def _extract_section(text: str, pattern: SectionPattern) -> str | None:

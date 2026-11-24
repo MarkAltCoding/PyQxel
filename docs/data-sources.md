@@ -353,6 +353,22 @@ and use the first one that covers the request. "Free" means the provider's free 
 | Daily prices for the whole screened universe | EODHD Historian ($19.99) |
 | Daily market caps for stocks outside the Dow 30 | Finnhub's free per-stock metrics give today's market cap; history needs a paid key |
 
+## The articles behind the headlines
+
+Finnhub and Alpha Vantage give a story's headline, a short summary, and a link. For the
+stories that matter most (12 for a stock report; for portfolio reviews and Claude's
+Picks, two for each stock weighed, up to 60, and the five most market-moving market and
+three deal stories), PyQxel follows the link and reads the article from the publisher's
+own page (`app/data/articles.py`), keeping the story and leaving out the page's menus,
+and gives it to Claude as Markdown, cut to a length. No key is used and nothing about the
+user is sent. A page behind a paywall, one that refuses automated readers, or one with
+too little text is left at its headline and summary. Pages are read only from public
+addresses, checked at every redirect, so a link cannot reach inside the server's network.
+
+Publishers' terms do not clearly allow their pages to be used in a paid product, so, like
+Ken French's library, **a commercial launch needs another arrangement**: licensed full
+text from a news provider, or Claude given the headlines and summaries alone.
+
 ## Web search for Claude's reports
 
 Stock reports, portfolio reviews, and Claude's Picks can let Claude search the web

@@ -156,14 +156,15 @@ def top_headlines(news: MarketNews | None, count: int) -> list[NewsHeadline]:
         enumerate(news.articles),
         key=lambda item: (-headline_importance(item[1], news.fetched_at), item[0]),
     )[:count]
+    order = {index: rank for rank, (index, _) in enumerate(ranked)}
     return [
         NewsHeadline(
             published_at=article.published_at,
             source=article.source,
             headline=article.headline,
             summary=_shorten(article.summary),
-        )
-        for _, article in sorted(ranked)
+        ).linked(article.url, order[index])
+        for index, article in sorted(ranked)
     ]
 
 

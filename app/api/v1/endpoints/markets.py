@@ -15,6 +15,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Query
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.clock import market_today
 from app.api.v1.endpoints.stocks import upstream_error
 from app.data.fetcher import (
     DataFetchError,
@@ -23,6 +24,7 @@ from app.data.fetcher import (
     ProviderPlanError,
     finnhub_key,
 )
+from app.data.articles import with_article_texts
 from app.data.fomc import fetch_fomc_meetings
 from app.data.economy import fetch_bls, fetch_yield_curve
 from app.data.markets import (
@@ -169,7 +171,7 @@ async def get_calendar(
     less (send ``min_market_cap=0`` for every company below it). Calendars are reused for
     six hours. A part that could not be supplied is left empty and ``notice`` says why.
     """
-    start = date.today()
+    start = market_today()
     end = start + timedelta(days=days - 1)
     meetings, (parts, missing) = await asyncio.gather(
         fetch_fomc_meetings(), _finnhub_parts(start, end, min_market_cap, max_market_cap)
@@ -261,6 +263,24 @@ REPORT_IPOS: int = 15
 """IPOs a stock report lists, the largest."""
 
 
+MARKET_ARTICLES_READ: int = 5
+"""Market headlines whose articles are read for Claude, the most market-moving."""
+
+DEAL_ARTICLES_READ: int = 3
+"""Deal headlines whose articles are read for Claude's Picks and portfolio reviews."""
+
+MARKET_ARTICLE_CHARS: int = 4000
+"""Length each market article given to Claude is cut to."""
+
+
+async def _with_market_articles(context: MarketContext) -> MarketContext:
+    """``context`` with the text of its most market-moving articles."""
+    [headlines] = await with_article_texts(
+        [context.headlines], MARKET_ARTICLES_READ, MARKET_ARTICLE_CHARS
+    )
+    return context.model_copy(update={"headlines": headlines})
+
+
 async def fetch_market_context(today: date) -> MarketContext:
     """The market backdrop for an analysis: a year of FOMC meetings, a quarter's holidays,
     major earnings reports, and IPOs, and the most market-moving market headlines.
@@ -277,7 +297,7 @@ async def fetch_market_context(today: date) -> MarketContext:
         fetch_fomc_meetings(), _finnhub_parts(today, end), _general_news(), fetch_economy(today)
     )
     earnings, ipos, holidays, market_status = parts
-    return market_context(
+    context = market_context(
         today,
         meetings,
         holidays,
@@ -291,6 +311,7 @@ async def fetch_market_context(today: date) -> MarketContext:
         earnings_count=REPORT_EARNINGS,
         ipo_count=REPORT_IPOS,
     ).model_copy(update={"calendar_days": REPORT_CALENDAR_DAYS, "economy": economy})
+    return await _with_market_articles(context)
 
 
 PICKS_EARNINGS_DAYS: int = 28
@@ -393,24 +414,32 @@ async def fetch_picks_backdrop(
     )
     earnings, ipos, holidays, market_status = parts
     major = None if earnings is None else await _major(earnings, MAJOR_MARKET_CAP)
+    market, [deal_headlines] = await asyncio.gather(
+        _with_market_articles(
+            market_context(
+                today,
+                meetings,
+                holidays,
+                major,
+                ipos,
+                news,
+                market_status,
+                PICKS_HEADLINES,
+                event_days=days,
+                holiday_days=days,
+                fomc_days=max(fomc_days, days),
+                earnings_count=BACKDROP_EARNINGS,
+                ipo_count=BACKDROP_IPOS,
+            ).model_copy(update={"calendar_days": days, "economy": economy})
+        ),
+        with_article_texts(
+            [top_headlines(deals, PICKS_DEAL_HEADLINES)], DEAL_ARTICLES_READ, MARKET_ARTICLE_CHARS
+        ),
+    )
     return PicksBackdrop(
-        market=market_context(
-            today,
-            meetings,
-            holidays,
-            major,
-            ipos,
-            news,
-            market_status,
-            PICKS_HEADLINES,
-            event_days=days,
-            holiday_days=days,
-            fomc_days=max(fomc_days, days),
-            earnings_count=BACKDROP_EARNINGS,
-            ipo_count=BACKDROP_IPOS,
-        ).model_copy(update={"calendar_days": days, "economy": economy}),
+        market=market,
         earnings=earnings,
-        deals=top_headlines(deals, PICKS_DEAL_HEADLINES),
+        deals=deal_headlines,
         forex=top_headlines(forex, PICKS_FOREX_HEADLINES),
         crypto=top_headlines(crypto, PICKS_CRYPTO_HEADLINES),
     )

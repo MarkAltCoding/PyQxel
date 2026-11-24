@@ -5,6 +5,7 @@ import re
 from collections import Counter
 from datetime import datetime, timedelta
 
+from app.core.clock import market_day
 from app.models.news import (
     CompanyNews,
     NewsArticle,
@@ -26,7 +27,7 @@ CONTEXT_SUMMARY_CHARS: int = 300
 
 def summarize_news(news: CompanyNews, now: datetime) -> NewsOverview:
     """Count ``news``'s articles by day and by publisher, and over the last day and week."""
-    by_day = Counter(article.published_at.date() for article in news.articles)
+    by_day = Counter(market_day(article.published_at) for article in news.articles)
     days = (news.end - news.start).days + 1
     daily = [
         NewsDay(day=day, articles=by_day[day])
@@ -70,7 +71,8 @@ def news_context(news: CompanyNews, now: datetime) -> NewsContext:
         enumerate(news.articles),
         key=lambda item: (-company_headline_importance(item[1], news.symbol, now), item[0]),
     )[:CONTEXT_ARTICLES]
-    chosen = [article for _, article in sorted(ranked)]
+    order = {index: rank for rank, (index, _) in enumerate(ranked)}
+    chosen = [(order[index], article) for index, article in sorted(ranked)]
     return NewsContext(
         start=news.start,
         end=news.end,
@@ -82,8 +84,8 @@ def news_context(news: CompanyNews, now: datetime) -> NewsContext:
                 source=article.source,
                 headline=article.headline,
                 summary=_shorten(article.summary),
-            )
-            for article in chosen
+            ).linked(article.url, rank)
+            for rank, article in chosen
         ],
     )
 

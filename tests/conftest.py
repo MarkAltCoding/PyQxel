@@ -86,6 +86,18 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 @pytest.fixture(autouse=True)
+def no_article_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Publishers' pages are unreachable, so no test reads a news article; tests of the
+    article reader serve pages themselves."""
+    from app.data import articles
+
+    async def unread(urls: list[str], max_chars: int) -> dict[str, str]:
+        return {}
+
+    monkeypatch.setattr(articles, "read_articles", unread)
+
+
+@pytest.fixture(autouse=True)
 def no_fed_calendar(monkeypatch: pytest.MonkeyPatch) -> None:
     """Serve FOMC dates from the built-in list, so no test reaches federalreserve.gov."""
 

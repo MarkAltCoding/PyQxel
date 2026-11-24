@@ -2,9 +2,9 @@
 and the news an analysis is written from."""
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 NewsProvider = Literal["finnhub", "alpha_vantage"]
 """The providers news can come from: Finnhub first, then Alpha Vantage's paid feed."""
@@ -101,12 +101,39 @@ class NewsResponse(BaseModel):
 
 
 class NewsHeadline(BaseModel):
-    """An article as given to Claude: no link, and a shorter summary."""
+    """An article as given to Claude: no link, a shorter summary, and for the articles that
+    matter most, the article itself."""
 
     published_at: datetime
     source: str
     headline: str
     summary: str | None = None
+    text: str | None = Field(
+        default=None,
+        description="The article itself, in Markdown, cut to a length, for the articles "
+        "that matter most; null when it was not read or its page could not be (a paywall, "
+        "a refusal, or too little text).",
+    )
+    _link: str | None = PrivateAttr(default=None)
+    _rank: int | None = PrivateAttr(default=None)
+
+    def linked(self, url: str | None, rank: int | None = None) -> Self:
+        """This headline, knowing its article's link and where it stands among those
+        chosen (0 for the one that looks to matter most), which choose the articles to
+        read. Neither is stored or given to Claude."""
+        self._link = url
+        self._rank = rank
+        return self
+
+    @property
+    def link(self) -> str | None:
+        """The article's link, if known."""
+        return self._link
+
+    @property
+    def rank(self) -> int | None:
+        """Where the article stands among those chosen, if known."""
+        return self._rank
 
 
 class NewsContext(BaseModel):

@@ -31,6 +31,9 @@ RESTRICTED_SOURCE_USES: tuple[str, ...] = (
     "screener's factor betas, which are then estimated from ETF prices on each user's own "
     "key (the five-factor model is unavailable), and the interest cash earns in backtests "
     "before 2002",
+    "Publishers' news pages: the full text of the articles that matter most, given to "
+    "Claude in stock reports, portfolio reviews, and Claude's Picks, which then see "
+    "only headlines and the providers' summaries",
 )
 """What turning :data:`RESTRICTED_SOURCES` off stops, for the admin to read."""
 
