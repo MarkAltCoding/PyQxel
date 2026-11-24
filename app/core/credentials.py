@@ -55,6 +55,8 @@ class ProviderKeys:
     restricted_sources: bool = False
     """Whether the request may use data sources not cleared for a paid product even while
     the server does not: the admin's own, with their switch on."""
+    admin: bool = False
+    """Whether the request is the admin's own (``ADMIN_EMAIL``)."""
     user_id: str | None = None
     store_history: bool = True
 
@@ -73,6 +75,7 @@ def provider_keys_from(
     unlicensed: bool = False,
     user_id: str | None = None,
     restricted_sources: bool = False,
+    admin: bool = False,
 ) -> ProviderKeys:
     """The provider keys in a request's ``headers``, for ``user_id``'s request."""
     found: dict[str, SecretStr | None] = {
@@ -89,6 +92,7 @@ def provider_keys_from(
         unlicensed=unlicensed,
         user_id=user_id,
         restricted_sources=restricted_sources,
+        admin=admin,
     )
 
 

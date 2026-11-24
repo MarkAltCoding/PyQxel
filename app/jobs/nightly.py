@@ -899,6 +899,7 @@ async def run_scheduled_picks(due: DuePicks, after: "asyncio.Task[None] | None" 
             yfinance=uses_yfinance(user),
             unlicensed=sees_unlicensed_data(user),
             restricted_sources=uses_restricted_sources(user),
+            admin=user.is_admin,
             user_id=due.user_id,
         )
     )
@@ -952,6 +953,10 @@ async def refresh_due_users(now: datetime | None = None) -> int:
 
 async def _main() -> None:
     """Run the due refreshes and close the database."""
+    from app.ai.articles import read_with_web_fetch
+    from app.data.articles import use_remote_reader
+
+    use_remote_reader(read_with_web_fetch)  # Scheduled picks read articles too.
     try:
         count = await refresh_due_users()
     finally:

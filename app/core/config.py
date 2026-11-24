@@ -54,6 +54,13 @@ class Settings(BaseSettings):
         "of Opus.",
     )
     assistant_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
+    article_model: str = Field(
+        default="claude-sonnet-5-5",
+        description="The model that reads news articles through Anthropic's web fetch tool "
+        "and writes them up for the reports, on each user's key: faithful note-taking "
+        "needs no more, and costs a fraction of what the reports' model does.",
+    )
+    article_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
     anthropic_timeout_seconds: float = 180.0
     financial_data_api_key: SecretStr | None = Field(
         default=None,

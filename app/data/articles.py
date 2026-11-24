@@ -6,11 +6,14 @@ links of the articles that matter most, keeps the story (the page's ``<article>`
 ``<main>``, without its menus, footers, and side columns), and returns it as Markdown
 (:mod:`app.data.markdown`), cut to a length.
 
-Publishers' pages are not a data source whose terms clearly allow use in a paid product,
-so they are read only while the server uses such sources
-(:func:`app.db.app_settings.restricted_sources_allowed`). A page that cannot be read (a
-paywall, a refusal, a timeout, too little text) is left out quietly: the headline and
-summary are still given.
+Publishers' terms do not clearly allow their pages to be read by a paid product's
+server, so the server reads them itself only where the admin allows it
+(:func:`app.db.app_settings.article_pages_allowed`). Otherwise each article is read by
+Anthropic's web fetch tool on the user's own Anthropic key and written up in Claude's
+words (:func:`app.ai.articles.read_with_web_fetch`, registered by the app at startup with
+:func:`use_remote_reader`, since this layer makes no AI requests itself). A page that
+cannot be read (a paywall, a refusal, a timeout, too little text) is left out quietly:
+the headline and summary are still given.
 
 The links come from providers, and a link or a redirect could point inside the server's
 own network, such as the cloud's metadata service. Every hop is resolved first and
@@ -22,6 +25,7 @@ import ipaddress
 import logging
 import socket
 from collections import OrderedDict
+from collections.abc import Awaitable, Callable
 from urllib.parse import urljoin, urlsplit
 
 import httpx2
@@ -166,15 +170,62 @@ def _cut(text: str, limit: int) -> str:
     return head[: max(boundary, 1)].rstrip() + "\n\n[…the rest of the article is left out]"
 
 
+RemoteReader = Callable[[list[str], int], Awaitable[dict[str, str]]]
+"""Reads articles by link without the server downloading them: the web fetch tool."""
+
+_remote_reader: RemoteReader | None = None
+
+REDIRECT_HOSTS: frozenset[str] = frozenset({"finnhub.io"})
+"""Providers whose news links only redirect to the publisher's page, asked once for where
+they lead, so the tool is handed the article's own address."""
+
+
+def use_remote_reader(reader: RemoteReader | None) -> None:
+    """Read articles with ``reader`` when the server does not read pages itself."""
+    global _remote_reader
+    _remote_reader = reader
+
+
+async def _resolved(client: httpx2.AsyncClient, url: str) -> str:
+    """Where a provider's redirecting news link leads; ``url`` itself otherwise. Only the
+    provider is asked, never the publisher."""
+    if urlsplit(url).hostname not in REDIRECT_HOSTS:
+        return url
+    try:
+        response = await client.get(url)
+    except httpx2.HTTPError:
+        return url
+    location = response.headers.get("location") if response.is_redirect else None
+    target = urljoin(url, location) if location else url
+    return target if urlsplit(target).scheme in ("http", "https") else url
+
+
+async def _read_remotely(urls: list[str], max_chars: int) -> dict[str, str]:
+    """The articles at ``urls``, read by the remote reader, by their links as given."""
+    if _remote_reader is None:
+        return {}
+    async with httpx2.AsyncClient(timeout=TIMEOUT_SECONDS, follow_redirects=False) as client:
+        targets = await asyncio.gather(*(_resolved(client, url) for url in urls))
+    by_target = dict(zip(targets, urls, strict=True))
+    try:
+        texts = await _remote_reader(list(by_target), max_chars)
+    except Exception as exc:  # Articles add to a report; a failure never stops it.
+        logger.warning("Articles could not be read remotely: %s", exc)
+        return {}
+    return {by_target[target]: _cut(text, max_chars) for target, text in texts.items() if text}
+
+
 async def read_articles(urls: list[str], max_chars: int) -> dict[str, str]:
     """The text of each article in ``urls`` that could be read, as Markdown cut to
-    ``max_chars``, by link. Empty while the server does not use sources not cleared for
-    commercial use."""
-    from app.db.app_settings import restricted_sources_allowed  # Imports the database.
+    ``max_chars``, by link: read by the server itself where the admin allows it, else by
+    the remote reader (Anthropic's web fetch tool on the user's key)."""
+    from app.db.app_settings import article_pages_allowed  # Imports the database.
 
     wanted = list(dict.fromkeys(url for url in urls if url))
-    if not wanted or not await restricted_sources_allowed():
+    if not wanted:
         return {}
+    if not await article_pages_allowed():
+        return await _read_remotely(wanted, max_chars)
     slots = asyncio.Semaphore(PAGES_AT_ONCE)
     async with httpx2.AsyncClient(
         timeout=TIMEOUT_SECONDS,

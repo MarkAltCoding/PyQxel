@@ -31,11 +31,14 @@ RESTRICTED_SOURCE_USES: tuple[str, ...] = (
     "screener's factor betas, which are then estimated from ETF prices on each user's own "
     "key (the five-factor model is unavailable), and the interest cash earns in backtests "
     "before 2002",
-    "Publishers' news pages: the full text of the articles that matter most, given to "
-    "Claude in stock reports, portfolio reviews, and Claude's Picks, which then see "
-    "only headlines and the providers' summaries",
 )
 """What turning :data:`RESTRICTED_SOURCES` off stops, for the admin to read."""
+
+ARTICLE_PAGES: str = "article_pages"
+"""Whether the server itself reads publishers' news pages for every account. Off (the
+default), the articles that matter most are read by Anthropic's web fetch tool on each
+user's own Anthropic key, and written up in Claude's words; the admin's own requests
+read the pages directly while their own switch for restricted sources is on."""
 
 STYLE_FACTORS: str = "style_factors"
 """Whether the server offers the size, value, and momentum factors estimated from ETFs when
@@ -80,6 +83,22 @@ async def style_factors_allowed() -> bool:
     """Whether the current request is offered the ETF estimates of size, value, and
     momentum, when Ken French's library is not used."""
     return await server_offers_style_factors()
+
+
+async def server_reads_article_pages() -> bool:
+    """Whether the server reads publishers' news pages itself for every account."""
+    return bool(await _read(ARTICLE_PAGES, False))
+
+
+async def article_pages_allowed() -> bool:
+    """Whether the current request may have the server read publishers' news pages
+    itself: when the server does for everyone, or when it is the admin's own and either
+    switch for restricted sources (their own, or the server's) is on. Otherwise articles
+    are read through Anthropic's web fetch tool on the user's Anthropic key."""
+    keys = current_provider_keys()
+    if keys.restricted_sources or await server_reads_article_pages():
+        return True
+    return keys.admin and await server_uses_restricted_sources()
 
 
 async def restricted_sources_allowed() -> bool:

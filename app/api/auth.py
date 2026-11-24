@@ -108,6 +108,7 @@ async def authenticate(connection: HTTPConnection) -> User:
         unlicensed=sees_unlicensed_data(user),
         user_id=user.id,
         restricted_sources=uses_restricted_sources(user),
+        admin=user.is_admin,
     )
     feature = feature_from(connection.headers)
     use_feature(feature)

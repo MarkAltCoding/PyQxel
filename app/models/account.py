@@ -56,6 +56,11 @@ class AdminSettingsUpdate(BaseModel):
         description="Whether the whole server offers the size, value, and momentum factors "
         "estimated from ETFs when Ken French's library is not used.",
     )
+    article_pages: bool | None = Field(
+        default=None,
+        description="Whether the whole server reads publishers' news pages itself, rather "
+        "than through Anthropic's web fetch tool on each user's key.",
+    )
 
 
 class Account(BaseModel):

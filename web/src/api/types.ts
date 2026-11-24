@@ -18,13 +18,20 @@ export interface AdminSettings {
   /** Whether the whole server offers the size, value, and momentum factors estimated from
    * ETFs when Ken French's library is not used. */
   style_factors: boolean
+  /** Whether the whole server reads publishers' news pages itself, rather than through
+   * Anthropic's web fetch tool on each user's key. */
+  article_pages: boolean
   /** What turning `restricted_sources` off stops, one source per line. */
   restricted_source_uses: string[]
 }
 export type AdminSettingsUpdate = Partial<
   Pick<
     AdminSettings,
-    'yfinance_fallback' | 'restricted_sources' | 'own_restricted_sources' | 'style_factors'
+    | 'yfinance_fallback'
+    | 'restricted_sources'
+    | 'own_restricted_sources'
+    | 'style_factors'
+    | 'article_pages'
   >
 >
 export type Account = Schemas['Account'] & { admin?: AdminSettings }

@@ -55,9 +55,11 @@ from app.models.picks import (
 from app.db import billing
 from app.db.app_settings import (
     STYLE_FACTORS,
+    ARTICLE_PAGES,
     RESTRICTED_SOURCE_USES,
     RESTRICTED_SOURCES,
     server_offers_style_factors,
+    server_reads_article_pages,
     server_uses_restricted_sources,
     set_setting,
 )
@@ -155,6 +157,7 @@ async def _account(session: AsyncSession, user: User) -> Account:
                 "restricted_sources": await server_uses_restricted_sources(),
                 "own_restricted_sources": user.own_restricted_sources,
                 "style_factors": await server_offers_style_factors(),
+                "article_pages": await server_reads_article_pages(),
                 "restricted_source_uses": list(RESTRICTED_SOURCE_USES),
             }
             if user.is_admin
@@ -532,7 +535,8 @@ async def store_admin_settings(request: Request, session: Session) -> Account:
     use of data sources not cleared for commercial use (``restricted_sources``), or the
     admin's own use of them while the server does not (``own_restricted_sources``), and
     whether the whole server offers the size, value, and momentum factors estimated from
-    ETFs (``style_factors``); an omitted field is left as it is.
+    ETFs (``style_factors``), and whether the server reads publishers' news pages itself for
+    every account (``article_pages``); an omitted field is left as it is.
 
     Only the account ``ADMIN_EMAIL`` names may. Everyone else, signed in or not, gets the
     answer a path that does not exist gets, and the route is left out of the API schema,
@@ -555,6 +559,8 @@ async def store_admin_settings(request: Request, session: Session) -> Account:
             await set_setting(session, RESTRICTED_SOURCES, changes.restricted_sources)
         if changes.style_factors is not None:
             await set_setting(session, STYLE_FACTORS, changes.style_factors)
+        if changes.article_pages is not None:
+            await set_setting(session, ARTICLE_PAGES, changes.article_pages)
         if changes.own_restricted_sources is not None:
             user = await update_own_restricted_sources(
                 session, user.id, changes.own_restricted_sources

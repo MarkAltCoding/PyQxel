@@ -14,11 +14,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.ai.articles import read_with_web_fetch
 from app.api import health, internal, webhooks
 from app.api.auth import authenticate
 from app.api.v1.api import api_router
 from app.api.v1.endpoints import account, password_signin, signin
 from app.core.cache import close_cache
+from app.data.articles import use_remote_reader
 from app.core.config import get_settings
 from app.core.redact import install_log_redaction, redact
 from app.core.credentials import HELD_BACK_HEADER
@@ -125,6 +127,9 @@ def create_app() -> FastAPI:
     install_log_redaction()
     settings = get_settings()
     application = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
+    # News articles are read through Anthropic's web fetch tool unless the admin lets the
+    # server read publishers' pages itself.
+    use_remote_reader(read_with_web_fetch)
     application.exception_handler(RequestValidationError)(validation_error)
     application.exception_handler(HTTPException)(http_error)
 

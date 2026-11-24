@@ -697,6 +697,20 @@ function AdminSettingsForm({
         and the screener use the market factor alone. Ken French’s data, where it is used, is not
         affected.
       </p>
+      <AdminSwitch
+        label="Read publishers’ news pages on PyQxel’s server, for every account"
+        on={admin.article_pages}
+        disabled={save.isPending}
+        onChange={(on) => save.mutate({ article_pages: on })}
+      />
+      <p className="disclaimer">
+        Off, the articles that matter most are read by Anthropic’s web fetch tool on each user’s own
+        Anthropic key, and written up in Claude’s words, so PyQxel’s server never downloads a
+        publisher’s page. On, the server reads each page itself and gives Claude the article as
+        Markdown, free and fuller, but publishers’ terms often forbid automated reading for a
+        product people pay for. Your own requests read pages directly while either switch for data
+        sources not cleared for a paid product is on, whatever this says.
+      </p>
       {save.error !== null && <ErrorNotice error={save.error} />}
     </section>
   )

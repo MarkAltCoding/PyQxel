@@ -62,9 +62,9 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
   and is cached for `ANALYSIS_CACHE_TTL_SECONDS`. `ai/external.py` builds the same
   prompt for pasting into claude.ai, and parses the answer brought back. Documents Claude
   reads are Markdown (`data/markdown.py: html_to_markdown`): SEC filing sections, and the
-  articles behind the news that matters most, read from publishers' pages by
-  `data/articles.py: with_article_texts` (a source not cleared for commercial use, gated
-  like Ken French's; public addresses only). Each report, review, and list of picks records
+  articles behind the news that matters most (`data/articles.py: with_article_texts`),
+  read by Anthropic's web fetch tool on the user's key (`ai/articles.py`, registered with
+  `use_remote_reader` at startup), or by the server itself only where `article_pages_allowed`. Each report, review, and list of picks records
   the model and the effort it was written at (`effort`, from `ANTHROPIC_EFFORT`; for a pasted analysis, the model Claude named and the `effort_used` the person noted, `ai/external.py: outside_effort`). Each wait's gathering is planned by `picks.plan_requests`, and `wait_plans` (the `/wait-plans` routes) shows what each wait would gather, by group (`picks.fetch_order`). A stock report gets what the picks get of a security through `picks.screened_security` and `security_facts`. With
   `web_search`, a report first runs `ai/web.py`: a separate, unstructured request with
   Anthropic's web search tool (structured outputs cannot carry citations), whose cited

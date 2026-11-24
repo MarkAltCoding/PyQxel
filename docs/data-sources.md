@@ -356,18 +356,19 @@ and use the first one that covers the request. "Free" means the provider's free 
 ## The articles behind the headlines
 
 Finnhub and Alpha Vantage give a story's headline, a short summary, and a link. For the
-stories that matter most (12 for a stock report; for portfolio reviews and Claude's
-Picks, two for each stock weighed, up to 60, and the five most market-moving market and
-three deal stories), PyQxel follows the link and reads the article from the publisher's
-own page (`app/data/articles.py`), keeping the story and leaving out the page's menus,
-and gives it to Claude as Markdown, cut to a length. No key is used and nothing about the
-user is sent. A page behind a paywall, one that refuses automated readers, or one with
-too little text is left at its headline and summary. Pages are read only from public
-addresses, checked at every redirect, so a link cannot reach inside the server's network.
+stories that matter most (20 for a stock report; for portfolio reviews and Claude's
+Picks, 40 to 120 shared among the stocks weighed, by how long the person will wait, and
+the five most market-moving market and three deal stories), the article itself is given
+to Claude as Markdown.
 
-Publishers' terms do not clearly allow their pages to be used in a paid product, so, like
-Ken French's library, **a commercial launch needs another arrangement**: licensed full
-text from a news provider, or Claude given the headlines and summaries alone.
+It is read by Anthropic's web fetch tool, on the user's own Anthropic key, as the web
+search is: a cheaper model (Claude Sonnet 5.5 at low effort) fetches each link and
+writes the article's facts, figures, and attributed statements in its own words, so
+PyQxel's server never downloads the publisher's page and no article's text is copied.
+Each article costs the user's key roughly two cents of tokens on Sonnet 5.5's prices. A
+provider's redirecting link (Finnhub's) is first resolved by asking Finnhub where it
+leads. A page behind a paywall, or one the tool cannot read, is left at its headline
+and summary.
 
 ## Web search for Claude's reports
 
