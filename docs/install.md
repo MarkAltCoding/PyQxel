@@ -19,9 +19,9 @@ PyQxel runs in a web browser at the hosted site, and as an app for Mac and iPhon
 
 To uninstall, drag PyQxel from Applications to the Trash. Its saved sign-in and keys on your Mac are in `~/Library/Application Support/com.markaltcoding.pyqxel`, and its pages' storage in `~/Library/WebKit/com.markaltcoding.pyqxel`, which you can delete too. Your account and saved work stay on the server until you use **Delete account** in Settings.
 
-## iPhone, or the Mac app from source
+## iPhone
 
-The iPhone app is not on the App Store yet, so you build it with Xcode and install it on your own phone. A free Apple ID works, but apps installed with one stop opening after 7 days until you install them again.
+The iPhone app is not on the App Store yet, so you build it with Xcode and install it on your own phone. A free Apple ID works, but apps installed with one stop opening after 7 days until you install them again. The [license](../LICENSE) allows this for your own use, with your PyQxel account, from the code as it is; changing the code, or sharing the app you build, needs permission.
 
 1. Install **Xcode** from the Mac App Store, open it once so it finishes installing, and in **Xcode → Settings → Components** add the iOS platform. In **Xcode → Settings → Accounts**, add your Apple ID.
 2. Get the code and prepare it. The setup script installs what is missing (Homebrew's Node.js and XcodeGen, Rust, and the app's packages), and prints your Apple ID's team ID at the end:
@@ -31,9 +31,7 @@ The iPhone app is not on the App Store yet, so you build it with Xcode and insta
    scripts/setup-xcode.sh
    ```
    If it stops, it says what to do first (such as installing [Homebrew](https://brew.sh)); then run it again.
-3. Open a new Terminal window, so it finds Rust, and go to the app's folder: `cd PyQxel/web`. Then build what you want:
-   * **The Mac app**: `npx tauri build --bundles dmg`. The `.dmg` is in `src-tauri/target/release/bundle/dmg/`, and installs as in the steps above.
-   * **The iPhone Simulator**: `npx tauri ios run "iPhone 17 Pro"` (`xcrun simctl list devices` lists the others).
+3. Open a new Terminal window, so it finds Rust, and go to the app's folder: `cd PyQxel/web`. Then, for your iPhone:
    * **Your iPhone**: connect it with a cable, unlock it, and choose **Trust** if it asks. Turn on **Settings → Privacy & Security → Developer Mode** on the phone (it restarts). Then, using the team ID the setup script printed and your phone's name from **Settings → General → About**:
      ```bash
      APPLE_DEVELOPMENT_TEAM=YOURTEAMID npx tauri ios run --release "Your iPhone"
@@ -47,20 +45,19 @@ The iPhone app is not on the App Store yet, so you build it with Xcode and insta
        ~/Library/Developer/Xcode/DerivedData/pyqxel-*/Build/Products/release-iphoneos/PyQxel.app
      ```
 
-The apps you build call the hosted PyQxel server, named in `web/.env.native`; point that at your own server to use it instead.
+The app you build calls the hosted PyQxel server, named in `web/.env.native`.
 
-**To update an app you built**, get the newest code and build it again. The app's pages are built into it, so new features appear only after a rebuild; changes on the server reach it at once.
+**To update the app you built**, get the newest code and build it again. The app's pages are built into it, so new features appear only after a rebuild; changes on the server reach it at once.
 
 ```bash
 cd PyQxel && git pull && cd web && npm install
 ```
 
-* **The Mac app**: quit PyQxel, run the same `npx tauri build --bundles dmg` and install the new `.dmg` over the old app. Your sign-in and keys are kept.
-* **Your iPhone**: with the phone connected and unlocked, one command builds and installs the new version, and opens it:
-  ```bash
-  APPLE_DEVELOPMENT_TEAM=YOURTEAMID scripts/install-iphone.sh
-  ```
-  It finds the phone itself (set `IPHONE` to its identifier from `xcrun devicectl list devices` when more than one is connected), and it also restarts the 7 days a free Apple ID's install lasts. An iPhone app cannot update itself: outside the App Store, or Apple's TestFlight for testers, installing from a Mac is the only way. Once PyQxel is on the App Store, iPhones update it like any other app.
+With the phone connected and unlocked, one command builds and installs the new version, and opens it:
+```bash
+APPLE_DEVELOPMENT_TEAM=YOURTEAMID scripts/install-iphone.sh
+```
+It finds the phone itself (set `IPHONE` to its identifier from `xcrun devicectl list devices` when more than one is connected), and it also restarts the 7 days a free Apple ID's install lasts. An iPhone app cannot update itself: outside the App Store, or Apple's TestFlight for testers, installing from a Mac is the only way. Once PyQxel is on the App Store, iPhones update it like any other app.
 
 ## Publishing a release (maintainers)
 

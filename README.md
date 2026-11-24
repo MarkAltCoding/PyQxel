@@ -4,7 +4,7 @@
 
 ### ▶ Use it on the web: **[pyqxel-kha7vnmiiq-uc.a.run.app](https://pyqxel-kha7vnmiiq-uc.a.run.app)**
 
-PyQxel runs in any browser, and as an app for [Mac](docs/install.md#mac-download-it) and [iPhone](docs/install.md#iphone-or-the-mac-app-from-source). All three sign in to the same account and show the same work. It is free to use; you bring your own data and Anthropic keys, and free plans are enough to start.
+PyQxel runs in any browser, and as an app for [Mac](docs/install.md#mac-download-it) and [iPhone](docs/install.md#iphone). All three sign in to the same account and show the same work. It is free to use; you bring your own data and Anthropic keys, and free plans are enough to start.
 
 **Author:** Mark Altreuter ([@MarkAltCoding](https://github.com/MarkAltCoding)), University of Illinois Urbana-Champaign, B.S. Computer Science
 
@@ -26,7 +26,7 @@ Every figure and chart has an "i" explaining it for a beginner, with its formula
 
 | | |
 | --- | --- |
-| [Installing the app](docs/install.md) | Mac and iPhone, updates, and building from source |
+| [Installing the app](docs/install.md) | Mac and iPhone, and updates |
 | [Features and models](docs/models.md) | How each feature works, and what Claude is given |
 | [Accounts and billing](docs/accounts-and-billing.md) | Keys, limits, and paying for the nightly refresh at cost |
 | [Data sources](docs/data-sources.md) | Which provider serves what, on free and paid plans |
@@ -41,4 +41,4 @@ Python 3.14 and FastAPI, with pandas, statsmodels, and `arch` for the models; Re
 
 Copyright (c) 2026 Mark Altreuter. All rights reserved. See [`LICENSE`](LICENSE).
 
-The code is public so that it can be read and evaluated, not reused. You may view it, and use a PyQxel instance I host through your own account, but you may not copy, modify, distribute, deploy or otherwise use the code, in whole or in part, without my written permission, which may require attribution and payment. To ask, contact me through [GitHub](https://github.com/MarkAltCoding).
+The code is public so that it can be read and evaluated, not reused. You may view it, use a PyQxel instance I host through your own account, and build the iPhone app from the unmodified code onto your own iPhone for your own use with that account, as [Installing the app](docs/install.md#iphone) describes. Otherwise, you may not copy, modify, distribute, deploy or otherwise use the code, in whole or in part, without my written permission, which may require attribution and payment. To ask, contact me through [GitHub](https://github.com/MarkAltCoding).

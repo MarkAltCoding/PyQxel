@@ -11,8 +11,16 @@ Permitted without asking:
   2. Using a running instance of PyQxel that the copyright holder hosts, through your
      own account, under the terms of that service. This grants no rights to the
      Software itself.
+  3. Building the PyQxel iPhone app from the unmodified Software, as docs/install.md
+     describes, installing it on your own iPhone, and using it yourself, for personal
+     use, through your own account on an instance the copyright holder hosts. This
+     permits only the copying and building that takes, and that use of the app as
+     built. It does not permit changing the Software (beyond the signing settings the
+     build itself writes), pointing the app at any other server, sharing or
+     distributing the app or any build of it, or any other use.
 
-Not permitted without the copyright holder's prior written permission:
+Except as item 3 permits, not permitted without the copyright holder's prior written
+permission:
 
   - copying, modifying, merging, translating or creating derivative works of the
     Software or any part of it;
