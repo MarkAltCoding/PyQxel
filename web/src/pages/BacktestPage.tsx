@@ -327,8 +327,8 @@ function strategyOf(form: Form): Strategy {
 type Mode = 'stock' | 'universe'
 
 const MODES: { value: Mode; label: string }[] = [
-  { value: 'stock', label: 'Single ticker (or two)' },
-  { value: 'universe', label: 'Across tickers' },
+  { value: 'stock', label: 'Single Ticker (or Two)' },
+  { value: 'universe', label: 'Across Tickers' },
 ]
 
 const SUBTITLES: Record<Mode, string> = {
@@ -341,8 +341,8 @@ const SUBTITLES: Record<Mode, string> = {
 type AcrossView = 'rank' | 'code'
 
 const ACROSS_VIEWS: { value: AcrossView; label: string }[] = [
-  { value: 'rank', label: 'Rank by a signal' },
-  { value: 'code', label: 'Write your own code' },
+  { value: 'rank', label: 'Rank by a Signal' },
+  { value: 'code', label: 'Write Your Own Code' },
 ]
 
 export function BacktestPage() {

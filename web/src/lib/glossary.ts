@@ -588,9 +588,9 @@ const entries = {
 
   // ── Backtests ──
   backtestMode: {
-    title: 'Single ticker (or two) or across tickers',
-    what: 'Two ways to backtest. Single ticker (or two) tests a strategy on symbols you pick: a built-in rule on one stock, ETF, or fund, or your own code on it, with Also trade adding up to 19 more for the code to move money between. Across tickers ranks a set of stocks against one another at each rebalance and holds the best, or runs code that trades every ticker it names.',
-    note: 'Pick Single ticker (or two) to time one investment or split money among a few you already know. Pick Across tickers to test a rule for choosing among many, such as “hold the three sectors that rose most last quarter”.',
+    title: 'Single Ticker (or Two) or Across Tickers',
+    what: 'Two ways to backtest. Single Ticker (or Two) tests a strategy on symbols you pick: a built-in rule on one stock, ETF, or fund, or your own code on it, with Also trade adding up to 19 more for the code to move money between. Across Tickers ranks a set of stocks against one another at each rebalance and holds the best, or runs code that trades every ticker it names.',
+    note: 'Pick Single Ticker (or Two) to time one investment or split money among a few you already know. Pick Across Tickers to test a rule for choosing among many, such as “hold the three sectors that rose most last quarter”.',
   },
   backtestPerformance: {
     title: 'Performance',

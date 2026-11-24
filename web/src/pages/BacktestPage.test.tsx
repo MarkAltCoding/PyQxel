@@ -156,14 +156,14 @@ describe('choosing what to backtest', () => {
     renderPage('/backtest')
 
     const modes = screen.getByRole('group', { name: 'What to backtest' })
-    expect(within(modes).getByRole('button', { name: 'Single ticker (or two)' })).toHaveAttribute(
+    expect(within(modes).getByRole('button', { name: 'Single Ticker (or Two)' })).toHaveAttribute(
       'aria-pressed',
       'true',
     )
-    expect(within(modes).getByRole('button', { name: 'Across tickers' })).toBeInTheDocument()
+    expect(within(modes).getByRole('button', { name: 'Across Tickers' })).toBeInTheDocument()
     expect(screen.queryByText('Single security')).not.toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'About Single ticker (or two) or across tickers' }),
+      screen.getByRole('button', { name: 'About Single Ticker (or Two) or Across Tickers' }),
     ).toBeInTheDocument()
   })
 })
@@ -575,7 +575,7 @@ describe('backtests across tickers', () => {
     })
     renderPage('/backtest')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Across tickers' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Across Tickers' }))
     const universe = screen.getByRole('textbox', { name: /Universe/ })
     await userEvent.clear(universe)
     await userEvent.type(universe, 'aaa, bbb ccc;aaa')
