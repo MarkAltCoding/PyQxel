@@ -202,13 +202,14 @@ def no_fund_filings(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def no_sec_ticker_search(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Search finds nothing on the SEC's ticker list, so no test reaches sec.gov; tests
-    of that search fake the list themselves."""
+    """Search finds nothing on the SEC's lists of company and fund tickers, so no test
+    reaches sec.gov; tests of that search fake the lists themselves."""
 
     async def nothing(query: str, limit: int) -> list[tuple[str, str]]:
         return []
 
     monkeypatch.setattr(search_route, "search_tickers", nothing)
+    monkeypatch.setattr(search_route, "search_fund_tickers", nothing)
 
 
 @pytest.fixture(autouse=True)

@@ -235,7 +235,9 @@ reads them with no key and may show them to every account (`app/data/fund_filing
 
 - **Ticker to fund:** the SEC's `company_tickers_mf.json` maps each share class to its fund
   ("series"); VOO and VFIAX are two classes of one fund. Unit investment trusts such as
-  SPY do not file N-PORT.
+  SPY do not file N-PORT. Ticker search uses it too, so a fund is found with no key; it
+  gives no names, so about fifty widely held funds are named in the code
+  (`POPULAR_FUND_NAMES`) and the rest show as "Mutual fund or ETF".
 - **Latest filing:** EDGAR's feed of the series' `NPORT-P` filings, then the filing's
   `primary_doc.xml`: every holding's name, CUSIP, value, share of net assets, kind of asset
   (stock, bond, mortgage-backed, cash) and issuer (company, Treasury, agency,

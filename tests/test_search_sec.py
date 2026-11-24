@@ -1,4 +1,5 @@
-"""Tests for searching the SEC's list of listed companies, which needs no API key."""
+"""Tests for searching the SEC's lists of listed companies and of funds, which need no
+API key."""
 
 import asyncio
 from typing import Any
@@ -7,12 +8,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import search as search_route
-from app.data import sec_edgar
+from app.data import fund_filings, sec_edgar
+from app.data.fund_filings import search_fund_tickers
 from app.data.sec_edgar import FilingFetchError, search_tickers
 from app.main import app
 from app.models.screener import SearchMatch
 
 client = TestClient(app)
+
 
 # In the SEC's order, by market value; Alphabet's other share classes come much later.
 LISTED = [
@@ -112,3 +115,82 @@ def test_search_works_when_the_sec_cannot_be_reached(monkeypatch: pytest.MonkeyP
     response = client.get("/api/v1/search", params={"q": "GOO"})
 
     assert response.status_code == 200 and response.json()["items"] == []
+
+
+FUND_TICKERS = {"VOO": "S000002839", "VOOG": "S000002840", "VTI": "S000002848", "VTIP": "S1"}
+
+
+@pytest.fixture
+def fund_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def tickers(client: Any) -> dict[str, str]:
+        return FUND_TICKERS
+
+    class Client:
+        async def __aenter__(self) -> "Client":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    monkeypatch.setattr(fund_filings, "_fund_tickers", tickers)
+    monkeypatch.setattr(fund_filings, "edgar_client", Client)
+
+
+@pytest.mark.usefixtures("fund_list")
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("VOO", [("VOO", "Vanguard S&P 500 ETF"), ("VOOG", "Mutual fund or ETF")]),
+        ("vti", [("VTI", "Vanguard Total Stock Market ETF"), ("VTIP", "Mutual fund or ETF")]),
+        # A widely held fund is found by its name, even off the SEC's list.
+        (
+            "total stock",
+            [
+                ("VTI", "Vanguard Total Stock Market ETF"),
+                ("VTSAX", "Vanguard Total Stock Market Index Fund Admiral Shares"),
+            ],
+        ),
+    ],
+)
+def test_funds_are_found_by_ticker_and_by_a_known_name(
+    query: str, expected: list[tuple[str, str]]
+) -> None:
+    assert asyncio.run(search_fund_tickers(query, 10)) == expected
+
+
+def test_an_exact_fund_ticker_comes_first_however_many_companies_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Typing VTI finds the Vanguard fund before Virtuix (VTIX), a company."""
+
+    async def companies(query: str, limit: int) -> list[tuple[str, str]]:
+        return [("VTIX", "Virtuix Holdings Inc.")]
+
+    async def funds(query: str, limit: int) -> list[tuple[str, str]]:
+        return [("VTI", "Vanguard Total Stock Market ETF"), ("VTIP", "Mutual fund or ETF")]
+
+    monkeypatch.setattr(search_route, "search_tickers", companies)
+    monkeypatch.setattr(search_route, "search_fund_tickers", funds)
+
+    items = client.get("/api/v1/search", params={"q": "VTI"}).json()["items"]
+
+    assert [m["symbol"] for m in items] == ["VTI", "VTIX", "VTIP"]
+
+
+def test_an_exact_ticker_is_looked_up_even_when_the_universe_fills_the_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ten universe stocks start with VO, yet VO itself, a fund, is still found."""
+
+    async def universe(session: Any, query: str, limit: int, details: bool) -> list[SearchMatch]:
+        return [SearchMatch(symbol=f"VO{chr(65 + i)}", name="A company") for i in range(limit)]
+
+    async def funds(query: str, limit: int) -> list[tuple[str, str]]:
+        return [("VO", "Vanguard Mid-Cap ETF")]
+
+    monkeypatch.setattr(search_route, "search_stocks", universe)
+    monkeypatch.setattr(search_route, "search_fund_tickers", funds)
+
+    items = client.get("/api/v1/search", params={"q": "VO"}).json()["items"]
+
+    assert items[0]["symbol"] == "VO" and len(items) == 10

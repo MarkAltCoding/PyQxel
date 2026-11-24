@@ -1,5 +1,5 @@
 """Stock search by symbol or company name, over the screened universe, Finnhub's US
-listings with a Finnhub key, and the SEC's list of listed companies."""
+listings with a Finnhub key, and the SEC's lists of listed companies and of funds."""
 
 import logging
 from typing import Annotated
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.data.fetcher import DataFetchError, finnhub_key
 from app.data.finnhub import search_symbols
+from app.data.fund_filings import search_fund_tickers
 from app.data.sec_edgar import FilingFetchError, search_tickers
 from app.db.screener import search_stocks, shows_universe
 from app.db.session import get_session
@@ -34,15 +35,30 @@ async def _finnhub_matches(query: str, limit: int) -> list[SearchMatch]:
 
 
 async def _sec_matches(query: str, limit: int) -> list[SearchMatch]:
-    """Matches on the SEC's list of listed companies, which needs no key; none when it
-    cannot be read."""
+    """Matches on the SEC's lists of listed companies and of fund tickers, which need no
+    key: an exact ticker from either first, then companies, then funds; none from a list
+    that cannot be read."""
     try:
-        found = await search_tickers(query, limit)
+        companies = await search_tickers(query, limit)
     except FilingFetchError as exc:
         logger.info("SEC ticker search for %r failed: %s", query, exc)
-        return []
-    # EDGAR writes share classes with a dash (BRK-B), as the app's routes take them.
-    return [SearchMatch(symbol=ticker, name=name, source="sec") for ticker, name in found]
+        companies = []
+    try:
+        funds = await search_fund_tickers(query, limit)
+    except FilingFetchError as exc:
+        logger.info("SEC fund ticker search for %r failed: %s", query, exc)
+        funds = []
+    wanted = query.strip().upper()
+    seen: set[str] = set()
+    matches: list[SearchMatch] = []
+    exact = [m for m in [*companies, *funds] if m[0] == wanted]
+    for ticker, name in [*exact, *companies, *funds]:
+        if ticker in seen:
+            continue
+        seen.add(ticker)
+        # EDGAR writes share classes with a dash (BRK-B), as the app's routes take them.
+        matches.append(SearchMatch(symbol=ticker, name=name, source="sec"))
+    return matches[:limit]
 
 
 @router.get("", response_model=SearchResponse, summary="Search stocks")
@@ -78,7 +94,10 @@ async def search(
         # "Spy" in them.
         known = {item.symbol for item in items or []}
         extra = [m for m in await _finnhub_matches(q, limit) if m.symbol not in known]
-        if len(known) + len(extra) < limit:
+        # The SEC's lists fill any room left, and are asked for the exact ticker even when
+        # there is none, as for VO among the many tickers starting with it.
+        found_exact = any(m.symbol == wanted for m in extra)
+        if len(known) + len(extra) < limit or not found_exact:
             known |= {m.symbol for m in extra}
             extra += [m for m in await _sec_matches(q, limit) if m.symbol not in known]
         if items is None and not extra:

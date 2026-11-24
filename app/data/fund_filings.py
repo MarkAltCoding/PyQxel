@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 
 from app.core.cache import cache_get, cache_set
 from app.data.fetcher import DataFetchError, SymbolNotFoundError
-from app.data.sec_edgar import edgar_client, edgar_get
+from app.data.sec_edgar import edgar_client, edgar_errors, edgar_get
 from app.models.stock import FundBonds
 
 logger = logging.getLogger(__name__)
@@ -111,9 +111,8 @@ _filings: dict[str, tuple[float, FundFiling]] = {}
 """Series ID -> (time read, summary), for deployments without Redis."""
 
 
-async def fund_series(symbol: str, client: httpx2.AsyncClient) -> str | None:
-    """The SEC series ID of the fund ``symbol`` is a share class of; ``None`` when it is
-    not on the SEC's list of fund tickers (a stock, or a trust such as SPY)."""
+async def _fund_tickers(client: httpx2.AsyncClient) -> dict[str, str]:
+    """The SEC's list of fund tickers, each with its series ID. Read once a day."""
     global _tickers
     if _tickers is None or time.monotonic() - _tickers[0] > FUND_TICKERS_TTL_SECONDS:
         payload = (await edgar_get(client, FUND_TICKERS_URL)).json()
@@ -126,7 +125,95 @@ async def fund_series(symbol: str, client: httpx2.AsyncClient) -> str | None:
             except IndexError, KeyError, TypeError:
                 continue
         _tickers = (time.monotonic(), found)
-    return _tickers[1].get(symbol.strip().upper())
+    return _tickers[1]
+
+
+async def fund_series(symbol: str, client: httpx2.AsyncClient) -> str | None:
+    """The SEC series ID of the fund ``symbol`` is a share class of; ``None`` when it is
+    not on the SEC's list of fund tickers (a stock, or a trust such as SPY)."""
+    return (await _fund_tickers(client)).get(symbol.strip().upper())
+
+
+POPULAR_FUND_NAMES: dict[str, str] = {
+    "VOO": "Vanguard S&P 500 ETF",
+    "IVV": "iShares Core S&P 500 ETF",
+    "VTI": "Vanguard Total Stock Market ETF",
+    "QQQ": "Invesco QQQ Trust (Nasdaq-100)",
+    "QQQM": "Invesco Nasdaq 100 ETF",
+    "VUG": "Vanguard Growth ETF",
+    "VTV": "Vanguard Value ETF",
+    "VEA": "Vanguard FTSE Developed Markets ETF",
+    "VWO": "Vanguard FTSE Emerging Markets ETF",
+    "VXUS": "Vanguard Total International Stock ETF",
+    "VT": "Vanguard Total World Stock ETF",
+    "VIG": "Vanguard Dividend Appreciation ETF",
+    "VYM": "Vanguard High Dividend Yield ETF",
+    "VNQ": "Vanguard Real Estate ETF",
+    "VGT": "Vanguard Information Technology ETF",
+    "VB": "Vanguard Small-Cap ETF",
+    "VO": "Vanguard Mid-Cap ETF",
+    "BND": "Vanguard Total Bond Market ETF",
+    "BNDX": "Vanguard Total International Bond ETF",
+    "VTEB": "Vanguard Tax-Exempt Bond ETF",
+    "AGG": "iShares Core US Aggregate Bond ETF",
+    "IEFA": "iShares Core MSCI EAFE ETF",
+    "IEMG": "iShares Core MSCI Emerging Markets ETF",
+    "IJH": "iShares Core S&P Mid-Cap ETF",
+    "IJR": "iShares Core S&P Small-Cap ETF",
+    "IWM": "iShares Russell 2000 ETF",
+    "IWF": "iShares Russell 1000 Growth ETF",
+    "IWD": "iShares Russell 1000 Value ETF",
+    "TLT": "iShares 20+ Year Treasury Bond ETF",
+    "SHY": "iShares 1-3 Year Treasury Bond ETF",
+    "TIP": "iShares TIPS Bond ETF",
+    "LQD": "iShares iBoxx Investment Grade Corporate Bond ETF",
+    "SCHD": "Schwab US Dividend Equity ETF",
+    "SCHX": "Schwab US Large-Cap ETF",
+    "SCHB": "Schwab US Broad Market ETF",
+    "SCHF": "Schwab International Equity ETF",
+    "SPLG": "SPDR Portfolio S&P 500 ETF",
+    "RSP": "Invesco S&P 500 Equal Weight ETF",
+    "ARKK": "ARK Innovation ETF",
+    "XLK": "Technology Select Sector SPDR Fund",
+    "XLF": "Financial Select Sector SPDR Fund",
+    "XLE": "Energy Select Sector SPDR Fund",
+    "XLV": "Health Care Select Sector SPDR Fund",
+    "VFIAX": "Vanguard 500 Index Fund Admiral Shares",
+    "VTSAX": "Vanguard Total Stock Market Index Fund Admiral Shares",
+    "FXAIX": "Fidelity 500 Index Fund",
+    "FZROX": "Fidelity ZERO Total Market Index Fund",
+    "SWPPX": "Schwab S&P 500 Index Fund",
+    "SPAXX": "Fidelity Government Money Market Fund",
+    "VMFXX": "Vanguard Federal Money Market Fund",
+}
+"""Names of some of the most widely held funds, which the SEC's list of fund tickers
+gives none for, so a search by name ("Vanguard", "S&P 500") finds them."""
+
+FUND_NAME_UNKNOWN: str = "Mutual fund or ETF"
+"""What a fund on the SEC's list is called when its name is not known here."""
+
+
+async def search_fund_tickers(query: str, limit: int) -> list[tuple[str, str]]:
+    """Up to ``limit`` funds whose ticker is or starts with ``query``, or a widely held
+    fund whose name contains it, as ``(ticker, name)``: the exact ticker first, then the
+    shortest tickers. Needs no API key.
+
+    Raises:
+        FilingFetchError: If the SEC's list of fund tickers cannot be fetched.
+    """
+    text = query.strip().upper()
+    if not text:
+        return []
+    async with edgar_client() as client:
+        with edgar_errors("the SEC's list of fund tickers"):
+            tickers = await _fund_tickers(client)
+    by_ticker = [t for t in tickers if t.startswith(text)]
+    by_name = [t for t, name in POPULAR_FUND_NAMES.items() if text in name.upper()]
+    ranked = sorted(
+        set(by_ticker) | set(by_name),
+        key=lambda t: (t != text, t not in POPULAR_FUND_NAMES, t not in by_ticker, len(t), t),
+    )
+    return [(t, POPULAR_FUND_NAMES.get(t, FUND_NAME_UNKNOWN)) for t in ranked[:limit]]
 
 
 def _number(text: str | None) -> float | None:
