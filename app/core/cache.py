@@ -238,9 +238,13 @@ async def check_cache() -> Literal["ok", "unavailable", "not_configured"]:
 
 
 async def close_cache() -> None:
-    """Close the Redis connection pool, if one was opened."""
+    """Close the Redis connection pool, if one was opened; a Redis that is down or out of
+    its plan's commands does not stop the app from shutting down."""
     global _client, _configured
     if _client is not None:
-        await _client.aclose()
+        try:
+            await _client.aclose()
+        except (RedisError, OSError) as exc:
+            logger.warning("Redis could not be closed cleanly: %s", exc)
     _client = None
     _configured = False
