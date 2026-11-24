@@ -34,8 +34,8 @@ FastAPI, async throughout. A request runs **endpoint → `data/` fetch → `stat
   come first from the SEC's industry code (`_fill_from_sec`), with no key. Providers:
   Tiingo, FMP, EODHD, Finnhub, Alpha Vantage. `web/src/lib/keyCoverage.ts` mirrors the order
   for Settings, and a test checks they match. Results
-  are cached in Redis when `REDIS_URL` is set (`core/cache.py`); without it every lookup
-  goes to the provider. Daily bars for a signed-in user go through their stored price
+  are cached in each process's memory, and also in Redis when `REDIS_URL` is set
+  (`core/cache.py`), which only shares them across instances. Daily bars for a signed-in user go through their stored price
   history (`db/price_store.py`): fetched ten years back once, then only the days since,
   sliced for every window, and served when a key is out (`HISTORY_STALE`); a history a
   plan cut short carries `HISTORY_SHORTFALL`, and backtests refuse it with 409

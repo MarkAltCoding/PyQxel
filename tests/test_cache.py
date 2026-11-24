@@ -3,6 +3,8 @@
 Redis is replaced with ``fakeredis`` so no test needs a server.
 """
 
+import asyncio
+
 import pytest
 from fakeredis import FakeAsyncRedis, FakeServer
 from pydantic import SecretStr
@@ -135,3 +137,24 @@ async def test_rate_limits_are_shared_across_instances() -> None:
     await check_rate_limit("shared-user", 2, now=now)
     with pytest.raises(RateLimitExceeded):
         await check_rate_limit("shared-user", 2, now=now)
+
+
+def test_the_memory_tier_serves_repeats_without_redis_and_lets_old_values_go(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core import cache
+
+    cache.configure_cache(None, memory=True)
+    monkeypatch.setattr(cache, "MEMORY_MAX_BYTES", 10)
+    clock = [100.0]
+    monkeypatch.setattr("app.core.cache.time.monotonic", lambda: clock[0])
+    try:
+        asyncio.run(cache.cache_set("a", "12345", 60))
+        asyncio.run(cache.cache_set("b", "67890", 60))
+        assert asyncio.run(cache.cache_get("a")) == "12345"
+        asyncio.run(cache.cache_set("c", "xyz", 60))  # Over 10: "b", least recent, goes.
+        assert asyncio.run(cache.cache_get("b")) is None
+        clock[0] += 61
+        assert asyncio.run(cache.cache_get("a")) is None, "expired"
+    finally:
+        cache.configure_cache(None)

@@ -1,9 +1,13 @@
-"""Optional Redis cache shared by every worker process and every instance.
+"""The cache of data fetched from providers: in this process's memory, and in Redis too
+when ``REDIS_URL`` is set.
 
-Caching is enabled by setting ``REDIS_URL``, e.g. an Upstash ``rediss://`` URL. Without
-it, or while Redis is unreachable, every lookup is a miss and every store is skipped, so
-callers fall through to their data provider. After a Redis error the cache stays off for
-:data:`RETRY_AFTER_SECONDS` rather than making each request wait out a timeout.
+Every value is kept in memory, up to :data:`MEMORY_MAX_BYTES`, the least recently used
+leaving first, so one instance serves a repeated lookup without asking its provider again
+whether or not Redis is there. Redis, e.g. an Upstash ``rediss://`` URL, is optional: it
+shares the cache, and the counters of rate limits and Finnhub's minute, among instances
+and keeps them across restarts, which matters only with several instances running. Without
+it, or while Redis is unreachable, the memory alone serves. After a Redis error, Redis is
+left out for :data:`RETRY_AFTER_SECONDS` rather than making each request wait out a timeout.
 
 Hosted Redis such as Upstash closes connections left idle, as they are whenever traffic
 pauses. Idle connections are checked before reuse, and a command that finds its
@@ -14,6 +18,7 @@ Values are stored as JSON text; callers serialize and parse their own types.
 
 import logging
 import time
+from collections import OrderedDict
 from typing import Literal
 
 from redis.asyncio import Redis
@@ -42,20 +47,77 @@ CONNECT_TIMEOUT_SECONDS: float = 1.5
 HEALTH_CHECK_INTERVAL_SECONDS: int = 30
 """Connections idle longer than this are pinged before reuse."""
 
+MEMORY_MAX_BYTES: int = 192 * 1024 * 1024
+"""Most text the memory tier holds, in characters: a small share of an instance's 2 GiB,
+room for thousands of price histories and statements."""
+
+_memory: OrderedDict[str, tuple[float, str]] = OrderedDict()
+"""Key -> (when it expires, by the monotonic clock; the text), least recently used first."""
+
+_memory_size: int = 0
+
+_memory_on: bool = True
+"""Whether the memory tier is used; only tests turn it off."""
+
+
+def _remember(key: str, value: str, ttl_seconds: float) -> None:
+    """Keep ``value`` in memory for ``ttl_seconds``, making room by dropping the least
+    recently used; a value larger than the whole tier is not kept."""
+    global _memory_size
+    _forget(key)
+    if not _memory_on or len(value) > MEMORY_MAX_BYTES:
+        return
+    _memory[key] = (time.monotonic() + ttl_seconds, value)
+    _memory_size += len(value)
+    while _memory_size > MEMORY_MAX_BYTES and _memory:
+        _, (_, dropped) = _memory.popitem(last=False)
+        _memory_size -= len(dropped)
+
+
+def _forget(key: str) -> None:
+    global _memory_size
+    old = _memory.pop(key, None)
+    if old is not None:
+        _memory_size -= len(old[1])
+
+
+def _recall(key: str) -> str | None:
+    """The text kept in memory under ``key``, or ``None`` when missing or expired."""
+    found = _memory.get(key)
+    if found is None:
+        return None
+    if found[0] <= time.monotonic():
+        _forget(key)
+        return None
+    _memory.move_to_end(key)
+    return found[1]
+
+
+def clear_memory_cache() -> None:
+    """Forget everything kept in memory, for tests."""
+    global _memory_size
+    _memory.clear()
+    _memory_size = 0
+
+
 _client: Redis | None = None
 _configured: bool = False
 _disabled_until: float = 0.0
 
 
-def configure_cache(client: Redis | None) -> None:
-    """Use ``client`` for caching, or disable caching when ``None``.
+def configure_cache(client: Redis | None, memory: bool = False) -> None:
+    """Use ``client`` for caching, or no Redis when ``None``, and the memory tier only
+    with ``memory``: tests configure the cache this way, and see exactly the caching
+    they ask for. The app itself configures from settings, with the memory tier on.
 
     Replaces any client created from settings; the previous client is not closed.
     """
-    global _client, _configured, _disabled_until
+    global _client, _configured, _disabled_until, _memory_on
     _client = client
     _configured = True
     _disabled_until = 0.0
+    _memory_on = memory
+    clear_memory_cache()
 
 
 def _get_client() -> Redis | None:
@@ -96,7 +158,11 @@ def _trip(operation: str, key: str, exc: RedisError) -> None:
 
 
 async def cache_get(key: str) -> str | None:
-    """Return the text cached under ``key``, or ``None`` on a miss or when caching is off."""
+    """Return the text cached under ``key``, from memory, else Redis (kept in memory for
+    a minute after), or ``None`` on a miss."""
+    found = _recall(key)
+    if found is not None:
+        return found
     client = _get_client()
     if client is None:
         return None
@@ -105,11 +171,21 @@ async def cache_get(key: str) -> str | None:
     except RedisError as exc:
         _trip("read", key, exc)
         return None
-    return value if isinstance(value, str) or value is None else value.decode()
+    text = value if isinstance(value, str) or value is None else value.decode()
+    if text is not None:
+        # Its remaining lifetime is Redis's to know; a minute keeps repeats local.
+        _remember(key, text, SHARED_RECALL_SECONDS)
+    return text
+
+
+SHARED_RECALL_SECONDS: float = 60.0
+"""How long a value found in Redis is also kept in memory."""
 
 
 async def cache_set(key: str, value: str, ttl_seconds: float) -> None:
-    """Cache ``value`` under ``key`` for ``ttl_seconds``; a no-op when caching is off."""
+    """Cache ``value`` under ``key`` for ``ttl_seconds``, in memory and, when it is set,
+    in Redis."""
+    _remember(key, value, ttl_seconds)
     client = _get_client()
     if client is None:
         return

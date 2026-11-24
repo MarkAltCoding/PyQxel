@@ -65,7 +65,7 @@
 
    AI analyses are stored in the same database, so you only pay for a report once. For 24 hours (`ANALYSIS_CACHE_TTL_SECONDS`), your request with the same symbol, `kind`, `period`, and `include_filings`, under the same model and effort, gets the stored report back without fetching data or calling Claude. Identical requests that arrive at the same time are written once. Reused reports have `"cached": true` and keep their original `generated_at`; send `"refresh": true` to pay for a new one. Every report stays readable for free: list them with `GET /api/v1/analyses` (filter by `symbol` or `kind`) and fetch one with `GET /api/v1/analyses/{id}`. Each analysis also gives Claude the stock's Carhart factor exposures and its fundamentals and valuation (see below), so reports can say how much of its risk is market, size, value, or momentum, and weigh the price against the company's earnings and cash flow.
 
-   Set `REDIS_URL` (e.g. `redis://localhost:6379/0`, or an [Upstash](https://upstash.com) `rediss://` URL) to share caches and rate limits between every worker and every instance: ticker info and price history for 5 minutes (1 minute for intraday bars), exchange rates, factor data, and normalized financials, and each account's per-minute request count. Without Redis, or while it is down, those requests go straight to the data providers and each process counts requests on its own. Quotes stay cached for 5 seconds in each process, and the SEC's ticker list for a day, since sharing them would cost more Redis commands than the provider requests it saves.
+   Every lookup is cached in the process's memory (192 MB at most, the least recently used leaving first): ticker info and price history for 5 minutes (1 minute for intraday bars), exchange rates, factor data, and normalized financials. Rate limits and Finnhub's per-minute pacing are counted in memory too. Set `REDIS_URL` (e.g. `redis://localhost:6379/0`, or an [Upstash](https://upstash.com) `rediss://` URL) only to share those caches and counts among several instances; with one instance, or two at most as deployed, it adds little, and a Redis outage changes nothing but that sharing.
 
 6. **Run the Web App**:
    ```bash
@@ -110,7 +110,7 @@ The images include the built web frontend, at `http://localhost:8000`. The `Dock
 Neither needs an API key, and neither reveals error details.
 
 * `GET /health` is a liveness check: it answers whenever the process does, so a database outage does not get the API restarted. The images' Docker health check calls it.
-* `GET /health/ready` is a readiness check: it reports `database` (`ok`, `unavailable`, or `outdated` when migrations are pending), `redis` (`ok`, `unavailable`, or `not_configured`) and `r` (`ok`, `unavailable`, or `not_started`). It returns 503 with `"status": "unavailable"` when the database cannot serve, so load balancers send traffic elsewhere until it recovers. Redis and R are optional: a Redis outage only marks the service `degraded`, since caching then stops and rate limits are counted per process.
+* `GET /health/ready` is a readiness check: it reports `database` (`ok`, `unavailable`, or `outdated` when migrations are pending), `redis` (`ok`, `unavailable`, or `not_configured`) and `r` (`ok`, `unavailable`, or `not_started`). It returns 503 with `"status": "unavailable"` when the database cannot serve, so load balancers send traffic elsewhere until it recovers. Redis and R are optional: a Redis outage only marks the service `degraded`, since each instance then caches and counts rate limits in its own memory.
 
 ### Google Cloud Run
 
@@ -118,13 +118,13 @@ Neither needs an API key, and neither reveals error details.
 
 One-time setup:
 1. Create a [Google Cloud project](https://console.cloud.google.com/projectcreate) and link a billing account (required even within the free tier), then [set a budget alert](https://console.cloud.google.com/billing/budgets) of a dollar or two. Install the [gcloud CLI](https://cloud.google.com/sdk/docs/install) and run `gcloud auth login`.
-2. Create a free Neon project and copy its **pooled** connection string (the host contains `-pooler`). Then create an Upstash Redis database in the same region as Cloud Run, turn on **Eviction** in its settings so a full database drops old entries instead of refusing new ones, and copy its `rediss://` URL. Redis is optional, but without it each instance keeps its own caches and counts rate limits on its own, so with two instances an account could make twice `RATE_LIMIT_PER_MINUTE`. Every API request spends a few Redis commands on its rate limit, so check that the plan's command allowance covers your traffic.
+2. Create a free Neon project and copy its **pooled** connection string (the host contains `-pooler`). Redis is optional and best left out at this size: each instance caches in its own memory, and only with two instances running at once could an account make up to twice `RATE_LIMIT_PER_MINUTE`. To share caches among many instances, create an Upstash Redis database in the same region as Cloud Run, turn on **Eviction** so a full database drops old entries instead of refusing new ones, and copy its `rediss://` URL; every API request then spends a few Redis commands on its rate limit, so check that the plan's command allowance covers your traffic.
 3. Store the secrets. Each command waits for you to paste the value and press Ctrl-D, so it never lands in your shell history:
    ```bash
    gcloud config set project YOUR_PROJECT_ID
    gcloud services enable secretmanager.googleapis.com
    gcloud secrets create pyqxel-database-url --data-file=-      # the Neon URL
-   gcloud secrets create pyqxel-redis-url --data-file=-         # the Upstash rediss:// URL
+   gcloud secrets create pyqxel-redis-url --data-file=-         # optional: an Upstash rediss:// URL
    gcloud secrets create pyqxel-screener-fmp-key --data-file=-  # the screener's licensed FMP key
    venv/bin/python -m app.jobs.users generate-encryption-key | \
      gcloud secrets create pyqxel-credentials-key --data-file=-  # for nightly refreshes, if missing
