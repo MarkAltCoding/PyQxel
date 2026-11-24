@@ -1,11 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { INFO, type InfoKey } from '../lib/glossary'
+import { INFO, type Info, type InfoKey } from '../lib/glossary'
 
 /**
  * A small "i" beside a stat, model, or chart that explains it. Hovering opens the
- * explanation until the cursor leaves both the "i" and the box; clicking pins it open
- * until the "i" is clicked again. Keyboard focus opens it too, and Escape closes it.
+ * explanation until the cursor leaves both the "i" and the box; clicking pins it open,
+ * with its full detail, until the "i" is clicked again. Keyboard focus opens it too, and Escape closes it.
  *
  * The box is drawn at the end of the page, placed under its "i", so a table or card that
  * scrolls sideways neither cuts it off nor grows a scrollbar to make room for it.
@@ -108,23 +108,94 @@ export function InfoTip({
                 : { top: 0, left: 0, visibility: 'hidden' }
             }
           >
-            <strong>{entry.title}</strong>
-            <p>{entry.what}</p>
-            {entry.good && (
-              <p>
-                <span className="info-tip-good">Good:</span> {entry.good}
-              </p>
-            )}
-            {entry.bad && (
-              <p>
-                <span className="info-tip-bad">Watch for:</span> {entry.bad}
-              </p>
-            )}
-            {children}
-            {entry.note && <p className="info-tip-note">{entry.note}</p>}
+            <TipContent entry={entry} full={pinned}>
+              {children}
+            </TipContent>
           </div>,
           document.body,
         )}
     </span>
+  )
+}
+
+/**
+ * A formula, with `_x` or `_{text}` as a subscript and `^x` or `^{text}` as a superscript;
+ * each line of `text` is a line of the formula.
+ */
+function Formula({ text }: { text: string }) {
+  return (
+    <div className="info-tip-formula">
+      {text.split('\n').map((line, index) => (
+        <div key={index} className={index > 0 ? 'info-tip-formula-where' : undefined}>
+          {scripted(line)}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function scripted(line: string): ReactNode[] {
+  const parts: ReactNode[] = []
+  const pattern = /([_^])(?:\{([^}]*)\}|([^\s{}]))/g
+  let last = 0
+  for (const match of line.matchAll(pattern)) {
+    const index = match.index ?? 0
+    if (index > last) parts.push(line.slice(last, index))
+    const content = match[2] ?? match[3]
+    parts.push(
+      match[1] === '_' ? <sub key={index}>{content}</sub> : <sup key={index}>{content}</sup>,
+    )
+    last = index + match[0].length
+  }
+  if (last < line.length) parts.push(line.slice(last))
+  return parts
+}
+
+/**
+ * What the box says. It mounts each time the box opens, so "More" starts folded. A box
+ * pinned open by a click or the keyboard shows everything at once, since focus cannot
+ * reach a button inside it.
+ */
+function TipContent({
+  entry,
+  full,
+  children,
+}: {
+  entry: Info
+  full: boolean
+  children?: ReactNode
+}) {
+  const [asked, setAsked] = useState(false)
+  const showMore = full || asked
+  return (
+    <>
+      <strong className="info-tip-title">{entry.title}</strong>
+      <p>{entry.what}</p>
+      {entry.formula && <Formula text={entry.formula} />}
+      {entry.good && (
+        <p className="info-tip-range">
+          <span className="info-tip-good">Good:</span> {entry.good}
+        </p>
+      )}
+      {entry.bad && (
+        <p className="info-tip-range">
+          <span className="info-tip-bad">Watch for:</span> {entry.bad}
+        </p>
+      )}
+      {children}
+      {entry.note && <p className="info-tip-note">{entry.note}</p>}
+      {entry.more &&
+        (showMore ? (
+          <p className="info-tip-note">{entry.more}</p>
+        ) : (
+          <button
+            type="button"
+            className="read-more-toggle info-tip-more"
+            onClick={() => setAsked(true)}
+          >
+            More
+          </button>
+        ))}
+    </>
   )
 }

@@ -2116,16 +2116,16 @@ li code {
      chart canvases, yet below the sticky top bar, so it never covers the bar. */
   position: absolute;
   z-index: 10;
-  width: min(320px, calc(100vw - 32px));
-  /* The padding bridges the gap to the "i", so the cursor can move into the box. */
+  width: min(340px, calc(100vw - 32px));
+  /* No gap under the "i", so the cursor can move into the box without closing it. */
   margin-top: 0;
-  padding: 14px 12px 10px;
+  padding: 12px 14px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius);
   background: var(--surface-raised) padding-box;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
   color: var(--text-primary);
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   font-weight: 400;
   font-style: normal;
   line-height: 1.45;
@@ -2135,8 +2135,41 @@ li code {
   white-space: normal;
 }
 
+.info-tip-title {
+  display: block;
+  font-size: 0.9rem;
+}
+
 .info-tip-box p {
   margin: 6px 0 0;
+}
+
+/* A formula, set like mathematics, on a sunken band so it reads apart from the words. */
+.info-tip-formula {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-small);
+  background: var(--surface-sunken);
+  font-family: 'Cambria Math', 'STIX Two Math', 'Latin Modern Math', Georgia, serif;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+.info-tip-formula sub,
+.info-tip-formula sup {
+  font-size: 0.72em;
+  line-height: 0;
+}
+
+.info-tip-formula-where {
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 0.78rem;
+}
+
+.info-tip-range {
+  font-size: 0.82rem;
 }
 
 .info-tip-good {
@@ -2151,6 +2184,12 @@ li code {
 
 .info-tip-note {
   color: var(--text-secondary);
+}
+
+.info-tip-more {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.82rem;
 }
 
 /* ── Confirmation dialogs ── */

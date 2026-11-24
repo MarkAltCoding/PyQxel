@@ -73,4 +73,39 @@ describe('the glossary', () => {
       expect(entry.what.length, key).toBeGreaterThan(20)
     }
   })
+
+  it('keeps what shows at a glance short, with longer detail under More', () => {
+    for (const [key, entry] of Object.entries(INFO) as [InfoKey, (typeof INFO)[InfoKey]][]) {
+      expect(entry.what.length, key).toBeLessThanOrEqual(200)
+      expect((entry.good ?? '').length, key).toBeLessThanOrEqual(200)
+      expect((entry.bad ?? '').length, key).toBeLessThanOrEqual(200)
+      expect((entry.note ?? '').length, key).toBeLessThanOrEqual(160)
+    }
+  })
+})
+
+describe('the explanation box', () => {
+  it('sets a formula with its subscripts, and keeps the detail behind More', async () => {
+    render(<InfoTip topic="sharpe" />)
+    await userEvent.hover(button())
+
+    const formula = box()!.querySelector('.info-tip-formula')!
+    expect(formula).toHaveTextContent('Sharpe = mean(r − rf) ÷ stdev(r) × √252')
+    expect(formula.querySelector('sub')).toHaveTextContent('f')
+  })
+
+  it('shows the detail on More, and all of it when pinned', async () => {
+    render(<InfoTip topic="webSearch" />)
+    const tip = () => screen.getByRole('button', { name: 'About Let Claude search the web' })
+
+    await userEvent.hover(tip())
+    expect(box()).not.toHaveTextContent('about 1 cent per search')
+    await userEvent.click(screen.getByRole('button', { name: 'More' }))
+    expect(box()).toHaveTextContent('about 1 cent per search')
+
+    await userEvent.unhover(tip())
+    await userEvent.click(tip())
+    expect(box()).toHaveTextContent('about 1 cent per search')
+    expect(screen.queryByRole('button', { name: 'More' })).not.toBeInTheDocument()
+  })
 })
