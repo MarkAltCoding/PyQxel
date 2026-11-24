@@ -24,8 +24,8 @@ from App Store Connect when the app is submitted should be updated here too.
    iPhone install cannot submit.
 2. **Turn on Sign in with Apple.** Guideline 4.8 requires an option such as Sign in with
    Apple in an app that offers Google sign-in; PyQxel's own email and password do not
-   count, since the guideline asks for a login service that can hide the email address. The README's *Signing in with GitHub and
-   Google* section lists the Services ID, key, and the five settings it takes.
+   count, since the guideline asks for a login service that can hide the email address.
+   [Setup](setup.md#signing-in-with-github-and-google) lists the five settings it takes.
 3. **Register the app**: the App ID `com.markaltcoding.pyqxel` in the developer portal, then
    one App Store Connect record for iOS and macOS (one record covers both platforms).
 4. **Version numbers**: `version` in `tauri.conf.json` (`0.1.0` now) becomes both the

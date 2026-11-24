@@ -1,69 +1,40 @@
-# PyQxel: AI-Powered Quantitative and Fundamental Equity Research
+# PyQxel
 
-An AI-native research and quantitative analysis platform that helps investors choose the right securities. It combines equity analysis, statistical modeling, factor research, and automated thesis generation so an investor can see what drives a security's returns, how much risk it carries, and how it would behave alongside the rest of a portfolio before buying it. Built with a high-performance Python engine, specialized R statistical subroutines, and an API-first architecture designed for seamless deployment across macOS (MacBook) and iOS (iPhone).
+**Investment research for choosing what to buy, with Claude doing the reading.**
 
-**Author:** Mark Altreuter ([@MarkAltCoding](https://github.com/MarkAltCoding))  
-**Institution:** University of Illinois Urbana-Champaign (UIUC), B.S. Computer Science  
+### ▶ Use it on the web: **[pyqxel-kha7vnmiiq-uc.a.run.app](https://pyqxel-kha7vnmiiq-uc.a.run.app)**
 
----
+PyQxel runs in any browser, and as an app for [Mac](docs/install.md#mac-download-it) and [iPhone](docs/install.md#iphone-or-the-mac-app-from-source). All three sign in to the same account and show the same work. It is free to use; you bring your own data and Anthropic keys, and free plans are enough to start.
 
-## Key Features
-
-* **AI-Assisted Fundamental Research**: Automated ingestion of financial filings, earnings call transcripts, and news feeds using LLM agents (Claude / Anthropic API) to synthesize actionable investment theses and downside risk factors.
-* **Quantitative & Econometric Modeling**: Hybrid Python and R statistical architecture leveraging time-series analysis, GARCH models, multi-factor risk regression, and Monte Carlo portfolio simulation.
-* **Automated Stock Screening & Backtesting**: Vectorized backtesting framework for custom long/short equity strategies, technical indicator analysis, and performance attribution (Sharpe, Sortino, Max Drawdown).
-* **Cross-Platform API Architecture**: Lightweight, high-throughput RESTful and WebSocket API built with FastAPI, optimized for consumption by native macOS applications, iOS mobile apps, or web-based dashboards.
+**Author:** Mark Altreuter ([@MarkAltCoding](https://github.com/MarkAltCoding)), University of Illinois Urbana-Champaign, B.S. Computer Science
 
 ---
 
-## Tech Stack & System Architecture
+## What it does
 
-* **Primary Backend Engine**: Python 3.14+ (FastAPI, Pandas, NumPy, Statsmodels, Scikit-Learn)
-* **Statistical Modeling**: R 4.3+ (`rpy2` integration for GARCH modeling, time-series analysis, and econometric estimation)
-* **AI Engine & NLP**: Anthropic API (Claude Opus 5.5, `claude-opus-5-5`) through the official `anthropic` SDK, BeautifulSoup4 for SEC filing text
-* **Market Data Feeds**: licensed providers on each user's own keys, tried cheapest first for each kind of data ([`docs/data-sources.md`](docs/data-sources.md)): Tiingo (US price history, intraday bars and quotes, on a free plan), Financial Modeling Prep (company profiles and quotes; on the server's own licensed plan for the shared screener), EODHD (indices and listings worldwide), Finnhub (live US quotes, company profiles, news, analyst ratings, earnings and insider trades), and Alpha Vantage (filling gaps); SEC EDGAR; the European Central Bank's reference rates for currencies; `yfinance` (development fallback)
-* **Client Interface Target**: Cross-platform REST & WebSocket API servicing macOS and iOS clients (Swift/React Native compatible)
-* **Web Frontend**: React and TypeScript (Vite), with ECharts for charts, served by the API at `/`
+* **Stock pages**: prices, factor exposures, GARCH volatility, fundamentals and valuation from SEC filings, news, analysts' ratings, earnings, insiders' trades, and public records, with an AI investment thesis or risk report that reads the filings and the most important articles in full.
+* **Portfolio**: up to five portfolios, Monte Carlo outcomes, how the holdings move together, and an AI review that writes the orders to rebalance, tailored to your risk tolerance, horizon, and accounts.
+* **Screener and Claude's Picks**: filter a universe of US stocks and ETFs (your own, refreshed nightly on your keys), then have Claude pick from it for a holding period you choose, with the orders to place at a broker and a running record of how each list did.
+* **Backtesting**: built-in strategies, or your own in Python or C++ run in the browser, with a coding assistant.
+* **Markets**: FOMC meetings, earnings, IPOs, holidays, and market news.
+* **Claude, your way**: every report runs on your Anthropic key, or as a prompt you paste into Claude yourself; each one records the model and effort that wrote it.
 
----
-
----
-
-## Install the App
-
-PyQxel runs in a web browser at the hosted site, and as a free app for Mac and iPhone that signs in to the same account.
-
-* **Mac**: download the `.dmg` from the [latest release](https://github.com/MarkAltCoding/PyQxel/releases/latest), drag PyQxel to Applications, and allow it once in **System Settings → Privacy & Security**, since it is not signed with a paid Apple certificate. It updates itself.
-* **iPhone**: not on the App Store yet; build it with Xcode and install it on your own phone.
-
-Step-by-step instructions, uninstalling, building from source, and publishing a release are in [Installing the App](docs/install.md).
-
----
-
-## Quickstart
-
-```bash
-git clone https://github.com/MarkAltCoding/PyQxel.git && cd PyQxel
-python3.14 -m venv venv && venv/bin/pip install -r requirements.txt -r requirements-dev.txt
-cp .env.example .env                                   # then fill it in
-venv/bin/python -m app.jobs.users create you@example.com --claim-unowned
-YFINANCE_FALLBACK=true venv/bin/uvicorn app.main:app --port 8000
-cd web && npm ci && npm run dev                        # http://localhost:5173
-```
-
-Sign in with the API key the `create` command prints, then add your own market data and Anthropic keys in **Settings**. `scripts/check.sh` runs every check CI runs.
+Every figure and chart has an "i" explaining it for a beginner. PyQxel is not investment advice.
 
 ## Documentation
 
-| Document | What it covers |
+| | |
 | --- | --- |
-| [Local Setup and Deployment](docs/setup.md) | Prerequisites (Python, R, Node.js), environment variables, the API and its streams, storage and caching, tests, Docker, Google Cloud Run, and signing in with GitHub, Google, or an email |
-| [Accounts and Billing](docs/accounts-and-billing.md) | API keys, provider keys and what each unlocks, limits, deleting an account, and paying for the nightly screener refresh at cost through Stripe |
-| [Quantitative Models and Features](docs/models.md) | Fundamentals, news, analysts and insiders, markets, the screener, factor exposures, copulas, Monte Carlo simulation, AI portfolio reviews, backtesting, and using Claude outside the app |
-| [Data Sources](docs/data-sources.md) | Which provider serves each kind of data, cheapest first, on free and paid plans |
-| [App Store](docs/app-store.md) | What is in place for an App Store submission, and what is left |
+| [Installing the app](docs/install.md) | Mac and iPhone, updates, and building from source |
+| [Features and models](docs/models.md) | How each feature works, and what Claude is given |
+| [Accounts and billing](docs/accounts-and-billing.md) | Keys, limits, and paying for the nightly refresh at cost |
+| [Data sources](docs/data-sources.md) | Which provider serves what, on free and paid plans |
+| [Local setup and deployment](docs/setup.md) | Running PyQxel yourself, and deploying it to Google Cloud Run |
+| [App Store](docs/app-store.md) | What is ready for submission |
 
----
+## Built with
+
+Python 3.14 and FastAPI, with R for GARCH; React and TypeScript; Claude through the Anthropic SDK; Tauri for the Mac and iPhone apps; Postgres on Neon, on Google Cloud Run.
 
 ## License
 

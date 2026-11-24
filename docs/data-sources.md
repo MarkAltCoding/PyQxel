@@ -364,7 +364,7 @@ to Claude as Markdown.
 It is read by Anthropic's web fetch tool, on the user's own Anthropic key, as the web
 search is: a cheaper model (Claude Sonnet 5.5 at low effort) fetches each link and
 writes the article's facts, figures, and attributed statements in its own words, so
-PyQxel's server never downloads the publisher's page and no article's text is copied.
+PyQxel's server does not download the publisher's page and no article's text is copied.
 Each article costs the user's key roughly two cents of tokens on Sonnet 5.5's prices. A
 provider's redirecting link (Finnhub's) is first resolved by asking Finnhub where it
 leads. A page behind a paywall, or one the tool cannot read, is left at its headline
