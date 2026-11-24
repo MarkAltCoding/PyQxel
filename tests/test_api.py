@@ -1999,6 +1999,24 @@ def test_analysis_cache_respects_options_and_refresh(monkeypatch: pytest.MonkeyP
     assert reused.json()["generated_at"] == refreshed.json()["generated_at"]
 
 
+def test_a_report_with_added_context_is_never_reused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The person's context makes each report their own: it is written anew, given to
+    Claude, and not served to a request without that context."""
+    calls = _serve_analysis(
+        monkeypatch, TickerInfo(symbol="AAPL", source="t"), _recent_frame(), THESIS
+    )
+    body = {"kind": "thesis", "extra_context": "Analyst day notes: services margin 75%."}
+
+    first = client.post("/api/v1/stocks/AAPL/analysis", json=body).json()
+    again = client.post("/api/v1/stocks/AAPL/analysis", json=body).json()
+    plain = client.post("/api/v1/stocks/AAPL/analysis", json={"kind": "thesis"}).json()
+
+    assert [kind for _, kind, _ in calls] == ["thesis", "thesis", "thesis"]
+    assert first["context"]["additional_context"] == body["extra_context"]
+    assert not again["cached"] and not plain["cached"]
+    assert plain["context"]["additional_context"] is None
+
+
 def test_failed_analysis_is_not_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     """After an AI failure, the next request asks Claude again."""
     calls = _serve_analysis(
@@ -2048,6 +2066,7 @@ def test_stored_analyses_are_listed_and_read_back(monkeypatch: pytest.MonkeyPatc
         "period": "1y",
         "include_filings": True,
         "model": "claude-opus-5-5",
+        "effort": "medium",
         "headline": THESIS.headline,
     }
     assert [item["id"] for item in theses["items"]] == [thesis["id"]]

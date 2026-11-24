@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.tables import AssistantRequestRecord, PortfolioAnalysisRecord
+from app.db.tables import AssistantRequestRecord, PortfolioAnalysisRecord, stated_effort
 from app.models.portfolio import HoldingShares
 from app.models.portfolio_analysis import (
     PortfolioAnalysisResponse,
@@ -39,7 +39,9 @@ class ReviewGroup:
 
 
 def _response(record: PortfolioAnalysisRecord) -> PortfolioAnalysisResponse:
-    return PortfolioAnalysisResponse.model_validate({**record.result, "id": record.id})
+    return PortfolioAnalysisResponse.model_validate(
+        {**record.result, "id": record.id, "effort": stated_effort(record.effort)}
+    )
 
 
 async def save_portfolio_analysis(
@@ -58,7 +60,9 @@ async def save_portfolio_analysis(
     Raises:
         sqlalchemy.exc.SQLAlchemyError: If the database cannot be written.
     """
-    saved = response.model_copy(update={"id": uuid4(), "cached": False})
+    saved = response.model_copy(
+        update={"id": uuid4(), "cached": False, "effort": stated_effort(effort)}
+    )
     session.add(
         PortfolioAnalysisRecord(
             id=str(saved.id),
@@ -167,6 +171,7 @@ async def list_portfolio_analyses(
                 portfolios=_members(record),
                 group_mode=record.group_mode,  # type: ignore[arg-type]
                 model=record.model,
+                effort=stated_effort(record.effort),
                 headline=record.headline,
                 risk_tolerance=profile.get("risk_tolerance"),
                 horizon_years=profile.get("horizon_years"),

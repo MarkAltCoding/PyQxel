@@ -93,7 +93,7 @@ export function SavedReviews({
                         : ''}
                   </td>
                   <td>{madeFor(item)}</td>
-                  <td>{modelName(item.model)}</td>
+                  <td>{modelName(item.model, item.effort)}</td>
                   <td>{item.headline}</td>
                   <td>
                     <button

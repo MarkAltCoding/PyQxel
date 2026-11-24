@@ -6,12 +6,14 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.tables import PicksRecord, as_utc
+from app.db.tables import PicksRecord, as_utc, stated_effort
 from app.models.picks import PicksList, PicksResponse, PicksSummary
 
 
 def _response(record: PicksRecord) -> PicksResponse:
-    return PicksResponse.model_validate({**record.result, "id": record.id})
+    return PicksResponse.model_validate(
+        {**record.result, "id": record.id, "effort": stated_effort(record.effort)}
+    )
 
 
 async def save_picks(
@@ -28,7 +30,9 @@ async def save_picks(
     Raises:
         sqlalchemy.exc.SQLAlchemyError: If the database cannot be written.
     """
-    saved = response.model_copy(update={"id": uuid4(), "cached": False})
+    saved = response.model_copy(
+        update={"id": uuid4(), "cached": False, "effort": stated_effort(effort)}
+    )
     profile = saved.context.profile
     session.add(
         PicksRecord(
@@ -107,6 +111,7 @@ async def list_picks(session: AsyncSession, user_id: str, limit: int = 20) -> Pi
                 horizon=record.horizon,
                 risk_tolerance=record.risk_tolerance,
                 model=record.model,
+                effort=stated_effort(record.effort),
                 headline=record.headline,
                 symbols=list(record.symbols),
             )

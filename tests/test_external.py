@@ -194,7 +194,7 @@ def test_an_assistant_prompt_and_pasted_reply() -> None:
     ).json()
 
     assert "<editor" in exported["prompt"] and exported["prompt"].rstrip().endswith("```")
-    assert imported == {"reply": reply, "model": PASTED_MODEL}
+    assert imported == {"reply": reply, "model": PASTED_MODEL, "effort": None}
 
 
 def test_a_pasted_answer_records_the_model_claude_named() -> None:

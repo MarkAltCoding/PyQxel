@@ -1,6 +1,13 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { ApiError } from '../api/client'
+import {
+  OUTSIDE_EFFORTS,
+  storeOutsideEffort,
+  storedOutsideEffort,
+  type OutsideEffort,
+} from '../lib/outsideClaude'
 import { LONG_PROMPT_TOKENS, promptTokens } from '../lib/promptSize'
+import { InfoTip } from './InfoTip'
 import { ErrorNotice, Notice } from './Notice'
 
 export interface ExportedPrompt {
@@ -19,11 +26,16 @@ export function ExternalClaude({
   saveLabel = 'Save answer',
   disabled = false,
   webSearch,
+  askEffort = false,
 }: {
   /** Builds the prompt; throws to show why it cannot. */
   getPrompt: () => Promise<ExportedPrompt>
-  /** Checks and keeps a pasted answer; throws to show what is wrong with it. */
-  onPaste: (answer: string) => Promise<void>
+  /** Checks and keeps a pasted answer, with the effort noted for it when `askEffort`;
+   * throws to show what is wrong with it. */
+  onPaste: (answer: string, effort: OutsideEffort | null) => Promise<void>
+  /** Whether to ask what effort the answer was written at: for the analyses (stock
+   * reports, portfolio reviews, and Claude's Picks), whose performance is tracked. */
+  askEffort?: boolean
   saveLabel?: string
   disabled?: boolean
   /**
@@ -39,6 +51,12 @@ export function ExternalClaude({
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const [effort, setEffort] = useState(storedOutsideEffort)
+  const effortId = useId()
+  const note = (next: OutsideEffort | null) => {
+    setEffort(next)
+    storeOutsideEffort(next)
+  }
 
   const prepare = async () => {
     setLoading(true)
@@ -78,7 +96,7 @@ export function ExternalClaude({
     setError(null)
     setSaved(false)
     try {
-      await onPaste(answer)
+      await onPaste(answer, askEffort ? effort : null)
       setAnswer('')
       setSaved(true)
     } catch (failure) {
@@ -167,6 +185,25 @@ export function ExternalClaude({
             }}
           />
         </label>
+        {askEffort && (
+          <div className="field">
+            <span className="heading-with-info">
+              <label htmlFor={effortId}>Effort used</label>
+              <InfoTip topic="outsideSettings" />
+            </span>
+            <select
+              id={effortId}
+              value={effort ?? ''}
+              onChange={(event) => note((event.target.value || null) as OutsideEffort | null)}
+            >
+              {OUTSIDE_EFFORTS.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="filter-row">
           <button
             type="button"

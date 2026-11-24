@@ -27,6 +27,16 @@ def as_utc(moment: datetime) -> datetime:
     return moment.replace(tzinfo=timezone.utc) if moment.tzinfo is None else moment
 
 
+EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+"""The effort settings a report can be asked for with."""
+
+
+def stated_effort(effort: str) -> str | None:
+    """The effort a stored report was written at, or ``None`` for one pasted from outside
+    the app, which is stored with a marker in place of an effort."""
+    return effort if effort in EFFORTS else None
+
+
 class Base(DeclarativeBase):
     """Declarative base shared by every table."""
 
@@ -604,7 +614,7 @@ class UserScreenerRunRecord(Base):
     ``price_history_limits``), so its request counts estimate only the same choice."""
     cost_micros: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     """What the run cost to compute on Cloud Run, in millionths of a dollar: its share of the
-    job's time at the job's rates (:func:`app.jobs.nightly.run_cost_micros`)."""
+    job's time at the job's rates (:func:`app.db.billing.run_cost_micros`)."""
 
 
 class ProviderUsageRecord(Base):

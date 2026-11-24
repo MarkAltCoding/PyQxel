@@ -2,13 +2,13 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { NO_PROGRESS, readAiStream, type AiProgress } from '../api/aiStream'
 import { exportAssistantPrompt, importAssistantReply, streamAssistant } from '../api/endpoints'
 import type {
-  AssistantReply,
   AssistantRequest,
   AssistantResponse,
   AssistantTurn,
   CodeLanguage,
   LastRun,
 } from '../api/types'
+import { modelName } from '../lib/modelName'
 import { paragraphs } from '../lib/reportText'
 import { ExternalClaude } from './ExternalClaude'
 import { Paragraph } from './ReportParts'
@@ -26,7 +26,14 @@ const LANGUAGE_NAMES: Record<CodeLanguage, string> = { python: 'python', cpp: 'c
 
 type Turn =
   | { role: 'user'; text: string }
-  | { role: 'assistant'; explanation: string; code: string | null; applied: boolean }
+  | {
+      role: 'assistant'
+      explanation: string
+      code: string | null
+      applied: boolean
+      /** The model that wrote it and at what effort, as the reply names them. */
+      writtenBy: string
+    }
 
 /** A turn as the API takes it: Claude's revisions are kept, so it knows what it proposed. */
 function toApiTurn(turn: Turn, language: CodeLanguage): AssistantTurn {
@@ -91,7 +98,7 @@ export function StrategyAssistant({
     interval,
     last_run: lastRun,
   })
-  const answer = (reply: AssistantReply) =>
+  const answer = ({ reply, model, effort }: AssistantResponse) =>
     setTurns((current) => [
       ...current,
       {
@@ -99,6 +106,7 @@ export function StrategyAssistant({
         explanation: reply.explanation,
         code: reply.code ?? null,
         applied: false,
+        writtenBy: modelName(model, effort),
       },
     ])
 
@@ -114,9 +122,9 @@ export function StrategyAssistant({
   }
   const pasteAnswer = async (response: string) => {
     if (!exportedQuestion) throw new Error('Get the prompt first, for the question to go with.')
-    const { reply } = await importAssistantReply(response)
+    const result = await importAssistantReply(response)
     setTurns((current) => [...current, { role: 'user', text: exportedQuestion }])
-    answer(reply)
+    answer(result)
     setExportedQuestion(null)
     setMessage('')
   }
@@ -133,8 +141,7 @@ export function StrategyAssistant({
     setProgress(NO_PROGRESS)
     try {
       const response = await streamAssistant(request, controller.signal)
-      const { reply } = await readAiStream<AssistantResponse>(response, setProgress)
-      answer(reply)
+      answer(await readAiStream<AssistantResponse>(response, setProgress))
     } catch (failure) {
       if (!controller.signal.aborted) setError(failure)
     } finally {
@@ -210,6 +217,7 @@ export function StrategyAssistant({
                     <Paragraph key={paragraph} text={paragraph} />
                   ))}
                 </div>
+                <p className="disclaimer">Answered by {turn.writtenBy}</p>
                 {turn.code && (
                   <div className="stack" style={{ gap: 6, marginTop: 8 }}>
                     <div className="filter-row" style={{ alignItems: 'center' }}>

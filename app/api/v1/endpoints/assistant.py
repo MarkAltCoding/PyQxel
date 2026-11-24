@@ -17,7 +17,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.ai.agent import AIRateLimitError, AnalysisError, Written, anthropic_client
 from app.ai.assistant import assistant_messages, stream_assistant_reply, write_assistant_reply
-from app.ai.external import PASTED_MODEL, ExternalResponseError, parse_response, render_prompt
+from app.core.config import get_settings
+from app.ai.external import (
+    PASTED_MODEL,
+    ExternalResponseError,
+    parse_response,
+    render_prompt,
+)
 from app.ai.prompts import ASSISTANT_SYSTEM_PROMPT
 from app.api.auth import CurrentUser
 from app.api.v1.endpoints.research import ai_error, anthropic_key, check_ai_limits
@@ -83,7 +89,7 @@ async def ask_assistant(prepared: Prepared) -> AssistantResponse:
     except AnalysisError as exc:
         raise ai_error(exc) from exc
     await _count(prepared.user_id, model)
-    return AssistantResponse(reply=reply, model=model)
+    return AssistantResponse(reply=reply, model=model, effort=get_settings().assistant_effort)
 
 
 @router.post(
@@ -107,7 +113,11 @@ async def stream_assistant(prepared: Prepared) -> AsyncIterator[ServerSentEvent]
                     await _count(prepared.user_id, item.model)
                     yield ServerSentEvent(
                         event="result",
-                        data=AssistantResponse(reply=item.output, model=item.model),
+                        data=AssistantResponse(
+                            reply=item.output,
+                            model=item.model,
+                            effort=get_settings().assistant_effort,
+                        ),
                     )
                 elif isinstance(item, AnalysisDelta):
                     yield ServerSentEvent(event=item.channel, data=item)

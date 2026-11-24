@@ -26,8 +26,25 @@ describe('ExternalClaude', () => {
     expect(writeText).toHaveBeenCalledWith(PROMPT.prompt)
     expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Download pyqxel-prompt.md' })).toBeInTheDocument()
-    expect(onPaste).toHaveBeenCalledWith('{"headline": "x"}')
+    expect(onPaste).toHaveBeenCalledWith('{"headline": "x"}', null)
+    expect(screen.queryByLabelText('Effort used')).toBeNull()
     expect(await screen.findByText('Saved.')).toBeInTheDocument()
+  })
+
+  it('asks an analysis for the effort used, and remembers it', async () => {
+    const onPaste = vi.fn(async () => undefined)
+    const { unmount } = render(
+      <ExternalClaude getPrompt={async () => PROMPT} onPaste={onPaste} askEffort />,
+    )
+    expect(screen.queryByLabelText('Model used')).toBeNull()
+    await userEvent.selectOptions(screen.getByLabelText('Effort used'), 'high')
+    await userEvent.type(screen.getByLabelText('Claude’s answer'), '{{}')
+    await userEvent.click(screen.getByRole('button', { name: 'Save answer' }))
+
+    expect(onPaste).toHaveBeenCalledWith('{}', 'high')
+    unmount()
+    render(<ExternalClaude getPrompt={async () => PROMPT} onPaste={onPaste} askEffort />)
+    expect(screen.getByLabelText('Effort used')).toHaveValue('high')
   })
 
   it('shows why an answer was refused, and keeps it to fix', async () => {

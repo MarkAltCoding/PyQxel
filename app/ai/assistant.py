@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from app.ai.agent import Written, stream_structured, write_structured
 from app.ai.prompts import ASSISTANT_SYSTEM_PROMPT
+from app.core.config import get_settings
 from app.models.assistant import AssistantReply, AssistantRequest, LastRun
 from app.models.research import AnalysisDelta, ModelFallback
 
@@ -73,7 +74,12 @@ async def write_assistant_reply(
     Errors are as for :func:`app.ai.agent.write_analysis`.
     """
     return await write_structured(
-        ASSISTANT_SYSTEM_PROMPT, assistant_messages(request), AssistantReply, client=client
+        ASSISTANT_SYSTEM_PROMPT,
+        assistant_messages(request),
+        AssistantReply,
+        client=client,
+        model=get_settings().assistant_model,
+        effort=get_settings().assistant_effort,
     )
 
 
@@ -82,6 +88,11 @@ async def stream_assistant_reply(
 ) -> AsyncIterator[AnalysisDelta | ModelFallback | Written[AssistantReply]]:
     """Stream :func:`write_assistant_reply`, as :func:`app.ai.agent.stream_structured` does."""
     async for item in stream_structured(
-        ASSISTANT_SYSTEM_PROMPT, assistant_messages(request), AssistantReply, client=client
+        ASSISTANT_SYSTEM_PROMPT,
+        assistant_messages(request),
+        AssistantReply,
+        client=client,
+        model=get_settings().assistant_model,
+        effort=get_settings().assistant_effort,
     ):
         yield item

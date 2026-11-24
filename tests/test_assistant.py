@@ -79,7 +79,7 @@ def asked(monkeypatch: pytest.MonkeyPatch) -> list[AssistantRequest]:
 
     async def write(request: AssistantRequest, *, client: Any) -> tuple[AssistantReply, str]:
         questions.append(request)
-        return REPLY, "claude-opus-5-5"
+        return REPLY, "claude-sonnet-5-5"
 
     monkeypatch.setattr(assistant, "write_assistant_reply", write)
     return questions
@@ -92,8 +92,18 @@ def test_the_assistant_answers_with_revised_code(asked: list[AssistantRequest]) 
     )
 
     assert response.status_code == 200
-    assert response.json() == {"reply": REPLY.model_dump(), "model": "claude-opus-5-5"}
+    assert response.json() == {
+        "reply": REPLY.model_dump(),
+        "model": "claude-sonnet-5-5",
+        "effort": "medium",
+    }
     assert asked[0].language == "cpp"
+
+
+def test_the_assistant_runs_on_a_cheaper_model_than_reports() -> None:
+    from app.core.config import get_settings
+
+    assert get_settings().assistant_model == "claude-sonnet-5-5"
 
 
 @pytest.mark.usefixtures("real_auth")
@@ -145,7 +155,11 @@ def test_the_answer_streams_with_reasoning(monkeypatch: pytest.MonkeyPatch) -> N
 
     events = _sse_events(response.text)
     assert [name for name, _ in events] == ["thinking", "report", "result"]
-    assert events[2][1] == {"reply": REPLY.model_dump(), "model": "claude-opus-5-5"}
+    assert events[2][1] == {
+        "reply": REPLY.model_dump(),
+        "model": "claude-opus-5-5",
+        "effort": "medium",
+    }
 
 
 def test_stream_errors_arrive_as_events(monkeypatch: pytest.MonkeyPatch) -> None:

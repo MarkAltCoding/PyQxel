@@ -385,15 +385,24 @@ export function TextRisks({ risks }: { risks: RiskFactor[] }) {
   )
 }
 
-/** What a report was asked for and which model wrote it, so a saved one says both. */
-export function AskedFor({ items, model }: { items: string[]; model: string }) {
+/** What a report was asked for and which model wrote it at what effort, so a saved one
+ * says both. */
+export function AskedFor({
+  items,
+  model,
+  effort,
+}: {
+  items: string[]
+  model: string
+  effort?: string | null
+}) {
   return (
     <p className="asked-for">
       <span className="heading-with-info">
         <strong>Made for</strong>
         <InfoTip topic="askedFor" />
       </span>{' '}
-      {items.join(' · ')} · <strong>written by</strong> {modelName(model)}
+      {items.join(' · ')} · <strong>written by</strong> {modelName(model, effort)}
     </p>
   )
 }

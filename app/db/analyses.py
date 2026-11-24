@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.tables import AnalysisRecord, as_utc
+from app.db.tables import AnalysisRecord, as_utc, stated_effort
 from app.models.research import (
     AnalysisList,
     AnalysisRequest,
@@ -17,7 +17,9 @@ from app.models.research import (
 
 def _response(record: AnalysisRecord) -> AnalysisResponse:
     """Rebuild a stored response, with its ID."""
-    return AnalysisResponse.model_validate({**record.result, "id": record.id})
+    return AnalysisResponse.model_validate(
+        {**record.result, "id": record.id, "effort": stated_effort(record.effort)}
+    )
 
 
 async def save_analysis(
@@ -34,7 +36,9 @@ async def save_analysis(
     Raises:
         sqlalchemy.exc.SQLAlchemyError: If the database cannot be written.
     """
-    saved = response.model_copy(update={"id": uuid4(), "cached": False})
+    saved = response.model_copy(
+        update={"id": uuid4(), "cached": False, "effort": stated_effort(effort)}
+    )
     session.add(
         AnalysisRecord(
             id=str(saved.id),
@@ -129,6 +133,7 @@ async def list_analyses(
                 period=record.period,  # type: ignore[arg-type]
                 include_filings=record.include_filings,
                 model=record.model,
+                effort=stated_effort(record.effort),
                 headline=record.headline,
             )
             for record in records

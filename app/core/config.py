@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     )
     anthropic_model: str = "claude-opus-5-5"
     anthropic_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
+    assistant_model: str = Field(
+        default="claude-sonnet-5-5",
+        description="The model the Backtest page's coding assistant runs on: writing and "
+        "fixing strategy code needs less than research does, and Sonnet costs a fraction "
+        "of Opus.",
+    )
+    assistant_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
     anthropic_timeout_seconds: float = 180.0
     financial_data_api_key: SecretStr | None = Field(
         default=None,

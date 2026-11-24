@@ -5,6 +5,8 @@ import sends that data back with the answer, so the stored report keeps the data
 was written from.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from app.ai.external import MAX_RESPONSE_LENGTH
@@ -38,7 +40,20 @@ class PicksPromptExport(PromptExport):
     context: PicksContext
 
 
-class AnalysisImport(BaseModel):
+class OutsideSettings(BaseModel):
+    """The effort a pasted analysis was written at, as the person noted it, so a saved
+    report, and its performance, say exactly what wrote it: Claude cannot tell its own
+    effort, which is a setting of the request, not part of what it reads, while it names
+    its model in the answer (``written_by``)."""
+
+    effort_used: Literal["low", "medium", "high", "xhigh", "max"] | None = Field(
+        default=None,
+        description="The effort used outside the app; null to take an ``Effort: high`` line "
+        "at the end of the pasted answer, or to record none.",
+    )
+
+
+class AnalysisImport(OutsideSettings):
     """An answer Claude wrote outside the app to an exported stock analysis prompt."""
 
     request: AnalysisRequest = Field(description="The options the prompt was exported with.")
@@ -46,7 +61,7 @@ class AnalysisImport(BaseModel):
     response: str = Field(min_length=1, max_length=MAX_RESPONSE_LENGTH)
 
 
-class PortfolioReviewImport(BaseModel):
+class PortfolioReviewImport(OutsideSettings):
     """An answer Claude wrote outside the app to an exported portfolio review prompt."""
 
     request: PortfolioAnalysisRequest = Field(
@@ -57,7 +72,7 @@ class PortfolioReviewImport(BaseModel):
     response: str = Field(min_length=1, max_length=MAX_RESPONSE_LENGTH)
 
 
-class PicksImport(BaseModel):
+class PicksImport(OutsideSettings):
     """An answer Claude wrote outside the app to an exported Claude's Picks prompt."""
 
     request: PicksRequest = Field(

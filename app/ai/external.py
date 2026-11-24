@@ -8,6 +8,7 @@ the same schema the app's requests use, so it is stored like any other.
 """
 
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
@@ -29,6 +30,26 @@ def pasted_model(written_by: str | None) -> str:
     marked as written outside the app; :data:`PASTED_MODEL` when it did not say."""
     name = " ".join((written_by or "").split())[:60]
     return f"{name}{OUTSIDE_SUFFIX}" if name else PASTED_MODEL
+
+
+EFFORT_LINE = re.compile(
+    r"^\W*effort\W*(?:used\W*)?[:=]?\s*(low|medium|high|xhigh|extra[- ]?high|max(?:imum)?)\W*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+"""A line such as "Effort: high" that the person added after Claude's answer."""
+
+
+def outside_effort(effort_used: str | None, response: str) -> str | None:
+    """The effort a pasted answer was written at: the one the person chose, else one named
+    on a line of its own after the answer's JSON ("Effort: high"), else ``None``."""
+    if effort_used:
+        return effort_used
+    tail = response[response.rfind("}") + 1 :]
+    found = EFFORT_LINE.findall(tail)
+    if not found:
+        return None
+    word = str(found[-1]).lower().replace(" ", "").replace("-", "")
+    return {"extrahigh": "xhigh", "maximum": "max"}.get(word, word)
 
 
 MAX_RESPONSE_LENGTH: int = 200_000

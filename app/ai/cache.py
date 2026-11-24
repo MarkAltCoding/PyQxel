@@ -30,6 +30,10 @@ _slots: dict[tuple[object, ...], tuple[asyncio.Lock, int]] = {}
 """Lock and number of holders or waiters for each request being written."""
 
 
+WITH_CONTEXT: str = " +context"
+"""Added to the requested model a report with additional context is stored under."""
+
+
 def _slot_key(user_id: str, symbol: str, request: AnalysisRequest) -> tuple[object, ...]:
     """Identify the requests that would get the same report under the current settings."""
     settings = get_settings()
@@ -42,6 +46,7 @@ def _slot_key(user_id: str, symbol: str, request: AnalysisRequest) -> tuple[obje
         request.web_search,
         settings.anthropic_model,
         settings.anthropic_effort,
+        request.extra_context or "",
     )
 
 
@@ -50,11 +55,17 @@ async def cached_analysis(
 ) -> AnalysisResponse | None:
     """Return ``user_id``'s recent report for the same request, or ``None`` if there is none.
 
-    Requests with ``refresh`` set or that search the web, whose point is what is new, and
-    settings with a zero TTL, never reuse a report.
+    Requests with ``refresh`` set or that search the web, whose point is what is new,
+    requests with additional context, which is the person's own each time, and settings
+    with a zero TTL, never reuse a report.
     """
     settings = get_settings()
-    if request.refresh or request.web_search or settings.analysis_cache_ttl_seconds == 0:
+    if (
+        request.refresh
+        or request.web_search
+        or request.extra_context
+        or settings.analysis_cache_ttl_seconds == 0
+    ):
         return None
     since = datetime.now(timezone.utc) - timedelta(seconds=settings.analysis_cache_ttl_seconds)
     try:
@@ -91,7 +102,9 @@ async def remember_analysis(
                 user_id,
                 request,
                 response,
-                settings.anthropic_model,
+                # A report written with the person's additional context is stored apart,
+                # so a request without it never reuses it.
+                settings.anthropic_model + (WITH_CONTEXT if request.extra_context else ""),
                 settings.anthropic_effort,
                 ANALYSIS_CONTEXT_VERSION,
             )

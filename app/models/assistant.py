@@ -85,7 +85,12 @@ class AssistantReply(BaseModel):
 
 
 class AssistantResponse(BaseModel):
-    """The assistant's reply and the model that wrote it."""
+    """The assistant's reply and the model that wrote it, at what effort."""
 
     reply: AssistantReply
     model: str
+    effort: str | None = Field(
+        default=None,
+        description="The effort it was written at; null for an answer pasted from outside "
+        "the app whose effort was not noted.",
+    )

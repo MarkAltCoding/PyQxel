@@ -221,12 +221,13 @@ def _check_stop_reason(response: BetaMessage) -> None:
         raise AnalysisError("The AI response was truncated before the report was complete.")
 
 
-def _output_config(schema: type[BaseModel]) -> BetaOutputConfigParam:
-    """Return the effort setting and the JSON schema that constrains the report."""
+def _output_config(schema: type[BaseModel], effort: str | None = None) -> BetaOutputConfigParam:
+    """Return the effort setting (``effort``, else the configured one) and the JSON schema
+    that constrains the report."""
     from anthropic import transform_schema
 
     return {
-        "effort": get_settings().anthropic_effort,
+        "effort": effort or get_settings().anthropic_effort,  # type: ignore[typeddict-item]
         "format": {"type": "json_schema", "schema": transform_schema(schema)},
     }
 
@@ -251,6 +252,8 @@ async def write_structured(
     schema: type[Report],
     *,
     client: AsyncAnthropic,
+    model: str | None = None,
+    effort: str | None = None,
 ) -> tuple[Report, str]:
     """Have Claude answer ``messages`` with output that validates against ``schema``.
 
@@ -260,12 +263,12 @@ async def write_structured(
     """
     with _translated_errors():
         response = await client.beta.messages.create(
-            model=get_settings().anthropic_model,
+            model=model or get_settings().anthropic_model,
             max_tokens=MAX_TOKENS,
             system=system,
             messages=messages,
             thinking={"type": "adaptive"},
-            output_config=_output_config(schema),
+            output_config=_output_config(schema, effort),
             fallbacks="default",
             betas=[FALLBACK_BETA],
         )
@@ -278,6 +281,8 @@ async def stream_structured(
     schema: type[Report],
     *,
     client: AsyncAnthropic,
+    model: str | None = None,
+    effort: str | None = None,
 ) -> AsyncIterator[AnalysisDelta | ModelFallback | Written[Report]]:
     """Stream :func:`write_structured`: summarized reasoning and output JSON as
     :class:`AnalysisDelta` fragments, a :class:`ModelFallback` when a model declines
@@ -286,12 +291,12 @@ async def stream_structured(
     """
     with _translated_errors():
         async with client.beta.messages.stream(
-            model=get_settings().anthropic_model,
+            model=model or get_settings().anthropic_model,
             max_tokens=STREAM_MAX_TOKENS,
             system=system,
             messages=messages,
             thinking={"type": "adaptive", "display": "summarized"},
-            output_config=_output_config(schema),
+            output_config=_output_config(schema, effort),
             fallbacks="default",
             betas=[FALLBACK_BETA],
         ) as stream:
