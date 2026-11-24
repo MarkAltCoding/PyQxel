@@ -21,6 +21,7 @@ from app.db.users import create_api_key, create_user
 from app.models.picks import (
     Horizon,
     Pick,
+    PickOrder,
     PicksContext,
     PicksProfile,
     PicksReport,
@@ -67,8 +68,9 @@ def picks() -> PicksResponse:
     """A list of Claude's picks as the app stores one, so the pages that show picks have
     some without calling Claude: two from the universe, and a fund outside it."""
 
-    def pick(symbol: str, kind: str, weight: float) -> Pick:
+    def pick(symbol: str, kind: str, weight: float, order: PickOrder | None = None) -> Pick:
         return Pick(
+            order=order,
             symbol=symbol,
             name=f"{symbol.title()} Example Inc.",
             kind=kind,  # type: ignore[arg-type]
@@ -81,7 +83,20 @@ def picks() -> PicksResponse:
         )
 
     profile = PicksProfile(horizon=Horizon(months=6), risk_tolerance="moderate", amount=10_000)
-    picked = [pick("BRAVO", "stock", 0.5), pick("CHARL", "stock", 0.3), pick("BNDX", "etf", 0.2)]
+    limit = PickOrder(
+        order_type="limit",
+        limit_price=48.25,
+        time_in_force="gtc",
+        good_for_days=3,
+        if_unfilled="skip",
+        stop_loss=42.0,
+        cancel_after=date(2026, 11, 13),
+    )
+    picked = [
+        pick("BRAVO", "stock", 0.5, limit),
+        pick("CHARL", "stock", 0.3),
+        pick("BNDX", "etf", 0.2),
+    ]
     return PicksResponse(
         report=PicksReport(
             headline="Cheap growth, with a bond fund to steady it.",

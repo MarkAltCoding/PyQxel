@@ -1,9 +1,13 @@
 """How a stored list of Claude's Picks has done since it was made.
 
-A list is measured as if bought at the last close before it was made, in Claude's
-weights, and held without rebalancing: each pick's value grows with its own price, so
-the list's return is each pick's gain times its starting weight. Its benchmark is
-measured over the same days. Measuring stops when the holding period ends, so a list's
+A list is measured in Claude's weights and held without rebalancing: each pick's money
+grows with its own price, so the list's return is each pick's gain times its starting
+weight. A pick with an order (:class:`~app.models.picks.PickOrder`) is bought only when
+its order would have filled, at that price (:func:`app.stats.picks_orders.replay`); until
+then, or if it never fills, its money waits in cash, earning nothing, and a stop-loss or
+profit target that sells it leaves its money in cash after. A pick from before orders were
+given is measured as bought at the last close before the list was made. The benchmark is
+measured from that close. Measuring stops when the holding period ends, so a list's
 record is frozen then and stays as it was. Nothing here fetches prices.
 """
 
@@ -14,6 +18,10 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from app.core.text import listed
+from app.core.clock import market_day
+from app.stats.picks_orders import replay
+from app.stats.schedule import holding_window
 from app.models.picks import (
     BENCHMARK_NAMES,
     PerformancePoint,
@@ -42,8 +50,29 @@ def start_day(generated_at: datetime) -> date:
 
 
 def ends_on(picks: PicksResponse) -> date:
-    """The day the list's holding period ends."""
-    return (picks.generated_at + timedelta(weeks=picks.context.horizon_weeks)).date()
+    """The day the list's holding period ends: its last session's, when the list
+    recorded it."""
+    if picks.context.holding_until is not None:
+        return market_day(picks.context.holding_until)
+    return market_day(picks.generated_at + timedelta(weeks=picks.context.horizon_weeks))
+
+
+def first_session(picks: PicksResponse) -> tuple[date, bool]:
+    """The session the list's orders are first placed in, and whether the list was made
+    during it (so a market order fills then, not at the open)."""
+    begins = picks.context.holding_from
+    if begins is None:
+        begins = holding_window(picks.generated_at, 1)[0]
+    during = begins <= picks.generated_at + timedelta(minutes=1)
+    return market_day(begins), during
+
+
+def _seen_prices(picks: PicksResponse) -> dict[str, float]:
+    """The price of each security when the list was made, which its orders were set
+    against."""
+    prices = {c.symbol: c.price for c in picks.context.candidates if c.price}
+    prices.update({s.symbol: s.price for s in picks.securities if s.price})
+    return prices
 
 
 def _finite(value: object) -> float | None:
@@ -65,10 +94,16 @@ def _start_index(series: pd.Series, start: date) -> pd.Timestamp | None:
 
 
 def track(
-    picks: PicksResponse, closes: pd.DataFrame, benchmark: PicksBenchmark, today: date
+    picks: PicksResponse,
+    closes: pd.DataFrame,
+    benchmark: PicksBenchmark,
+    today: date,
+    bars: dict[str, pd.DataFrame] | None = None,
 ) -> PicksPerformance:
     """How ``picks`` have done, from ``closes`` (adjusted closes, a column per symbol and
-    the benchmark's, indexed by date), up to ``today`` or the end of the holding period."""
+    the benchmark's, indexed by date) and ``bars`` (each symbol's adjusted ``Open``,
+    ``High``, ``Low``, and ``Close``, indexed by date, which the picks' orders are replayed
+    on), up to ``today`` or the end of the holding period."""
     assert picks.id is not None
     start = start_day(picks.generated_at)
     finish = min(today, ends_on(picks))
@@ -77,13 +112,50 @@ def track(
     performances: list[PickPerformance] = []
     growth: dict[str, pd.Series] = {}
     missing: list[str] = []
+    session, during = first_session(picks)
+    seen = _seen_prices(picks)
     for pick in picks.report.picks:
         series = window[pick.symbol] if pick.symbol in window.columns else pd.Series(dtype=float)
         first = _start_index(series, start)
         if first is None:
             missing.append(pick.symbol)
-            performances.append(PickPerformance(symbol=pick.symbol, weight=pick.weight))
+            performances.append(
+                PickPerformance(symbol=pick.symbol, weight=pick.weight, status="unpriced")
+            )
             continue
+        frame = (bars or {}).get(pick.symbol)
+        if pick.order is not None and frame is not None:
+            # Dividends since lower the adjusted prices before them; scale the order's
+            # prices, set against the day's price, the same way.
+            then = seen.get(pick.symbol)
+            scale = float(series.loc[first]) / then if then else 1.0
+            played = replay(pick.order, frame, session, finish, scale, during)
+            if played is not None:
+                growth[pick.symbol] = played.value
+                bought = played.fill_price
+                latest = _finite(series.dropna().iloc[-1])
+                last_value = float(played.value.iloc[-1])
+                performances.append(
+                    PickPerformance(
+                        symbol=pick.symbol,
+                        weight=pick.weight,
+                        start_price=None if bought is None else round(bought / scale, 4),
+                        latest_price=(
+                            None
+                            if latest is None
+                            else round(
+                                (played.exit_price if played.exit_price else latest) / scale, 4
+                            )
+                        ),
+                        gain=round(last_value - 1, 6),
+                        status=played.status,  # type: ignore[arg-type]
+                        filled_on=played.filled_on,
+                        sold_on=played.sold_on,
+                        sold_by=played.sold_by,  # type: ignore[arg-type]
+                        note=played.note,
+                    )
+                )
+                continue
         base = float(series.loc[first])
         relative = (series[series.index >= first] / base).ffill()
         growth[pick.symbol] = relative
@@ -143,6 +215,13 @@ def track(
 
     first_days = [g.index[0] for g in growth.values()]
     notices = []
+    unfilled = [p.symbol for p in performances if p.status in ("not_filled", "waiting")]
+    if unfilled:
+        notices.append(
+            f"{listed(unfilled)} {'was' if len(unfilled) == 1 else 'were'} not bought: "
+            f"{'its' if len(unfilled) == 1 else 'their'} buy order did not fill, so "
+            f"{'its' if len(unfilled) == 1 else 'their'} money counts as cash, earning nothing."
+        )
     if missing:
         notices.append(
             f"No prices for {', '.join(missing)}: the list's return counts the other picks, "

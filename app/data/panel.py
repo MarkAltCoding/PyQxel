@@ -103,6 +103,19 @@ def _combine(symbols: list[str], results: list[pd.DataFrame | BaseException]) ->
     )
 
 
+def daily_bars(frame: pd.DataFrame) -> pd.DataFrame:
+    """A symbol's ``Open``, ``High``, ``Low``, and ``Close``, indexed by the exchange's
+    calendar date, keeping the last bar of a date."""
+    columns = [c for c in ("Open", "High", "Low", "Close") if c in frame.columns]
+    bars = frame[columns]
+    index = pd.DatetimeIndex(bars.index)
+    if index.tz is not None:
+        index = index.tz_localize(None)
+    dated = bars.set_axis(index.normalize())
+    dated = dated[~dated.index.duplicated(keep="last")]
+    return dated.reindex(columns=["Open", "High", "Low", "Close"])
+
+
 def _by_exchange_date(closes: pd.Series) -> pd.Series:
     """Index ``closes`` by the exchange's calendar date, keeping the last close of a date."""
     index = pd.DatetimeIndex(closes.index)

@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { getPicksPerformance, getSavedPicks } from '../api/endpoints'
 import type { EquityPoint, PicksBenchmark, PicksPerformance } from '../api/types'
+
+type PickPerformance = NonNullable<PicksPerformance['picks']>[number]
 import { ChartCard, Legend } from '../charts/ChartCard'
 import { EquityChart, EquityTable } from '../charts/EquityChart'
 import { useChartTheme } from '../charts/theme'
@@ -13,6 +15,18 @@ import { Segmented } from './Segmented'
 import { Stat } from './Stat'
 
 /** The benchmark choice both cards share. */
+/** What became of a pick's orders, as a badge. */
+const ORDER_STATUS: Record<
+  NonNullable<PickPerformance['status']>,
+  { label: string; tone: string }
+> = {
+  held: { label: 'Bought', tone: 'good' },
+  waiting: { label: 'Order open', tone: '' },
+  not_filled: { label: 'Not filled', tone: 'warning' },
+  sold: { label: 'Sold early', tone: '' },
+  unpriced: { label: 'No prices', tone: 'warning' },
+}
+
 export function BenchmarkChoice({
   label,
   value,
@@ -63,7 +77,7 @@ export function PicksPerformanceCard({
   return (
     <ChartCard
       id="picks-performance"
-      title="How these picks have done"
+      title="How These Picks Have Done"
       info="picksPerformance"
       subtitle={
         data
@@ -144,7 +158,7 @@ export function PicksPerformanceCard({
                   <tr>
                     <th>Pick</th>
                     <th className="num">Weight</th>
-                    <th className="num">Start</th>
+                    <th className="num">Bought at</th>
                     <th className="num">Latest</th>
                     <th className="num">
                       <span className="heading-with-info">
@@ -153,6 +167,12 @@ export function PicksPerformanceCard({
                       </span>
                     </th>
                     <th className="num">Added to the list</th>
+                    <th>
+                      <span className="heading-with-info">
+                        Orders
+                        <InfoTip topic="pickOrderStatus" />
+                      </span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -165,6 +185,12 @@ export function PicksPerformanceCard({
                       <td className={`num ${tone(pick.gain) ?? ''}`}>{signedPercent(pick.gain)}</td>
                       <td className={`num ${tone(pick.contribution) ?? ''}`}>
                         {signedPercent(pick.contribution)}
+                      </td>
+                      <td>
+                        <span className={`badge ${ORDER_STATUS[pick.status ?? 'held'].tone}`}>
+                          {ORDER_STATUS[pick.status ?? 'held'].label}
+                        </span>
+                        {pick.note && <div className="pick-order-note">{pick.note}</div>}
                       </td>
                     </tr>
                   ))}
@@ -290,7 +316,7 @@ export function SavedPicksCard({
                     {item.risk_tolerance ? ` · ${item.risk_tolerance}` : ''}
                   </td>
                   <td>{item.symbols.join(', ')}</td>
-                  <td>{modelName(item.model)}</td>
+                  <td>{modelName(item.model, item.effort)}</td>
                   <td className={`num ${tone(item.total_return) ?? ''}`}>
                     {signedPercent(item.total_return)}
                   </td>
