@@ -10,6 +10,32 @@ to WebAssembly for C++). Only their positions go to the server, which scores the
 `app/CLAUDE.md` and `web/CLAUDE.md` map each side module by module. Read the one for the
 side you are changing before searching the code.
 
+## In production
+
+PyQxel is a live product: v0.1.0 (November 24, 2026) is the first official release, and
+people use the website and installed apps. Every change must keep it secure and working.
+
+- **Every released app keeps working.** An installed Mac or iPhone app bundles its own
+  pages and calls today's server, and may never update (iPhones cannot update outside the
+  App Store, and anyone may skip an update). So the API only grows:
+  - Never remove or rename a route, a request or response field, a header the apps send
+    or read (`X-*-Key`, `X-PyQxel-*`, `Retry-After`), an SSE event, or an enum value
+    an app may send. Add new optional fields with defaults; keep accepting what older apps
+    send, and keep sending what they read.
+  - Keep sign-in working for every released app: `/auth/*`, `pyqxel://signin`, the app
+    collect flow, key renewal, and the origins in `cors_origins`.
+  - A database migration must leave every released app's data readable.
+  - If a change truly cannot stay compatible, stop and ask first, and plan a path that
+    keeps old apps working (a parallel route, or a clear "please update" answer).
+- **Old versions must stay secure.** Fix security problems on the server, where every
+  version is covered at once, rather than relying on people updating. Never let the
+  server trust a check that only the app performs.
+- **Before each push:** `scripts/check.sh` and `scripts/check.sh e2e` pass, and a security
+  look at what changed (auth, user input, outside links, new dependencies, headers).
+  After the push, watch CI. Deploys back up Neon first when a migration changes data.
+- **Releases:** only newer versions (`scripts/release.sh`); never delete, replace, or
+  re-tag a published release.
+
 ## Layout
 
 | Path | What it holds |
