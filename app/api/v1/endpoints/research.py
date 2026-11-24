@@ -290,8 +290,9 @@ def _peer_context(
     )
 
 
-STOCK_ARTICLES_READ: int = 12
-"""A company's articles read in full for its stock report, those that matter most."""
+STOCK_ARTICLES_READ: int = 20
+"""A company's articles read in full for its stock report, those that matter most: in
+Markdown they cost Claude a fraction of the pages' size, so a report can weigh many."""
 
 STOCK_ARTICLE_CHARS: int = 6000
 """Length each article given to a stock report is cut to, about 1,500 words."""

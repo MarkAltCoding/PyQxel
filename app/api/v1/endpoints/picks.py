@@ -455,12 +455,12 @@ async def _filings(
             return None
 
 
-ARTICLES_BY_WAIT: tuple[tuple[int, int], ...] = ((300, 90), (60, 60), (0, 30))
+ARTICLES_BY_WAIT: tuple[tuple[int, int], ...] = ((300, 120), (60, 80), (0, 40))
 """Company articles read in full for a list of picks or a review, by the least wait that
 earns them: reading a page takes a second or two, not a Finnhub request, so a longer wait
 reads more of them, up to what Claude can weigh among everything else."""
 
-MOST_ARTICLES_EACH: int = 5
+MOST_ARTICLES_EACH: int = 6
 """Most articles read in full for one stock, however few stocks there are."""
 
 
