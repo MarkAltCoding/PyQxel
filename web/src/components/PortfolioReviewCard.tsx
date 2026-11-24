@@ -36,7 +36,6 @@ import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
 import { ContributionLimitsNote } from './AccountSettings'
 import type { OutsideEffort } from '../lib/outsideClaude'
 import { contextForRequest, useAdditionalContext } from '../lib/additionalContext'
-import { AdditionalContextField } from './AdditionalContext'
 import { ExternalClaude } from './ExternalClaude'
 import { accountTypeLabel, CAPPED_ACCOUNT_TYPES } from '../lib/accounts'
 import { NoAnthropicKey } from './NoAnthropicKey'
@@ -64,10 +63,10 @@ import { Segmented } from './Segmented'
 import { Stat } from './Stat'
 import { InfoTip } from './InfoTip'
 import { SavedReviews } from './SavedReviews'
-import { WaitForDataOption } from './WaitForData'
 import { WaitingNote } from './WaitingNote'
-import { AiProgressDetail, WebSearchOption, WebSources } from './WebSearch'
+import { AiProgressDetail, WebSources } from './WebSearch'
 import { Link } from 'react-router'
+import { AiOptions } from './AiOptions'
 
 type Period = NonNullable<PortfolioAnalysisRequest['period']>
 
@@ -586,14 +585,16 @@ export function PortfolioReviewCard({
         </fieldset>
       )}
 
-      <div style={{ marginBottom: 4 }}>
-        <AdditionalContextField value={extra} onChange={setExtra} disabled={writing} />
-        <WebSearchOption checked={webSearch} onChange={setWebSearch} disabled={writing} />
-        <WaitForDataOption
-          seconds={wait}
-          onChange={setWait}
-          disabled={writing}
+      <div style={{ marginBottom: 12 }}>
+        <AiOptions
+          webSearch={webSearch}
+          onWebSearch={setWebSearch}
+          wait={wait}
+          onWait={setWait}
           plans={waitPlans.data}
+          context={extra}
+          onContext={setExtra}
+          disabled={writing}
         />
       </div>
       <details style={{ marginBottom: 12 }}>

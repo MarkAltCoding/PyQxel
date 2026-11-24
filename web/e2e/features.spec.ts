@@ -1,6 +1,11 @@
 // The screener and the portfolio, on the universe and holdings scripts/e2e_seed.py stored.
 import { expect, signIn, test, type Page } from './fixtures'
 
+/** Opens the folded options of the page's first AI report. */
+async function openOptions(page: Page) {
+  await page.locator('.ai-options > summary').first().click()
+}
+
 /** Opens `portfolio`, saying yes when the page asks before pricing its holdings. */
 async function openPortfolio(page: Page, portfolio: number): Promise<void> {
   await page.getByRole('button', { name: `Portfolio ${portfolio}`, exact: true }).click()
@@ -182,6 +187,8 @@ test('saved picks are listed, and outside Claude is told it may search the web',
   await expect(saved.getByText(/could not be priced/)).toBeVisible()
   await expect(page.locator('#picks-performance')).toBeVisible()
 
+  await expect(page.locator('#picks-form .ai-options-state')).toContainText('Web search on')
+  await openOptions(page)
   const web = page.getByRole('checkbox', { name: /Let Claude search the web/ })
   await expect(web).toBeChecked()
   await page.getByText('Use Claude outside the app, without API costs').click()
@@ -241,6 +248,7 @@ test('Claude’s Picks offer how long to wait for more data, and remember it', a
   test.skip(info.project.name === 'phone', 'Account choices are checked at desktop width.')
   await signIn(page)
   await page.goto('/picks')
+  await openOptions(page)
   const wait = page.getByRole('combobox', { name: 'Wait for more data' })
   await expect(wait).toHaveValue('300')
   // The "i" says what each wait would gather, the likeliest picks first.
@@ -253,6 +261,8 @@ test('Claude’s Picks offer how long to wait for more data, and remember it', a
 
   await wait.selectOption({ label: 'No waiting' })
   await page.reload()
+  await expect(page.locator('#picks-form .ai-options-state')).toContainText('No waiting for data')
+  await openOptions(page)
   const after = page.getByRole('combobox', { name: 'Wait for more data' })
   await expect(after).toHaveValue('0')
 
@@ -266,6 +276,7 @@ test('picks take added context, and can be kept past the period as a recurring p
 }, info) => {
   test.skip(info.project.name === 'phone', 'Account choices are checked at desktop width.')
   await page.goto('/picks')
+  await openOptions(page)
   const context = page.getByLabel('Additional context (optional)')
   await context.fill('A research note on BRAVO.')
   await expect(page.getByText('25 of 60,000 characters')).toBeVisible()
@@ -273,6 +284,10 @@ test('picks take added context, and can be kept past the period as a recurring p
   await page.getByLabel('Let Claude keep picks past the holding period when that is best').check()
   await page.getByLabel('I will make new picks each period (recurring)').check()
   await page.reload()
+  await expect(page.locator('#picks-form .ai-options-state')).toContainText(
+    '25 characters of context',
+  )
+  await openOptions(page)
   await expect(page.getByLabel('Additional context (optional)')).toHaveValue(
     'A research note on BRAVO.',
   )

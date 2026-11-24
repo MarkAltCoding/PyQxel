@@ -28,7 +28,6 @@ import { useWebSearchChoice } from '../lib/webSearch'
 import { badgeTone, SEVERITY_ORDER, SEVERITY_TONE } from '../lib/tones'
 import type { OutsideEffort } from '../lib/outsideClaude'
 import { contextForRequest, useAdditionalContext } from '../lib/additionalContext'
-import { AdditionalContextField } from './AdditionalContext'
 import { ExternalClaude } from './ExternalClaude'
 import { NoAnthropicKey } from './NoAnthropicKey'
 import { providerKeys } from '../lib/providerKeys'
@@ -51,9 +50,9 @@ import {
 import { Segmented } from './Segmented'
 import { Stat } from './Stat'
 import { InfoTip } from './InfoTip'
-import { WaitForDataOption } from './WaitForData'
 import { WaitingNote } from './WaitingNote'
-import { AiProgressDetail, WebSearchOption, WebSources } from './WebSearch'
+import { AiProgressDetail, WebSources } from './WebSearch'
+import { AiOptions } from './AiOptions'
 
 const KINDS = [
   { value: 'thesis', label: 'Investment thesis' },
@@ -201,13 +200,6 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
         </div>
         <div className="filter-row">
           <Segmented label="Report kind" value={kind} options={KINDS} onChange={changeKind} />
-          <WebSearchOption checked={webSearch} onChange={setWebSearch} disabled={writing} />
-          <WaitForDataOption
-            seconds={wait}
-            onChange={setWait}
-            disabled={writing}
-            plans={waitPlans.data}
-          />
           {writing ? (
             <button type="button" className="button" onClick={() => abort.current?.abort()}>
               Cancel
@@ -223,7 +215,16 @@ export function AnalysisPanel({ symbol }: { symbol: string }) {
             </button>
           )}
         </div>
-        <AdditionalContextField value={extra} onChange={setExtra} disabled={writing} />
+        <AiOptions
+          webSearch={webSearch}
+          onWebSearch={setWebSearch}
+          wait={wait}
+          onWait={setWait}
+          plans={waitPlans.data}
+          context={extra}
+          onContext={setExtra}
+          disabled={writing}
+        />
       </div>
 
       {!providerKeys().anthropic && !writing && <NoAnthropicKey what="a report" />}

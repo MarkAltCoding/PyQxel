@@ -23,7 +23,6 @@ import type {
 } from '../api/types'
 import type { OutsideEffort } from '../lib/outsideClaude'
 import { contextForRequest, useAdditionalContext } from '../lib/additionalContext'
-import { AdditionalContextField } from './AdditionalContext'
 import { ExternalClaude } from './ExternalClaude'
 import { InfoTip } from './InfoTip'
 import { MultiToggle } from './MultiToggle'
@@ -42,9 +41,8 @@ import {
   type Tab,
 } from './ReportParts'
 import { Segmented } from './Segmented'
-import { WaitForDataOption } from './WaitForData'
 import { WaitingNote } from './WaitingNote'
-import { AiProgressDetail, WebSearchOption, WebSources } from './WebSearch'
+import { AiProgressDetail, WebSources } from './WebSearch'
 import { compact, dateTime, money, number, percent, shortDate, signedPercent } from '../lib/format'
 import { keepExport, keptExport } from '../lib/exportedPrompts'
 import type { InfoKey } from '../lib/glossary'
@@ -72,6 +70,7 @@ import { orderSteps } from '../lib/pickOrders'
 import { modelName } from '../lib/modelName'
 import { useWaitChoice } from '../lib/waitForData'
 import { useWebSearchChoice } from '../lib/webSearch'
+import { AiOptions } from './AiOptions'
 
 const RISKS: { value: PicksRisk; label: string }[] = [
   { value: 'unset', label: 'Not set' },
@@ -485,14 +484,16 @@ export function ClaudesPicks() {
             />
           </div>
         )}
-        <div style={{ marginTop: 8 }}>
-          <AdditionalContextField value={extra} onChange={setExtra} disabled={writing} />
-          <WebSearchOption checked={webSearch} onChange={setWebSearch} disabled={writing} />
-          <WaitForDataOption
-            seconds={wait}
-            onChange={setWait}
-            disabled={writing}
+        <div style={{ marginTop: 12 }}>
+          <AiOptions
+            webSearch={webSearch}
+            onWebSearch={setWebSearch}
+            wait={wait}
+            onWait={setWait}
             plans={waitPlans.data}
+            context={extra}
+            onContext={setExtra}
+            disabled={writing}
           />
         </div>
 
