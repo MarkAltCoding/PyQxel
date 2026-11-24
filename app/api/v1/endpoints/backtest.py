@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from collections.abc import Callable
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Annotated
 from uuid import UUID
 
@@ -13,6 +13,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, st
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import market_today
 from app.api.v1.endpoints.stocks import (
     PERIODS_PER_YEAR,
     Symbol,
@@ -111,7 +112,7 @@ async def load_factors(
     """
     if model is None and not cash_interest:
         return None, None
-    start = window_start(period, date.today())
+    start = window_start(period, market_today())
     factors: pd.DataFrame | None = None
     notice: str | None = None
     bills: pd.Series | None = None

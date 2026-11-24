@@ -6,7 +6,7 @@ import { getNews } from '../api/endpoints'
 import type { NewsArticle } from '../api/types'
 import { ChartCard } from '../charts/ChartCard'
 import { NewsChart, NewsTable } from '../charts/NewsChart'
-import { number, shortDate, timeAgo } from '../lib/format'
+import { dateTime, number, shortDate, timeAgo } from '../lib/format'
 import { PAGE_SIZES, storedPageSize } from '../lib/paging'
 import { writeStored } from '../lib/storage'
 import { InfoTip } from './InfoTip'
@@ -162,7 +162,7 @@ function Article({ article }: { article: NewsArticle }) {
       </a>
       <div className="news-meta">
         {article.source} ·{' '}
-        <time dateTime={article.published_at} title={article.published_at}>
+        <time dateTime={article.published_at} title={dateTime(article.published_at)}>
           {timeAgo(article.published_at)}
         </time>
       </div>

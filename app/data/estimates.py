@@ -9,8 +9,9 @@ failing on the day can pass a request on, so the figures are "about".
 """
 
 from collections import Counter
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 
+from app.core.clock import market_today
 from app.core.cache import cache_get
 from app.core.credentials import current_provider_keys
 from app.data import alpha_vantage_news, fetcher, usage
@@ -101,7 +102,7 @@ async def _history_cost(symbol: str, period: str, interval: str) -> tuple[Provid
             return None, False
         stored = await fetcher._load_stored(keys.user_id, symbol, providers)
         ready = fetcher._daily_ready(symbol, datetime.now(UTC))
-        start = fetcher._window_start(period, date.today())
+        start = fetcher._window_start(period, market_today())
         for provider in providers:
             kept = stored.get(provider)
             if kept is None or kept.fetched_at < ready:

@@ -1,10 +1,11 @@
 """Alternative data routes: a company's lobbying, government contracts, patents, and SEC
 filings from Finnhub, on the user's own key."""
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.core.clock import market_today
 from app.api.v1.endpoints.stocks import Symbol
 from app.data.alternative import fetch_alternative
 from app.data.fetcher import ProviderNotConfiguredError
@@ -36,7 +37,7 @@ async def get_alternative(symbol: Symbol) -> AlternativeData:
     empty and named in ``notice``. Returns 403 without a valid Finnhub key.
     """
     try:
-        records = await fetch_alternative(symbol, date.today())
+        records = await fetch_alternative(symbol, market_today())
     except ProviderNotConfiguredError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     return summarize_alternative(records, datetime.now(timezone.utc))

@@ -184,7 +184,7 @@ def test_markets_hours_apart_are_flagged() -> None:
     )
 
     assert warning is not None
-    assert "America/New_York: SPY, QQQ; Asia/Tokyo: 7203.T" in warning
+    assert "New York: SPY and QQQ; Tokyo: 7203.T" in warning
 
 
 @pytest.mark.parametrize(

@@ -1,6 +1,7 @@
 // Plan usage: which plan each key is on, whether each page may load without asking first,
 // and the words for limits, windows, and resets.
 import type { ProviderUsage, UsageLimit } from '../api/types'
+import { MARKET_TIME_ZONE, clockTime, marketDay } from './format'
 import { readStored, writeStored } from './storage'
 
 export const USAGE_QUERY_KEY = 'usage'
@@ -107,13 +108,13 @@ export function limitLabel(limit: UsageLimit): string {
   return `${limit.limit.toLocaleString('en-US')} ${what} ${WINDOWS[limit.window]}`
 }
 
-/** When a limit resets, as a time on this device's clock: "10:00 PM", or "Nov 6, 6:00 PM". */
+/** When a limit resets, in Eastern Time: "10:00 PM ET", or "Nov 6, 6:00 PM ET". */
 export function resetTime(limit: UsageLimit): string {
   if (!limit.resets_at) return limit.resets
   const at = new Date(limit.resets_at)
-  const time = at.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  if (at.toDateString() === new Date().toDateString()) return time
-  return `${at.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${time}`
+  const time = clockTime(at)
+  if (marketDay(at) === marketDay(new Date())) return time
+  return `${at.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: MARKET_TIME_ZONE })}, ${time}`
 }
 
 /** The share of a limit left, from 0 to 1, or null when unknown. */

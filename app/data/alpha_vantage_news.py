@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from app.core.clock import MARKET_ZONE, market_day
 from app.core.cache import cache_get, cache_set
 from app.data import fetcher
 from app.data.fetcher import (
@@ -223,9 +224,9 @@ def company_news_from_feed(feed: list[FeedArticle], symbol: str, now: datetime) 
     the last :data:`COMPANY_DAYS` days, newest first. A company the latest thousand articles
     do not mention gets none, so this covers the most talked-about companies best."""
     symbol = symbol.strip().upper()
-    end: date = now.date()
+    end: date = market_day(now)
     start = end - timedelta(days=COMPANY_DAYS - 1)
-    window = datetime.combine(start, datetime.min.time(), timezone.utc)
+    window = datetime.combine(start, datetime.min.time(), MARKET_ZONE)
     articles = [
         item.article
         for item in feed

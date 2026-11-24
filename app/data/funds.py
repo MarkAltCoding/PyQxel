@@ -21,9 +21,10 @@ FMP's could not be tested.
 import asyncio
 import logging
 import time
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Any
 
+from app.core.clock import market_day, market_today
 from app.core.credentials import current_provider_keys
 from app.data.fetcher import (
     DataFetchError,
@@ -282,9 +283,7 @@ async def _weighted(
         ["Finnhub"] if fetched else []
     )
     as_of = (
-        datetime.now(timezone.utc).date()
-        if fetched or known.refreshed_at is None
-        else known.refreshed_at.date()
+        market_today() if fetched or known.refreshed_at is None else market_day(known.refreshed_at)
     )
     update: dict[str, Any] = {"stats": stats, "stats_as_of": as_of, "stats_sources": sources}
     if not profile.sectors and stats.sectors:

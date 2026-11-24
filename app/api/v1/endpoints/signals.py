@@ -1,10 +1,9 @@
 """Signals routes: analyst ratings, earnings results and dates, and insider trades from
 Finnhub, on the user's own key."""
 
-from datetime import date
-
 from fastapi import APIRouter, HTTPException, status
 
+from app.core.clock import market_today
 from app.api.v1.endpoints.stocks import Symbol
 from app.data.fetcher import ProviderNotConfiguredError
 from app.data.finnhub import fetch_signals
@@ -33,7 +32,7 @@ async def get_signals(symbol: Symbol) -> MarketSignals:
     empty and named in ``notice``. Returns 403 without a valid Finnhub key.
     """
     try:
-        signals = await fetch_signals(symbol, date.today())
+        signals = await fetch_signals(symbol, market_today())
     except ProviderNotConfiguredError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     return summarize_signals(signals)

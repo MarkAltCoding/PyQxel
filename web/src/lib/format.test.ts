@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { compact, listed, money, percent, signedPercent, timeAgo, tone } from './format'
+import {
+  compact,
+  dateTime,
+  listed,
+  marketDay,
+  money,
+  percent,
+  shortDate,
+  signedPercent,
+  timeAgo,
+  tone,
+} from './format'
 
 describe('format', () => {
   it('shows decimals as percentages, grouped', () => {
@@ -44,5 +55,15 @@ describe('listed', () => {
     expect(listed(['A', 'B'])).toBe('A and B')
     expect(listed(['A', 'B', 'C'])).toBe('A, B, and C')
     expect(listed(['A', 'B', 'C'], 'or')).toBe('A, B, or C')
+  })
+})
+
+describe('times in Eastern Time', () => {
+  it('dates a story from 8 p.m. in New York on its New York day, whatever the device', () => {
+    // 01:00 UTC on Nov 24 is 8:00 p.m. on Nov 23 in New York.
+    expect(dateTime('2026-11-24T01:00:00Z')).toBe('Nov 23, 2026, 8:00 PM ET')
+    expect(shortDate('2026-11-24T01:00:00Z')).toBe('Nov 23, 2026')
+    expect(marketDay('2026-11-24T01:00:00Z')).toBe('2026-11-23')
+    expect(shortDate('2026-11-24')).toBe('Nov 24, 2026')
   })
 })

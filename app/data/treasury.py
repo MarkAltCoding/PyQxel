@@ -22,6 +22,7 @@ from datetime import date
 import httpx2
 import pandas as pd
 
+from app.core.clock import market_today
 from app.core.cache import cache_get, cache_set
 from app.data.fetcher import DataFetchError
 
@@ -82,7 +83,7 @@ def parse_bill_rates(text: str) -> dict[str, float]:
 
 async def _year(year: int, client: httpx2.AsyncClient) -> dict[str, float]:
     """One year's rates, from memory, Redis, or the Treasury."""
-    ttl = CURRENT_TTL_SECONDS if year >= date.today().year else PAST_TTL_SECONDS
+    ttl = CURRENT_TTL_SECONDS if year >= market_today().year else PAST_TTL_SECONDS
     remembered = _memory.get(year)
     if remembered is not None and time.monotonic() - remembered[0] < ttl:
         return remembered[1]
@@ -114,7 +115,7 @@ async def fetch_bill_returns(start: date) -> pd.Series:
         DataFetchError: If a year's rates cannot be fetched or read.
     """
     first = max(start.year, FIRST_YEAR)
-    years = list(range(first, date.today().year + 1))
+    years = list(range(first, market_today().year + 1))
     slots = asyncio.Semaphore(CONCURRENT_YEARS)
 
     async with httpx2.AsyncClient(

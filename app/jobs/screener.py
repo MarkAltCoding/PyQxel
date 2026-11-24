@@ -53,6 +53,7 @@ from zoneinfo import ZoneInfo
 import httpx2
 import pandas as pd
 
+from app.core.clock import market_today
 from app.core.config import PROJECT_ROOT, get_settings
 from app.core.credentials import ProviderKeys, use_provider_keys
 from app.core.redact import install_log_redaction
@@ -442,7 +443,7 @@ def market_source_available() -> bool:
 async def _refresh(force_fundamentals: bool) -> RefreshResult:
     """The steps of :func:`refresh_universe`: the SEC first stage, then the shared
     universe when a market data source is available."""
-    today = date.today()
+    today = market_today()
     sec = await _sec_stage(force_fundamentals, today)
     if not market_source_available():
         logger.warning(

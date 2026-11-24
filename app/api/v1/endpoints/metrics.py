@@ -2,10 +2,10 @@
 
 import asyncio
 import logging
-from datetime import date
 
 from fastapi import APIRouter
 
+from app.core.clock import market_today
 from app.api.v1.endpoints.stocks import Symbol, upstream_error
 from app.data.fetcher import DataFetchError, fetch_price_history
 from app.data.finnhub import fetch_company_metrics
@@ -57,7 +57,7 @@ async def get_metrics(symbol: Symbol) -> CompanyMetrics:
         raise financials
     else:
         filed = financials
-    metrics = with_filed_figures(found_metrics.metrics, filed, date.today())
+    metrics = with_filed_figures(found_metrics.metrics, filed, market_today())
     result = found_metrics.model_copy(update={"metrics": metrics})
     if metrics.week_52_high is None or metrics.week_52_low is None:
         try:

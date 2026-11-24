@@ -34,6 +34,7 @@ import httpx2
 import pandas as pd
 import yfinance as yf
 
+from app.core.clock import market_today
 from app.core.text import tidy_name
 from app.data.fetcher import (
     FMP_BASE_URL,
@@ -446,7 +447,7 @@ async def fetch_share_counts(
     ]
     # Earlier sources and newer quarters win, so they are applied last.
     for taxonomy, concept in reversed(sources):
-        for period in reversed(_quarters_back(today or date.today(), 3)):
+        for period in reversed(_quarters_back(today or market_today(), 3)):
             url = FRAMES_URL.format(taxonomy=taxonomy, concept=concept, period=period)
             try:
                 payload: Any = (await edgar_get(client, url)).json()

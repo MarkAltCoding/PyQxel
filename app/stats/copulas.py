@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import numpy as np
 import pandas as pd
 
+from app.core.text import listed
 from app.stats.panel import pair_returns
 
 MIN_DEGREES_OF_FREEDOM: float = 2.05
@@ -280,6 +281,11 @@ def fit_copulas(returns: pd.DataFrame) -> CopulaFit:
     )
 
 
+def _zone_name(zone: str) -> str:
+    """A time zone's city for people: "New York" for ``America/New_York``."""
+    return zone.rsplit("/", 1)[-1].replace("_", " ")
+
+
 def _utc_offset_hours(name: str, moment: datetime) -> float | None:
     """Return the UTC offset of time zone ``name`` at ``moment``, or ``None`` if unknown."""
     try:
@@ -306,7 +312,7 @@ def asynchronous_trading_warning(timezones: dict[str, str | None]) -> str | None
     zones: dict[str, list[str]] = {}
     for symbol in offsets:
         zones.setdefault(str(timezones[symbol]), []).append(symbol)
-    listing = "; ".join(f"{zone}: {', '.join(symbols)}" for zone, symbols in zones.items())
+    listing = "; ".join(f"{_zone_name(zone)}: {listed(symbols)}" for zone, symbols in zones.items())
     return (
         f"The assets trade in time zones hours apart ({listing}), so their daily returns "
         "do not cover the same hours and the dependence between markets is understated."

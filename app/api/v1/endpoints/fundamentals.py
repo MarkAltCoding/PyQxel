@@ -9,6 +9,7 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.core.clock import market_today
 from app.api.v1.endpoints.stocks import Symbol
 from app.data.alpha_vantage import fetch_financials_filled
 from app.data.exchange_rates import ExchangeRate, fetch_sourced_exchange_rate
@@ -155,7 +156,7 @@ def build_fundamentals(
     """
     if isinstance(exchange_rate, float):
         exchange_rate = ExchangeRate(rate=exchange_rate, source="")
-    notices = _freshness_notices(financials, today or date.today())
+    notices = _freshness_notices(financials, today or market_today())
     valuation = None
     if info is None:
         notices.append("No market value is available, so valuation multiples were left out.")

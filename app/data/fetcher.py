@@ -47,6 +47,7 @@ import pandas as pd
 import yfinance as yf
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.clock import market_today
 from app.core.text import listed
 from app.core.cache import cache_get, cache_increment, cache_set
 from app.core.credentials import current_provider_keys
@@ -2205,7 +2206,7 @@ async def _fmp_history(
     dividend-adjusted, as FMP serves them.
     """
     zone = exchange_timezone(symbol)
-    end = today or date.today()
+    end = today or market_today()
     start = start or _window_start(period, end)
     window = {"symbol": symbol, "from": start.isoformat(), "to": end.isoformat()}
     if interval in INTRADAY_INTERVALS:
@@ -2286,7 +2287,7 @@ async def _alpha_vantage_history(
     the frame's ``attrs`` carry a :data:`HISTORY_NOTICE` saying so, and a later provider
     with the full adjusted history is preferred (see :func:`first_success`).
     """
-    end = today or date.today()
+    end = today or market_today()
     start = pd.Timestamp(start or _window_start(period, end))
     notice: str | None = None
     if interval in ALPHA_VANTAGE_INTRADAY:
@@ -2389,7 +2390,7 @@ async def _tiingo_history(
     Bars longer than a day are built from daily bars. Intraday volume counts IEX trades
     alone, and the frame's ``attrs`` carry a :data:`HISTORY_NOTICE` saying so.
     """
-    end = today or date.today()
+    end = today or market_today()
     start = start or _window_start(period, end)
     ticker = tiingo_symbol(symbol)
     zone = DEFAULT_TIMEZONE
@@ -2459,7 +2460,7 @@ async def _eodhd_history(
     ``attrs`` carry a :data:`HISTORY_NOTICE` saying so. Intraday bars need a paid plan,
     and are not adjusted.
     """
-    end = today or date.today()
+    end = today or market_today()
     start = start or _window_start(period, end)
     code = eodhd_symbol(symbol)
     zone = exchange_timezone(symbol)
@@ -2539,7 +2540,7 @@ async def _finnhub_history(
     them, and the refusal is remembered. Candles are adjusted for splits but not for
     dividends, and the frame's ``attrs`` carry a :data:`HISTORY_NOTICE` saying so, so a
     provider with adjusted bars is preferred."""
-    end = today or date.today()
+    end = today or market_today()
     start = start or _window_start(period, end)
     zone = exchange_timezone(symbol)
     resolution, resample_to = FINNHUB_RESOLUTIONS.get(interval, ("D", None))
@@ -2891,7 +2892,7 @@ async def _fetch_stored_daily(
     Returns:
         The bars, or ``None`` when every provider answered with none.
     """
-    today = date.today()
+    today = market_today()
     now = datetime.now(timezone.utc)
     start = _window_start(period, today)
     fetch_from = _store_start(period, today)

@@ -58,24 +58,51 @@ export function compact(value: number | null | undefined, prefix = '$'): string 
   return `${prefix}${value.toFixed(0)}`
 }
 
+/** The US markets' time zone. Every moment PyQxel shows is in Eastern Time, the clock
+ * the exchanges keep, whatever this device's own time zone is, so a story that ran at 9
+ * p.m. in New York is dated that day everywhere. */
+export const MARKET_TIME_ZONE = 'America/New_York'
+
+/** A calendar day ("2026-11-23") as "Nov 23, 2026"; a moment as its date in Eastern Time. */
 export function shortDate(value: string | null | undefined): string {
   if (!value) return DASH
-  const date = new Date(value.length === 10 ? `${value}T00:00:00` : value)
+  const day = value.length === 10
+  const date = new Date(day ? `${value}T12:00:00Z` : value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: day ? 'UTC' : MARKET_TIME_ZONE,
+  })
 }
 
 export function dateTime(value: string | null | undefined): string {
   if (!value) return DASH
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString('en-US', {
+  const text = date.toLocaleString('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    timeZone: MARKET_TIME_ZONE,
   })
+  return `${text} ET`
+}
+
+/** A moment's time of day in Eastern Time, e.g. "4:05 PM ET". */
+export function clockTime(value: string | Date): string {
+  const date = typeof value === 'string' ? new Date(value) : value
+  if (Number.isNaN(date.getTime())) return String(value)
+  return `${date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: MARKET_TIME_ZONE })} ET`
+}
+
+/** The calendar day of a moment in Eastern Time, as "2026-11-23". */
+export function marketDay(value: string | Date): string {
+  const date = typeof value === 'string' ? new Date(value) : value
+  return date.toLocaleDateString('en-CA', { timeZone: MARKET_TIME_ZONE })
 }
 
 /** How long ago `value` was, e.g. "5 minutes ago", "3 hours ago", or "Oct 12" beyond a week. */
@@ -90,7 +117,11 @@ export function timeAgo(value: string | null | undefined, now: Date = new Date()
   if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
   const days = Math.round(hours / 24)
   if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: MARKET_TIME_ZONE,
+  })
 }
 
 /** "+" / "-" class names for values whose sign is good or bad news. */

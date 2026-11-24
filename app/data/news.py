@@ -21,6 +21,7 @@ from typing import Any
 
 import httpx2
 
+from app.core.clock import MARKET_ZONE, market_day
 from app.core.cache import cache_get, cache_set
 from app.data import alpha_vantage_news
 from app.data.fetcher import (
@@ -250,7 +251,7 @@ async def fetch_company_news(symbol: str, client: httpx2.AsyncClient | None = No
             return stand_in
         raise NewsNotConfiguredError(NO_NEWS_KEY)
     now = _now()
-    end = now.date()
+    end = market_day(now)
     start = end - timedelta(days=NEWS_DAYS - 1)
     key = f"news:finnhub:{symbol}"
     kept = await _kept(key)
@@ -264,7 +265,7 @@ async def fetch_company_news(symbol: str, client: httpx2.AsyncClient | None = No
         return CompanyNews(symbol=symbol, start=start, end=end, articles=[], fetched_at=now)
     try:
         payload = await _request(symbol, start, end, api_key, client)
-        window_start = datetime.combine(start, datetime.min.time(), timezone.utc)
+        window_start = datetime.combine(start, datetime.min.time(), MARKET_ZONE)
         news = CompanyNews(
             symbol=symbol,
             start=start,
