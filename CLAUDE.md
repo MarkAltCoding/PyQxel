@@ -95,6 +95,10 @@ side you are changing before searching the code.
 
 - The virtualenv is `venv/`, not `.venv/`. Python 3.14 allows `except A, B:` without
   parentheses, and the code uses it; it is not a bug.
+- Limit attempts per client with `core/identity.client_address`, never `request.client.host`:
+  uvicorn's `--proxy-headers` takes the first `X-Forwarded-For` entry, which the client
+  writes; Cloud Run appends the real one last. Compare emails through
+  `core/identity.normalize_email`.
 - The shell is zsh: an unquoted `$VAR` holding several words is not split into arguments.
 - Provider keys are never stored on the server, except, encrypted, for work a user opts
   in to that runs with no browser: the nightly refresh (market data keys only) and

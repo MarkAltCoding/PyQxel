@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import Headers
 from starlette.middleware.gzip import GZipMiddleware
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 WORKER_CONTENT_SECURITY_POLICY = (
     "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'"
@@ -201,6 +201,42 @@ def mount_web(application: FastAPI, dist: Path) -> bool:
         return file_response(file, request.headers, request.method, headers)
 
     return True
+
+
+BASELINE_HEADERS: tuple[tuple[bytes, bytes], ...] = (
+    # A response is only ever what its type says, never sniffed into a script or page.
+    (b"x-content-type-options", b"nosniff"),
+    # No page may use the camera, microphone, location, or payment sheet; PyQxel needs none.
+    (b"permissions-policy", b"camera=(), microphone=(), geolocation=(), payment=(), usb=()"),
+)
+"""Headers every response carries unless it sets its own."""
+
+HSTS: tuple[bytes, bytes] = (b"strict-transport-security", b"max-age=31536000")
+"""Tells a browser that reached PyQxel over HTTPS to use only HTTPS for a year, so a
+network it joins later cannot serve it a plain-HTTP copy. Sent only over HTTPS."""
+
+
+class SecurityHeaders:
+    """Adds :data:`BASELINE_HEADERS`, and :data:`HSTS` over HTTPS, to every response."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        extra = BASELINE_HEADERS + ((HSTS,) if scope.get("scheme") == "https" else ())
+
+        async def with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                present = {name.lower() for name, _ in headers}
+                headers += [(name, value) for name, value in extra if name not in present]
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, with_headers)
 
 
 class CompressApiResponses:

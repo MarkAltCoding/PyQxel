@@ -15,6 +15,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.passwords import hash_password, needs_rehash, verify_password
+from app.core.identity import normalize_email
 from app.core.security import hash_api_key
 from app.db.tables import ApiKeyRecord, EmailLinkRecord, UserRecord, as_utc
 from app.db.users import User, create_user, find_user_by_email, get_user
@@ -24,11 +25,6 @@ EMAIL_LINK_MINUTES: int = 60
 
 PASSWORD_SIGN_IN = "email"
 """What ``api_keys.signed_in_with`` holds for keys issued by signing in with a password."""
-
-
-def normalize_email(email: str) -> str:
-    """An address as accounts store it: trimmed and in lower case."""
-    return email.strip().lower()
 
 
 @dataclass(frozen=True)
@@ -103,6 +99,14 @@ async def use_email_link(session: AsyncSession, token: str, password: str) -> Pa
     if record is None:
         return None
     email = record.email
+    # Taking the link and checking that this request took it is one statement, so two
+    # requests sent with the same link at once cannot both use it.
+    taken = await session.execute(
+        delete(EmailLinkRecord).where(EmailLinkRecord.token_hash == record.token_hash)
+    )
+    if not taken.rowcount:  # type: ignore[attr-defined]
+        await session.rollback()
+        return None
     await session.execute(delete(EmailLinkRecord).where(EmailLinkRecord.email == email))
     await session.commit()
     user = await find_user_by_email(session, email) or await create_user(session, email)

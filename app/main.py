@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.ai.articles import read_with_web_fetch
-from app.api import health, internal, webhooks
+from app.api import docs, health, internal, webhooks
 from app.api.auth import authenticate
 from app.api.v1.api import api_router
 from app.api.v1.endpoints import account, password_signin, signin
@@ -27,7 +27,7 @@ from app.core.credentials import HELD_BACK_HEADER
 from app.core.request_limits import BodySizeLimit, HeldBackHeader
 from app.db.session import close_database, init_db
 from app.version import __version__
-from app.web import CompressApiResponses, mount_web
+from app.web import CompressApiResponses, SecurityHeaders, mount_web
 
 __all__ = ["__version__", "app", "create_app"]
 
@@ -125,7 +125,14 @@ def create_app() -> FastAPI:
     """
     install_log_redaction()
     settings = get_settings()
-    application = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
+    # The docs page is served by app.api.docs, which pins Swagger UI's files; ReDoc's is left out.
+    application = FastAPI(
+        title=settings.app_name,
+        version=__version__,
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+    )
     # News articles are read through Anthropic's web fetch tool unless the admin lets the
     # server read publishers' pages itself.
     use_remote_reader(read_with_web_fetch)
@@ -133,6 +140,7 @@ def create_app() -> FastAPI:
     application.exception_handler(HTTPException)(http_error)
 
     application.add_middleware(CompressApiResponses, prefix=settings.api_v1_prefix)
+    application.add_middleware(SecurityHeaders)
     application.add_middleware(BodySizeLimit)
     application.add_middleware(HeldBackHeader)
     application.add_middleware(
@@ -146,6 +154,7 @@ def create_app() -> FastAPI:
 
     # Every API route needs a PyQxel API key; the health checks and the docs stay open.
     application.include_router(health.router)
+    application.include_router(docs.router)
     # Called by Cloud Scheduler, which proves who it is with an identity token instead.
     application.include_router(internal.router)
     # Called by Stripe, which signs each event instead.

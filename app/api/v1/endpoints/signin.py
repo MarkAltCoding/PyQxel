@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.auth import presented_key
 from app.core.rate_limit import RateLimitExceeded, check_rate_limit
 from app.core.config import get_settings
+from app.core.identity import client_address
 from app.core.oauth import (
     OAuthError,
     PROVIDER_LABELS,
@@ -125,7 +126,15 @@ def _provider(name: ProviderName) -> OAuthProvider:
 def _destination(path: str | None) -> str:
     """``path`` if it is a page on this site, else the home page, so a sign-in link
     cannot send people on to another site."""
-    if path and path.startswith("/") and not path.startswith("//") and "\\" not in path:
+    # Browsers drop tabs and line breaks from a link, so "/\t/evil.example" would be read
+    # as "//evil.example", another site: any control character is refused.
+    if (
+        path
+        and path.startswith("/")
+        and not path.startswith("//")
+        and "\\" not in path
+        and all(character.isprintable() for character in path)
+    ):
         return path
     return "/"
 
@@ -136,7 +145,7 @@ async def _throttle(request: Request) -> None:
     Raises:
         RateLimitExceeded: Beyond either limit this minute.
     """
-    address = request.client.host if request.client else "unknown"
+    address = client_address(request)
     await check_rate_limit(f"sign-in:{address}", SIGN_INS_PER_ADDRESS)
     await check_rate_limit("sign-in:all", SIGN_INS_PER_SERVER)
 

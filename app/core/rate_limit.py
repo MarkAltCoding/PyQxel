@@ -16,6 +16,28 @@ WINDOW_SECONDS: float = 60.0
 _local: dict[tuple[str, int], int] = {}
 """Counts per (user, window)."""
 
+_ends: dict[tuple[str, int], float] = {}
+"""When each counted window ends, so a sweep can drop the ones that have."""
+
+SWEEP_SECONDS: float = 60.0
+"""How often counts of windows that have ended are dropped.
+
+Without it, every client address that ever tried to sign in would keep its count in
+memory for as long as the process runs, which an attacker sending from many addresses
+could grow without bound."""
+
+_last_sweep: list[float] = [0.0]
+
+
+def _sweep(moment: float) -> None:
+    """Drop the counts of every window that has ended, at most once a minute."""
+    if moment - _last_sweep[0] < SWEEP_SECONDS:
+        return
+    _last_sweep[0] = moment
+    for key in [key for key, end in _ends.items() if end <= moment]:
+        _ends.pop(key, None)
+        _local.pop(key, None)
+
 
 @dataclass(frozen=True)
 class RateLimitExceeded(Exception):
@@ -28,6 +50,8 @@ class RateLimitExceeded(Exception):
 def clear_local_counts() -> None:
     """Forget in-process counts."""
     _local.clear()
+    _ends.clear()
+    _last_sweep[0] = 0.0
 
 
 async def check_rate_limit(
@@ -47,10 +71,11 @@ async def check_rate_limit(
     moment = time.time() if now is None else now
     name = user_id if window_seconds == WINDOW_SECONDS else f"{user_id}:{int(window_seconds)}s"
     window = int(moment // window_seconds)
-    for stale in [key for key in _local if key[0] == name and key[1] < window]:
-        del _local[stale]
+    _sweep(moment)
+    _local.pop((name, window - 1), None)
     count = _local.get((name, window), 0) + 1
     _local[(name, window)] = count
+    _ends[(name, window)] = (window + 1) * window_seconds
     if count > limit:
         retry_after = math.ceil((window + 1) * window_seconds - moment)
         raise RateLimitExceeded(retry_after=max(1, retry_after))

@@ -15,6 +15,7 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.identity import normalize_email
 from app.core.security import API_KEY_DISPLAY_LENGTH, generate_api_key, hash_api_key
 from app.db.tables import (
     AnalysisRecord,
@@ -105,7 +106,7 @@ async def create_user(session: AsyncSession, email: str) -> User:
     Raises:
         EmailTakenError: If an account already uses ``email``.
     """
-    email = email.strip().lower()
+    email = normalize_email(email)
     if await session.scalar(select(UserRecord.id).where(UserRecord.email == email)):
         raise EmailTakenError(f"An account already uses {email}.")
     record = UserRecord(id=str(uuid4()), email=email, created_at=datetime.now(timezone.utc))
@@ -117,7 +118,7 @@ async def create_user(session: AsyncSession, email: str) -> User:
 async def find_user_by_email(session: AsyncSession, email: str) -> User | None:
     """The account using ``email``, if any."""
     record = await session.scalar(
-        select(UserRecord).where(UserRecord.email == email.strip().lower())
+        select(UserRecord).where(UserRecord.email == normalize_email(email))
     )
     return None if record is None else _user(record)
 
@@ -174,7 +175,7 @@ async def user_for_identity(session: AsyncSession, provider: str, subject: str, 
     joins the account that already uses its email, which the provider has verified, so
     the same person can sign in either way; failing that, a new account is made.
     """
-    email = email.strip().lower()
+    email = normalize_email(email)
     identity = await session.scalar(
         select(IdentityRecord).where(
             IdentityRecord.provider == provider, IdentityRecord.subject == subject
@@ -251,8 +252,13 @@ async def collect_app_sign_in(session: AsyncSession, code: str, verifier: str) -
     record = await session.get(AppSignInRecord, hash_api_key(code))
     if record is None:
         return None
-    await session.delete(record)
+    # One statement takes the code, so two requests sent with it at once cannot both.
+    taken = await session.execute(
+        delete(AppSignInRecord).where(AppSignInRecord.code_hash == record.code_hash)
+    )
     await session.commit()
+    if not taken.rowcount:  # type: ignore[attr-defined]
+        return None
     fresh = as_utc(record.expires_at) > datetime.now(timezone.utc)
     if not fresh or not hmac.compare_digest(record.challenge, _challenge_for(verifier)):
         return None

@@ -8,6 +8,8 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import make_url
 
+from app.core.identity import normalize_email
+
 PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
 
 
@@ -331,7 +333,7 @@ class Settings(BaseSettings):
     @classmethod
     def _normalize_email(cls, value: str | None) -> str | None:
         """Store the address as accounts store theirs, so they compare equal; blank is unset."""
-        return value.strip().lower() or None if value is not None else None
+        return normalize_email(value) or None if value is not None else None
 
 
 @lru_cache

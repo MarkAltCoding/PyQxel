@@ -28,16 +28,17 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
+from app.core.identity import client_address
 from app.core.email import Email, EmailError, EmailSender, email_sender, site_url
 from app.core.passwords import MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, password_problem
 from app.core.rate_limit import RateLimitExceeded, check_rate_limit
+from app.core.identity import normalize_email
 from app.db.passwords import (
     EMAIL_LINK_MINUTES,
     PASSWORD_SIGN_IN,
     EmailLink,
     email_for_link,
     new_email_link,
-    normalize_email,
     use_email_link,
     user_for_password,
 )
@@ -150,7 +151,7 @@ def _too_many(exc: RateLimitExceeded, message: str) -> HTTPException:
 
 
 def _address(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    return client_address(request)
 
 
 def _sender() -> tuple[EmailSender, str]:

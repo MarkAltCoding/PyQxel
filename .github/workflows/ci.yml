@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# The checks only read the code, so the token they run with can do nothing else.
+permissions:
+  contents: read
+
 jobs:
   checks:
     name: Tests, types, and lint
