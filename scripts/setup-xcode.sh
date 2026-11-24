@@ -98,5 +98,5 @@ $(printf '\033[1m')Ready.$(printf '\033[0m') In a new terminal (so Rust is on th
   iPhone Simulator:   npx tauri ios run "iPhone 17 Pro"   (xcrun simctl list devices lists others)
   Your iPhone:        APPLE_DEVELOPMENT_TEAM=<team ID above> npx tauri ios run --release "<phone name>"
 
-The README's Install section walks through each, including an iPhone's first-time setup.
+docs/install.md walks through each, including an iPhone's first-time setup.
 EOF
