@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import {
+  getBilling,
   getLatestPicks,
   getNightlyRefresh,
   getPicks,
@@ -15,6 +16,7 @@ import { ScreenerTabs } from '../components/ScreenerTabs'
 import { LATEST_PICKS_KEY } from '../lib/picks'
 import type { InfoKey } from '../lib/glossary'
 import { compact, dateTime, money, number, percent, shortDate } from '../lib/format'
+import { BILLING_QUERY_KEY, creditShortfall } from '../lib/billing'
 import { NIGHTLY_QUERY_KEY } from '../lib/nightlyRefresh'
 import { readStored, writeStored } from '../lib/storage'
 
@@ -210,6 +212,8 @@ export function ScreenerPage() {
 
   const status = useQuery({ queryKey: ['universe-status'], queryFn: getUniverseStatus })
   const nightly = useQuery({ queryKey: NIGHTLY_QUERY_KEY, queryFn: getNightlyRefresh })
+  const billing = useQuery({ queryKey: BILLING_QUERY_KEY, queryFn: getBilling })
+  const refreshShortfall = creditShortfall(billing.data, 'refresh')
   const latestRun = nightly.data?.latest_run
   const onlyPicks = state.universe === PICKS
   const picks = useQuery({
@@ -271,12 +275,19 @@ export function ScreenerPage() {
             {status.data && !empty
               ? `${status.data.own ? 'Your own universe · ' : ''}${status.data.stocks.toLocaleString()} ${status.data.own ? 'US stocks and ETFs' : 'US stocks'} · prices as of ${shortDate(status.data.prices_as_of)} · refreshed ${dateTime(status.data.refreshed_at)}`
               : 'US-listed common stocks, refreshed after each trading day'}
-            {status.data?.own && <InfoTip topic="nightlyRefresh" />}
+            {status.data?.own && <InfoTip topic="nightlyRefresh" />} ·{' '}
+            <Link to="/screener/refresh#nightly-refresh">Refresh Schedule</Link>
           </div>
         </div>
         <ScreenerTabs />
       </header>
 
+      {nightly.data?.enabled && refreshShortfall && (
+        <Notice tone="warning">
+          {refreshShortfall}{' '}
+          <Link to="/screener/refresh#billing">Add credit on the Refresh Schedule tab</Link>.
+        </Notice>
+      )}
       {status.data?.last_error && (
         <Notice tone="warning">The latest refresh failed: {status.data.last_error}</Notice>
       )}
@@ -289,13 +300,13 @@ export function ScreenerPage() {
       {latestRun?.status === 'stopped' && (
         <Notice>
           Your latest nightly refresh was stopped partway, so this shows your last universe.{' '}
-          <Link to="/settings#nightly-refresh">See why in Settings</Link>.
+          <Link to="/screener/refresh#nightly-refresh">See why on the Refresh Schedule tab</Link>.
         </Notice>
       )}
       {latestRun?.status === 'failed' && (
         <Notice tone="warning">
           Your latest nightly refresh failed: {latestRun.error}{' '}
-          <Link to="/settings#nightly-refresh">Check it in Settings</Link>.
+          <Link to="/screener/refresh#nightly-refresh">Check its schedule</Link>.
         </Notice>
       )}
       {empty &&
@@ -303,9 +314,9 @@ export function ScreenerPage() {
           <Notice>
             Build your own screener of every US stock and ETF, to filter and rank by valuation,
             growth, momentum, and risk: turn on the{' '}
-            <Link to="/settings#nightly-refresh">nightly screener refresh</Link> in Settings. It
-            runs on your Finnhub key, whose free plan is enough, and the screener fills in after its
-            first night.
+            <Link to="/screener/refresh#nightly-refresh">nightly screener refresh</Link> on the
+            Refresh Schedule tab. It runs on your Finnhub key, whose free plan is enough, and the
+            screener fills in after its first night.
           </Notice>
         ) : nightly.data?.enabled ? (
           <Notice>

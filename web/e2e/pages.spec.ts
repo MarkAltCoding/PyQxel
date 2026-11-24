@@ -2,16 +2,17 @@
 import { apiKey, expect, overflow, signIn, test } from './fixtures'
 
 const PAGES = [
-  { path: '/', heading: 'Research a security' },
+  { path: '/', heading: 'Research a Security' },
   { path: '/markets', heading: 'Markets' },
   { path: '/portfolio', heading: 'Portfolio' },
   { path: '/backtest', heading: 'Backtest' },
   { path: '/screener', heading: 'Screener' },
   { path: '/screener/picks', heading: 'Claude’s Picks' },
+  { path: '/screener/refresh', heading: 'Refresh Schedule' },
   { path: '/settings', heading: 'Settings' },
-  { path: '/privacy', heading: 'Privacy policy' },
-  { path: '/terms', heading: 'Terms of service' },
-  { path: '/refunds', heading: 'Refund policy' },
+  { path: '/privacy', heading: 'Privacy Policy' },
+  { path: '/terms', heading: 'Terms of Service' },
+  { path: '/refunds', heading: 'Refund Policy' },
 ]
 
 test('signs in with an API key and opens the home page', async ({ page }) => {
@@ -23,7 +24,7 @@ test('signs in with an API key and opens the home page', async ({ page }) => {
   const understood = page.getByRole('button', { name: 'I understand' })
   await understood.click()
 
-  await expect(page.getByRole('heading', { level: 1, name: 'Research a security' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: 'Research a Security' })).toBeVisible()
 })
 
 test('a wrong key is refused and stays on the sign-in page', async ({ page }) => {
@@ -34,7 +35,7 @@ test('a wrong key is refused and stays on the sign-in page', async ({ page }) =>
 
   await expect(page.getByRole('button', { name: 'Sign in with key' })).toBeEnabled()
   await expect(page).toHaveURL(/\/signin/)
-  await expect(page.getByRole('heading', { name: 'Research a security' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Research a Security' })).toHaveCount(0)
 })
 
 for (const { path, heading } of PAGES) {
@@ -52,7 +53,7 @@ test('an unknown address says so, with a way back', async ({ page }) => {
   await signIn(page)
   await page.goto('/no-such-page')
 
-  await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: 'Page Not Found' })).toBeVisible()
 })
 
 test('the policy pages give the support email', async ({ page }) => {
