@@ -59,7 +59,7 @@ export function SetPasswordPage() {
     <main>
       <section className="card signin stack" style={{ gap: 18 }}>
         <div>
-          <h1>Choose a password</h1>
+          <h1>Choose a Password</h1>
           {link.data && (
             <p className="subtitle" style={{ marginTop: 6, color: 'var(--text-secondary)' }}>
               For the PyQxel account at <strong>{link.data.email}</strong>. You sign in with this

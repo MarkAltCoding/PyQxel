@@ -105,7 +105,7 @@ export function AttributionCard({ attribution }: { attribution: BacktestResponse
       <div className="card-header">
         <div>
           <div className="heading-with-info">
-            <h2>Return attribution</h2>
+            <h2>Return Attribution</h2>
             <InfoTip topic="attribution" />
           </div>
           <div className="subtitle">The strategy's daily returns regressed on factor returns</div>

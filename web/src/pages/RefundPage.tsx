@@ -8,7 +8,7 @@ export function RefundPage() {
   return (
     <article className="card privacy stack" style={{ gap: 20 }}>
       <header>
-        <h1>Refund policy</h1>
+        <h1>Refund Policy</h1>
         <p className="subtitle">Last updated {UPDATED}</p>
       </header>
       <p>
@@ -16,7 +16,7 @@ export function RefundPage() {
         the <Link to="/terms">terms of service</Link>). This page explains what can be refunded.
       </p>
 
-      <LegalSection title="Unused credit">
+      <LegalSection title="Unused Credit">
         <p>
           Prepaid credit you have not used is refundable at any time. Email <ContactLink /> and it
           will be refunded to the card that paid for it. Deleting your account in Settings refunds
@@ -26,7 +26,7 @@ export function RefundPage() {
         </p>
       </LegalSection>
 
-      <LegalSection title="Refreshes that already ran">
+      <LegalSection title="Refreshes That Already Ran">
         <p>
           A refresh is charged for the server time it used, so refreshes that already ran, whether
           paid from credit or by a subscription bill, are not refunded. Cancel your subscription, or
@@ -39,14 +39,14 @@ export function RefundPage() {
         </p>
       </LegalSection>
 
-      <LegalSection title="Billing mistakes">
+      <LegalSection title="Billing Mistakes">
         <p>
           If you were charged by mistake, such as twice for the same thing or for refreshes you had
           turned off, the whole charge is refunded, Stripe’s fee included.
         </p>
       </LegalSection>
 
-      <LegalSection title="How to ask, and how long it takes">
+      <LegalSection title="How to Ask, and How Long It Takes">
         <p>
           Email <ContactLink />, with the email address your account uses and the date of the
           payment. Refunds are made within a few days of the request, and banks usually show them 5

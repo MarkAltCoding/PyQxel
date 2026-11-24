@@ -405,7 +405,7 @@ describe('custom strategies on the Backtest page', () => {
     expect(
       await screen.findByRole('heading', { name: 'SPY: Custom Python strategy' }),
     ).toBeInTheDocument()
-    const savedList = screen.getByRole('heading', { name: 'Saved backtests' }).closest('section')!
+    const savedList = screen.getByRole('heading', { name: 'Saved Backtests' }).closest('section')!
     const rows = within(within(savedList).getByRole('table')).getAllByRole('row').slice(1)
     expect(rows.map((row) => within(row).getAllByRole('cell')[1]!.textContent)).toEqual([
       'Custom',

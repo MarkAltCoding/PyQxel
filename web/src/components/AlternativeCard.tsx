@@ -34,7 +34,7 @@ export function AlternativeCard({ symbol }: { symbol: string }) {
     <section id="alternative-data" className="card" aria-busy={alternative.isLoading}>
       <div className="card-header">
         <div>
-          <h2>Lobbying, government contracts, and patents</h2>
+          <h2>Lobbying, Government Contracts, and Patents</h2>
           <div className="subtitle">
             Federal lobbying disclosures, USAspending.gov awards, USPTO patents, and SEC filings,
             from Finnhub

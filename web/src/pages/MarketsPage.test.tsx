@@ -67,7 +67,7 @@ function renderPage() {
 
 const calendarCalls = () => calls.filter((url) => url.pathname === '/api/v1/markets/calendar')
 const headlines = () =>
-  within(screen.getByRole('heading', { name: 'Market news' }).closest('section')!)
+  within(screen.getByRole('heading', { name: 'Market News' }).closest('section')!)
     .getAllByRole('link')
     .map((link) => link.textContent)
 

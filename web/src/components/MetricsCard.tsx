@@ -126,7 +126,7 @@ export function MetricsCard({
     <section id="metrics" className="card" aria-busy={metrics.isLoading}>
       <div className="card-header">
         <div>
-          <h2>Key metrics</h2>
+          <h2>Key Metrics</h2>
           <div className="subtitle">
             Trading, valuation, profitability, and balance sheet metrics, as Finnhub computes them,
             with revenue growth from the company’s filings

@@ -227,7 +227,7 @@ describe('sign-in', () => {
     serve({ '/api/v1/auth/providers': () => json(PROVIDERS) })
     const router = renderAt('/privacy')
 
-    expect(await screen.findByRole('heading', { name: 'Privacy policy' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Privacy Policy' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/privacy')
     expect(screen.getByText(/never sells data/)).toBeInTheDocument()
   })
@@ -322,11 +322,11 @@ describe('the investment advice notice', () => {
     serve({ '/api/v1/auth/providers': () => json(PROVIDERS) })
     renderAt('/settings')
 
-    const notice = await screen.findByRole('dialog', { name: 'Not investment advice' })
+    const notice = await screen.findByRole('dialog', { name: 'Not Investment Advice' })
     expect(notice).toHaveTextContent('not recommendations to buy, sell, or hold')
     await userEvent.click(within(notice).getByRole('button', { name: 'I understand' }))
 
-    expect(screen.queryByRole('dialog', { name: 'Not investment advice' })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Not Investment Advice' })).toBeNull()
     expect(window.localStorage.getItem('pyqxel.adviceNoticeAccepted')).not.toBeNull()
   })
 
@@ -337,7 +337,7 @@ describe('the investment advice notice', () => {
     renderAt('/settings')
 
     await screen.findByRole('button', { name: 'Sign out' })
-    expect(screen.queryByRole('dialog', { name: 'Not investment advice' })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Not Investment Advice' })).toBeNull()
   })
 })
 
@@ -432,8 +432,8 @@ describe('admin settings', () => {
     serve({ '/api/v1/me': () => json(ACCOUNT) })
     renderAt('/settings')
 
-    expect(await screen.findByRole('heading', { name: 'Delete account' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Admin settings' })).toBeNull()
+    expect(await screen.findByRole('heading', { name: 'Delete Account' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Admin Settings' })).toBeNull()
     expect(screen.queryByText(/Fall back to yfinance/)).toBeNull()
   })
 

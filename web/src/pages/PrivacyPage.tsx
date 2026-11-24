@@ -19,7 +19,7 @@ export function PrivacyPage() {
     <>
       <article className="card privacy stack" style={{ gap: 20 }}>
         <header>
-          <h1>Privacy policy</h1>
+          <h1>Privacy Policy</h1>
           <p className="subtitle">Last updated {UPDATED}</p>
         </header>
         <p>
@@ -28,7 +28,7 @@ export function PrivacyPage() {
           run your account, and it never sells data, shows ads, or uses analytics or tracking.
         </p>
 
-        <Section title="When you sign in">
+        <Section title="When You Sign In">
           <p>
             Signing in with GitHub, Google, or Apple (where offered) gives PyQxel two things: that
             provider’s permanent ID for your account, and your verified email address. They identify
@@ -60,7 +60,7 @@ export function PrivacyPage() {
           </p>
         </Section>
 
-        <Section title="What your account holds">
+        <Section title="What Your Account Holds">
           <ul>
             <li>
               What you save: your portfolio holdings, backtests (with the code of custom
@@ -136,7 +136,7 @@ export function PrivacyPage() {
           </p>
         </Section>
 
-        <Section title="Who else sees it">
+        <Section title="Who Else Sees It">
           <ul>
             <li>
               PyQxel runs on Google Cloud, keeps its database at Neon and its cache at Upstash, and
@@ -170,7 +170,7 @@ export function PrivacyPage() {
           </p>
         </Section>
 
-        <Section title="In your browser">
+        <Section title="In Your Browser">
           <p>
             Your browser keeps your API key if you choose to stay signed in, your provider keys, and
             a copy of what you enter and choose in the app, which is also saved with your account as
@@ -179,7 +179,7 @@ export function PrivacyPage() {
           </p>
         </Section>
 
-        <Section title="Deleting your data">
+        <Section title="Deleting Your Data">
           <p>
             To delete your account and everything it holds, including any keys the nightly screener
             refresh stored, use Delete account in Settings. It takes effect at once and cannot be
@@ -192,7 +192,7 @@ export function PrivacyPage() {
           </p>
         </Section>
 
-        <Section title="Children and changes">
+        <Section title="Children and Changes">
           <p>
             PyQxel is not meant for children under 13. If this policy changes, this page will say
             so, with a new date above.

@@ -14,7 +14,7 @@ import { Pager } from '../components/Pager'
 import { PresetOrCustom } from '../components/PresetOrCustom'
 import { Segmented } from '../components/Segmented'
 import { NEWS_ORDERS, sortNews, type NewsOrder } from '../lib/newsOrder'
-import { listed, timeAgo } from '../lib/format'
+import { dateTime, listed, timeAgo } from '../lib/format'
 import { safeUrl } from '../lib/safeUrl'
 import { PAGE_SIZES, storedPageSize } from '../lib/paging'
 import { writeStored } from '../lib/storage'
@@ -259,7 +259,7 @@ function MarketNewsCard({
     <section id="market-news" className="card" aria-busy={loading || refreshing}>
       <div className="card-header">
         <div>
-          <h2>Market news</h2>
+          <h2>Market News</h2>
           <div className="subtitle">
             The latest market-wide headlines, from{' '}
             {results.some((result) => result.data?.provider === 'alpha_vantage')
@@ -330,7 +330,7 @@ function MarketNewsCard({
                 </a>
                 <div className="news-meta">
                   {article.source} ·{' '}
-                  <time dateTime={article.published_at} title={article.published_at}>
+                  <time dateTime={article.published_at} title={dateTime(article.published_at)}>
                     {timeAgo(article.published_at)}
                   </time>
                 </div>

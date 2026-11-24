@@ -252,7 +252,7 @@ export function SettingsPage() {
           <DataCoverage account={account.data} />
           <section id="provider-keys" className="card stack" style={{ gap: 16 }}>
             <div>
-              <h2>Provider keys</h2>
+              <h2>Provider Keys</h2>
               <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
                 You pay for your own usage. Keys stay in this browser and are sent with each of your
                 requests; PyQxel's server does not store them, so no one else, not even whoever runs
@@ -289,7 +289,7 @@ function FeatureSummary({ account }: { account: Account }) {
   return (
     <section id="key-coverage" className="card stack" style={{ gap: 12 }}>
       <div>
-        <h2>What works with your keys</h2>
+        <h2>What Works With Your Keys</h2>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
           {missing.length === 0
             ? 'Everything is available.'
@@ -330,7 +330,7 @@ function DataCoverage({ account }: { account: Account }) {
     <section id="data-coverage" className="card stack" style={{ gap: 12 }}>
       <div>
         <div className="heading-with-info">
-          <h2>Market data, by kind</h2>
+          <h2>Market Data, by Kind</h2>
           <InfoTip topic="dataCoverage" />
         </div>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
@@ -476,7 +476,7 @@ function UsageSettings({ usage }: { usage: UsageResponse | undefined }) {
     <section id="plan-usage" className="card stack" style={{ gap: 14 }}>
       <div>
         <div className="heading-with-info">
-          <h2>What spends your plans’ limits</h2>
+          <h2>What Spends Your Plans’ Limits</h2>
           <InfoTip topic="loadEstimate" />
         </div>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
@@ -569,7 +569,7 @@ function LimitsForm({ account, onSaved }: { account: Account; onSaved: (a: Accou
       }}
     >
       <div>
-        <h2>AI spending limits</h2>
+        <h2>AI Spending Limits</h2>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
           Caps on new AI requests: reports, portfolio reviews, and assistant answers. Leave blank
           for no cap; reused reports are free and not counted.
@@ -628,7 +628,7 @@ function AdminSettingsForm({
   return (
     <section id="admin" className="card stack" style={{ gap: 14 }}>
       <div>
-        <h2>Admin settings</h2>
+        <h2>Admin Settings</h2>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
           Only your account sees these.
         </p>
@@ -744,7 +744,7 @@ function DeleteAccount({ email }: { email: string }) {
       }}
     >
       <div>
-        <h2>Delete account</h2>
+        <h2>Delete Account</h2>
         <p className="subtitle" style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
           Deletes your account at once and for good: your API keys, holdings, backtests,
           simulations, and AI reports. Signing in again starts a new, empty account.

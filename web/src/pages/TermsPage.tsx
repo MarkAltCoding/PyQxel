@@ -9,7 +9,7 @@ export function TermsPage() {
   return (
     <article className="card privacy stack" style={{ gap: 20 }}>
       <header>
-        <h1>Terms of service</h1>
+        <h1>Terms of Service</h1>
         <p className="subtitle">Last updated {UPDATED}</p>
       </header>
       <p>
@@ -18,7 +18,7 @@ export function TermsPage() {
         use PyQxel.
       </p>
 
-      <LegalSection title="What PyQxel is, and is not">
+      <LegalSection title="What PyQxel Is, and Is Not">
         <p>
           PyQxel shows prices, statistics, stock screens, strategy backtests, simulations, and
           AI-written research reports to help you study securities. It is a research tool. It does
@@ -29,7 +29,7 @@ export function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection title="Your account and your keys">
+      <LegalSection title="Your Account and Your Keys">
         <p>
           You are responsible for what is done with your account and its API keys, so keep them
           private. Market data and AI features run on API keys you add from other services, such as
@@ -40,7 +40,7 @@ export function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection title="Using PyQxel fairly">
+      <LegalSection title="Using PyQxel Fairly">
         <p>
           Do not use PyQxel to break the law or anyone’s terms, to try to reach other people’s
           accounts or data, to get around its limits or security, to overload it, or to resell its
@@ -48,7 +48,7 @@ export function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection title="Data and AI can be wrong">
+      <LegalSection title="Data and AI Can Be Wrong">
         <p>
           Prices, financial figures, and news come from outside services and can be late,
           incomplete, or wrong. AI-written reports can contain mistakes. Check what matters with
@@ -56,7 +56,7 @@ export function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection title="Paying for the nightly refresh">
+      <LegalSection title="Paying for the Nightly Refresh">
         <p>
           Using PyQxel is free. The one paid feature is the optional nightly screener refresh, which
           runs on PyQxel’s cloud server. You pay what your refreshes cost that server, at Google
@@ -104,7 +104,7 @@ export function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection title="Ending your use">
+      <LegalSection title="Ending Your Use">
         <p>
           You can delete your account at any time under Delete account in Settings, which also ends
           any subscription and refunds your unused credit. PyQxel may stop offering a feature, or
@@ -112,7 +112,7 @@ export function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection title="No warranty, and limits on liability">
+      <LegalSection title="No Warranty, and Limits on Liability">
         <p>
           PyQxel is provided as it is, without warranties of any kind, including that it will be
           accurate, available, or fit for any purpose. To the extent the law allows, PyQxel and its
@@ -122,7 +122,7 @@ export function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection title="Age and changes">
+      <LegalSection title="Age and Changes">
         <p>
           You must be at least 13 to use PyQxel, and at least 18, or have a parent’s or guardian’s
           permission, to pay for it. If these terms change, this page will say so, with a new date

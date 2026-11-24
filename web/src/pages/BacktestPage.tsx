@@ -1169,7 +1169,7 @@ function SingleStockBacktest({ across = false }: { across?: boolean }) {
           <section id="strategy-code" className="card stack" style={{ gap: 12 }}>
             <div className="card-header">
               <div>
-                <h2>Strategy code</h2>
+                <h2>Strategy Code</h2>
                 <div className="subtitle">{LANGUAGE_DETAILS[form.language].subtitle}</div>
               </div>
               <div className="filter-row">
@@ -1266,7 +1266,7 @@ function SingleStockBacktest({ across = false }: { across?: boolean }) {
 
       <section id="saved-backtests" className="card">
         <div className="card-header">
-          <h2>Saved backtests</h2>
+          <h2>Saved Backtests</h2>
         </div>
         {saved.error !== null && <ErrorNotice error={saved.error} />}
         {saved.data && saved.data.items.length === 0 && (

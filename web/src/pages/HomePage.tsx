@@ -29,7 +29,7 @@ export function HomePage() {
   return (
     <>
       <section className="hero-search">
-        <h1>Research a security</h1>
+        <h1>Research a Security</h1>
         <p>Prices, factor exposures, volatility, and an AI-written thesis, in one place.</p>
         <SearchBox
           large

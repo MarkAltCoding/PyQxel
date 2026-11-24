@@ -32,7 +32,7 @@ export function FundCard({ symbol }: { symbol: string }) {
     <section id="fund" className="card" aria-busy={fund.isLoading}>
       <div className="card-header">
         <div>
-          <h2>Holdings and costs</h2>
+          <h2>Holdings and Costs</h2>
           <div className="subtitle">
             What the fund holds and charges{sources ? `, from ${sources}` : ''}
             {data?.holdings_as_of ? ` · holdings as of ${shortDate(data.holdings_as_of)}` : ''}

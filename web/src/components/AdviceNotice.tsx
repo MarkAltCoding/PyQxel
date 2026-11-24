@@ -24,7 +24,7 @@ export function AdviceNotice() {
         aria-labelledby="advice-notice-title"
         style={{ gap: 12 }}
       >
-        <h2 id="advice-notice-title">Not investment advice</h2>
+        <h2 id="advice-notice-title">Not Investment Advice</h2>
         <p>
           PyQxel is a research tool. Its prices, statistics, backtests, simulations, screens, and
           AI-written reports help you study securities, but they are not recommendations to buy,

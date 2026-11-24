@@ -318,7 +318,7 @@ export function PortfolioPage() {
             <div className="card-header" style={{ marginBottom: 0 }}>
               <div>
                 <div className="heading-with-info">
-                  <h2>Late listings</h2>
+                  <h2>Late Listings</h2>
                   <InfoTip topic="historyCut" />
                 </div>
                 <div className="subtitle">
@@ -455,7 +455,7 @@ function SimulationCard({
     <ChartCard
       id="simulation"
       info="monteCarlo"
-      title="Simulated outcomes"
+      title="Simulated Outcomes"
       subtitle={
         summary
           ? `${summary.paths.toLocaleString()} paths over ${summary.horizon} trading days, fitted on ${result.period} of history`
@@ -618,7 +618,7 @@ function CopulaCard({
     <ChartCard
       id="comovement"
       info="copula"
-      title="How the holdings move together"
+      title="How the Holdings Move Together"
       subtitle={
         data
           ? `Kendall's tau on ${data.observations.toLocaleString()} common trading days · best fit: ${data.preferred === 'student_t' ? `Student t copula, ${number(data.student_t.degrees_of_freedom, 1)} d.f.` : 'Gaussian copula'}`

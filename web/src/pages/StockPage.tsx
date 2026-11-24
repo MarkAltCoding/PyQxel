@@ -330,7 +330,7 @@ function FactorCard(props: {
     <ChartCard
       id="factors"
       info="factorModel"
-      title={props.marketOnly ? 'Market exposure' : 'Factor exposures'}
+      title={props.marketOnly ? 'Market Exposure' : 'Factor Exposures'}
       subtitle={
         props.marketOnly
           ? 'Beta on the market, estimated from SPY over Treasury bills, with its 95% interval'
