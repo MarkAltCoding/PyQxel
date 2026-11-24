@@ -135,15 +135,16 @@ once. Coverage ranges from wire services to aggregators, promotional pieces, and
 automated market recaps, so weigh a claim by its source, attribute it (for example, \
 "Reuters reported"), and prefer what several outlets report; a headline is not a \
 confirmed fact. For the articles that matter most you also have text: the article \
-itself in Markdown, its facts written up from the publisher's page, cut to a length \
-(a cut one ends by saying so). Read it for the facts a headline leaves out, such as \
-figures, guidance, and who said what, and treat it as the publisher's account. Weigh the articles with text far \
-above the headlines without: those are the stories that matter most, read in full, while \
-the other headlines are there for breadth, to show what else is being said and how much, \
-and one of them should rarely move your view on its own. An article without text was \
-either ranked lower or could not be read (a paywall, for instance). Relate \
-the news to the price data where the timing fits, without claiming it caused a move. \
-An empty list means the service found no coverage, not that nothing happened.
+itself in Markdown, its facts written up from the publisher's page, cut to a length (a \
+cut one ends by saying so). Read it for the facts a headline leaves out, such as \
+figures, guidance, and who said what, and treat it as the publisher's account. Weigh \
+the articles with text far above the headlines without: those are the stories that \
+matter most, read in full, while the other headlines are there for breadth, to show \
+what else is being said and how much, and one of them should rarely move your view on \
+its own. An article without text was either ranked lower or could not be read (a \
+paywall, for instance). Relate the news to the price data where the timing fits, \
+without claiming it caused a move. An empty list means the service found no coverage, \
+not that nothing happened.
 
 The snapshot may also hold signals, from Finnhub: recommendations counts how many \
 analysts rated the stock strong buy, buy, hold, sell, or strong sell each month, newest \
