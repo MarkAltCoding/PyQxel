@@ -39,7 +39,7 @@ from app.data.universe import Listing, RequestPacer
 from app.db import nightly as storage
 from app.db.screener import foreign_companies, replace_listings, save_companies
 from app.db.session import get_sessionmaker
-from app.db.tables import NightlyRefreshRecord, ScreenerFundamentalsRecord
+from app.db.tables import NightlyRefreshRecord, ScreenerFundamentalsRecord, UserScreenerRunRecord
 from app.db.users import User, create_api_key
 from app.jobs import nightly as job
 from app.main import app
@@ -176,6 +176,29 @@ def test_opting_out_deletes_the_stored_keys(user: User, key: str) -> None:
     assert response.status_code == 200
     assert not response.json()["enabled"] and response.json()["providers"] == []
     assert _stored(user) is None
+
+
+@pytest.mark.usefixtures("encryption")
+def test_a_failed_refresh_records_its_error_without_the_key(user: User) -> None:
+    """An error can quote a provider's address, which some providers put the key in."""
+    now = datetime.now(timezone.utc)
+    settings = NightlyRefreshSettings(refresh_time="20:00", time_zone="UTC")
+    error = f"Server error for url 'https://finnhub.io/api/v1/quote?symbol=X&token={FINNHUB}'"
+
+    async def scenario() -> str | None:
+        async with get_sessionmaker()() as session:
+            await storage.enable(
+                session, user.id, settings, ProviderKeys(finnhub=SecretStr(FINNHUB))
+            )
+            run_id = await storage.start_run(session, user.id, now)
+            await storage.finish_run(session, run_id, error=error)
+            run = await session.get(UserScreenerRunRecord, run_id)
+            return None if run is None else run.error
+
+    recorded = asyncio.run(scenario())
+
+    assert recorded is not None and "finnhub.io" in recorded
+    assert FINNHUB not in recorded
 
 
 # When refreshes run.

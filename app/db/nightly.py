@@ -20,6 +20,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.credentials import ProviderKeys
+from app.core.redact import redact
 from app.core.text import listed
 from app.core.security import CredentialsUnavailableError, decrypt_secret, encrypt_secret
 from app.data.fetcher import PROVIDER_NAMES
@@ -673,7 +674,8 @@ async def finish_run(
         return
     run.finished_at = datetime.now(timezone.utc)
     run.status = STOPPED if stopped else FAILED if error else SUCCEEDED
-    run.error = error
+    # An error can quote a request's address, and some providers take the key in it.
+    run.error = redact(error) if error else error
     run.stocks = stocks
     run.priced = priced
     run.prices_as_of = prices_as_of

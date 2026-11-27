@@ -33,6 +33,7 @@ ANTHROPIC_KEY = "sk-ant-api03-" + "a" * 40
     [
         f"https://financialmodelingprep.com/stable/profile?symbol=AAPL&apikey={FMP_KEY}",
         f"https://www.alphavantage.co/query?function=X&apikey={FMP_KEY}",
+        f"https://eodhd.com/api/eod/AAPL.US?api_token={FMP_KEY}&fmt=json",
         f"GET /api/v1/ws/quotes?symbols=AAPL&api_key={FMP_KEY} HTTP/1.1",
         f"/api/v1/auth/github/callback?code={FMP_KEY}&state={FMP_KEY}",
         f"apikey%3D{FMP_KEY}",

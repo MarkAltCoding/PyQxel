@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.credentials import ProviderKeys
+from app.core.redact import redact
 from app.core.security import decrypt_secret, encrypt_secret
 from app.db.nightly import RUNNING, STALE_AFTER, _runs
 from app.db.tables import ScheduledPicksRecord, as_utc
@@ -284,7 +285,8 @@ async def finish_picks_run(session: AsyncSession, user_id: str, error: str | Non
     if record is None:
         return
     record.running_since = None
-    record.last_error = error
+    # An error can quote a request's address, and some providers take the key in it.
+    record.last_error = redact(error) if error else error
     await session.commit()
 
 

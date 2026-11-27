@@ -85,6 +85,22 @@ def test_scheduling_stores_the_keys_encrypted_and_says_when_each_runs(user: User
     assert _stored(user) is None, "turning it off deletes the keys"
 
 
+def test_a_failed_run_records_its_error_without_the_key(user: User, key: str) -> None:
+    """An error can quote a provider's address, which some providers put the key in."""
+    client.put(URL, headers=_headers(key, anthropic=ANTHROPIC, finnhub=FINNHUB), json=SETTINGS)
+    error = f"The weekly picks were not made: 'https://finnhub.io/api/v1/quote?token={FINNHUB}'"
+
+    async def finish() -> None:
+        async with get_sessionmaker()() as session:
+            await storage.finish_picks_run(session, user.id, error)
+
+    asyncio.run(finish())
+
+    record = _stored(user)
+    assert record is not None and record.last_error is not None
+    assert "finnhub.io" in record.last_error and FINNHUB not in record.last_error
+
+
 def test_scheduling_needs_an_anthropic_key_and_a_schedule(key: str) -> None:
     without_key = client.put(URL, headers=_headers(key, finnhub=FINNHUB), json=SETTINGS)
     nothing = client.put(

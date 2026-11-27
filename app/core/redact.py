@@ -16,7 +16,8 @@ REDACTED: str = "[redacted]"
 
 _PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
-        r"(?i)\b((?:api_?key|apikey|token|access_token|refresh_token|client_secret|code|state)"
+        r"(?i)\b((?:api_?key|apikey|api_token|token|access_token|refresh_token|client_secret"
+        r"|code|state)"
         r"(?:=|%3D))[^&\s'\"<>]+"
     ),
     re.compile(r"\bpq_[A-Za-z0-9_-]{16,}"),

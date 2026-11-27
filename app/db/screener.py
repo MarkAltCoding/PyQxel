@@ -12,6 +12,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 
 from app.core.text import tidy_name
 from app.core.credentials import current_provider_keys
+from app.core.redact import redact
 from app.data.universe import Listing
 from app.db.nightly import latest_success
 from app.db.tables import (
@@ -278,7 +279,8 @@ async def finish_run(
         return
     run.finished_at = datetime.now(timezone.utc)
     run.status = FAILED if error else SUCCEEDED
-    run.error = error
+    # An error can quote a request's address, and some providers take the key in it.
+    run.error = redact(error) if error else error
     run.stocks = stocks
     run.prices_as_of = prices_as_of
     run.fundamentals_refreshed = fundamentals_refreshed
