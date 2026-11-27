@@ -1,7 +1,7 @@
 # ── Environment / secrets (NEVER commit — holds the Anthropic API key) ──
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # ── Python ──
 .venv/
